@@ -1,0 +1,2169 @@
+{
+  "counts": {
+    "externalOperations": 52,
+    "internalOperations": 1,
+    "operations": 53
+  },
+  "operations": [
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "admissions.period-create",
+        "capabilities": {
+          "one": "admissions.create-period"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "admissions",
+      "method": "POST",
+      "operationId": "admissions.createAdmissionPeriod",
+      "path": "/api/admission-periods",
+      "statuses": [
+        "201",
+        "400",
+        "401",
+        "403",
+        "409",
+        "413",
+        "415",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "Create admission period",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "admissions.management-periods",
+        "capabilities": {
+          "one": "admissions.read-periods"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "admissions",
+      "method": "GET",
+      "operationId": "admissions.listAdmissionPeriods",
+      "path": "/api/admission-periods",
+      "statuses": [
+        "200",
+        "304",
+        "400",
+        "401",
+        "403",
+        "412",
+        "500",
+        "503"
+      ],
+      "summary": "List admission periods",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "None"
+        ],
+        "canonicalScopeResolver": "admissions.public-application-options",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Anonymous"
+        ],
+        "requirements": []
+      },
+      "group": "admissions",
+      "method": "GET",
+      "operationId": "admissions.listApplicationOptions",
+      "path": "/api/application-options",
+      "statuses": [
+        "200",
+        "304",
+        "400",
+        "412",
+        "500",
+        "503"
+      ],
+      "summary": "List application options",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "None"
+        ],
+        "canonicalScopeResolver": "admissions.public-open-periods",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Anonymous"
+        ],
+        "requirements": []
+      },
+      "group": "admissions",
+      "method": "GET",
+      "operationId": "admissions.listOpenAdmissionPeriods",
+      "path": "/api/open-admission-periods",
+      "statuses": [
+        "200",
+        "304",
+        "400",
+        "412",
+        "500",
+        "503"
+      ],
+      "summary": "List open admission periods",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "None"
+        ],
+        "canonicalScopeResolver": "admissions.public-application-by-id",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Anonymous"
+        ],
+        "requirements": []
+      },
+      "group": "admissions",
+      "method": "GET",
+      "operationId": "admissions.readApplicationConfirmation",
+      "path": "/api/applications/{applicationId}",
+      "statuses": [
+        "200",
+        "400",
+        "404",
+        "500",
+        "503"
+      ],
+      "summary": "Read application confirmation",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "admissions.period-by-id",
+        "capabilities": {
+          "one": "admissions.revise-period"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "admissions",
+      "method": "PATCH",
+      "operationId": "admissions.reviseAdmissionPeriod",
+      "path": "/api/admission-periods/{admissionPeriodId}",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Revise admission period",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "None"
+        ],
+        "canonicalScopeResolver": "admissions.application-create",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Anonymous"
+        ],
+        "requirements": []
+      },
+      "group": "admissions",
+      "method": "POST",
+      "operationId": "admissions.submitApplication",
+      "path": "/api/applications",
+      "statuses": [
+        "201",
+        "400",
+        "409",
+        "413",
+        "415",
+        "422",
+        "429",
+        "500",
+        "503"
+      ],
+      "summary": "Submit application",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "content.article-create",
+        "capabilities": {
+          "one": "content.create-article"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "content",
+      "method": "POST",
+      "operationId": "content.createArticle",
+      "path": "/api/content/articles",
+      "statuses": [
+        "201",
+        "400",
+        "401",
+        "403",
+        "409",
+        "413",
+        "415",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "Create article draft",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "None"
+        ],
+        "canonicalScopeResolver": "content.public-news",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Anonymous"
+        ],
+        "requirements": []
+      },
+      "group": "content",
+      "method": "GET",
+      "operationId": "content.listNews",
+      "path": "/api/news",
+      "statuses": [
+        "200",
+        "304",
+        "400",
+        "412",
+        "500",
+        "503"
+      ],
+      "summary": "List published news",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "content.article-by-id",
+        "capabilities": {
+          "one": "content.publish-article"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "content.publishable"
+          }
+        ]
+      },
+      "group": "content",
+      "method": "POST",
+      "operationId": "content.publishArticle",
+      "path": "/api/content/articles/{articleId}:publish",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Publish article",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "content.article-by-id",
+        "capabilities": {
+          "one": "content.read-article"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "content",
+      "method": "GET",
+      "operationId": "content.readArticle",
+      "path": "/api/content/articles/{articleId}",
+      "statuses": [
+        "200",
+        "304",
+        "400",
+        "401",
+        "403",
+        "404",
+        "412",
+        "500",
+        "503"
+      ],
+      "summary": "Read article detail",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "content.articles",
+        "capabilities": {
+          "one": "content.read-workspace"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "content",
+      "method": "GET",
+      "operationId": "content.readContentWorkspace",
+      "path": "/api/content/articles",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "500",
+        "503"
+      ],
+      "summary": "Read content workspace",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "None"
+        ],
+        "canonicalScopeResolver": "content.public-news-by-slug",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Anonymous"
+        ],
+        "requirements": []
+      },
+      "group": "content",
+      "method": "GET",
+      "operationId": "content.readNewsArticle",
+      "path": "/api/news/{slug}",
+      "statuses": [
+        "200",
+        "304",
+        "400",
+        "404",
+        "412",
+        "500",
+        "503"
+      ],
+      "summary": "Read published news article",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "content.article-by-id",
+        "capabilities": {
+          "one": "content.revise-article"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "content.draft"
+          },
+          {
+            "id": "content.owner"
+          }
+        ]
+      },
+      "group": "content",
+      "method": "PATCH",
+      "operationId": "content.reviseArticle",
+      "path": "/api/content/articles/{articleId}",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Revise article draft",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "content.article-by-id",
+        "capabilities": {
+          "one": "content.publish-article"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "content.unpublishable"
+          }
+        ]
+      },
+      "group": "content",
+      "method": "POST",
+      "operationId": "content.unpublishArticle",
+      "path": "/api/content/articles/{articleId}:unpublish",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Unpublish article",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "profile.people-directory",
+        "capabilities": {
+          "one": "profile.read-directory"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "directory",
+      "method": "GET",
+      "operationId": "directory.listPeople",
+      "path": "/api/people",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "List admin users",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "schools.directory",
+        "capabilities": {
+          "one": "schools.read-directory"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "directory",
+      "method": "GET",
+      "operationId": "directory.listSchools",
+      "path": "/api/schools",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "List schools",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "organization.department-create",
+        "capabilities": {
+          "one": "organization.create-department"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "organization",
+      "method": "POST",
+      "operationId": "organization.createDepartment",
+      "path": "/api/departments",
+      "statuses": [
+        "201",
+        "400",
+        "401",
+        "403",
+        "409",
+        "413",
+        "415",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "Create department",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "organization.field-of-study-create",
+        "capabilities": {
+          "one": "organization.create-field-of-study"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "organization",
+      "method": "POST",
+      "operationId": "organization.createFieldOfStudy",
+      "path": "/api/field-of-studies",
+      "statuses": [
+        "201",
+        "400",
+        "401",
+        "403",
+        "409",
+        "413",
+        "415",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "Create field of study",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "organization.team-create",
+        "capabilities": {
+          "one": "organization.create-team"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "organization",
+      "method": "POST",
+      "operationId": "organization.createTeam",
+      "path": "/api/teams",
+      "statuses": [
+        "201",
+        "400",
+        "401",
+        "403",
+        "409",
+        "413",
+        "415",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "Create team",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "None"
+        ],
+        "canonicalScopeResolver": "organization.public-departments",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Anonymous"
+        ],
+        "requirements": []
+      },
+      "group": "organization",
+      "method": "GET",
+      "operationId": "organization.listDepartments",
+      "path": "/api/departments",
+      "statuses": [
+        "200",
+        "304",
+        "400",
+        "412",
+        "500",
+        "503"
+      ],
+      "summary": "List departments",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "None"
+        ],
+        "canonicalScopeResolver": "organization.public-field-of-studies",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Anonymous"
+        ],
+        "requirements": []
+      },
+      "group": "organization",
+      "method": "GET",
+      "operationId": "organization.listFieldOfStudies",
+      "path": "/api/field-of-studies",
+      "statuses": [
+        "200",
+        "304",
+        "400",
+        "412",
+        "500",
+        "503"
+      ],
+      "summary": "List fields of study",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "organization.mailing-lists",
+        "capabilities": {
+          "one": "organization.read-mailing-lists"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "organization",
+      "method": "GET",
+      "operationId": "organization.listMailingLists",
+      "path": "/api/mailing-lists",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "Project mailing lists",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "organization.team-interest-registrations",
+        "capabilities": {
+          "one": "organization.read-team-interest"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "organization",
+      "method": "GET",
+      "operationId": "organization.listTeamInterest",
+      "path": "/api/team-interest-registrations",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "List team interest",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "None"
+        ],
+        "canonicalScopeResolver": "organization.public-teams",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Anonymous"
+        ],
+        "requirements": []
+      },
+      "group": "organization",
+      "method": "GET",
+      "operationId": "organization.listTeams",
+      "path": "/api/teams",
+      "statuses": [
+        "200",
+        "304",
+        "400",
+        "412",
+        "500",
+        "503"
+      ],
+      "summary": "List teams",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "profile.current-person",
+        "capabilities": {
+          "one": "profile.read-self"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "profile.owner"
+          }
+        ]
+      },
+      "group": "profile",
+      "method": "GET",
+      "operationId": "profile.readOwnProfile",
+      "path": "/api/profile",
+      "statuses": [
+        "200",
+        "304",
+        "400",
+        "401",
+        "403",
+        "404",
+        "412",
+        "500",
+        "503"
+      ],
+      "summary": "Read own profile",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "profile.current-person",
+        "capabilities": {
+          "one": "profile.update-self"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "profile.owner"
+          }
+        ]
+      },
+      "group": "profile",
+      "method": "PATCH",
+      "operationId": "profile.updateOwnProfile",
+      "path": "/api/profile",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Update own profile",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "receipts.owned",
+        "capabilities": {
+          "one": "receipts.read-owned"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "receipts.owner"
+          }
+        ]
+      },
+      "group": "receipts",
+      "method": "GET",
+      "operationId": "receipts.listReceipts",
+      "path": "/api/receipts",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "500",
+        "503"
+      ],
+      "summary": "List owned receipts",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer",
+          "OAuthServiceBearer"
+        ],
+        "canonicalScopeResolver": "receipts.approval-queue",
+        "capabilities": {
+          "one": "approveReceipt"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person",
+          "ServicePrincipal"
+        ],
+        "requirements": [
+          {
+            "id": "receipts.pending"
+          },
+          {
+            "id": "receipts.approver-relationship"
+          }
+        ]
+      },
+      "group": "receipts",
+      "method": "GET",
+      "operationId": "receipts.listReceiptsForApproval",
+      "path": "/api/receipt-approval-queue",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "500",
+        "503"
+      ],
+      "summary": "List receipts for approval",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "receipts.by-id",
+        "capabilities": {
+          "one": "approveReceipt"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "receipts.pending"
+          },
+          {
+            "id": "receipts.approver-relationship"
+          }
+        ]
+      },
+      "group": "receipts",
+      "method": "POST",
+      "operationId": "receipts.refundReceipt",
+      "path": "/api/receipts/{receiptId}:refund",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Refund receipt",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "receipts.by-id",
+        "capabilities": {
+          "one": "approveReceipt"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "receipts.pending"
+          },
+          {
+            "id": "receipts.approver-relationship"
+          }
+        ]
+      },
+      "group": "receipts",
+      "method": "POST",
+      "operationId": "receipts.rejectReceipt",
+      "path": "/api/receipts/{receiptId}:reject",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Reject receipt",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "receipts.by-id",
+        "capabilities": {
+          "one": "receipts.manage-owned"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "receipts.owner"
+          },
+          {
+            "id": "receipts.pending"
+          }
+        ]
+      },
+      "group": "receipts",
+      "method": "PATCH",
+      "operationId": "receipts.reviseReceipt",
+      "path": "/api/receipts/{receiptId}",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Revise receipt",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "receipts.create",
+        "capabilities": {
+          "one": "submitReceipt"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "receipts",
+      "method": "POST",
+      "operationId": "receipts.submitReceipt",
+      "path": "/api/receipts",
+      "statuses": [
+        "201",
+        "400",
+        "401",
+        "403",
+        "409",
+        "413",
+        "415",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "Submit receipt",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "receipts.by-id",
+        "capabilities": {
+          "one": "receipts.manage-owned"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "receipts.owner"
+          },
+          {
+            "id": "receipts.pending"
+          }
+        ]
+      },
+      "group": "receipts",
+      "method": "POST",
+      "operationId": "receipts.withdrawReceipt",
+      "path": "/api/receipts/{receiptId}:withdraw",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Withdraw receipt",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "recruitment.interview-by-id",
+        "capabilities": {
+          "one": "recruitment.conduct-interview"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "recruitment.assigned-interviewer"
+          }
+        ]
+      },
+      "group": "recruitment",
+      "method": "POST",
+      "operationId": "recruitment.cancelInterview",
+      "path": "/api/recruitment/interviews/{interviewId}:cancel",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Cancel interview",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "ObjectCapability"
+        ],
+        "canonicalScopeResolver": "recruitment.invitation-response-by-capability",
+        "capabilities": {
+          "one": "recruitment.invitation-response"
+        },
+        "concealment": {
+          "mode": "NotFound",
+          "stages": [
+            "Capability",
+            "CredentialFailure",
+            "PrincipalKind",
+            "Requirement",
+            "Scope"
+          ]
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "CapabilityHolder"
+        ],
+        "requirements": [
+          {
+            "id": "recruitment.invitation-pending"
+          }
+        ]
+      },
+      "group": "recruitment",
+      "method": "POST",
+      "operationId": "recruitment.confirmInvitation",
+      "path": "/api/recruitment/invitation-response:confirm",
+      "statuses": [
+        "204",
+        "400",
+        "403",
+        "404",
+        "409",
+        "412",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Confirm invitation",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "recruitment.application-by-id",
+        "capabilities": {
+          "one": "reviewApplicants"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "organization.single-department-leader"
+          },
+          {
+            "id": "recruitment.interviewer-eligible"
+          }
+        ]
+      },
+      "group": "recruitment",
+      "method": "POST",
+      "operationId": "recruitment.createApplicationInterview",
+      "path": "/api/recruitment/applications/{applicationId}/interviews",
+      "statuses": [
+        "201",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "413",
+        "415",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "Assign applicant",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "recruitment.interview-by-id",
+        "capabilities": {
+          "one": "recruitment.conduct-interview"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "recruitment.assigned-interviewer"
+          }
+        ]
+      },
+      "group": "recruitment",
+      "method": "POST",
+      "operationId": "recruitment.finalizeInterview",
+      "path": "/api/recruitment/interviews/{interviewId}:finalize",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Finalize interview",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "recruitment.application-assignments",
+        "capabilities": {
+          "one": "reviewApplicants"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "organization.single-department-leader"
+          }
+        ]
+      },
+      "group": "recruitment",
+      "method": "GET",
+      "operationId": "recruitment.readAssignmentBoard",
+      "path": "/api/recruitment/application-assignments",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "500",
+        "503"
+      ],
+      "summary": "Read assignment board",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "recruitment.interview-by-id",
+        "capabilities": {
+          "one": "recruitment.conduct-interview"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "recruitment.assigned-interviewer"
+          }
+        ]
+      },
+      "group": "recruitment",
+      "method": "GET",
+      "operationId": "recruitment.readInterviewConduct",
+      "path": "/api/recruitment/interviews/{interviewId}",
+      "statuses": [
+        "200",
+        "304",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "500",
+        "503"
+      ],
+      "summary": "Read interview conduct",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "ObjectCapability"
+        ],
+        "canonicalScopeResolver": "recruitment.invitation-response-by-capability",
+        "capabilities": {
+          "one": "recruitment.invitation-response"
+        },
+        "concealment": {
+          "mode": "NotFound",
+          "stages": [
+            "Capability",
+            "CredentialFailure",
+            "PrincipalKind",
+            "Requirement",
+            "Scope"
+          ]
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "CapabilityHolder"
+        ],
+        "requirements": []
+      },
+      "group": "recruitment",
+      "method": "GET",
+      "operationId": "recruitment.readInvitationResponse",
+      "path": "/api/recruitment/invitation-response",
+      "statuses": [
+        "200",
+        "304",
+        "400",
+        "404",
+        "412",
+        "500",
+        "503"
+      ],
+      "summary": "Read invitation response",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "recruitment.interviews",
+        "capabilities": {
+          "one": "recruitment.read-interviews"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "organization.single-department-member"
+          }
+        ]
+      },
+      "group": "recruitment",
+      "method": "GET",
+      "operationId": "recruitment.readSchedulingBoard",
+      "path": "/api/recruitment/interviews",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "500",
+        "503"
+      ],
+      "summary": "Read scheduling board",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "ObjectCapability"
+        ],
+        "canonicalScopeResolver": "recruitment.invitation-response-by-capability",
+        "capabilities": {
+          "one": "recruitment.invitation-response"
+        },
+        "concealment": {
+          "mode": "NotFound",
+          "stages": [
+            "Capability",
+            "CredentialFailure",
+            "PrincipalKind",
+            "Requirement",
+            "Scope"
+          ]
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "CapabilityHolder"
+        ],
+        "requirements": [
+          {
+            "id": "recruitment.invitation-pending"
+          }
+        ]
+      },
+      "group": "recruitment",
+      "method": "POST",
+      "operationId": "recruitment.rejectInvitation",
+      "path": "/api/recruitment/invitation-response:reject",
+      "statuses": [
+        "204",
+        "400",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Reject invitation",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "ObjectCapability"
+        ],
+        "canonicalScopeResolver": "recruitment.invitation-response-by-capability",
+        "capabilities": {
+          "one": "recruitment.invitation-response"
+        },
+        "concealment": {
+          "mode": "NotFound",
+          "stages": [
+            "Capability",
+            "CredentialFailure",
+            "PrincipalKind",
+            "Requirement",
+            "Scope"
+          ]
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "CapabilityHolder"
+        ],
+        "requirements": [
+          {
+            "id": "recruitment.invitation-pending"
+          }
+        ]
+      },
+      "group": "recruitment",
+      "method": "POST",
+      "operationId": "recruitment.requestNewInvitationTime",
+      "path": "/api/recruitment/invitation-response:request-new-time",
+      "statuses": [
+        "204",
+        "400",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Request a new invitation time",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "recruitment.interview-by-id",
+        "capabilities": {
+          "one": "recruitment.schedule-interview"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "recruitment.assigned-interviewer-or-leader"
+          }
+        ]
+      },
+      "group": "recruitment",
+      "method": "POST",
+      "operationId": "recruitment.scheduleInterview",
+      "path": "/api/recruitment/interviews/{interviewId}:schedule",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Schedule interview",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie"
+        ],
+        "canonicalScopeResolver": "identity.session-by-id",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "NotFound",
+          "stages": [
+            "Requirement"
+          ]
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "sessions.owner"
+          }
+        ]
+      },
+      "group": "system",
+      "method": "DELETE",
+      "operationId": "system.deleteOwnedSession",
+      "path": "/api/sessions/{sessionId}",
+      "statuses": [
+        "204",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "500",
+        "503"
+      ],
+      "summary": "Revoke one session",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie"
+        ],
+        "canonicalScopeResolver": "identity.current-session",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "system",
+      "method": "DELETE",
+      "operationId": "system.deleteSession",
+      "path": "/api/session",
+      "statuses": [
+        "204",
+        "400",
+        "401",
+        "403",
+        "409",
+        "500",
+        "503"
+      ],
+      "summary": "End current session",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "None"
+        ],
+        "canonicalScopeResolver": "system.health",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Anonymous"
+        ],
+        "requirements": []
+      },
+      "group": "system",
+      "method": "GET",
+      "operationId": "system.health",
+      "path": "/health",
+      "statuses": [
+        "200",
+        "500",
+        "503"
+      ],
+      "summary": "Read native health",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie"
+        ],
+        "canonicalScopeResolver": "identity.owned-sessions",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "sessions.owner"
+          }
+        ]
+      },
+      "group": "system",
+      "method": "GET",
+      "operationId": "system.listSessions",
+      "path": "/api/sessions",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "500",
+        "503"
+      ],
+      "summary": "List current person's sessions",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie"
+        ],
+        "canonicalScopeResolver": "identity.current-session",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "system",
+      "method": "GET",
+      "operationId": "system.readSession",
+      "path": "/api/session",
+      "statuses": [
+        "200",
+        "401",
+        "500",
+        "503"
+      ],
+      "summary": "Read current session",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie"
+        ],
+        "canonicalScopeResolver": "identity.current-session",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "system",
+      "method": "POST",
+      "operationId": "system.revokeAllSessions",
+      "path": "/api/sessions:revoke-all",
+      "statuses": [
+        "204",
+        "400",
+        "401",
+        "403",
+        "409",
+        "500",
+        "503"
+      ],
+      "summary": "Revoke all sessions",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie"
+        ],
+        "canonicalScopeResolver": "identity.current-session",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "system",
+      "method": "POST",
+      "operationId": "system.revokeOtherSessions",
+      "path": "/api/sessions:revoke-others",
+      "statuses": [
+        "204",
+        "400",
+        "401",
+        "403",
+        "409",
+        "500",
+        "503"
+      ],
+      "summary": "Revoke other sessions",
+      "visibility": "external"
+    },
+    {
+      "access": null,
+      "group": "internal",
+      "method": "GET",
+      "operationId": "internal.readReceiptEvidence",
+      "path": "/api/receipt-lifecycle-evidence-records/{receiptId}",
+      "statuses": [],
+      "summary": "readReceiptEvidence",
+      "visibility": "internal"
+    }
+  ],
+  "release": {
+    "name": "@vektorprogrammet/native-api",
+    "version": "0.2.0"
+  },
+  "schemaVersion": 1,
+  "source": {
+    "contract": "@vektorprogrammet/http-api/ExternalNativeApi + InternalNativeApi",
+    "projection": "NativeApi reflection + effect/unstable/httpapi/OpenApi.fromApi"
+  }
+}

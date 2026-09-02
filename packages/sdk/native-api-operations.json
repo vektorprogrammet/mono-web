@@ -1,0 +1,325 @@
+{
+  "operations": [
+    {
+      "group": "admissions",
+      "method": "POST",
+      "operationId": "admissions.createAdmissionPeriod",
+      "path": "/api/admission-periods"
+    },
+    {
+      "group": "admissions",
+      "method": "GET",
+      "operationId": "admissions.listAdmissionPeriods",
+      "path": "/api/admission-periods"
+    },
+    {
+      "group": "admissions",
+      "method": "GET",
+      "operationId": "admissions.listApplicationOptions",
+      "path": "/api/application-options"
+    },
+    {
+      "group": "admissions",
+      "method": "GET",
+      "operationId": "admissions.listOpenAdmissionPeriods",
+      "path": "/api/open-admission-periods"
+    },
+    {
+      "group": "admissions",
+      "method": "GET",
+      "operationId": "admissions.readApplicationConfirmation",
+      "path": "/api/applications/{applicationId}"
+    },
+    {
+      "group": "admissions",
+      "method": "PATCH",
+      "operationId": "admissions.reviseAdmissionPeriod",
+      "path": "/api/admission-periods/{admissionPeriodId}"
+    },
+    {
+      "group": "admissions",
+      "method": "POST",
+      "operationId": "admissions.submitApplication",
+      "path": "/api/applications"
+    },
+    {
+      "group": "content",
+      "method": "POST",
+      "operationId": "content.createArticle",
+      "path": "/api/content/articles"
+    },
+    {
+      "group": "content",
+      "method": "GET",
+      "operationId": "content.listNews",
+      "path": "/api/news"
+    },
+    {
+      "group": "content",
+      "method": "POST",
+      "operationId": "content.publishArticle",
+      "path": "/api/content/articles/{articleId}:publish"
+    },
+    {
+      "group": "content",
+      "method": "GET",
+      "operationId": "content.readArticle",
+      "path": "/api/content/articles/{articleId}"
+    },
+    {
+      "group": "content",
+      "method": "GET",
+      "operationId": "content.readContentWorkspace",
+      "path": "/api/content/articles"
+    },
+    {
+      "group": "content",
+      "method": "GET",
+      "operationId": "content.readNewsArticle",
+      "path": "/api/news/{slug}"
+    },
+    {
+      "group": "content",
+      "method": "PATCH",
+      "operationId": "content.reviseArticle",
+      "path": "/api/content/articles/{articleId}"
+    },
+    {
+      "group": "content",
+      "method": "POST",
+      "operationId": "content.unpublishArticle",
+      "path": "/api/content/articles/{articleId}:unpublish"
+    },
+    {
+      "group": "directory",
+      "method": "GET",
+      "operationId": "directory.listPeople",
+      "path": "/api/people"
+    },
+    {
+      "group": "directory",
+      "method": "GET",
+      "operationId": "directory.listSchools",
+      "path": "/api/schools"
+    },
+    {
+      "group": "organization",
+      "method": "POST",
+      "operationId": "organization.createDepartment",
+      "path": "/api/departments"
+    },
+    {
+      "group": "organization",
+      "method": "POST",
+      "operationId": "organization.createFieldOfStudy",
+      "path": "/api/field-of-studies"
+    },
+    {
+      "group": "organization",
+      "method": "POST",
+      "operationId": "organization.createTeam",
+      "path": "/api/teams"
+    },
+    {
+      "group": "organization",
+      "method": "GET",
+      "operationId": "organization.listDepartments",
+      "path": "/api/departments"
+    },
+    {
+      "group": "organization",
+      "method": "GET",
+      "operationId": "organization.listFieldOfStudies",
+      "path": "/api/field-of-studies"
+    },
+    {
+      "group": "organization",
+      "method": "GET",
+      "operationId": "organization.listMailingLists",
+      "path": "/api/mailing-lists"
+    },
+    {
+      "group": "organization",
+      "method": "GET",
+      "operationId": "organization.listTeamInterest",
+      "path": "/api/team-interest-registrations"
+    },
+    {
+      "group": "organization",
+      "method": "GET",
+      "operationId": "organization.listTeams",
+      "path": "/api/teams"
+    },
+    {
+      "group": "profile",
+      "method": "GET",
+      "operationId": "profile.readOwnProfile",
+      "path": "/api/profile"
+    },
+    {
+      "group": "profile",
+      "method": "PATCH",
+      "operationId": "profile.updateOwnProfile",
+      "path": "/api/profile"
+    },
+    {
+      "group": "receipts",
+      "method": "GET",
+      "operationId": "receipts.listReceipts",
+      "path": "/api/receipts"
+    },
+    {
+      "group": "receipts",
+      "method": "GET",
+      "operationId": "receipts.listReceiptsForApproval",
+      "path": "/api/receipt-approval-queue"
+    },
+    {
+      "group": "receipts",
+      "method": "POST",
+      "operationId": "receipts.refundReceipt",
+      "path": "/api/receipts/{receiptId}:refund"
+    },
+    {
+      "group": "receipts",
+      "method": "POST",
+      "operationId": "receipts.rejectReceipt",
+      "path": "/api/receipts/{receiptId}:reject"
+    },
+    {
+      "group": "receipts",
+      "method": "PATCH",
+      "operationId": "receipts.reviseReceipt",
+      "path": "/api/receipts/{receiptId}"
+    },
+    {
+      "group": "receipts",
+      "method": "POST",
+      "operationId": "receipts.submitReceipt",
+      "path": "/api/receipts"
+    },
+    {
+      "group": "receipts",
+      "method": "POST",
+      "operationId": "receipts.withdrawReceipt",
+      "path": "/api/receipts/{receiptId}:withdraw"
+    },
+    {
+      "group": "recruitment",
+      "method": "POST",
+      "operationId": "recruitment.cancelInterview",
+      "path": "/api/recruitment/interviews/{interviewId}:cancel"
+    },
+    {
+      "group": "recruitment",
+      "method": "POST",
+      "operationId": "recruitment.confirmInvitation",
+      "path": "/api/recruitment/invitation-response:confirm"
+    },
+    {
+      "group": "recruitment",
+      "method": "POST",
+      "operationId": "recruitment.createApplicationInterview",
+      "path": "/api/recruitment/applications/{applicationId}/interviews"
+    },
+    {
+      "group": "recruitment",
+      "method": "POST",
+      "operationId": "recruitment.finalizeInterview",
+      "path": "/api/recruitment/interviews/{interviewId}:finalize"
+    },
+    {
+      "group": "recruitment",
+      "method": "GET",
+      "operationId": "recruitment.readAssignmentBoard",
+      "path": "/api/recruitment/application-assignments"
+    },
+    {
+      "group": "recruitment",
+      "method": "GET",
+      "operationId": "recruitment.readInterviewConduct",
+      "path": "/api/recruitment/interviews/{interviewId}"
+    },
+    {
+      "group": "recruitment",
+      "method": "GET",
+      "operationId": "recruitment.readInvitationResponse",
+      "path": "/api/recruitment/invitation-response"
+    },
+    {
+      "group": "recruitment",
+      "method": "GET",
+      "operationId": "recruitment.readSchedulingBoard",
+      "path": "/api/recruitment/interviews"
+    },
+    {
+      "group": "recruitment",
+      "method": "POST",
+      "operationId": "recruitment.rejectInvitation",
+      "path": "/api/recruitment/invitation-response:reject"
+    },
+    {
+      "group": "recruitment",
+      "method": "POST",
+      "operationId": "recruitment.requestNewInvitationTime",
+      "path": "/api/recruitment/invitation-response:request-new-time"
+    },
+    {
+      "group": "recruitment",
+      "method": "POST",
+      "operationId": "recruitment.scheduleInterview",
+      "path": "/api/recruitment/interviews/{interviewId}:schedule"
+    },
+    {
+      "group": "system",
+      "method": "DELETE",
+      "operationId": "system.deleteOwnedSession",
+      "path": "/api/sessions/{sessionId}"
+    },
+    {
+      "group": "system",
+      "method": "DELETE",
+      "operationId": "system.deleteSession",
+      "path": "/api/session"
+    },
+    {
+      "group": "system",
+      "method": "GET",
+      "operationId": "system.health",
+      "path": "/health"
+    },
+    {
+      "group": "system",
+      "method": "GET",
+      "operationId": "system.listSessions",
+      "path": "/api/sessions"
+    },
+    {
+      "group": "system",
+      "method": "GET",
+      "operationId": "system.readSession",
+      "path": "/api/session"
+    },
+    {
+      "group": "system",
+      "method": "POST",
+      "operationId": "system.revokeAllSessions",
+      "path": "/api/sessions:revoke-all"
+    },
+    {
+      "group": "system",
+      "method": "POST",
+      "operationId": "system.revokeOtherSessions",
+      "path": "/api/sessions:revoke-others"
+    }
+  ],
+  "release": {
+    "name": "@vektorprogrammet/native-api",
+    "version": "0.2.0"
+  },
+  "schemaVersion": 1,
+  "source": {
+    "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
+    "projection": "effect/unstable/httpapi/HttpApiClient.make"
+  }
+}

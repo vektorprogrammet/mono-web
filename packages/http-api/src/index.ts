@@ -14,6 +14,7 @@ export * from "./directory.js";
 export * from "./organization.js";
 export * from "./profile.js";
 export * from "./receipts.js";
+export * from "./release.js";
 export * from "./recruitment.js";
 export * from "./system.js";
 export * from "./v2-schemas.js";

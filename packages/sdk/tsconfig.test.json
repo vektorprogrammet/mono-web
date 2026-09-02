@@ -4,6 +4,6 @@
     "declaration": false,
     "noEmit": true
   },
-  "files": ["src/__tests__/property.test.ts"],
+  "files": ["src/__tests__/generated-native-client.test.ts"],
   "include": []
 }

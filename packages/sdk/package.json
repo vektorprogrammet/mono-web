@@ -3,7 +3,8 @@
   "version": "0.2.0",
   "homepage": "https://github.com/vektorprogrammet/mono-web",
   "files": [
-    "dist"
+    "dist",
+    "native-api-operations.json"
   ],
   "type": "module",
   "exports": {
@@ -14,7 +15,8 @@
     "./effect": {
       "types": "./dist/effect-client.d.ts",
       "default": "./dist/effect-client.js"
-    }
+    },
+    "./operations": "./native-api-operations.json"
   },
   "scripts": {
     "build": "tsc -b",
@@ -24,6 +26,7 @@
     "release": "changeset publish"
   },
   "dependencies": {
+    "@vektorprogrammet/http-api": "workspace:*",
     "effect": "catalog:effect-v4"
   },
   "devDependencies": {

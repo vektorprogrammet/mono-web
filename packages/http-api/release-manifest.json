@@ -1,0 +1,35 @@
+{
+  "artifacts": {
+    "openapi": {
+      "path": "packages/http-api/openapi.json",
+      "sha256": "b2f69e5bf7adf940947af8ae5e3d03e8467aa8f1a272222d891de4e2156875a7"
+    },
+    "sdkOperations": {
+      "path": "packages/sdk/native-api-operations.json",
+      "sha256": "f07210128e885936d98763c5eb727468c4371dbe4193b26abd616c6945e99d4f"
+    },
+    "serverMetadata": {
+      "path": "apps/backend/src/generated/native-api-metadata.json",
+      "sha256": "6b18dfd4356c8bae477a28ce9a81af822529523e0d8bf22a704158e7724dd6ca"
+    }
+  },
+  "counts": {
+    "externalOperations": 52,
+    "internalOperations": 1,
+    "operations": 53
+  },
+  "release": {
+    "name": "@vektorprogrammet/native-api",
+    "version": "0.2.0"
+  },
+  "schemaVersion": 1,
+  "source": {
+    "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
+    "effect": "4.0.0-rc.109",
+    "generator": "packages/http-api/scripts/generate-openapi.ts",
+    "specifications": [
+      "design-specs/0079-generated-api-and-code-reference.md",
+      "design-specs/0079.1-docgen-toolchain-amendment.md"
+    ]
+  }
+}

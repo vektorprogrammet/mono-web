@@ -1,219 +1,286 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Context } from "effect";
-import { OpenApi } from "effect/unstable/httpapi";
 import { ExternalNativeApi, InternalNativeApi } from "../src/api.js";
+import { NativeApiReleaseName, NativeApiReleaseVersion } from "../src/release.js";
+import { OpenApi } from "effect/unstable/httpapi";
 
 const methods = ["get", "put", "post", "delete", "options", "head", "patch", "trace"] as const;
+const packageRoot = fileURLToPath(new URL("../", import.meta.url));
+const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
-type Json =
-  | null
-  | boolean
-  | number
-  | string
-  | ReadonlyArray<Json>
-  | { readonly [key: string]: Json };
+const outputPaths = {
+  openapi: resolve(packageRoot, "openapi.json"),
+  releaseManifest: resolve(packageRoot, "release-manifest.json"),
+  sdkOperations: resolve(repositoryRoot, "packages/sdk/native-api-operations.json"),
+  serverMetadata: resolve(repositoryRoot, "apps/backend/src/generated/native-api-metadata.json"),
+} as const;
 
-const stable = (value: unknown): Json => {
-  if (
-    value === null ||
-    typeof value === "boolean" ||
-    typeof value === "number" ||
-    typeof value === "string"
-  ) {
+const relativePaths = {
+  openapi: "packages/http-api/openapi.json",
+  releaseManifest: "packages/http-api/release-manifest.json",
+  sdkOperations: "packages/sdk/native-api-operations.json",
+  serverMetadata: "apps/backend/src/generated/native-api-metadata.json",
+} as const;
+
+const check = process.argv.slice(2).includes("--check");
+const unexpectedArguments = process.argv.slice(2).filter((argument) => argument !== "--check");
+if (unexpectedArguments.length > 0) {
+  throw new Error(`unknown arguments: ${unexpectedArguments.join(", ")}`);
+}
+
+const assert: (condition: unknown, message: string) => asserts condition = (condition, message) => {
+  if (!condition) throw new Error(message);
+};
+
+const stable = (value: unknown): unknown => {
+  if (value === null || typeof value === "boolean" || typeof value === "string") return value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new Error("OpenAPI contains a non-finite number");
     return value;
   }
   if (Array.isArray(value)) return value.map(stable);
-  if (typeof value !== "object") throw new Error(`OpenAPI contains unsupported ${typeof value}`);
-  const source = value as Readonly<Record<string, unknown>>;
-  return Object.fromEntries(
-    Object.keys(source)
-      .sort()
-      .map((key) => [key, stable(source[key])]),
-  ) as Json;
-};
-
-function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new Error(`OpenAPI invariant failed: ${message}`);
-}
-
-const rawSpec = OpenApi.fromApi(ExternalNativeApi);
-const spec: OpenApi.OpenAPISpec = {
-  ...rawSpec,
-  paths: Object.fromEntries(
-    Object.entries(rawSpec.paths).map(([path, item]) => [
-      path.replace(/:\{(\w+)\}/gu, ":$1"),
-      item,
-    ]),
-  ),
-};
-type WithProvenance = {
-  readonly "x-vektorprogrammet-provenance"?: unknown;
-  readonly "x-tagGroups"?: unknown;
-};
-const documentedSpec = spec as OpenApi.OpenAPISpec & WithProvenance;
-assert(spec.openapi === "3.1.0", "document must use OpenAPI 3.1.0");
-assert(spec.info?.title === "Vektorprogrammet native preview API", "preview title must be exact");
-assert(
-  spec.servers === undefined || spec.servers.length === 0,
-  "production server URLs are forbidden",
-);
-
-const operations: Array<OpenApi.OpenAPISpecOperation & WithProvenance> = [];
-for (const [path, item] of Object.entries(spec.paths)) {
-  assert(!path.startsWith("/api/auth"), "Better Auth must remain external");
-  assert(!path.startsWith("/api/e2e"), "internal evidence must be excluded");
-  for (const method of methods) {
-    if (item[method] !== undefined) operations.push(item[method]);
+  if (typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, stable(child)]),
+    );
   }
+  throw new Error(`unsupported generated value: ${typeof value}`);
+};
+
+const encode = (value: unknown): string => `${JSON.stringify(stable(value), null, 2)}\n`;
+const sha256 = (bytes: string): string => createHash("sha256").update(bytes, "utf8").digest("hex");
+
+interface OperationProjection {
+  readonly access: unknown;
+  readonly group: string;
+  readonly method: string;
+  readonly operationId: string;
+  readonly path: string;
+  readonly statuses: ReadonlyArray<string>;
+  readonly summary: string;
+  readonly visibility: "external" | "internal";
 }
-assert(operations.length === 52, `expected 52 public operations, found ${operations.length}`);
-assert(
-  documentedSpec["x-vektorprogrammet-provenance"] !== undefined,
-  "document provenance must be present",
-);
-assert(
-  operations.every(
-    (operation) =>
-      operation.tags.length > 0 && operation["x-vektorprogrammet-provenance"] !== undefined,
-  ),
-  "every operation needs stable tags and provenance",
-);
-const operationIds = operations.map((operation) => operation.operationId);
-assert(
-  operationIds.every((identifier): identifier is string => typeof identifier === "string"),
-  "every operation needs an id",
-);
-const expectedPublicOperationIds = new Set(
-  Object.values(ExternalNativeApi.groups)
-    .filter((group) => Context.get(group.annotations, OpenApi.Exclude) !== true)
+
+const collectExternalOperations = (
+  document: Record<string, unknown>,
+): ReadonlyArray<OperationProjection> => {
+  const paths = document.paths;
+  assert(paths !== null && typeof paths === "object", "OpenAPI paths are missing");
+
+  const operations: Array<OperationProjection> = [];
+  for (const [path, pathItemValue] of Object.entries(paths)) {
+    assert(
+      pathItemValue !== null && typeof pathItemValue === "object",
+      `invalid path item: ${path}`,
+    );
+    const pathItem = pathItemValue as Record<string, unknown>;
+    for (const method of methods) {
+      const operationValue = pathItem[method];
+      if (operationValue === undefined) continue;
+      assert(
+        operationValue !== null && typeof operationValue === "object",
+        `invalid ${method.toUpperCase()} ${path} operation`,
+      );
+      const operation = operationValue as Record<string, unknown>;
+      const operationId = operation.operationId;
+      const responses = operation.responses;
+      const access = operation["x-vektor-access"];
+      assert(
+        typeof operationId === "string" && operationId.length > 0,
+        `${method} ${path} has no operationId`,
+      );
+      assert(
+        responses !== null && typeof responses === "object",
+        `${operationId} has no responses`,
+      );
+      assert(access !== undefined, `${operationId} has no x-vektor-access projection`);
+      operations.push({
+        access,
+        group: operationId.split(".", 1)[0]!,
+        method: method.toUpperCase(),
+        operationId,
+        path,
+        statuses: Object.keys(responses).sort(),
+        summary: typeof operation.summary === "string" ? operation.summary : operationId,
+        visibility: "external",
+      });
+    }
+  }
+  return operations.sort((left, right) => left.operationId.localeCompare(right.operationId));
+};
+
+interface ReflectedEndpoint {
+  readonly identifier: string;
+  readonly method: string;
+  readonly path: string;
+}
+
+interface ReflectedGroup {
+  readonly endpoints: Readonly<Record<string, ReflectedEndpoint>>;
+  readonly identifier: string;
+}
+
+const collectInternalOperations = (): ReadonlyArray<OperationProjection> => {
+  const api = InternalNativeApi as unknown as {
+    readonly groups: Readonly<Record<string, ReflectedGroup>>;
+  };
+  return Object.values(api.groups)
     .flatMap((group) =>
-      Object.values(group.endpoints).map(
-        (endpoint) => `${group.identifier}.${endpoint.identifier}`,
-      ),
-    ),
-);
-assert(
-  expectedPublicOperationIds.size === 52 &&
-    operationIds.length === expectedPublicOperationIds.size &&
-    operationIds.every((identifier) => expectedPublicOperationIds.has(identifier)),
-  "every public operation id must be its stable fully-qualified group.endpoint identifier",
-);
-const internalOperationIds = Object.values(InternalNativeApi.groups.internal.endpoints).map(
-  (endpoint) => `internal.${endpoint.identifier}`,
-);
-assert(
-  internalOperationIds.every((identifier) => !operationIds.includes(identifier)),
-  "internal operation ids must remain excluded from public OpenAPI",
-);
-assert(new Set(operationIds).size === operationIds.length, "operation ids must be unique");
+      Object.values(group.endpoints).map((endpoint) => ({
+        access: null,
+        group: group.identifier,
+        method: endpoint.method,
+        operationId: `${group.identifier}.${endpoint.identifier}`,
+        path: endpoint.path.replace(/:(\w+)/g, "{$1}"),
+        statuses: [],
+        summary: endpoint.identifier,
+        visibility: "internal" as const,
+      })),
+    )
+    .sort((left, right) => left.operationId.localeCompare(right.operationId));
+};
 
-const paths = spec.paths;
-assert(paths["/api/departments"]?.get?.responses?.["200"] !== undefined, "public response schema");
-const healthOperation = paths["/health"]?.get as
-  | (Record<string, unknown> & { readonly security?: ReadonlyArray<unknown> })
-  | undefined;
-const healthAccess = healthOperation?.["x-vektor-access"];
-assert(healthAccess !== undefined, "health AccessSpec projection");
+const readPackageVersion = async (path: string): Promise<string> => {
+  const value = JSON.parse(await readFile(path, "utf8")) as { readonly version?: unknown };
+  assert(typeof value.version === "string", `${path} has no package version`);
+  return value.version;
+};
+
+const document = OpenApi.fromApi(ExternalNativeApi) as unknown as Record<string, unknown>;
+const openapi = document.openapi;
+const info = document.info;
+assert(openapi === "3.1.0", `expected OpenAPI 3.1.0, received ${String(openapi)}`);
+assert(info !== null && typeof info === "object", "OpenAPI info is missing");
 assert(
-  Array.isArray(healthOperation?.security) && healthOperation.security.length === 0,
-  "credential-free health security projection",
-);
-assert(
-  !/credentialValue|rawHeader|secret|tokenValue/iu.test(JSON.stringify(healthAccess)),
-  "access projection must contain no credential material",
-);
-for (const [path, method] of [
-  ["/api/session", "get"],
-  ["/api/session", "delete"],
-  ["/api/sessions", "get"],
-  ["/api/sessions/{sessionId}", "delete"],
-  ["/api/sessions:revoke-others", "post"],
-  ["/api/sessions:revoke-all", "post"],
-] as const) {
-  const operation = paths[path]?.[method];
-  assert(
-    operation?.security?.[0]?.cookieHeader !== undefined,
-    `${method} ${path} session security`,
-  );
-  assert(operation?.responses?.["401"] !== undefined, `${method} ${path} session 401 schema`);
-}
-assert(paths["/api/me/session"] === undefined, "obsolete session route must be absent");
-assert(paths["/api/departments"]?.post?.responses?.["201"] !== undefined, "department create 201");
-assert(
-  paths["/api/receipts"]?.post?.requestBody?.content?.["multipart/form-data"] !== undefined,
-  "receipt multipart request",
-);
-assert(paths["/api/receipts"]?.post?.responses?.["422"] !== undefined, "receipt decode error");
-assert(
-  paths["/api/recruitment/interviews/{interviewId}:finalize"]?.post?.responses?.["409"] !==
-    undefined,
-  "recruitment conflict error",
-);
-assert(paths["/api/news/{slug}"]?.get?.responses?.["200"] !== undefined, "public news schema");
-const sessionScheme = spec.components?.securitySchemes?.cookieHeader;
-assert(
-  sessionScheme?.type === "apiKey" &&
-    sessionScheme.in === "header" &&
-    sessionScheme.name === "Cookie",
-  "authoritatively resolved Cookie header security scheme",
-);
-const invitationScheme = spec.components?.securitySchemes?.invitationCapability;
-assert(
-  invitationScheme?.type === "apiKey" &&
-    invitationScheme.name === "X-Recruitment-Invitation-Capability",
-  "invitation capability security scheme",
+  (info as Record<string, unknown>).version === NativeApiReleaseVersion,
+  "OpenAPI and NativeApi release versions differ",
 );
 
-// --- 0080 invariants: native API reference is the primary product ---
+const externalOperations = collectExternalOperations(document);
+const internalOperations = collectInternalOperations();
+const operationIds = [...externalOperations, ...internalOperations].map(
+  (operation) => operation.operationId,
+);
+assert(new Set(operationIds).size === operationIds.length, "operationId values must be unique");
+assert(
+  externalOperations.length === 52,
+  `expected 52 external operations, received ${externalOperations.length}`,
+);
+assert(
+  internalOperations.length === 1,
+  `expected 1 internal operation, received ${internalOperations.length}`,
+);
 
-// Sidebar is resource-grouped: every tag belongs to exactly one x-tagGroups section.
-const tagGroups = documentedSpec["x-tagGroups"];
-type TagGroup = { readonly name?: unknown; readonly tags?: unknown };
-assert(Array.isArray(tagGroups) && tagGroups.length === 6, "expected 6 x-tagGroups sections");
-const groupedTags = new Set<string>();
-for (const group of tagGroups as ReadonlyArray<TagGroup>) {
-  assert(typeof group.name === "string" && group.name.length > 0, "tag group needs a name");
-  assert(Array.isArray(group.tags) && group.tags.length > 0, "tag group needs tags");
-  for (const tag of group.tags as ReadonlyArray<unknown>) {
-    assert(typeof tag === "string", "grouped tag must be a string");
-    assert(!groupedTags.has(tag), `tag "${tag}" is grouped more than once`);
-    groupedTags.add(tag);
+const [httpApiVersion, sdkVersion] = await Promise.all([
+  readPackageVersion(resolve(packageRoot, "package.json")),
+  readPackageVersion(resolve(repositoryRoot, "packages/sdk/package.json")),
+]);
+assert(httpApiVersion === NativeApiReleaseVersion, "HTTP API package version is not synchronized");
+assert(sdkVersion === NativeApiReleaseVersion, "SDK package version is not synchronized");
+
+const openapiBytes = encode(document);
+const sdkOperationBytes = encode({
+  schemaVersion: 1,
+  release: {
+    name: NativeApiReleaseName,
+    version: NativeApiReleaseVersion,
+  },
+  source: {
+    contract: "@vektorprogrammet/http-api/ExternalNativeApi",
+    projection: "effect/unstable/httpapi/HttpApiClient.make",
+  },
+  operations: externalOperations.map(
+    ({
+      access: _access,
+      statuses: _statuses,
+      summary: _summary,
+      visibility: _visibility,
+      ...operation
+    }) => operation,
+  ),
+});
+const serverMetadataBytes = encode({
+  schemaVersion: 1,
+  release: {
+    name: NativeApiReleaseName,
+    version: NativeApiReleaseVersion,
+  },
+  source: {
+    contract: "@vektorprogrammet/http-api/ExternalNativeApi + InternalNativeApi",
+    projection: "NativeApi reflection + effect/unstable/httpapi/OpenApi.fromApi",
+  },
+  counts: {
+    externalOperations: externalOperations.length,
+    internalOperations: internalOperations.length,
+    operations: externalOperations.length + internalOperations.length,
+  },
+  operations: [...externalOperations, ...internalOperations],
+});
+const releaseManifestBytes = encode({
+  schemaVersion: 1,
+  release: {
+    name: NativeApiReleaseName,
+    version: NativeApiReleaseVersion,
+  },
+  source: {
+    contract: "@vektorprogrammet/http-api/ExternalNativeApi",
+    effect: "4.0.0-rc.109",
+    generator: "packages/http-api/scripts/generate-openapi.ts",
+    specifications: [
+      "design-specs/0079-generated-api-and-code-reference.md",
+      "design-specs/0079.1-docgen-toolchain-amendment.md",
+    ],
+  },
+  counts: {
+    externalOperations: externalOperations.length,
+    internalOperations: internalOperations.length,
+    operations: externalOperations.length + internalOperations.length,
+  },
+  artifacts: {
+    openapi: {
+      path: relativePaths.openapi,
+      sha256: sha256(openapiBytes),
+    },
+    sdkOperations: {
+      path: relativePaths.sdkOperations,
+      sha256: sha256(sdkOperationBytes),
+    },
+    serverMetadata: {
+      path: relativePaths.serverMetadata,
+      sha256: sha256(serverMetadataBytes),
+    },
+  },
+});
+
+const outputs = [
+  [outputPaths.openapi, openapiBytes],
+  [outputPaths.sdkOperations, sdkOperationBytes],
+  [outputPaths.serverMetadata, serverMetadataBytes],
+  [outputPaths.releaseManifest, releaseManifestBytes],
+] as const;
+
+if (check) {
+  const stale: Array<string> = [];
+  for (const [path, bytes] of outputs) {
+    const existing = await readFile(path, "utf8").catch(() => undefined);
+    if (existing !== bytes) stale.push(path.slice(repositoryRoot.length + 1));
   }
-}
-const documentTags = (spec.tags ?? []).map((tag) => tag.name);
-assert(documentTags.length > 0, "document must declare tags");
-assert(
-  documentTags.every((tag) => groupedTags.has(tag)) && documentTags.length === groupedTags.size,
-  "every document tag must belong to exactly one x-tagGroups section",
-);
-
-// Every error response envelope carries a truthful example (TMDB-style docs).
-const schemas = spec.components?.schemas ?? {};
-for (const [name, schema] of Object.entries(schemas)) {
-  const response = schema as { readonly examples?: unknown; readonly properties?: unknown };
-  const isErrorEnvelope =
-    name.endsWith("Response") &&
-    typeof response.properties === "object" &&
-    response.properties !== null &&
-    "error" in response.properties &&
-    !name.startsWith("internal.");
-  if (!isErrorEnvelope) continue;
-  assert(
-    Array.isArray(response.examples) && response.examples.length > 0,
-    `error envelope "${name}" must carry a truthful example`,
+  if (stale.length > 0) {
+    throw new Error(`generated release artifacts are stale: ${stale.join(", ")}`);
+  }
+  process.stdout.write(
+    `NativeApi ${NativeApiReleaseVersion}: ${externalOperations.length} external + ${internalOperations.length} internal operations are current\n`,
   );
-}
-const bytes = `${JSON.stringify(stable(spec), null, 2)}\n`;
-const outputPath = fileURLToPath(new URL("../openapi.json", import.meta.url));
-const mode = process.argv.slice(2);
-assert(mode.length <= 1 && (mode.length === 0 || mode[0] === "--check"), "expected only --check");
-
-if (mode[0] === "--check") {
-  const current = await readFile(outputPath, "utf8").catch(() => "");
-  assert(current === bytes, "packages/http-api/openapi.json is stale; run bun run generate");
-  process.stdout.write("OpenAPI artifact is current\n");
 } else {
-  await writeFile(outputPath, bytes, "utf8");
-  process.stdout.write("Generated packages/http-api/openapi.json\n");
+  for (const [path, bytes] of outputs) {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, bytes, "utf8");
+  }
+  process.stdout.write(
+    `generated NativeApi ${NativeApiReleaseVersion}: ${externalOperations.length} external + ${internalOperations.length} internal operations\n`,
+  );
 }

@@ -1,424 +1,97 @@
 /**
- * Effect-native entrypoint for the SDK.
- * Consumers who use Effect directly import from `@vektorprogrammet/sdk/effect`.
+ * Effect-native client projected directly from the canonical NativeApi contract.
  *
- * Methods return `Effect<A, InternalSdkError>` directly, without Promise wrapping.
+ * @since 0.2.0
  */
-
+import { ExternalNativeApi } from "@vektorprogrammet/http-api";
+import { Effect } from "effect";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { HttpApiClient } from "effect/unstable/httpapi";
 import { apiUrl } from "./config.js";
-import { createAuthDomain } from "./domains/auth.js";
-import { createMeDomain } from "./domains/me.js";
-import { createReceiptsDomain } from "./domains/receipts.js";
-import { createAdminReceiptsDomain } from "./domains/admin/receipts.js";
-import { createAdminApplicationsDomain } from "./domains/admin/applications.js";
-import { createAdminInterviewsDomain } from "./domains/admin/interviews.js";
-import { createAdminRecruitmentDomain } from "./domains/admin/recruitment.js";
-import { createAdminSchedulingDomain } from "./domains/admin/scheduling.js";
-import { createRecruitmentInvitationResponsesDomain } from "./domains/recruitment-invitation-responses.js";
-import { createAdminOrganizationDomain } from "./domains/admin/organization.js";
-import { createAdminTeamsDomain } from "./domains/admin/teams.js";
-import { createAdminMiscDomain } from "./domains/admin/misc.js";
-import { createPublicMiscDomain } from "./domains/public/misc.js";
-import { createPublicOrganizationDomain } from "./domains/public/organization.js";
-import { createPublicContactMessageDomain } from "./domains/public/contact-message.js";
-import { createAdminUsersDomain } from "./domains/admin/users.js";
-import { createAdminContentDomain } from "./domains/admin/content.js";
-import { createPublicNewsDomain } from "./domains/public/news.js";
-import { createAdminSchoolsDomain } from "./domains/admin/schools.js";
-import { createAdmissionApplicationsDomain } from "./domains/admission-applications.js";
-import { createAdmissionPeriodsDomain } from "./domains/admission-period.js";
-import { createTransport, type CookieOption, type FetchCapability } from "./transport.js";
 
-// --- Public re-exports ---
-export type {
-  InternalSdkError,
-  ReceiptFailure,
-  AdmissionPeriodFailure,
-  AdmissionPeriodSdkError,
-  PublicApplicationFailure,
-  PublicApplicationSdkError,
-  RecruitmentFailure,
-  RecruitmentSdkError,
-  OrganizationFailure,
-  OrganizationSdkError,
-  ProfileFailure,
-  ProfileSdkError,
-  ReceiptRejectionTag,
-  AdmissionPeriodRejectionTag,
-  PublicApplicationRejectionTag,
-  RecruitmentRejectionTag,
-  OrganizationRejectionTag,
-  ProfileRejectionTag,
-  SchoolsFailure,
-  SchoolsSdkError,
-  SchoolsRejectionTag,
-} from "./errors.js";
-export {
-  Configuration,
-  Network,
-  ProfileAuthorityInactive,
-  ProfileNotInScope,
-  SchoolsAuthorityInactive,
-  SchoolsDecodeError,
-  SchoolsDepartmentNotFound,
-  SchoolsDepartmentOutOfScope,
-  SchoolsNotInScope,
-  SchoolsPersistenceError,
-  SchoolsUnauthenticatedActor,
-} from "./errors.js";
-export { apiUrl, isFixtureMode, sdkRuntimeConfig } from "./config.js";
+/** A Cookie header value or a lazy server-side Cookie header reader. */
+export type CookieOption = string | (() => string | undefined);
 
-export {
-  CommandId,
-  CommandIdSchema,
-  ReceiptCommandObservation,
-  ReceiptCommandObservationSchema,
-  ReceiptFile,
-  ReceiptFileSchema,
-  ReceiptId,
-  ReceiptIdSchema,
-  ReceiptOwnerFilter,
-  ReceiptApprovalFilter,
-  ReceiptApprovalFilterSchema,
-  ReceiptOwnerFilterSchema,
-  ReceiptPage,
-  ReceiptPageSchema,
-  ReceiptProjection,
-  ReceiptProjectionSchema,
-  ReceiptResolutionInput,
-  ReceiptResolutionInputSchema,
-  ReceiptReviseInput,
-  ReceiptReviseInputSchema,
-  ReceiptRevision,
-  ReceiptRevisionSchema,
-  ReceiptStatus,
-  ReceiptStatusSchema,
-  ReceiptSubmitInput,
-  ReceiptSubmitInputSchema,
-  ReceiptWithdrawInput,
-  ReceiptWithdrawInputSchema,
-} from "./schemas/receipt.js";
-export type {
-  AdmissionPeriodId,
-  AdmissionCommandId,
-  AdmissionRevision,
-  Rfc3339Instant,
-  AdmissionPeriodCommandObservation,
-  AdmissionPeriodList,
-} from "./schemas/admission-period.js";
-export {
-  AdmissionPeriod,
-  AdmissionPeriodSchema,
-  AdmissionPeriodProjection,
-  AdmissionPeriodProjectionSchema,
-  AdmissionPeriodCreateInput,
-  AdmissionPeriodCreateInputSchema,
-  AdmissionPeriodReviseInput,
-  AdmissionPeriodReviseInputSchema,
-  AdmissionPeriodPage,
-  AdmissionPeriodPageSchema,
-  AdmissionPeriodListSchema,
-  AdmissionPeriodIdSchema,
-  AdmissionCommandIdSchema,
-  AdmissionRevisionSchema,
-  Rfc3339InstantSchema,
-} from "./schemas/admission-period.js";
-export {
-  PublicApplicationSubmitInput,
-  PublicApplicationSubmitInputSchema,
-  PublicApplicationSubmitResponse,
-  PublicApplicationSubmitResponseSchema,
-  PublicApplicationFieldOfStudy,
-  PublicApplicationFieldOfStudySchema,
-  PublicApplicationDepartment,
-  PublicApplicationDepartmentSchema,
-  PublicApplicationCatalog,
-  PublicApplicationCatalogSchema,
-  PublicApplicationConfirmation,
-  PublicApplicationConfirmationSchema,
-} from "./schemas/admission-application.js";
-export { ContactMessageInput, ContactMessageInputSchema } from "./schemas/contact-message.js";
-export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js";
-export type { Application, ApplicationDetail } from "./schemas/application.js";
-export {
-  AdminInterviewList,
-  Interview,
-  InterviewId,
-  InterviewScheduleInput,
-  InterviewSchedulingStatus,
-} from "./schemas/interview.js";
-export {
-  ProfileCommandId,
-  SessionProjection,
-  UpdateOwnProfileCommand,
-  UserProfile,
-  UserRole,
-  type User,
-} from "./schemas/user.js";
-export type { DashboardStats } from "./schemas/dashboard.js";
-export type { TeamInterest, Sponsor, MailingList, AdmissionStats, Page } from "./schemas/common.js";
-export {
-  DepartmentId,
-  TeamId,
-  FieldOfStudyId,
-  OrganizationCommandId,
-  OrganizationEntityKindSchema,
-  DepartmentJsonSchema,
-  TeamJsonSchema,
-  FieldOfStudyJsonSchema,
-  DepartmentListSchema,
-  TeamListSchema,
-  FieldOfStudyListSchema,
-  CreateDepartmentCommandSchema,
-  CreateTeamCommandSchema,
-  CreateFieldOfStudyCommandSchema,
-  OrganizationCreateCommandSchema,
-  DepartmentCreatedObservationSchema,
-  TeamCreatedObservationSchema,
-  FieldOfStudyCreatedObservationSchema,
-  OrganizationCreatedObservationSchema,
-  DepartmentReplayedObservationSchema,
-  TeamReplayedObservationSchema,
-  FieldOfStudyReplayedObservationSchema,
-  OrganizationReplayedObservationSchema,
-  OrganizationCreateObservationSchema,
-  CreateDepartmentResultSchema,
-  CreateTeamResultSchema,
-  CreateFieldOfStudyResultSchema,
-  OrganizationCreateResultSchema,
-} from "./schemas/organization.js";
-export type {
-  OrganizationEntityKind,
-  DepartmentJson,
-  TeamJson,
-  FieldOfStudyJson,
-  DepartmentList,
-  TeamList,
-  FieldOfStudyList,
-  CreateDepartmentCommand,
-  CreateTeamCommand,
-  CreateFieldOfStudyCommand,
-  OrganizationCreateCommand,
-  DepartmentCreatedObservation,
-  TeamCreatedObservation,
-  FieldOfStudyCreatedObservation,
-  OrganizationCreatedObservation,
-  DepartmentReplayedObservation,
-  TeamReplayedObservation,
-  FieldOfStudyReplayedObservation,
-  OrganizationReplayedObservation,
-  OrganizationCreateObservation,
-  CreateDepartmentResult,
-  CreateTeamResult,
-  CreateFieldOfStudyResult,
-  OrganizationCreateResult,
-} from "./schemas/organization.js";
-export type { SchedulingAssistant, Substitute } from "./schemas/scheduling.js";
-export {
-  SchoolId,
-  SchoolLanguageSchema,
-  SchoolDirectoryDepartmentSchema,
-  SchoolDirectoryDepartmentsSchema,
-  SchoolDirectoryEntrySchema,
-  SchoolDirectorySchema,
-} from "./schemas/schools.js";
-export {
-  ArticleId,
-  ArticleVersionNumber,
-  ContentArticleDetailSchema,
-  ContentWorkspaceSchema,
-  CreateArticleDraftObservationSchema,
-  CreateContentDraftCommandSchema,
-  PublicationTransitionCommandSchema,
-  PublishObservationSchema,
-  PublishedNewsArticleSchema,
-  PublishedNewsListingSchema,
-  PublishedNewsSummarySchema,
-  ReviseArticleDraftObservationSchema,
-  ReviseContentDraftCommandSchema,
-  UnpublishObservationSchema,
-} from "./schemas/content.js";
-export {
-  ContentArticleNotFound,
-  ContentAuthorityInactive,
-  ContentCommandConflict,
-  ContentDecodeError,
-  ContentDepartmentNotFound,
-  ContentDraftNotOwned,
-  ContentIntegritySdkError,
-  ContentNotInScope,
-  ContentNotPublisher,
-  ContentPersistenceSdkError,
-  ContentSlugConflictSdkError,
-  ContentUnauthenticatedActor,
-} from "./errors.js";
-export type {
-  AdminContentWorkspaceInput,
-  ContentArticleDetail,
-  ContentCommandId,
-  ContentWorkspace,
-  ContentWorkspaceEntry,
-  CreateArticleDraftObservation,
-  CreateContentDraftCommand,
-  PublicNewsListInput,
-  PublicationTransitionCommand,
-  PublishObservation,
-  PublishedNewsArticle,
-  PublishedNewsListing,
-  PublishedNewsSummary,
-  PublishedNewsVersionRef,
-  ReviseArticleDraftObservation,
-  ReviseContentDraftCommand,
-  UnpublishObservation,
-} from "./schemas/content.js";
-export type {
-  SchoolLanguage,
-  SchoolDirectoryDepartment,
-  SchoolDirectoryEntry,
-  SchoolDirectory,
-  AdminSchoolsListInput,
-} from "./schemas/schools.js";
+/** Fetch capability supplied by the SDK composition root. */
+export type FetchCapability = typeof globalThis.fetch;
 
-export {
-  RecruitmentAdmissionPeriodId,
-  InterviewSchemaId,
-  RecruitmentInterviewId,
-  RecruitmentAssignmentCommandId,
-  RecruitmentScheduleCommandId,
-  RecruitmentInvitationId,
-  RecruitmentNotificationEffectId,
-  RecruitmentInvitationCapabilitySchema,
-  RecruitmentApplicationId,
-  RecruitmentApplicantId,
-  RecruitmentPersonId,
-  RecruitmentDepartmentId,
-  RecruitmentAssignmentStatusSchema,
-  RecruitmentAssignmentBoardQuerySchema,
-  RecruitmentAssignmentBoardSchema,
-  RecruitmentAssignmentCandidateSchema,
-  RecruitmentAssignmentCommandSchema,
-  RecruitmentAssignmentObservationSchema,
-  RecruitmentAssignmentResultSchema,
-  RecruitmentInterviewSchema,
-  RecruitmentInterviewerOptionSchema,
-  RecruitmentInterviewSchemaOptionSchema,
-  RecruitmentInvitationResponseStateSchema,
-  RecruitmentInvitationResponseMessageSchema,
-  RecruitmentInvitationRejectInputSchema,
-  RecruitmentInvitationRequestNewTimeInputSchema,
-  RecruitmentInvitationResponseObservationSchema,
-  RecruitmentNotificationDeliveryStateSchema,
-  RecruitmentInterviewScheduleSchema,
-  RecruitmentSchedulingApplicantSchema,
-  RecruitmentSchedulingInterviewerSchema,
-  RecruitmentSchedulingInterviewSchema,
-  RecruitmentSchedulingBoardSchema,
-  RecruitmentScheduleCommandSchema,
-  RecruitmentScheduleObservationSchema,
-  RecruitmentScheduleResultSchema,
-} from "./schemas/recruitment.js";
-export type {
-  RecruitmentAssignmentBoardQuery,
-  RecruitmentAssignmentBoard,
-  RecruitmentAssignmentCandidate,
-  RecruitmentAssignmentCommand,
-  RecruitmentAssignmentObservation,
-  RecruitmentAssignmentResult,
-  RecruitmentInterview,
-  RecruitmentInterviewerOption,
-  RecruitmentInterviewSchemaOption,
-  RecruitmentInvitationResponseState,
-  RecruitmentInvitationCapability,
-  RecruitmentInvitationResponseMessage,
-  RecruitmentInvitationRejectInput,
-  RecruitmentInvitationRequestNewTimeInput,
-  RecruitmentInvitationResponseObservation,
-  RecruitmentNotificationDeliveryState,
-  RecruitmentInterviewSchedule,
-  RecruitmentSchedulingApplicant,
-  RecruitmentSchedulingInterviewer,
-  RecruitmentSchedulingInterview,
-  RecruitmentSchedulingBoard,
-  RecruitmentScheduleCommand,
-  RecruitmentScheduleObservation,
-  RecruitmentScheduleResult,
-} from "./schemas/recruitment.js";
+/** Runtime options shared by every generated operation. */
+export interface ClientOptions {
+  readonly cookie?: CookieOption;
+  readonly fetch?: FetchCapability;
+  readonly origin?: string;
+  readonly headers?: Readonly<Record<string, string>> | (() => Readonly<Record<string, string>>);
+}
 
-// --- Client options ---
+const resolveCookie = (cookie: CookieOption | undefined): string | undefined =>
+  typeof cookie === "function" ? cookie() : cookie;
 
-/**
- * Transport options for the Effect SDK client.
- *
- * @category Client
- * @since 0.2.0
- */
-export type ClientOptions = {
-  cookie?: CookieOption;
-  fetch?: FetchCapability;
-  origin?: string;
+const resolveHeaders = (headers: ClientOptions["headers"]): Readonly<Record<string, string>> =>
+  typeof headers === "function" ? headers() : (headers ?? {});
+
+const transformClient = (
+  options: ClientOptions,
+): ((client: HttpClient.HttpClient) => HttpClient.HttpClient) =>
+  HttpClient.mapRequest((request) => {
+    let next = HttpClientRequest.setHeaders(request, resolveHeaders(options.headers));
+    const cookie = resolveCookie(options.cookie);
+    if (cookie !== undefined && cookie.length > 0) {
+      next = HttpClientRequest.setHeader(next, "Cookie", cookie);
+    }
+    if (options.origin !== undefined && options.origin.length > 0) {
+      next = HttpClientRequest.setHeader(next, "Origin", options.origin);
+    }
+    return next;
+  });
+
+const makeNativeClient = (baseUrl: string | undefined, options: ClientOptions) =>
+  HttpApiClient.make(ExternalNativeApi, {
+    ...(baseUrl === undefined ? {} : { baseUrl }),
+    transformClient: transformClient(options),
+  }).pipe(Effect.provide(FetchHttpClient.layer));
+
+type NativeClient = Effect.Success<ReturnType<typeof makeNativeClient>>;
+
+type AnyEffectMethod = (...args: ReadonlyArray<never>) => Effect.Effect<unknown, unknown, unknown>;
+
+const bindRuntime = <A>(value: A, options: ClientOptions): A => {
+  if (typeof value === "function") {
+    const method = value as AnyEffectMethod;
+    return ((...args: ReadonlyArray<never>) => {
+      let operation = method(...args);
+      if (options.fetch !== undefined) {
+        operation = operation.pipe(Effect.provideService(FetchHttpClient.Fetch, options.fetch));
+      }
+      operation = operation.pipe(
+        Effect.provideService(FetchHttpClient.RequestInit, { credentials: "include" }),
+      );
+      return operation;
+    }) as A;
+  }
+  if (typeof value !== "object" || value === null) return value;
+
+  const output: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    output[key] = bindRuntime(child, options);
+  }
+  return output as A;
 };
-// --- Effect client factory ---
 
 /**
- * Creates an Effect-native SDK client for one API base URL.
+ * Creates the complete Effect SDK directly from `ExternalNativeApi`.
  *
- * Methods retain typed Effect success and failure channels.
- *
- * @category Client
- * @since 0.2.0
+ * The Effect HTTP API client owns request encoding, response decoding, and the
+ * endpoint error channel. No SDK-local route registry or response decoder is
+ * involved.
  */
-export function createEffectClient(baseUrl: string | undefined, options?: ClientOptions) {
-  const transport = createTransport(baseUrl, options?.cookie, options?.fetch, options?.origin);
-  const adminMisc = createAdminMiscDomain(transport);
-  const publicMisc = createPublicMiscDomain(transport);
-  const publicContactMessages = createPublicContactMessageDomain(transport);
+export const createEffectClient = (
+  baseUrl: string | undefined,
+  options: ClientOptions = {},
+): NativeClient => bindRuntime(Effect.runSync(makeNativeClient(baseUrl, options)), options);
 
-  return {
-    auth: createAuthDomain(transport),
-    me: createMeDomain(transport),
-    receipts: createReceiptsDomain(transport),
-    admissionPeriods: createAdmissionPeriodsDomain(transport),
-    applications: createAdmissionApplicationsDomain(transport),
-    admin: {
-      receipts: createAdminReceiptsDomain(transport),
-      applications: createAdminApplicationsDomain(transport),
-      interviews: createAdminInterviewsDomain(transport),
-      recruitment: createAdminRecruitmentDomain(transport),
-      users: createAdminUsersDomain(transport),
-      schools: createAdminSchoolsDomain(transport),
-      content: createAdminContentDomain(transport),
-      scheduling: createAdminSchedulingDomain(transport),
-      organization: createAdminOrganizationDomain(transport),
-      teams: createAdminTeamsDomain(transport),
-      mailingLists: adminMisc.mailingLists.bind(adminMisc),
-      admissionStats: adminMisc.admissionStats.bind(adminMisc),
-    },
-    recruitmentInvitationResponses: createRecruitmentInvitationResponsesDomain(transport),
-    public: {
-      organization: createPublicOrganizationDomain(transport),
-      sponsors: publicMisc.sponsors.bind(publicMisc),
-      contactMessages: publicContactMessages,
-      news: createPublicNewsDomain(transport),
-    },
-  };
-}
+/** Creates an Effect SDK from the SDK-owned environment configuration. */
+export const createConfiguredEffectClient = (options: ClientOptions = {}): NativeClient =>
+  createEffectClient(apiUrl, options);
 
-/**
- * Creates an Effect SDK client from SDK-owned runtime configuration.
- *
- * A cookie option carries the exact server-side Cookie header. Actor and grant authority remain server-owned.
- *
- * @category Client
- * @since 0.2.0
- */
-export function createConfiguredEffectClient(options?: ClientOptions) {
-  return createEffectClient(apiUrl, options);
-}
-
-/**
- * Public Effect SDK surface returned by `createEffectClient`.
- *
- * @category Client
- * @since 0.2.0
- */
-export type EffectSdk = ReturnType<typeof createEffectClient>;
+/** Public Effect SDK shape generated by Effect from `ExternalNativeApi`. */
+export type EffectSdk = NativeClient;

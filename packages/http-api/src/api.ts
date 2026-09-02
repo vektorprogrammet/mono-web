@@ -12,6 +12,7 @@ import { ProfileApi } from "./profile.js";
 import { InternalReceiptsApi, ReceiptsApi } from "./receipts.js";
 import { RecruitmentApi } from "./recruitment.js";
 import { RequestSchemaErrorMiddleware } from "./common.js";
+import { NativeApiReleaseVersion } from "./release.js";
 import { SystemApi } from "./system.js";
 /**
  * Complete externally reachable Vektor-owned native HTTP contract.
@@ -35,13 +36,14 @@ export class ExternalNativeApi extends HttpApi.make("external-native-api")
   .annotateMerge(
     OpenApi.annotations({
       title: "Vektorprogrammet native preview API",
-      version: "0.1.0",
+      version: NativeApiReleaseVersion,
       description: "The complete Vektor-owned native backend contract for preview environments.",
       servers: [],
       override: {
         "x-vektorprogrammet-provenance": {
           contract: "@vektorprogrammet/http-api/ExternalNativeApi",
           generator: "effect/unstable/httpapi/OpenApi.fromApi",
+          releaseManifest: "packages/http-api/release-manifest.json",
           schemas: "Effect.Schema",
           statuses: "HttpApiSchema.status",
           security: "HttpApiMiddleware.security",

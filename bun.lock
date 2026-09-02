@@ -274,6 +274,7 @@
       "name": "@vektorprogrammet/sdk",
       "version": "0.2.0",
       "dependencies": {
+        "@vektorprogrammet/http-api": "workspace:*",
         "effect": "catalog:effect-v4",
       },
       "devDependencies": {
