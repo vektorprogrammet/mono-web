@@ -1129,6 +1129,42 @@ const makeIdentityTestLayer = (
                 message: "rehearsal identity failure",
               }),
       }),
+    revokeCurrentSession: () => {
+      counters.authMutationAttempts += 1;
+      return Effect.fail(
+        new IdentityEngineError({
+          operation: "revokeCurrentSession",
+          message: "auth mutation is outside the spec 0067 rehearsal",
+        }),
+      );
+    },
+    revokeSession: () => {
+      counters.authMutationAttempts += 1;
+      return Effect.fail(
+        new IdentityEngineError({
+          operation: "revokeSession",
+          message: "auth mutation is outside the spec 0067 rehearsal",
+        }),
+      );
+    },
+    revokeOtherSessions: () => {
+      counters.authMutationAttempts += 1;
+      return Effect.fail(
+        new IdentityEngineError({
+          operation: "revokeOtherSessions",
+          message: "auth mutation is outside the spec 0067 rehearsal",
+        }),
+      );
+    },
+    revokeAllSessions: () => {
+      counters.authMutationAttempts += 1;
+      return Effect.fail(
+        new IdentityEngineError({
+          operation: "revokeAllSessions",
+          message: "auth mutation is outside the spec 0067 rehearsal",
+        }),
+      );
+    },
   });
   return Layer.merge(Layer.succeed(Identity, identity), Layer.succeed(IdentitySnapshot, snapshot));
 };
@@ -1166,8 +1202,9 @@ const makeRehearsalRuntime = (
   );
   const platformLayer = Layer.mergeAll(BunServices.layer, BunHttpPlatform.layer, Etag.layer);
   const routerLayer = HttpRouter.layer;
-  const run = runtime.runPromise as BackendRun;
-  const nativeApiLayer = makeExternalNativeApiRouterLayer(config, run, {
+  let run!: BackendRun;
+  const deferredRun: BackendRun = (effect) => run(effect);
+  const nativeApiLayer = makeExternalNativeApiRouterLayer(config, deferredRun, {
     now: () => SPEC_0067.authorizationInstant,
   }).pipe(Layer.provide(platformLayer), Layer.provide(routerLayer));
   const runtime = makeBackendRuntime(
@@ -1187,6 +1224,7 @@ const makeRehearsalRuntime = (
       nativeApiLayer,
     ),
   );
+  run = runtime.runPromise as BackendRun;
   return runtime;
 };
 

@@ -52,6 +52,7 @@ const makeSql = () => {
   let failCommit = false;
   let domainWriteAttempts = 0;
   let receiptWriteAttempts = 0;
+  let serializableBegins = 0;
 
   const cloneState = (state: FakeDatabaseState): FakeDatabaseState => ({
     receipts: new Map(
@@ -70,6 +71,10 @@ const makeSql = () => {
   const query = (strings: TemplateStringsArray, ...values: ReadonlyArray<unknown>) =>
     Effect.sync(() => {
       const statement = strings.join("?").replaceAll(/\s+/gu, " ").trim();
+      if (statement === "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE") {
+        serializableBegins += 1;
+        return [];
+      }
       if (statement.includes("pg_try_advisory_xact_lock")) {
         return [{ acquired: lockAcquired }];
       }
@@ -153,6 +158,7 @@ const makeSql = () => {
     committedReceiptCount: () => committed.receipts.size,
     domainWriteAttempts: () => domainWriteAttempts,
     receiptWriteAttempts: () => receiptWriteAttempts,
+    serializableBegins: () => serializableBegins,
     setLockAcquired(value: boolean) {
       lockAcquired = value;
     },
@@ -225,6 +231,7 @@ describe("native HTTP command receipt transaction", () => {
     expect(conflict).toEqual({ _tag: "DigestConflict" });
     expect(executions).toBe(1);
     expect(preparations).toBe(3);
+    expect(state.serializableBegins()).toBe(3);
   });
 
   it("rolls back the injected domain write and HTTP receipt when commit fails", async () => {

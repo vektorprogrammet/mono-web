@@ -26,7 +26,7 @@ import {
   executeNativeHttpCommandPostgres,
   type NativeHttpResponseCapsule,
 } from "@vektorprogrammet/domain/http-semantics";
-import { IdentitySnapshot } from "@vektorprogrammet/database";
+import { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { Effect } from "effect";
 import {
   Economy,
@@ -63,7 +63,11 @@ import {
   semanticMutationRequest,
   type NativeIdempotencyIdentity,
 } from "../http-semantics.js";
-import { nativeCommandOutcomeResponse } from "../native-operation.js";
+import { resolveRequestCredentialInTransaction } from "../authority.js";
+import {
+  nativeCommandOutcomeResponse,
+  prepareNativeHttpCommand,
+} from "../native-operation.js";
 import type { ReceiptApiConfig } from "./config.js";
 import {
   makeReceiptFileStore,
@@ -106,7 +110,11 @@ export interface ReceiptApiHttpOptions {
     effect: Effect.Effect<
       A,
       E,
-      Database | Economy | IdentitySnapshot | ServicePrincipalGrantAuthority
+      | Database
+      | Economy
+      | IdentitySnapshot
+      | OAuthCredentialAuthority
+      | ServicePrincipalGrantAuthority
     >,
   ) => Promise<A>;
   readonly now?: () => string;
@@ -317,6 +325,25 @@ const authorizationPrincipalFor = async (
     throw new UnauthenticatedActor({ message: "authentication required" });
   }
 };
+const authorizationPrincipalInTransaction = async (
+  request: Request,
+  options: ReceiptApiHttpOptions,
+  run: ReceiptApiHttpOptions["run"],
+): Promise<ReceiptCommandPrincipal> => {
+  const authenticated = await resolveRequestCredentialInTransaction(
+    request,
+    "OAuthUserBearer",
+    { run, now: options.now },
+  );
+  if (authenticated.credential.principal._tag !== "Person") {
+    throw new UnauthenticatedActor({ message: "authentication required" });
+  }
+  return {
+    personId: authenticated.credential.principal.personId,
+    authorizationInstant: authenticated.authorizationInstant,
+  };
+};
+
 
 type ReceiptApprovalRoute = {
   readonly action: "refund" | "reject";
@@ -728,44 +755,61 @@ const mutationIdentity = (
     idempotencyKey: parseIdempotencyKey(headerValues(request, "idempotency-key")),
   } satisfies NativeIdempotencyIdentity);
 
-const executeV2ReceiptMutation = (
-  options: ReceiptApiHttpOptions,
-  identity: {
+interface PreparedV2ReceiptMutation {
+  readonly identity: {
     readonly identitySha256: string;
     readonly commandId: string;
-  },
-  operationId: string,
-  requestSha256: string,
-  command: unknown,
-  principal: ReceiptCommandPrincipal,
-  response: {
+  };
+  readonly operationId: string;
+  readonly requestSha256: string;
+  readonly command: unknown;
+  readonly principal: ReceiptCommandPrincipal;
+  readonly response: {
     readonly status: 200 | 201;
     readonly location?: string;
     readonly ifMatch?: string;
     readonly currentEtag?: string;
-  },
-  allocation?: ReceiptSubmissionAllocation,
+  };
+  readonly allocation?: ReceiptSubmissionAllocation;
+}
+
+const executeV2ReceiptMutation = (
+  options: ReceiptApiHttpOptions,
+  prepare: (run: ReceiptApiHttpOptions["run"]) => Promise<PreparedV2ReceiptMutation>,
 ) =>
   options.run(
-    Economy.use(({ executeReceipt }) =>
-      executeNativeHttpCommandPostgres(
-        {
-          identitySha256: identity.identitySha256,
-          requestSha256,
-          operationId,
-        },
-        Effect.gen(function* () {
-          if (
-            response.ifMatch !== undefined &&
-            response.currentEtag !== undefined &&
-            response.ifMatch !== response.currentEtag
-          ) {
-            return yield* Effect.fail(new HttpSemanticFailure("precondition.failed", 412));
-          }
-          const result = yield* executeReceipt(command, principal, allocation);
-          return receiptMutationCapsule(result.receipt, response.status, response.location);
-        }),
-      ),
+    executeNativeHttpCommandPostgres(
+      prepareNativeHttpCommand(options.run, async (txRun) => {
+        const prepared = await prepare(txRun);
+        return {
+          identity: {
+            identitySha256: prepared.identity.identitySha256,
+            requestSha256: prepared.requestSha256,
+            operationId: prepared.operationId,
+          },
+          execute: Economy.use(({ executeReceipt }) =>
+            Effect.gen(function* () {
+              if (
+                prepared.response.ifMatch !== undefined &&
+                prepared.response.currentEtag !== undefined &&
+                prepared.response.ifMatch !== prepared.response.currentEtag
+              ) {
+                return yield* Effect.fail(new HttpSemanticFailure("precondition.failed", 412));
+              }
+              const result = yield* executeReceipt(
+                prepared.command,
+                prepared.principal,
+                prepared.allocation,
+              );
+              return receiptMutationCapsule(
+                result.receipt,
+                prepared.response.status,
+                prepared.response.location,
+              );
+            }),
+          ),
+        };
+      }),
     ),
   );
 
@@ -773,10 +817,11 @@ const currentOwnedReceipt = async (
   principal: ReceiptCommandPrincipal,
   receiptId: string,
   options: ReceiptApiHttpOptions,
+  run: ReceiptApiHttpOptions["run"] = options.run,
 ): Promise<OwnedReceiptProjectionItem> => {
   const rows = await runDatabase(
     Economy.use(({ listOwnedReceipts }) => listOwnedReceipts(principal.personId)),
-    options.run,
+    run,
   );
   const current = rows.find((row) => row.receiptId === receiptId);
   if (current === undefined) throw new ReceiptNotFound({ receiptId });
@@ -787,6 +832,7 @@ const currentApprovalReceipt = async (
   principal: ReceiptCommandPrincipal,
   receiptId: string,
   options: ReceiptApiHttpOptions,
+  run: ReceiptApiHttpOptions["run"] = options.run,
 ) => {
   const rows = await runDatabase(
     Economy.use(({ listReceiptsForApproval }) =>
@@ -795,7 +841,7 @@ const currentApprovalReceipt = async (
         AuthorizationInstant.make(principal.authorizationInstant),
       ),
     ),
-    options.run,
+    run,
   );
   const current = rows.find((row) => row.receiptId === receiptId);
   if (current === undefined) {
@@ -855,59 +901,73 @@ const submitV2 = async (
 ): Promise<Response> => {
   const departmentId = normalizedSubmitQuery(request);
   const fields = await decodeV2SubmitMultipart(request, options.config.maxFileBytes);
-  const principal = await authorizationPrincipalFor(request, options);
-  const identity = mutationIdentity(request, principal, "receipts.submitReceipt", "/api/receipts");
+
   let staged: StagedReceiptFile | undefined;
+  let allocation: ReceiptSubmissionAllocation | undefined;
   let committed = false;
   try {
-    staged = await fileStore.stageBytes(
-      fields.file,
-      identity.commandId,
-      fields.contentType,
-      options.config.maxFileBytes,
-    );
-    await options.run(fileStore.service.stage(staged.file));
-    const semanticBody = {
-      ...(departmentId === undefined ? {} : { departmentId }),
-      description: fields.description,
-      amountOre: fields.amountOre,
-      receiptDate: fields.receiptDate,
-      file: {
-        contentType: staged.file.contentType,
-        byteLength: staged.file.byteLength,
-        sha256: staged.file.sha256,
-      },
-    };
-    const command = {
-      _tag: "SubmitReceipt" as const,
-      commandId: identity.commandId,
-      ...(departmentId === undefined ? {} : { departmentId }),
-      description: fields.description,
-      amountOre: fields.amountOre,
-      receiptDate: fields.receiptDate,
-      file: staged.file,
-    };
-    const allocation = {
-      receiptId: ReceiptId.make(options.config.nextReceiptId()),
-      visualId: ReceiptVisualId.make(options.config.nextVisualId()),
-    };
-    const outcome = await executeV2ReceiptMutation(
-      options,
-      identity,
-      "receipts.submitReceipt",
-      semanticRequestDigest({ body: semanticBody }),
-      command,
-      principal,
-      {
-        status: 201,
-        location: `/api/receipts/${encodeURIComponent(allocation.receiptId)}`,
-      },
-      allocation,
-    );
+    const outcome = await executeV2ReceiptMutation(options, async (txRun) => {
+      const principal = await authorizationPrincipalInTransaction(request, options, txRun);
+      const identity = mutationIdentity(
+        request,
+        principal,
+        "receipts.submitReceipt",
+        "/api/receipts",
+      );
+      staged = await fileStore.stageBytes(
+        fields.file,
+        identity.commandId,
+        fields.contentType,
+        options.config.maxFileBytes,
+      );
+      await txRun(fileStore.service.stage(staged.file));
+      const semanticBody = {
+        ...(departmentId === undefined ? {} : { departmentId }),
+        description: fields.description,
+        amountOre: fields.amountOre,
+        receiptDate: fields.receiptDate,
+        file: {
+          contentType: staged.file.contentType,
+          byteLength: staged.file.byteLength,
+          sha256: staged.file.sha256,
+        },
+      };
+      const command = {
+        _tag: "SubmitReceipt" as const,
+        commandId: identity.commandId,
+        ...(departmentId === undefined ? {} : { departmentId }),
+        description: fields.description,
+        amountOre: fields.amountOre,
+        receiptDate: fields.receiptDate,
+        file: staged.file,
+      };
+      allocation = {
+        receiptId: ReceiptId.make(options.config.nextReceiptId()),
+        visualId: ReceiptVisualId.make(options.config.nextVisualId()),
+      };
+      return {
+        identity,
+        operationId: "receipts.submitReceipt",
+        requestSha256: semanticRequestDigest({ body: semanticBody }),
+        command,
+        principal,
+        response: {
+          status: 201,
+          location: `/api/receipts/${encodeURIComponent(allocation.receiptId)}`,
+        },
+        allocation,
+      };
+    });
     if (outcome._tag === "Committed") {
+      if (allocation === undefined) {
+        throw new ReceiptPersistenceError({
+          operation: "submit receipt allocation",
+          message: "transaction preparation produced no allocation",
+        });
+      }
       committed = true;
       await drainOutbox(options, fileStore, allocation.receiptId);
-    } else if (staged.created) {
+    } else if (staged?.created === true) {
       await fileStore.cleanupStage(staged.file).catch(() => undefined);
     }
     return nativeCommandOutcomeResponse(outcome);
@@ -926,77 +986,80 @@ const reviseV2 = async (
 ): Promise<Response> => {
   const ifMatch = parseRequiredIfMatch(headerValues(request, "if-match"));
   const fields = await decodeV2ReviseMultipart(request, options.config.maxFileBytes);
-  const principal = await authorizationPrincipalFor(request, options);
-  const current = await currentOwnedReceipt(principal, receiptId, options);
-  const identity = mutationIdentity(
-    request,
-    principal,
-    "receipts.reviseReceipt",
-    `/api/receipts/${encodeURIComponent(receiptId)}`,
-  );
   let staged: StagedReceiptFile | undefined;
   let committed = false;
   try {
-    if (fields.file !== undefined) {
-      if (fields.contentType === undefined) {
-        throw new ReceiptDecodeError({ message: "invalid receipt file" });
-      }
-      staged = await fileStore.stageBytes(
-        fields.file,
-        identity.commandId,
-        fields.contentType,
-        options.config.maxFileBytes,
+    const outcome = await executeV2ReceiptMutation(options, async (txRun) => {
+      const principal = await authorizationPrincipalInTransaction(request, options, txRun);
+      const current = await currentOwnedReceipt(principal, receiptId, options, txRun);
+      const identity = mutationIdentity(
+        request,
+        principal,
+        "receipts.reviseReceipt",
+        `/api/receipts/${encodeURIComponent(receiptId)}`,
       );
-      await options.run(fileStore.service.stage(staged.file));
-    }
-    const semanticBody = {
-      ...(fields.description === undefined ? {} : { description: fields.description }),
-      ...(fields.amountOre === undefined ? {} : { amountOre: fields.amountOre }),
-      ...(fields.receiptDate === undefined ? {} : { receiptDate: fields.receiptDate }),
-      ...(staged === undefined
-        ? {}
-        : {
-            file: {
-              contentType: staged.file.contentType,
-              byteLength: staged.file.byteLength,
-              sha256: staged.file.sha256,
-            },
-          }),
-    };
-    const command = {
-      _tag: "RevisePendingReceipt" as const,
-      commandId: identity.commandId,
-      receiptId,
-      expectedRevision: current.revision,
-      description: fields.description ?? current.description,
-      amountOre:
-        fields.amountOre ??
-        (() => {
-          const value = Number(current.amountOre);
-          if (!Number.isSafeInteger(value) || value <= 0) {
-            throw new ReceiptPersistenceError({
-              operation: "decode current receipt amount",
-              message: "invalid amount",
-            });
-          }
-          return value;
-        })(),
-      receiptDate: fields.receiptDate ?? current.receiptDate,
-      file: staged?.file ?? { _tag: "KeepCurrentFile" as const },
-    };
-    const outcome = await executeV2ReceiptMutation(
-      options,
-      identity,
-      "receipts.reviseReceipt",
-      semanticRequestDigest(semanticMutationRequest(semanticBody, ifMatch)),
-      command,
-      principal,
-      {
-        status: 200,
-        ifMatch,
-        currentEtag: receiptEtag(receiptId, current.revision),
-      },
-    );
+      if (fields.file !== undefined) {
+        if (fields.contentType === undefined) {
+          throw new ReceiptDecodeError({ message: "invalid receipt file" });
+        }
+        staged = await fileStore.stageBytes(
+          fields.file,
+          identity.commandId,
+          fields.contentType,
+          options.config.maxFileBytes,
+        );
+        await txRun(fileStore.service.stage(staged.file));
+      }
+      const semanticBody = {
+        ...(fields.description === undefined ? {} : { description: fields.description }),
+        ...(fields.amountOre === undefined ? {} : { amountOre: fields.amountOre }),
+        ...(fields.receiptDate === undefined ? {} : { receiptDate: fields.receiptDate }),
+        ...(staged === undefined
+          ? {}
+          : {
+              file: {
+                contentType: staged.file.contentType,
+                byteLength: staged.file.byteLength,
+                sha256: staged.file.sha256,
+              },
+            }),
+      };
+      const command = {
+        _tag: "RevisePendingReceipt" as const,
+        commandId: identity.commandId,
+        receiptId,
+        expectedRevision: current.revision,
+        description: fields.description ?? current.description,
+        amountOre:
+          fields.amountOre ??
+          (() => {
+            const value = Number(current.amountOre);
+            if (!Number.isSafeInteger(value) || value <= 0) {
+              throw new ReceiptPersistenceError({
+                operation: "decode current receipt amount",
+                message: "invalid amount",
+              });
+            }
+            return value;
+          })(),
+        receiptDate: fields.receiptDate ?? current.receiptDate,
+        file: staged?.file ?? { _tag: "KeepCurrentFile" as const },
+      };
+      return {
+        identity,
+        operationId: "receipts.reviseReceipt",
+        requestSha256: semanticRequestDigest(
+          semanticMutationRequest(semanticBody, ifMatch),
+        ),
+        command,
+        principal,
+        response: {
+          status: 200,
+          ifMatch,
+          currentEtag: receiptEtag(receiptId, current.revision),
+        },
+      };
+    });
     if (outcome._tag === "Committed") {
       committed = true;
       await drainOutbox(options, fileStore, receiptId);
@@ -1019,32 +1082,33 @@ const withdrawV2 = async (
 ): Promise<Response> => {
   const ifMatch = parseRequiredIfMatch(headerValues(request, "if-match"));
   const body = await decodeExactEmptyJson(request);
-  const principal = await authorizationPrincipalFor(request, options);
-  const current = await currentOwnedReceipt(principal, receiptId, options);
-  const identity = mutationIdentity(
-    request,
-    principal,
-    "receipts.withdrawReceipt",
-    `/api/receipts/${encodeURIComponent(receiptId)}/withdraw`,
-  );
-  const outcome = await executeV2ReceiptMutation(
-    options,
-    identity,
-    "receipts.withdrawReceipt",
-    semanticRequestDigest(semanticMutationRequest(body, ifMatch)),
-    {
-      _tag: "WithdrawPendingReceipt" as const,
-      commandId: identity.commandId,
-      receiptId,
-      expectedRevision: current.revision,
-    },
-    principal,
-    {
-      status: 200,
-      ifMatch,
-      currentEtag: receiptEtag(receiptId, current.revision),
-    },
-  );
+  const outcome = await executeV2ReceiptMutation(options, async (txRun) => {
+    const principal = await authorizationPrincipalInTransaction(request, options, txRun);
+    const current = await currentOwnedReceipt(principal, receiptId, options, txRun);
+    const identity = mutationIdentity(
+      request,
+      principal,
+      "receipts.withdrawReceipt",
+      `/api/receipts/${encodeURIComponent(receiptId)}/withdraw`,
+    );
+    return {
+      identity,
+      operationId: "receipts.withdrawReceipt",
+      requestSha256: semanticRequestDigest(semanticMutationRequest(body, ifMatch)),
+      command: {
+        _tag: "WithdrawPendingReceipt" as const,
+        commandId: identity.commandId,
+        receiptId,
+        expectedRevision: current.revision,
+      },
+      principal,
+      response: {
+        status: 200,
+        ifMatch,
+        currentEtag: receiptEtag(receiptId, current.revision),
+      },
+    };
+  });
   if (outcome._tag === "Committed") await drainOutbox(options, fileStore, receiptId);
   return nativeCommandOutcomeResponse(outcome);
 };
@@ -1057,30 +1121,31 @@ const approvalCommandV2 = async (
 ): Promise<Response> => {
   const ifMatch = parseRequiredIfMatch(headerValues(request, "if-match"));
   const body = await decodeExactEmptyJson(request);
-  const principal = await authorizationPrincipalFor(request, options);
-  const current = await currentApprovalReceipt(principal, route.receiptId, options);
   const operationId =
     route.action === "refund" ? "receipts.refundReceipt" : "receipts.rejectReceipt";
   const normalizedTarget = `/api/receipts/${encodeURIComponent(route.receiptId)}/${route.action}`;
-  const identity = mutationIdentity(request, principal, operationId, normalizedTarget);
-  const outcome = await executeV2ReceiptMutation(
-    options,
-    identity,
-    operationId,
-    semanticRequestDigest(semanticMutationRequest(body, ifMatch)),
-    {
-      _tag: route.action === "refund" ? ("RefundReceipt" as const) : ("RejectReceipt" as const),
-      commandId: identity.commandId,
-      receiptId: route.receiptId,
-      expectedRevision: current.revision,
-    },
-    principal,
-    {
-      status: 200,
-      ifMatch,
-      currentEtag: receiptEtag(route.receiptId, current.revision),
-    },
-  );
+  const outcome = await executeV2ReceiptMutation(options, async (txRun) => {
+    const principal = await authorizationPrincipalInTransaction(request, options, txRun);
+    const current = await currentApprovalReceipt(principal, route.receiptId, options, txRun);
+    const identity = mutationIdentity(request, principal, operationId, normalizedTarget);
+    return {
+      identity,
+      operationId,
+      requestSha256: semanticRequestDigest(semanticMutationRequest(body, ifMatch)),
+      command: {
+        _tag: route.action === "refund" ? ("RefundReceipt" as const) : ("RejectReceipt" as const),
+        commandId: identity.commandId,
+        receiptId: route.receiptId,
+        expectedRevision: current.revision,
+      },
+      principal,
+      response: {
+        status: 200,
+        ifMatch,
+        currentEtag: receiptEtag(route.receiptId, current.revision),
+      },
+    };
+  });
   if (outcome._tag === "Committed") await drainOutbox(options, fileStore, route.receiptId);
   return nativeCommandOutcomeResponse(outcome);
 };

@@ -9,6 +9,10 @@ import {
 } from "@vektorprogrammet/domain/admission-period";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
 import { PublicApplicationCommandIdSchema } from "@vektorprogrammet/domain/application";
+import {
+  DepartmentId,
+  type OrganizationPersonAuthority,
+} from "@vektorprogrammet/domain/organization";
 import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
 import {
   AdmissionPeriodManagementItem,
@@ -26,6 +30,10 @@ import {
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
+import {
+  admissionActorForDepartment,
+  resolveRequestPersonAuthorityInTransaction,
+} from "../authority.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
   type ETagVersionSource,
@@ -51,7 +59,9 @@ import {
   authorizePersonNativeOperation,
   genericContext,
   nativeCommandOutcomeResponse,
+  prepareNativeHttpCommand,
 } from "../native-operation.js";
+import type { BackendRun } from "../router.js";
 import type { AdmissionApiConfig } from "./config.js";
 
 export interface AdmissionApiHttpOptions {
@@ -65,7 +75,7 @@ export interface AdmissionApiHttpOptions {
     request: Request,
     departmentScope?: string,
   ) => Promise<AdmissionPeriodActor>;
-  readonly run: <A, E>(effect: Effect.Effect<A, E, Database | Admissions>) => Promise<A>;
+  readonly run: BackendRun;
 }
 
 type TaggedHttpError = Error & { readonly _tag: string };
@@ -173,6 +183,27 @@ const actorFor = async (
     if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
     throw new UnauthenticatedActor({ message: "authentication required" });
   }
+};
+
+const admissionActorForAuthority = (
+  authority: OrganizationPersonAuthority,
+  departmentScope?: string,
+): AdmissionPeriodActor => {
+  if (departmentScope !== undefined) {
+    return requireActive(
+      admissionActorForDepartment(authority, DepartmentId.make(departmentScope)),
+    );
+  }
+  if (authority.globalAdministrator !== "Active") {
+    throw authority.globalAdministrator === "Inactive"
+      ? new InactiveActor({ personId: authority.personId })
+      : new UnauthenticatedActor({ message: "no authority for unscoped management route" });
+  }
+  return {
+    _tag: "GlobalAdmin",
+    personId: authority.personId,
+    active: true,
+  };
 };
 
 const requireNoQuery = (request: Request, tag = "AdmissionPeriodDecodeError"): void => {
@@ -402,91 +433,103 @@ const create = async (request: Request, input: AdmissionApiHttpOptions): Promise
     input.config.maxBodyBytes,
     "AdmissionPeriodDecodeError",
   );
-  const actor = requireActive(await actorFor(request, input, payload.departmentId));
-  const now = input.config.now();
   const admissionPeriodId = input.config.nextAdmissionPeriodId();
-  await authorizePersonNativeOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(CreateAdmissionPeriodEndpoint)),
-    request,
-    personId: actor.personId,
-    resolution: {
-      selection: "ExactlyOne",
-      contexts: [
-        genericContext({
-          domainId: "admissions",
-          departmentId:
-            actor._tag === "DepartmentLeader" ? actor.departmentId : (payload.departmentId ?? null),
-          resourceKind: "admission-period",
-          resourceId: admissionPeriodId,
-          authorityVersion: `admissions:${actor._tag}`,
-        }),
-      ],
-    },
-    grantScopes:
-      actor._tag === "GlobalAdmin"
-        ? [{ _tag: "Global" }]
-        : actor._tag === "DepartmentLeader"
-          ? [{ _tag: "Department", departmentId: actor.departmentId }]
-          : [],
-    now,
-    run: input.run as never,
-  });
   const idempotencyKey = parseIdempotencyKey(
     request.headers.get("idempotency-key") === null
       ? []
       : [request.headers.get("idempotency-key")!],
   );
   const operationId = "admissions.createAdmissionPeriod";
-  const derived = deriveHttpIdentity({
-    credentialSubject: `Person:${actor.personId}`,
-    qualifiedOperationId: operationId,
-    normalizedTarget: "/api/admission-periods",
-    idempotencyKey,
-  });
-  const identity = {
-    identitySha256: derived.identitySha256,
-    requestSha256: semanticRequestDigest({ body: payload }),
-    operationId,
-  };
   const result = await input.run(
-    Admissions.use((admissions) =>
-      executeNativeHttpCommandPostgres(
-        identity,
-        Effect.gen(function* () {
-          const created = yield* admissions.executeAdmissionPeriod(
-            {
-              _tag: "CreateAdmissionPeriod",
-              commandId: AdmissionPeriodCommandId.make(derived.commandId),
-              ...payload,
-            },
-            { actor, now, admissionPeriodId },
-          );
-          const period = created.period;
-          const etag = deriveStrongETag({
-            representationKind: "AdmissionPeriodManagementItem",
-            resourceIdentity: period.id,
-            version: period.revision,
-          });
-          return {
-            status: 201,
-            mediaType: "application/json",
-            headers: {
-              "content-type": "application/json",
-              location: `/api/admission-periods/${encodePathIdentity(period.id)}`,
-              etag,
-            },
-            bodyBytes: jsonBodyBytes({
-              id: period.id,
-              departmentId: period.departmentId,
-              semesterId: period.semesterId,
-              startAt: period.startAt,
-              endAt: period.endAt,
-              revision: period.revision,
-              etag,
+    executeNativeHttpCommandPostgres(
+      prepareNativeHttpCommand(input.run, async (txRun) => {
+        const authorization = await resolveRequestPersonAuthorityInTransaction(request, {
+          run: txRun,
+          now: input.config.now,
+        });
+        const actor = admissionActorForAuthority(
+          authorization.authority,
+          payload.departmentId,
+        );
+        const now = authorization.authorizationInstant;
+        await authorizePersonNativeOperation({
+          spec: Option.getOrThrow(reflectAccessSpec(CreateAdmissionPeriodEndpoint)),
+          credential: authorization.credential,
+          personId: actor.personId,
+          resolution: {
+            selection: "ExactlyOne",
+            contexts: [
+              genericContext({
+                domainId: "admissions",
+                departmentId:
+                  actor._tag === "DepartmentLeader"
+                    ? actor.departmentId
+                    : (payload.departmentId ?? null),
+                resourceKind: "admission-period",
+                resourceId: admissionPeriodId,
+                authorityVersion: `admissions:${actor._tag}`,
+              }),
+            ],
+          },
+          grantScopes:
+            actor._tag === "GlobalAdmin"
+              ? [{ _tag: "Global" }]
+              : actor._tag === "DepartmentLeader"
+                ? [{ _tag: "Department", departmentId: actor.departmentId }]
+                : [],
+          now,
+          run: txRun,
+        });
+        const derived = deriveHttpIdentity({
+          credentialSubject: `Person:${actor.personId}`,
+          qualifiedOperationId: operationId,
+          normalizedTarget: "/api/admission-periods",
+          idempotencyKey,
+        });
+        return {
+          identity: {
+            identitySha256: derived.identitySha256,
+            requestSha256: semanticRequestDigest({ body: payload }),
+            operationId,
+          },
+          execute: Admissions.use((admissions) =>
+            Effect.gen(function* () {
+              const created = yield* admissions.executeAdmissionPeriod(
+                {
+                  _tag: "CreateAdmissionPeriod",
+                  commandId: AdmissionPeriodCommandId.make(derived.commandId),
+                  ...payload,
+                },
+                { actor, now, admissionPeriodId },
+              );
+              const period = created.period;
+              const etag = deriveStrongETag({
+                representationKind: "AdmissionPeriodManagementItem",
+                resourceIdentity: period.id,
+                version: period.revision,
+              });
+              return {
+                status: 201,
+                mediaType: "application/json",
+                headers: {
+                  "content-type": "application/json",
+                  location: `/api/admission-periods/${encodePathIdentity(period.id)}`,
+                  etag,
+                },
+                bodyBytes: jsonBodyBytes({
+                  id: period.id,
+                  departmentId: period.departmentId,
+                  semesterId: period.semesterId,
+                  startAt: period.startAt,
+                  endAt: period.endAt,
+                  revision: period.revision,
+                  etag,
+                }),
+              };
             }),
-          };
-        }),
-      ),
+          ),
+        };
+      }),
     ),
   );
   return nativeCommandOutcomeResponse(result);
@@ -498,106 +541,114 @@ const revise = async (
   input: AdmissionApiHttpOptions,
 ): Promise<Response> => {
   requireNoQuery(request);
-  const actor = requireActive(await actorFor(request, input));
   const typedAdmissionPeriodId = AdmissionPeriodId.make(admissionPeriodId);
-  const now = input.config.now();
-  const periods = await runDatabase(
-    Admissions.use(({ listAdmissionPeriodsForManagement }) =>
-      listAdmissionPeriodsForManagement({ actor, now }),
-    ),
-    input.run,
-  );
-  const current = periods.find((period) => period.id === typedAdmissionPeriodId);
-  if (current === undefined) throw taggedError("AdmissionPeriodNotFound");
-  await authorizePersonNativeOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(ReviseAdmissionPeriodEndpoint)),
-    request,
-    personId: actor.personId,
-    resolution: {
-      selection: "ExactlyOne",
-      contexts: [
-        genericContext({
-          domainId: "admissions",
-          departmentId: current.departmentId,
-          resourceKind: "admission-period",
-          resourceId: current.id,
-          authorityVersion: `admissions:${actor._tag}`,
-        }),
-      ],
-    },
-    grantScopes: admissionGrantScopes(actor),
-    now,
-    run: input.run as never,
-  });
   const ifMatch = parseRequiredIfMatch(
     request.headers.get("if-match") === null ? [] : [request.headers.get("if-match")!],
   );
-  const currentETag = deriveStrongETag({
-    representationKind: "AdmissionPeriodManagementItem",
-    resourceIdentity: current.id,
-    version: current.revision,
-  });
-  const precondition = evaluateMutationPrecondition(currentETag, ifMatch);
-  if (precondition._tag === "Failed") {
-    throw new HttpSemanticFailure(precondition.code, precondition.status);
-  }
   const patch = await decodeAdmissionPeriodPatch(request, input);
   const idempotencyKey = parseIdempotencyKey(
     request.headers.get("idempotency-key") === null
       ? []
       : [request.headers.get("idempotency-key")!],
   );
-  const normalizedTarget = `/api/admission-periods/${encodePathIdentity(current.id)}`;
+  const normalizedTarget = `/api/admission-periods/${encodePathIdentity(typedAdmissionPeriodId)}`;
   const operationId = "admissions.reviseAdmissionPeriod";
-  const derived = deriveHttpIdentity({
-    credentialSubject: `Person:${actor.personId}`,
-    qualifiedOperationId: operationId,
-    normalizedTarget,
-    idempotencyKey,
-  });
   const result = await input.run(
-    Admissions.use((admissions) =>
-      executeNativeHttpCommandPostgres(
-        {
-          identitySha256: derived.identitySha256,
-          requestSha256: semanticRequestDigest(semanticMutationRequest(patch, ifMatch)),
-          operationId,
-        },
-        Effect.gen(function* () {
-          const revised = yield* admissions.executeAdmissionPeriod(
-            {
-              _tag: "ReviseAdmissionPeriod",
-              commandId: AdmissionPeriodCommandId.make(derived.commandId),
-              admissionPeriodId: typedAdmissionPeriodId,
-              expectedRevision: current.revision,
-              startAt: patch.startAt ?? current.startAt,
-              endAt: patch.endAt ?? current.endAt,
-            },
-            { actor, now, admissionPeriodId: typedAdmissionPeriodId },
-          );
-          const period = revised.period;
-          const etag = deriveStrongETag({
-            representationKind: "AdmissionPeriodManagementItem",
-            resourceIdentity: period.id,
-            version: period.revision,
-          });
-          const body = {
-            id: period.id,
-            departmentId: period.departmentId,
-            semesterId: period.semesterId,
-            startAt: period.startAt,
-            endAt: period.endAt,
-            revision: period.revision,
-            etag,
-          };
-          return {
-            status: 200,
-            mediaType: "application/json",
-            headers: { "content-type": "application/json", etag },
-            bodyBytes: jsonBodyBytes(body),
-          };
-        }),
-      ),
+    executeNativeHttpCommandPostgres(
+      prepareNativeHttpCommand(input.run, async (txRun) => {
+        const authorization = await resolveRequestPersonAuthorityInTransaction(request, {
+          run: txRun,
+          now: input.config.now,
+        });
+        const actor = admissionActorForAuthority(authorization.authority);
+        const now = authorization.authorizationInstant;
+        const periods = await runDatabase(
+          Admissions.use(({ listAdmissionPeriodsForManagement }) =>
+            listAdmissionPeriodsForManagement({ actor, now }),
+          ),
+          txRun,
+        );
+        const current = periods.find((period) => period.id === typedAdmissionPeriodId);
+        if (current === undefined) throw taggedError("AdmissionPeriodNotFound");
+        await authorizePersonNativeOperation({
+          spec: Option.getOrThrow(reflectAccessSpec(ReviseAdmissionPeriodEndpoint)),
+          credential: authorization.credential,
+          personId: actor.personId,
+          resolution: {
+            selection: "ExactlyOne",
+            contexts: [
+              genericContext({
+                domainId: "admissions",
+                departmentId: current.departmentId,
+                resourceKind: "admission-period",
+                resourceId: current.id,
+                authorityVersion: `admissions:${actor._tag}`,
+              }),
+            ],
+          },
+          grantScopes: admissionGrantScopes(actor),
+          now,
+          run: txRun,
+        });
+        const currentETag = deriveStrongETag({
+          representationKind: "AdmissionPeriodManagementItem",
+          resourceIdentity: current.id,
+          version: current.revision,
+        });
+        const precondition = evaluateMutationPrecondition(currentETag, ifMatch);
+        if (precondition._tag === "Failed") {
+          throw new HttpSemanticFailure(precondition.code, precondition.status);
+        }
+        const derived = deriveHttpIdentity({
+          credentialSubject: `Person:${actor.personId}`,
+          qualifiedOperationId: operationId,
+          normalizedTarget,
+          idempotencyKey,
+        });
+        return {
+          identity: {
+            identitySha256: derived.identitySha256,
+            requestSha256: semanticRequestDigest(semanticMutationRequest(patch, ifMatch)),
+            operationId,
+          },
+          execute: Admissions.use((admissions) =>
+            Effect.gen(function* () {
+              const revised = yield* admissions.executeAdmissionPeriod(
+                {
+                  _tag: "ReviseAdmissionPeriod",
+                  commandId: AdmissionPeriodCommandId.make(derived.commandId),
+                  admissionPeriodId: typedAdmissionPeriodId,
+                  expectedRevision: current.revision,
+                  startAt: patch.startAt ?? current.startAt,
+                  endAt: patch.endAt ?? current.endAt,
+                },
+                { actor, now, admissionPeriodId: typedAdmissionPeriodId },
+              );
+              const period = revised.period;
+              const etag = deriveStrongETag({
+                representationKind: "AdmissionPeriodManagementItem",
+                resourceIdentity: period.id,
+                version: period.revision,
+              });
+              const body = {
+                id: period.id,
+                departmentId: period.departmentId,
+                semesterId: period.semesterId,
+                startAt: period.startAt,
+                endAt: period.endAt,
+                revision: period.revision,
+                etag,
+              };
+              return {
+                status: 200,
+                mediaType: "application/json",
+                headers: { "content-type": "application/json", etag },
+                bodyBytes: jsonBodyBytes(body),
+              };
+            }),
+          ),
+        };
+      }),
     ),
   );
   return nativeCommandOutcomeResponse(result);
@@ -697,20 +748,6 @@ const submitApplication = async (
 ): Promise<Response> => {
   requireNoQuery(request, "PublicApplicationDecodeError");
   const now = input.config.now();
-  await authorizeAnonymousNativeOperation(
-    Option.getOrThrow(reflectAccessSpec(SubmitApplicationEndpoint)),
-    {
-      selection: "ExactlyOne",
-      contexts: [
-        genericContext({
-          domainId: "admissions",
-          authorityVersion: `admissions-application-create:${now}`,
-        }),
-      ],
-    },
-    now,
-    input.run as never,
-  );
   if (!input.config.rateLimit.consume(publicRateLimitKey(request), now)) {
     throw taggedError("PublicApplicationRateLimitExceeded");
   }
@@ -726,53 +763,71 @@ const submitApplication = async (
       : [request.headers.get("idempotency-key")!],
   );
   const operationId = "admissions.submitApplication";
-  const derived = deriveHttpIdentity({
-    credentialSubject: "Anonymous",
-    qualifiedOperationId: operationId,
-    normalizedTarget: "/api/applications",
-    idempotencyKey,
-  });
   const result = await input.run(
-    Admissions.use((admissions) =>
-      executeNativeHttpCommandPostgres(
-        {
-          identitySha256: derived.identitySha256,
-          requestSha256: semanticRequestDigest({ body: payload }),
-          operationId,
-        },
-        Effect.gen(function* () {
-          const submitted = yield* admissions.executePublicApplication(
-            {
-              commandId: PublicApplicationCommandIdSchema.make(derived.commandId),
-              ...payload,
-            },
-            {
-              now,
-              applicationId: input.config.nextApplicationId(),
-              applicantId: input.config.nextApplicantId(),
-              activationToken: input.config.nextActivationToken(),
-            },
-          );
-          const confirmation = {
-            _tag: "ApplicationConfirmed" as const,
-            applicationId: submitted.observation.applicationId,
-          };
-          return {
-            status: 201,
-            mediaType: "application/json",
-            headers: {
-              "content-type": "application/json",
-              location: `/api/applications/${encodePathIdentity(confirmation.applicationId)}`,
-              etag: deriveStrongETag({
-                representationKind: "PublicApplicationConfirmation",
-                resourceIdentity: confirmation.applicationId,
-                version: 0,
+    executeNativeHttpCommandPostgres(
+      prepareNativeHttpCommand(input.run, async (txRun) => {
+        await authorizeAnonymousNativeOperation(
+          Option.getOrThrow(reflectAccessSpec(SubmitApplicationEndpoint)),
+          {
+            selection: "ExactlyOne",
+            contexts: [
+              genericContext({
+                domainId: "admissions",
+                authorityVersion: `admissions-application-create:${now}`,
               }),
-            },
-            bodyBytes: jsonBodyBytes(confirmation),
-          };
-        }),
-      ),
+            ],
+          },
+          now,
+          txRun,
+        );
+        const derived = deriveHttpIdentity({
+          credentialSubject: "Anonymous",
+          qualifiedOperationId: operationId,
+          normalizedTarget: "/api/applications",
+          idempotencyKey,
+        });
+        return {
+          identity: {
+            identitySha256: derived.identitySha256,
+            requestSha256: semanticRequestDigest({ body: payload }),
+            operationId,
+          },
+          execute: Admissions.use((admissions) =>
+            Effect.gen(function* () {
+              const submitted = yield* admissions.executePublicApplication(
+                {
+                  commandId: PublicApplicationCommandIdSchema.make(derived.commandId),
+                  ...payload,
+                },
+                {
+                  now,
+                  applicationId: input.config.nextApplicationId(),
+                  applicantId: input.config.nextApplicantId(),
+                  activationToken: input.config.nextActivationToken(),
+                },
+              );
+              const confirmation = {
+                _tag: "ApplicationConfirmed" as const,
+                applicationId: submitted.observation.applicationId,
+              };
+              return {
+                status: 201,
+                mediaType: "application/json",
+                headers: {
+                  "content-type": "application/json",
+                  location: `/api/applications/${encodePathIdentity(confirmation.applicationId)}`,
+                  etag: deriveStrongETag({
+                    representationKind: "PublicApplicationConfirmation",
+                    resourceIdentity: confirmation.applicationId,
+                    version: 0,
+                  }),
+                },
+                bodyBytes: jsonBodyBytes(confirmation),
+              };
+            }),
+          ),
+        };
+      }),
     ),
   );
   return nativeCommandOutcomeResponse(result);

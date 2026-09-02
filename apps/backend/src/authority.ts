@@ -1,4 +1,5 @@
 import { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
+import { Database } from "@vektorprogrammet/domain/database";
 import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
 import {
   AdmissionScopeDenied,
@@ -125,7 +126,7 @@ const requestCredentialInTransactionEffect = (
 ): Effect.Effect<
   AcceptedCredential,
   IdentityEngineError | UnauthenticatedActor,
-  IdentitySnapshot | OAuthCredentialAuthority
+  Database | IdentitySnapshot | OAuthCredentialAuthority
 > => {
   if (request.headers.has("authorization")) {
     return OAuthCredentialAuthority.use(({ resolveInTransaction }) =>
@@ -184,6 +185,24 @@ export interface AuthorityResolutionOptions {
   /** Injectable clock; defaults to the current ISO instant. */
   readonly now?: () => string;
 }
+export interface TransactionCredentialResolutionOptions {
+  readonly run: <A, E>(
+    effect: Effect.Effect<A, E, Database | IdentitySnapshot | OAuthCredentialAuthority>,
+  ) => Promise<A>;
+  readonly now?: () => string;
+}
+export interface TransactionPersonAuthorityResolutionOptions {
+  readonly run: <A, E>(
+    effect: Effect.Effect<
+      A,
+      E,
+      Database | Organization | IdentitySnapshot | OAuthCredentialAuthority
+    >,
+  ) => Promise<A>;
+  readonly now?: () => string;
+}
+
+
 
 /** Resolves the authenticated session while preserving infrastructure failures. */
 export const resolveAuthenticatedSession = (
@@ -236,7 +255,7 @@ export const resolveRequestCredentialAtInstant = (
 export const resolveRequestCredentialInTransaction = (
   request: Request,
   expected: "OAuthUserBearer" | "OAuthServiceBearer" | "Either",
-  options: AuthorityResolutionOptions,
+  options: TransactionCredentialResolutionOptions,
 ): Promise<AuthenticatedCredentialAtInstant> => {
   const authorizationInstant = AuthorizationInstant.make((options.now ?? defaultNow)());
   return options.run(
@@ -255,7 +274,7 @@ export interface TransactionPersonAuthority {
 /** Resolves one current Person credential and its organization projection at one instant. */
 export const resolveRequestPersonAuthorityInTransaction = async (
   request: Request,
-  options: AuthorityResolutionOptions,
+  options: TransactionPersonAuthorityResolutionOptions,
 ): Promise<TransactionPersonAuthority> => {
   const authenticated = await resolveRequestCredentialInTransaction(
     request,
@@ -265,10 +284,11 @@ export const resolveRequestPersonAuthorityInTransaction = async (
   if (authenticated.credential.principal._tag !== "Person") {
     throw new UnauthenticatedActor({ message: "authentication required" });
   }
+  const personId = authenticated.credential.principal.personId;
   const authority = await options.run(
     Organization.use(({ resolvePersonAuthority }) =>
       resolvePersonAuthority(
-        authenticated.credential.principal.personId,
+        personId,
         decodeAuthorizationInstant(authenticated.authorizationInstant),
       ),
     ),

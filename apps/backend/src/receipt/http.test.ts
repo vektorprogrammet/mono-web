@@ -125,6 +125,7 @@ interface HarnessOptions {
   readonly evidenceAccessRows?: ReadonlyArray<ReceiptAccessRow>;
   readonly evidenceResult?: unknown;
   readonly revokeSessionAfterSnapshotRead?: boolean;
+  readonly initialCommittedVersion?: number;
   readonly identitySnapshotFailure?: IdentityEngineError;
 }
 
@@ -147,7 +148,7 @@ const harness = (options: HarnessOptions = {}) => {
   const identitySnapshotVersions: Array<number> = [];
   const receiptContextVersions: Array<number> = [];
   let evidenceContextReads = 0;
-  let committedVersion = 1;
+  let committedVersion = options.initialCommittedVersion ?? 1;
   let snapshotVersion: number | null = null;
   let snapshotDepth = 0;
   let nextTransactionId = 0;
@@ -331,6 +332,10 @@ const harness = (options: HarnessOptions = {}) => {
           }),
         );
       }),
+    revokeCurrentSession: () => Effect.die("unexpected receipt-test session mutation"),
+    revokeSession: () => Effect.die("unexpected receipt-test session mutation"),
+    revokeOtherSessions: () => Effect.die("unexpected receipt-test session mutation"),
+    revokeAllSessions: () => Effect.die("unexpected receipt-test session mutation"),
   });
   const run = (<A, E>(
     effect: Effect.Effect<A, E, Database | Economy | IdentitySnapshot>,
@@ -381,6 +386,9 @@ const harness = (options: HarnessOptions = {}) => {
       receiptContextVersions,
       committedVersion,
     }),
+    revokeCredential: () => {
+      committedVersion = 2;
+    },
     authorizationPrincipalCalls: () => authorizationPrincipalCalls,
   };
 };
@@ -561,8 +569,9 @@ describe("receipt v0.2 HTTP contract", () => {
         executedIn.push(state.currentTransactionId());
         return item.capsule;
       });
-      const committed = await state.run(executeNativeHttpCommandPostgres(identity, execute));
-      const replayed = await state.run(executeNativeHttpCommandPostgres(identity, execute));
+      const plan = Effect.succeed({ identity, execute });
+      const committed = await state.run(executeNativeHttpCommandPostgres(plan));
+      const replayed = await state.run(executeNativeHttpCommandPostgres(plan));
 
       expect(committed).toEqual({ _tag: "Committed", response: item.capsule });
       expect(replayed).toEqual({ _tag: "Replay", response: item.capsule });
@@ -608,6 +617,41 @@ describe("receipt v0.2 HTTP contract", () => {
     expect(await withdrawReplay.json()).toEqual(withdrawnBody);
     expect(withdrawReplay.headers.get("etag")).toBe(withdrawn.headers.get("etag"));
     expect(actionState.commands).toHaveLength(1);
+  });
+
+  it("authorizes and writes in one snapshot, then rejects replay after credential revocation", async () => {
+    const state = harness({ ownedRows: [pendingReceipt()] });
+    const pathname = `/api/receipts/${receiptId}:withdraw`;
+    const idempotencyKey = "withdraw-current-auth-key-0001";
+
+    const accepted = await actionRequest(state.http, pathname, idempotencyKey);
+    expect(accepted.status).toBe(200);
+    expect(state.snapshotObservations()).toEqual({
+      identitySnapshotDepths: [1],
+      identitySnapshotVersions: [1],
+      receiptContextVersions: [],
+      committedVersion: 1,
+    });
+    expect(state.mutationTransactions()).toEqual({
+      commandTransactionIds: [1],
+      receiptWriteTransactionIds: [1],
+    });
+    expect(state.authorizationPrincipalCalls()).toBe(0);
+
+    state.revokeCredential();
+    const revokedReplay = await actionRequest(state.http, pathname, idempotencyKey);
+    expect(revokedReplay.status).toBe(401);
+    expect(state.commands).toHaveLength(1);
+    expect(state.mutationTransactions()).toEqual({
+      commandTransactionIds: [1],
+      receiptWriteTransactionIds: [1],
+    });
+    expect(state.snapshotObservations()).toEqual({
+      identitySnapshotDepths: [1, 1],
+      identitySnapshotVersions: [1, 2],
+      receiptContextVersions: [],
+      committedVersion: 2,
+    });
   });
 
   it("registers and executes only the exact frozen action suffixes", async () => {

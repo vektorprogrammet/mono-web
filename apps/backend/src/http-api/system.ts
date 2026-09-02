@@ -1,11 +1,13 @@
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
-import { databaseHealth } from "@vektorprogrammet/domain/database";
+import { IdentitySnapshot, type IdentitySnapshotService } from "@vektorprogrammet/database";
+import { databaseHealth, type Database } from "@vektorprogrammet/domain/database";
 import {
   Identity,
   IdentityEngineError,
   IdentityOwnedSessionNotFound,
   IdentitySessionExpired,
   IdentitySessionNotFound,
+  type IdentityActor,
   type IdentitySession,
   type IdentityShape,
 } from "@vektorprogrammet/domain/identity";
@@ -23,7 +25,10 @@ import {
 } from "@vektorprogrammet/http-api";
 import { DateTime, Effect, Option } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { resolveAuthenticatedPersonAtInstant } from "../authority.js";
+import {
+  resolveAuthenticatedPersonAtInstant,
+  resolveRequestCredentialInTransaction,
+} from "../authority.js";
 import {
   HttpSemanticFailure,
   deriveHttpIdentity,
@@ -37,6 +42,7 @@ import {
   authorizePersonNativeOperation,
   genericContext,
   nativeCommandOutcomeResponse,
+  prepareNativeHttpCommand,
 } from "../native-operation.js";
 import type { BackendRun } from "../router.js";
 import { identityRequestContext } from "../session-security.js";
@@ -169,58 +175,89 @@ const executeSessionMutation = async (input: {
   readonly operationId: string;
   readonly normalizedTarget: string;
   readonly resourceId?: string;
-  readonly mutate: (identity: IdentityShape) => Promise<unknown>;
+  readonly mutate: (
+    identity: IdentitySnapshotService,
+    actor: IdentityActor,
+  ) => Effect.Effect<
+    unknown,
+    IdentityEngineError | IdentitySessionNotFound | IdentityOwnedSessionNotFound,
+    Database
+  >;
 }): Promise<Response> => {
   noQuery(input.request);
-  const principal = await principalFor(input.request, input.run, input.options);
-  await authorizeSessionOperation({
-    request: input.request,
-    run: input.run,
-    principal,
-    endpoint: input.endpoint,
-    resourceId: input.resourceId,
-  });
   const idempotencyKey = parseIdempotencyKey(
     input.request.headers.get("idempotency-key") === null
       ? []
       : [input.request.headers.get("idempotency-key")!],
   );
-  const derived = deriveHttpIdentity({
-    credentialSubject: `Person:${principal.personId}`,
-    qualifiedOperationId: input.operationId,
-    normalizedTarget: input.normalizedTarget,
-    idempotencyKey,
+  const credentialHeaders = new Headers(input.request.headers);
+  credentialHeaders.delete("authorization");
+  const cookieRequest = new Request(input.request.url, {
+    method: input.request.method,
+    headers: credentialHeaders,
   });
   const result = await input.run(
-    Identity.use((identity) =>
-      executeNativeHttpCommandPostgres(
-        {
-          identitySha256: derived.identitySha256,
-          requestSha256: semanticRequestDigest({}),
-          operationId: input.operationId,
-        },
-        Effect.tryPromise({
-          try: async () => {
-            await input.mutate(identity);
-            return {
+    executeNativeHttpCommandPostgres(
+      prepareNativeHttpCommand(input.run, async (txRun) => {
+        const authenticated = await resolveRequestCredentialInTransaction(
+          cookieRequest,
+          "OAuthUserBearer",
+          {
+            run: txRun,
+            now: input.options.now,
+          },
+        );
+        const actor = await txRun(
+          IdentitySnapshot.use(({ resolveSession }) =>
+            resolveSession(
+              input.request.headers.get("cookie") ?? undefined,
+              authenticated.authorizationInstant,
+            ),
+          ),
+        );
+        await authorizePersonNativeOperation({
+          spec: Option.getOrThrow(reflectAccessSpec(input.endpoint)),
+          credential: authenticated.credential,
+          personId: actor.personId,
+          resolution: {
+            selection: "ExactlyOne",
+            contexts: [
+              genericContext({
+                domainId: "identity",
+                ...(input.resourceId === undefined
+                  ? {}
+                  : { resourceKind: "identity-session", resourceId: input.resourceId }),
+                facts: { ownerPersonId: actor.personId },
+                authorityVersion: `identity:${authenticated.authorizationInstant}`,
+              }),
+            ],
+          },
+          grantScopes: [{ _tag: "Global" }],
+          now: authenticated.authorizationInstant,
+          run: txRun,
+        });
+        const derived = deriveHttpIdentity({
+          credentialSubject: `Person:${actor.personId}`,
+          qualifiedOperationId: input.operationId,
+          normalizedTarget: input.normalizedTarget,
+          idempotencyKey,
+        });
+        return {
+          identity: {
+            identitySha256: derived.identitySha256,
+            requestSha256: semanticRequestDigest({}),
+            operationId: input.operationId,
+          },
+          execute: IdentitySnapshot.use((identity) =>
+            Effect.map(input.mutate(identity, actor), () => ({
               status: 204,
               mediaType: null,
               headers: {},
               bodyBytes: null,
-            };
-          },
-          catch: (cause) =>
-            cause instanceof IdentityEngineError ||
-            cause instanceof IdentitySessionNotFound ||
-            cause instanceof IdentitySessionExpired ||
-            cause instanceof IdentityOwnedSessionNotFound
-              ? cause
-              : new IdentityEngineError({
-                  operation: input.operationId,
-                  message: cause instanceof Error ? cause.message : "identity provider failure",
-                }),
-        }),
-      ),
+            })),
+          ),
+        };
+      }),
     ),
   );
   return nativeCommandOutcomeResponse(result);
@@ -291,11 +328,8 @@ export const SystemApiHandlers = (run: BackendRun, options: SystemOptions = {}) 
                 endpoint: DeleteSessionEndpoint,
                 operationId: "system.deleteSession",
                 normalizedTarget: "/api/session",
-                mutate: (identity) =>
-                  identity.revokeCurrentSession(
-                    webRequest.headers.get("cookie") ?? undefined,
-                    identityRequestContext(webRequest),
-                  ),
+                mutate: (identity, actor) =>
+                  identity.revokeCurrentSession(actor, identityRequestContext(webRequest)),
               }),
             identityErrorResponse,
           ),
@@ -335,12 +369,8 @@ export const SystemApiHandlers = (run: BackendRun, options: SystemOptions = {}) 
                 operationId: "system.deleteOwnedSession",
                 normalizedTarget: `/api/sessions/${encodePathIdentity(params.sessionId)}`,
                 resourceId: params.sessionId,
-                mutate: (identity) =>
-                  identity.revokeSession(
-                    webRequest.headers.get("cookie") ?? undefined,
-                    params.sessionId,
-                    identityRequestContext(webRequest),
-                  ),
+                mutate: (identity, actor) =>
+                  identity.revokeSession(actor, params.sessionId, identityRequestContext(webRequest)),
               }),
             identityErrorResponse,
           ),
@@ -356,11 +386,8 @@ export const SystemApiHandlers = (run: BackendRun, options: SystemOptions = {}) 
                 endpoint: RevokeOtherSessionsEndpoint,
                 operationId: "system.revokeOtherSessions",
                 normalizedTarget: "/api/sessions::revoke-others",
-                mutate: (identity) =>
-                  identity.revokeOtherSessions(
-                    webRequest.headers.get("cookie") ?? undefined,
-                    identityRequestContext(webRequest),
-                  ),
+                mutate: (identity, actor) =>
+                  identity.revokeOtherSessions(actor, identityRequestContext(webRequest)),
               }),
             identityErrorResponse,
           ),
@@ -376,11 +403,8 @@ export const SystemApiHandlers = (run: BackendRun, options: SystemOptions = {}) 
                 endpoint: RevokeAllSessionsEndpoint,
                 operationId: "system.revokeAllSessions",
                 normalizedTarget: "/api/sessions::revoke-all",
-                mutate: (identity) =>
-                  identity.revokeAllSessions(
-                    webRequest.headers.get("cookie") ?? undefined,
-                    identityRequestContext(webRequest),
-                  ),
+                mutate: (identity, actor) =>
+                  identity.revokeAllSessions(actor, identityRequestContext(webRequest)),
               }),
             identityErrorResponse,
           ),

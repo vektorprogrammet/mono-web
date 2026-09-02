@@ -198,26 +198,17 @@ const writeCompleteReceipt = (
  * prepared program. Domain state, audit, outbox, and receipt writes therefore
  * commit or roll back as one unit.
  */
-export const executeNativeHttpCommandPostgres = <E, R = never>(
-  prepareOrIdentity:
-    | Effect.Effect<NativeHttpCommandPlan<E, R>, E, R | Database>
-    | NativeHttpReceiptIdentity,
-  legacyExecute?: Effect.Effect<NativeHttpResponseCapsule, E, R | Database>,
+export const executeNativeHttpCommandPostgres = <E, R>(
+  prepare: Effect.Effect<NativeHttpCommandPlan<E, R>, E, R | Database>,
 ): Effect.Effect<
   NativeHttpCommandOutcome,
   E | NativeHttpReceiptInvalid | NativeHttpReceiptPersistenceError,
   R | Database
-> => {
-  const prepare =
-    legacyExecute === undefined
-      ? (prepareOrIdentity as Effect.Effect<NativeHttpCommandPlan<E, R>, E, R | Database>)
-      : Effect.succeed({
-          identity: prepareOrIdentity as NativeHttpReceiptIdentity,
-          execute: legacyExecute,
-        });
-  return Database.use((sql) =>
+> =>
+  Database.use((sql) =>
     sql.withTransaction(
       Effect.gen(function* () {
+        yield* sql`SET TRANSACTION ISOLATION LEVEL SERIALIZABLE`;
         const plan = yield* prepare;
         const identity = plan.identity;
         yield* Effect.try({
@@ -267,7 +258,6 @@ export const executeNativeHttpCommandPostgres = <E, R = never>(
       Effect.fail(new NativeHttpReceiptPersistenceError({ operation: "execute", cause })),
     ),
   );
-};
 
 /** Redacts all expired response capsules while retaining durable tombstones. */
 export const redactExpiredNativeHttpReceipts = Database.use((sql) =>

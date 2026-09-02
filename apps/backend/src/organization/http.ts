@@ -28,6 +28,10 @@ import {
 } from "@vektorprogrammet/http-api";
 import { Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
+import {
+  organizationActorFrom,
+  resolveRequestPersonAuthorityInTransaction,
+} from "../authority.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
   HttpSemanticFailure,
@@ -49,6 +53,7 @@ import {
   authorizePersonNativeOperation,
   genericContext,
   nativeCommandOutcomeResponse,
+  prepareNativeHttpCommand,
 } from "../native-operation.js";
 import type { BackendRun } from "../router.js";
 import type { OrganizationApiConfig } from "./config.js";
@@ -144,12 +149,9 @@ const assertNoQuery = (request: Request): void => {
   }
 };
 
-const actorFor = async (
-  request: Request,
-  input: OrganizationApiHttpOptions,
-): Promise<OrganizationActor> => {
+const transactionOrganizationAuthorityFor = async (request: Request, run: BackendRun) => {
   try {
-    return await input.resolveActor(request);
+    return await resolveRequestPersonAuthorityInTransaction(request, { run });
   } catch (cause) {
     if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
     throw taggedError("UnauthenticatedActor");
@@ -386,25 +388,6 @@ const createDepartment = async (
   input: OrganizationApiHttpOptions,
 ): Promise<Response> => {
   assertNoQuery(request);
-  const actor = await actorFor(request, input);
-  const now = new Date().toISOString();
-  await authorizePersonNativeOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(CreateDepartmentEndpoint)),
-    request,
-    personId: actor.personId,
-    resolution: {
-      selection: "ExactlyOne",
-      contexts: [
-        genericContext({
-          domainId: "organization",
-          authorityVersion: `organization:${actor._tag}`,
-        }),
-      ],
-    },
-    grantScopes: actor._tag === "OrganizationAdministrator" ? [{ _tag: "Global" }] : [],
-    now,
-    run: input.run,
-  });
   const payload = await decodeCommand(request, CreateDepartmentRequest, input);
   const idempotencyKey = parseIdempotencyKey(
     request.headers.get("idempotency-key") === null
@@ -412,51 +395,74 @@ const createDepartment = async (
       : [request.headers.get("idempotency-key")!],
   );
   const operationId = "organization.createDepartment";
-  const derived = deriveHttpIdentity({
-    credentialSubject: `Person:${actor.personId}`,
-    qualifiedOperationId: operationId,
-    normalizedTarget: "/api/departments",
-    idempotencyKey,
-  });
-  const identity = {
-    identitySha256: derived.identitySha256,
-    requestSha256: semanticRequestDigest({ body: payload }),
-    operationId,
-  };
   const result = await input.run(
-    Organization.use((organization) =>
-      executeNativeHttpCommandPostgres(
-        identity,
-        Effect.gen(function* () {
-          const created = yield* organization.createDepartment(
-            {
-              _tag: "CreateDepartment",
-              commandId: OrganizationCommandId.make(derived.commandId),
-              ...payload,
-            },
-            actor,
-          );
-          const department =
-            created.observation._tag === "Replayed"
-              ? created.observation.original.department
-              : created.observation.department;
-          const etag = deriveStrongETag({
-            representationKind: "DepartmentJson",
-            resourceIdentity: department.departmentId,
-            version: department.revision,
-          });
-          return {
-            status: 201,
-            mediaType: "application/json",
-            headers: {
-              "content-type": "application/json",
-              location: `/api/departments/${encodePathIdentity(department.departmentId)}`,
-              etag,
-            },
-            bodyBytes: jsonBodyBytes(department),
-          };
-        }),
-      ),
+    executeNativeHttpCommandPostgres(
+      prepareNativeHttpCommand(input.run, async (txRun) => {
+        const resolved = await transactionOrganizationAuthorityFor(request, txRun);
+        const actor = organizationActorFrom(resolved.authority);
+        await authorizePersonNativeOperation({
+          spec: Option.getOrThrow(reflectAccessSpec(CreateDepartmentEndpoint)),
+          credential: resolved.credential,
+          personId: actor.personId,
+          resolution: {
+            selection: "ExactlyOne",
+            contexts: [
+              genericContext({
+                domainId: "organization",
+                authorityVersion: `organization:${actor._tag}`,
+              }),
+            ],
+          },
+          grantScopes:
+            actor._tag === "OrganizationAdministrator" ? [{ _tag: "Global" }] : [],
+          now: resolved.authorizationInstant,
+          run: txRun,
+        });
+        const derived = deriveHttpIdentity({
+          credentialSubject: `Person:${actor.personId}`,
+          qualifiedOperationId: operationId,
+          normalizedTarget: "/api/departments",
+          idempotencyKey,
+        });
+        return {
+          identity: {
+            identitySha256: derived.identitySha256,
+            requestSha256: semanticRequestDigest({ body: payload }),
+            operationId,
+          },
+          execute: Organization.use((organization) =>
+            Effect.gen(function* () {
+              const created = yield* organization.createDepartment(
+                {
+                  _tag: "CreateDepartment",
+                  commandId: OrganizationCommandId.make(derived.commandId),
+                  ...payload,
+                },
+                actor,
+              );
+              const department =
+                created.observation._tag === "Replayed"
+                  ? created.observation.original.department
+                  : created.observation.department;
+              const etag = deriveStrongETag({
+                representationKind: "DepartmentJson",
+                resourceIdentity: department.departmentId,
+                version: department.revision,
+              });
+              return {
+                status: 201,
+                mediaType: "application/json",
+                headers: {
+                  "content-type": "application/json",
+                  location: `/api/departments/${encodePathIdentity(department.departmentId)}`,
+                  etag,
+                },
+                bodyBytes: jsonBodyBytes(department),
+              };
+            }),
+          ),
+        };
+      }),
     ),
   );
   return nativeCommandOutcomeResponse(result);
@@ -467,25 +473,6 @@ const createTeam = async (
   input: OrganizationApiHttpOptions,
 ): Promise<Response> => {
   assertNoQuery(request);
-  const actor = await actorFor(request, input);
-  const now = new Date().toISOString();
-  await authorizePersonNativeOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(CreateTeamEndpoint)),
-    request,
-    personId: actor.personId,
-    resolution: {
-      selection: "ExactlyOne",
-      contexts: [
-        genericContext({
-          domainId: "organization",
-          authorityVersion: `organization:${actor._tag}`,
-        }),
-      ],
-    },
-    grantScopes: actor._tag === "OrganizationAdministrator" ? [{ _tag: "Global" }] : [],
-    now,
-    run: input.run,
-  });
   const payload = await decodeCommand(request, CreateTeamRequest, input);
   const idempotencyKey = parseIdempotencyKey(
     request.headers.get("idempotency-key") === null
@@ -493,50 +480,74 @@ const createTeam = async (
       : [request.headers.get("idempotency-key")!],
   );
   const operationId = "organization.createTeam";
-  const derived = deriveHttpIdentity({
-    credentialSubject: `Person:${actor.personId}`,
-    qualifiedOperationId: operationId,
-    normalizedTarget: "/api/teams",
-    idempotencyKey,
-  });
   const result = await input.run(
-    Organization.use((organization) =>
-      executeNativeHttpCommandPostgres(
-        {
-          identitySha256: derived.identitySha256,
-          requestSha256: semanticRequestDigest({ body: payload }),
-          operationId,
-        },
-        Effect.gen(function* () {
-          const created = yield* organization.createTeam(
-            {
-              _tag: "CreateTeam",
-              commandId: OrganizationCommandId.make(derived.commandId),
-              ...payload,
-            },
-            actor,
-          );
-          const team =
-            created.observation._tag === "Replayed"
-              ? created.observation.original.team
-              : created.observation.team;
-          const etag = deriveStrongETag({
-            representationKind: "TeamJson",
-            resourceIdentity: team.teamId,
-            version: team.revision,
-          });
-          return {
-            status: 201,
-            mediaType: "application/json",
-            headers: {
-              "content-type": "application/json",
-              location: `/api/teams/${encodePathIdentity(team.teamId)}`,
-              etag,
-            },
-            bodyBytes: jsonBodyBytes(team),
-          };
-        }),
-      ),
+    executeNativeHttpCommandPostgres(
+      prepareNativeHttpCommand(input.run, async (txRun) => {
+        const resolved = await transactionOrganizationAuthorityFor(request, txRun);
+        const actor = organizationActorFrom(resolved.authority);
+        await authorizePersonNativeOperation({
+          spec: Option.getOrThrow(reflectAccessSpec(CreateTeamEndpoint)),
+          credential: resolved.credential,
+          personId: actor.personId,
+          resolution: {
+            selection: "ExactlyOne",
+            contexts: [
+              genericContext({
+                domainId: "organization",
+                authorityVersion: `organization:${actor._tag}`,
+              }),
+            ],
+          },
+          grantScopes:
+            actor._tag === "OrganizationAdministrator" ? [{ _tag: "Global" }] : [],
+          now: resolved.authorizationInstant,
+          run: txRun,
+        });
+        const derived = deriveHttpIdentity({
+          credentialSubject: `Person:${actor.personId}`,
+          qualifiedOperationId: operationId,
+          normalizedTarget: "/api/teams",
+          idempotencyKey,
+        });
+        return {
+          identity: {
+            identitySha256: derived.identitySha256,
+            requestSha256: semanticRequestDigest({ body: payload }),
+            operationId,
+          },
+          execute: Organization.use((organization) =>
+            Effect.gen(function* () {
+              const created = yield* organization.createTeam(
+                {
+                  _tag: "CreateTeam",
+                  commandId: OrganizationCommandId.make(derived.commandId),
+                  ...payload,
+                },
+                actor,
+              );
+              const team =
+                created.observation._tag === "Replayed"
+                  ? created.observation.original.team
+                  : created.observation.team;
+              const etag = deriveStrongETag({
+                representationKind: "TeamJson",
+                resourceIdentity: team.teamId,
+                version: team.revision,
+              });
+              return {
+                status: 201,
+                mediaType: "application/json",
+                headers: {
+                  "content-type": "application/json",
+                  location: `/api/teams/${encodePathIdentity(team.teamId)}`,
+                  etag,
+                },
+                bodyBytes: jsonBodyBytes(team),
+              };
+            }),
+          ),
+        };
+      }),
     ),
   );
   return nativeCommandOutcomeResponse(result);
@@ -547,25 +558,6 @@ const createFieldOfStudy = async (
   input: OrganizationApiHttpOptions,
 ): Promise<Response> => {
   assertNoQuery(request);
-  const actor = await actorFor(request, input);
-  const now = new Date().toISOString();
-  await authorizePersonNativeOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(CreateFieldOfStudyEndpoint)),
-    request,
-    personId: actor.personId,
-    resolution: {
-      selection: "ExactlyOne",
-      contexts: [
-        genericContext({
-          domainId: "organization",
-          authorityVersion: `organization:${actor._tag}`,
-        }),
-      ],
-    },
-    grantScopes: actor._tag === "OrganizationAdministrator" ? [{ _tag: "Global" }] : [],
-    now,
-    run: input.run,
-  });
   const payload = await decodeCommand(request, CreateFieldOfStudyRequest, input);
   const idempotencyKey = parseIdempotencyKey(
     request.headers.get("idempotency-key") === null
@@ -573,50 +565,74 @@ const createFieldOfStudy = async (
       : [request.headers.get("idempotency-key")!],
   );
   const operationId = "organization.createFieldOfStudy";
-  const derived = deriveHttpIdentity({
-    credentialSubject: `Person:${actor.personId}`,
-    qualifiedOperationId: operationId,
-    normalizedTarget: "/api/field-of-studies",
-    idempotencyKey,
-  });
   const result = await input.run(
-    Organization.use((organization) =>
-      executeNativeHttpCommandPostgres(
-        {
-          identitySha256: derived.identitySha256,
-          requestSha256: semanticRequestDigest({ body: payload }),
-          operationId,
-        },
-        Effect.gen(function* () {
-          const created = yield* organization.createFieldOfStudy(
-            {
-              _tag: "CreateFieldOfStudy",
-              commandId: OrganizationCommandId.make(derived.commandId),
-              ...payload,
-            },
-            actor,
-          );
-          const fieldOfStudy =
-            created.observation._tag === "Replayed"
-              ? created.observation.original.fieldOfStudy
-              : created.observation.fieldOfStudy;
-          const etag = deriveStrongETag({
-            representationKind: "FieldOfStudyJson",
-            resourceIdentity: fieldOfStudy.fieldOfStudyId,
-            version: fieldOfStudy.revision,
-          });
-          return {
-            status: 201,
-            mediaType: "application/json",
-            headers: {
-              "content-type": "application/json",
-              location: `/api/field-of-studies/${encodePathIdentity(fieldOfStudy.fieldOfStudyId)}`,
-              etag,
-            },
-            bodyBytes: jsonBodyBytes(fieldOfStudy),
-          };
-        }),
-      ),
+    executeNativeHttpCommandPostgres(
+      prepareNativeHttpCommand(input.run, async (txRun) => {
+        const resolved = await transactionOrganizationAuthorityFor(request, txRun);
+        const actor = organizationActorFrom(resolved.authority);
+        await authorizePersonNativeOperation({
+          spec: Option.getOrThrow(reflectAccessSpec(CreateFieldOfStudyEndpoint)),
+          credential: resolved.credential,
+          personId: actor.personId,
+          resolution: {
+            selection: "ExactlyOne",
+            contexts: [
+              genericContext({
+                domainId: "organization",
+                authorityVersion: `organization:${actor._tag}`,
+              }),
+            ],
+          },
+          grantScopes:
+            actor._tag === "OrganizationAdministrator" ? [{ _tag: "Global" }] : [],
+          now: resolved.authorizationInstant,
+          run: txRun,
+        });
+        const derived = deriveHttpIdentity({
+          credentialSubject: `Person:${actor.personId}`,
+          qualifiedOperationId: operationId,
+          normalizedTarget: "/api/field-of-studies",
+          idempotencyKey,
+        });
+        return {
+          identity: {
+            identitySha256: derived.identitySha256,
+            requestSha256: semanticRequestDigest({ body: payload }),
+            operationId,
+          },
+          execute: Organization.use((organization) =>
+            Effect.gen(function* () {
+              const created = yield* organization.createFieldOfStudy(
+                {
+                  _tag: "CreateFieldOfStudy",
+                  commandId: OrganizationCommandId.make(derived.commandId),
+                  ...payload,
+                },
+                actor,
+              );
+              const fieldOfStudy =
+                created.observation._tag === "Replayed"
+                  ? created.observation.original.fieldOfStudy
+                  : created.observation.fieldOfStudy;
+              const etag = deriveStrongETag({
+                representationKind: "FieldOfStudyJson",
+                resourceIdentity: fieldOfStudy.fieldOfStudyId,
+                version: fieldOfStudy.revision,
+              });
+              return {
+                status: 201,
+                mediaType: "application/json",
+                headers: {
+                  "content-type": "application/json",
+                  location: `/api/field-of-studies/${encodePathIdentity(fieldOfStudy.fieldOfStudyId)}`,
+                  etag,
+                },
+                bodyBytes: jsonBodyBytes(fieldOfStudy),
+              };
+            }),
+          ),
+        };
+      }),
     ),
   );
   return nativeCommandOutcomeResponse(result);

@@ -21,7 +21,7 @@ import type {
   NativeHttpCommandPlan,
 } from "@vektorprogrammet/domain/http-semantics";
 import type { PersonId } from "@vektorprogrammet/domain/organization";
-import { Effect, Runtime } from "effect";
+import { Effect } from "effect";
 import {
   HttpSemanticFailure,
   nativeProblemResponse,
@@ -59,9 +59,9 @@ export const prepareNativeHttpCommand = <Run, E, R>(
   _run: Run,
   prepare: (run: Run) => Promise<NativeHttpCommandPlan<E, R>>,
 ): Effect.Effect<NativeHttpCommandPlan<E, R>, E, RunRequirement<Run>> =>
-  Effect.flatMap(Effect.runtime<RunRequirement<Run>>(), (runtime) =>
+  Effect.flatMap(Effect.context<RunRequirement<Run>>(), (context) =>
     Effect.tryPromise({
-      try: () => prepare(Runtime.runPromise(runtime) as unknown as Run),
+      try: () => prepare(Effect.runPromiseWith(context) as unknown as Run),
       catch: (cause) => cause as E,
     }),
   );

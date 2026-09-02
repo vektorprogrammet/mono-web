@@ -15,6 +15,10 @@ import { ResourceId, ResourceKind } from "@vektorprogrammet/domain/authz";
 import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
 import { Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
+import {
+  profileRoleFrom,
+  resolveRequestPersonAuthorityInTransaction,
+} from "../authority.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
   HttpSemanticFailure,
@@ -37,6 +41,7 @@ import {
   authorizePersonNativeOperation,
   genericContext,
   nativeCommandOutcomeResponse,
+  prepareNativeHttpCommand,
 } from "../native-operation.js";
 import type { BackendConfig } from "../config.js";
 import type { BackendRun } from "../router.js";
@@ -150,6 +155,15 @@ interface ProfileActor {
 const actorFor = async (request: Request, input: ProfileApiHttpOptions): Promise<ProfileActor> => {
   try {
     return await input.resolveActor(request);
+  } catch (cause) {
+    if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
+    throw taggedError("ProfilePersistenceError");
+  }
+};
+
+const transactionProfileAuthorityFor = async (request: Request, run: BackendRun) => {
+  try {
+    return await resolveRequestPersonAuthorityInTransaction(request, { run });
   } catch (cause) {
     if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
     throw taggedError("ProfilePersistenceError");
@@ -280,35 +294,6 @@ const updateOwnProfile = async (
   request: Request,
   input: ProfileApiHttpOptions,
 ): Promise<Response> => {
-  const actor = await actorFor(request, input);
-  const now = new Date().toISOString();
-  const personResource = {
-    _tag: "Resource" as const,
-    resource: {
-      kind: ResourceKind.make("person-profile"),
-      id: ResourceId.make(actor.personId),
-    },
-  };
-  await authorizePersonNativeOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(UpdateOwnProfileEndpoint)),
-    request,
-    personId: actor.personId,
-    resolution: {
-      selection: "ExactlyOne",
-      contexts: [
-        genericContext({
-          domainId: "profile",
-          resourceKind: "person-profile",
-          resourceId: actor.personId,
-          facts: { ownerPersonId: actor.personId },
-          authorityVersion: `profile:${actor.role}`,
-        }),
-      ],
-    },
-    grantScopes: [personResource],
-    now,
-    run: input.run,
-  });
   const idempotencyKey = parseIdempotencyKey(
     request.headers.get("idempotency-key") === null
       ? []
@@ -319,75 +304,117 @@ const updateOwnProfile = async (
   );
   const patch = await decodePatch(request, input);
   const operationId = "profile.updateOwnProfile";
-  const derived = deriveHttpIdentity({
-    credentialSubject: `Person:${actor.personId}`,
-    qualifiedOperationId: operationId,
-    normalizedTarget: "/api/profile",
-    idempotencyKey,
-  });
-  const identity = {
-    identitySha256: derived.identitySha256,
-    requestSha256: semanticRequestDigest(semanticMutationRequest(patch, ifMatch)),
-    operationId,
-  };
   const result = await input.run(
-    Profile.use((profileService) =>
-      executeNativeHttpCommandPostgres(
-        identity,
-        Effect.gen(function* () {
-          const currentSource = yield* readOwnProfileHttpSourcePostgres(actor.personId);
-          const current = currentSource.profile;
-          const currentETag = deriveProfileStrongETag({
-            personId: current.personId,
-            nameRevision: current.nameRevision,
-            contactRevision: current.contactRevision,
-            representationRevision: currentSource.representationRevision,
-          });
-          const precondition = evaluateMutationPrecondition(currentETag, ifMatch);
-          if (precondition._tag === "Failed") {
-            return yield* Effect.fail(
-              new HttpSemanticFailure(precondition.code, precondition.status),
-            );
+    executeNativeHttpCommandPostgres(
+      prepareNativeHttpCommand(input.run, async (txRun) => {
+        const resolved = await transactionProfileAuthorityFor(request, txRun);
+        const roleDecision = profileRoleFrom(resolved.authority);
+        if (roleDecision._tag === "Deny") {
+          if (roleDecision.reason === "Unauthenticated") {
+            throw taggedError("UnauthenticatedActor");
           }
-          yield* profileService.updateOwnProfile({
-            actorPersonId: actor.personId,
-            command: {
-              _tag: "UpdateOwnProfile",
-              commandId: derived.commandId as unknown as UpdateOwnProfileCommand["commandId"],
-              expectedNameRevision: current.nameRevision,
-              expectedContactRevision: current.contactRevision,
-              firstName: patch.firstName ?? current.firstName,
-              lastName: patch.lastName ?? current.lastName,
-              email: patch.email ?? current.email,
-              phone: patch.phone ?? current.phone,
-            },
-          });
-          const updatedSource = yield* readOwnProfileHttpSourcePostgres(actor.personId);
-          const updated = updatedSource.profile;
-          const body = {
-            personId: updated.personId,
-            firstName: updated.firstName,
-            lastName: updated.lastName,
-            email: updated.email,
-            phone: updated.phone,
-            role: actor.role,
-            nameRevision: updated.nameRevision,
-            contactRevision: updated.contactRevision,
-          };
-          const etag = deriveProfileStrongETag({
-            personId: updated.personId,
-            nameRevision: updated.nameRevision,
-            contactRevision: updated.contactRevision,
-            representationRevision: updatedSource.representationRevision,
-          });
-          return {
-            status: 200,
-            mediaType: "application/json",
-            headers: { "content-type": "application/json", etag },
-            bodyBytes: jsonBodyBytes(body),
-          };
-        }),
-      ),
+          throw taggedError(
+            roleDecision.reason === "AuthorityInactive" ? "AuthorityInactive" : "NotInScope",
+          );
+        }
+        const actor: ProfileActor = {
+          personId: resolved.authority.personId,
+          role: roleDecision.value,
+        };
+        const personResource = {
+          _tag: "Resource" as const,
+          resource: {
+            kind: ResourceKind.make("person-profile"),
+            id: ResourceId.make(actor.personId),
+          },
+        };
+        await authorizePersonNativeOperation({
+          spec: Option.getOrThrow(reflectAccessSpec(UpdateOwnProfileEndpoint)),
+          credential: resolved.credential,
+          personId: actor.personId,
+          resolution: {
+            selection: "ExactlyOne",
+            contexts: [
+              genericContext({
+                domainId: "profile",
+                resourceKind: "person-profile",
+                resourceId: actor.personId,
+                facts: { ownerPersonId: actor.personId },
+                authorityVersion: `profile:${actor.role}`,
+              }),
+            ],
+          },
+          grantScopes: [personResource],
+          now: resolved.authorizationInstant,
+          run: txRun,
+        });
+        const currentSource = await txRun(readOwnProfileHttpSourcePostgres(actor.personId));
+        const current = currentSource.profile;
+        const currentETag = deriveProfileStrongETag({
+          personId: current.personId,
+          nameRevision: current.nameRevision,
+          contactRevision: current.contactRevision,
+          representationRevision: currentSource.representationRevision,
+        });
+        const precondition = evaluateMutationPrecondition(currentETag, ifMatch);
+        if (precondition._tag === "Failed") {
+          throw new HttpSemanticFailure(precondition.code, precondition.status);
+        }
+        const derived = deriveHttpIdentity({
+          credentialSubject: `Person:${actor.personId}`,
+          qualifiedOperationId: operationId,
+          normalizedTarget: "/api/profile",
+          idempotencyKey,
+        });
+        return {
+          identity: {
+            identitySha256: derived.identitySha256,
+            requestSha256: semanticRequestDigest(semanticMutationRequest(patch, ifMatch)),
+            operationId,
+          },
+          execute: Profile.use((profileService) =>
+            Effect.gen(function* () {
+              yield* profileService.updateOwnProfile({
+                actorPersonId: actor.personId,
+                command: {
+                  _tag: "UpdateOwnProfile",
+                  commandId: derived.commandId as unknown as UpdateOwnProfileCommand["commandId"],
+                  expectedNameRevision: current.nameRevision,
+                  expectedContactRevision: current.contactRevision,
+                  firstName: patch.firstName ?? current.firstName,
+                  lastName: patch.lastName ?? current.lastName,
+                  email: patch.email ?? current.email,
+                  phone: patch.phone ?? current.phone,
+                },
+              });
+              const updatedSource = yield* readOwnProfileHttpSourcePostgres(actor.personId);
+              const updated = updatedSource.profile;
+              const body = {
+                personId: updated.personId,
+                firstName: updated.firstName,
+                lastName: updated.lastName,
+                email: updated.email,
+                phone: updated.phone,
+                role: actor.role,
+                nameRevision: updated.nameRevision,
+                contactRevision: updated.contactRevision,
+              };
+              const etag = deriveProfileStrongETag({
+                personId: updated.personId,
+                nameRevision: updated.nameRevision,
+                contactRevision: updated.contactRevision,
+                representationRevision: updatedSource.representationRevision,
+              });
+              return {
+                status: 200,
+                mediaType: "application/json",
+                headers: { "content-type": "application/json", etag },
+                bodyBytes: jsonBodyBytes(body),
+              };
+            }),
+          ),
+        };
+      }),
     ),
   );
   return nativeCommandOutcomeResponse(result);
