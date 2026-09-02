@@ -22,6 +22,15 @@ import {
 } from "@vektorprogrammet/domain/identity";
 import { DatabasePgPool } from "./layers.js";
 import { makeAuthEngine, type AuthEngineConfig } from "./auth-engine.js";
+import {
+  exactRedirectAccepted,
+  makeOAuthClientOperatorService,
+  makeOAuthCredentialAuthorityService,
+  makeOAuthInternalIntrospectionHandler,
+  makeOAuthReleaseBarrier,
+  OAuthClientOperator,
+  OAuthCredentialAuthority,
+} from "./oauth-live.js";
 
 /** The one Better Auth instance behind this module's services. */
 export type AuthEngineInstance = ReturnType<typeof makeAuthEngine>;
@@ -29,6 +38,14 @@ export interface AuthEngineService {
   readonly engine: AuthEngineInstance;
   /** Standard Better Auth handler with bounded identity security auditing. */
   readonly handler: (request: Request, context: IdentityRequestContext) => Promise<Response>;
+  /** Frozen external OAuth protocol surface. It is never used for generic Better Auth dispatch. */
+  readonly oauthHandler: (request: Request, context: IdentityRequestContext) => Promise<Response>;
+  /** Independent internal-only OAuth introspection surface. */
+  readonly oauthIntrospectionHandler: (
+    request: Request,
+    context: IdentityRequestContext,
+  ) => Promise<Response>;
+  readonly exactRedirectAccepted: (clientId: string, redirectUri: string) => Promise<boolean>;
   /** Records a transport rejection that intentionally did not reach Better Auth. */
   readonly recordTrustedOriginRejection: (context: IdentityRequestContext) => Promise<void>;
 }
@@ -577,16 +594,32 @@ export const auditedAuthHandler =
  */
 export const AuthLive = (
   config: AuthEngineConfig,
-): Layer.Layer<Identity | IdentitySnapshot | AuthEngine, never, DatabasePgPool> =>
+): Layer.Layer<
+  Identity | IdentitySnapshot | AuthEngine | OAuthCredentialAuthority | OAuthClientOperator,
+  never,
+  DatabasePgPool
+> =>
   Layer.effectContext(
     Effect.gen(function* () {
       const pool = yield* DatabasePgPool;
       const engine = makeAuthEngine(config, pool);
       const identity = Identity.of(identityShape(engine, pool, config));
       const identitySnapshot = IdentitySnapshot.of(makeIdentitySnapshotService(config));
+      const oauthCredentialAuthority = OAuthCredentialAuthority.of(
+        makeOAuthCredentialAuthorityService(pool, config.oauth),
+      );
+      const oauthClientOperator = OAuthClientOperator.of(
+        makeOAuthClientOperatorService(pool, engine),
+      );
+      const oauthHandler = makeOAuthReleaseBarrier(engine, pool, config.oauth);
+      const oauthIntrospectionHandler = makeOAuthInternalIntrospectionHandler(engine, pool);
       const authEngine = AuthEngine.of({
         engine,
         handler: auditedAuthHandler(engine, identity),
+        oauthHandler,
+        oauthIntrospectionHandler,
+        exactRedirectAccepted: (clientId, redirectUri) =>
+          exactRedirectAccepted(pool, clientId, redirectUri),
         recordTrustedOriginRejection: (context) =>
           identity.recordSecurityEvent(
             auditEvent({
@@ -605,6 +638,8 @@ export const AuthLive = (
       return Context.make(AuthEngine, authEngine).pipe(
         Context.merge(Context.make(Identity, identity)),
         Context.merge(Context.make(IdentitySnapshot, identitySnapshot)),
+        Context.merge(Context.make(OAuthCredentialAuthority, oauthCredentialAuthority)),
+        Context.merge(Context.make(OAuthClientOperator, oauthClientOperator)),
       );
     }),
   );

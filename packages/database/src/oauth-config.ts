@@ -13,6 +13,7 @@ export const OAUTH_SCOPES = ["native-api", "offline_access"] as const satisfies 
 export const OAUTH_ISSUER_PATH = "/api/auth" as const;
 export const OAUTH_DASHBOARD_LOGIN_PATH = "/dashboard/login" as const;
 export const OAUTH_DASHBOARD_CONSENT_PATH = "/dashboard/oauth/consent" as const;
+export const OAUTH_REFRESH_TOKEN_PREFIX = "vkr_rt_" as const;
 
 export const OAuthClientKindSchema = Schema.Literals([
   "DelegatedPublic",
@@ -106,7 +107,7 @@ export const makeOAuthOptions = (config: OAuthProviderRuntimeConfig): OAuthOptio
   allowPublicClientPrelogin: false,
   prefix: {
     clientSecret: "vkr_cs_",
-    refreshToken: "vkr_rt_",
+    refreshToken: OAUTH_REFRESH_TOKEN_PREFIX,
   },
   rateLimit: {
     authorize: { window: 60, max: 30 },

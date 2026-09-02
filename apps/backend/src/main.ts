@@ -18,7 +18,9 @@ import { makeBackendConfig } from "./config.js";
 import {
   makeBackendHttp,
   makeExternalNativeApiRouterLayer,
+  makeInternalBackendHttp,
   makeInternalNativeApiRouterLayer,
+  type BackendAuthHandler,
   type BackendRun,
 } from "./router.js";
 import { makeBackendRuntime } from "../runtime.js";
@@ -87,28 +89,38 @@ const runtime = makeBackendRuntime(
 );
 const router = await runtime.runPromise(HttpRouter.HttpRouter);
 const nativeHandler = HttpEffect.toWebHandler(router.asHttpEffect());
+const authHandler: BackendAuthHandler = {
+  handle: (request, context) =>
+    runtime.runPromise(
+      AuthEngine.use((engine) => Effect.promise(() => engine.handler(request, context))),
+    ),
+  handleOAuth: (request, context) =>
+    runtime.runPromise(
+      AuthEngine.use((engine) => Effect.promise(() => engine.oauthHandler(request, context))),
+    ),
+  handleOAuthIntrospection: (request, context) =>
+    runtime.runPromise(
+      AuthEngine.use((engine) =>
+        Effect.promise(() => engine.oauthIntrospectionHandler(request, context)),
+      ),
+    ),
+  exactRedirectAccepted: (clientId, redirectUri) =>
+    runtime.runPromise(
+      AuthEngine.use((engine) =>
+        Effect.promise(() => engine.exactRedirectAccepted(clientId, redirectUri)),
+      ),
+    ),
+  recordTrustedOriginRejection: (context) =>
+    runtime.runPromise(
+      AuthEngine.use((engine) =>
+        Effect.promise(() => engine.recordTrustedOriginRejection(context)),
+      ),
+    ),
+};
 const api =
   ingress === "external"
-    ? makeBackendHttp(
-        nativeHandler,
-        {
-          handle: (request, context) =>
-            runtime.runPromise(
-              Effect.gen(function* () {
-                const engine = yield* AuthEngine;
-                return yield* Effect.promise(() => engine.handler(request, context));
-              }),
-            ),
-          recordTrustedOriginRejection: (context) =>
-            runtime.runPromise(
-              AuthEngine.use((engine) =>
-                Effect.promise(() => engine.recordTrustedOriginRejection(context)),
-              ),
-            ),
-        },
-        config.sessionBoundary,
-      )
-    : { fetch: (request: Request) => nativeHandler(request) };
+    ? makeBackendHttp(nativeHandler, authHandler, config.sessionBoundary)
+    : makeInternalBackendHttp(nativeHandler, authHandler, config.auth.internalSourceNetworks);
 
 try {
   await run(databaseHealth);

@@ -1,3 +1,4 @@
+import { BlockList, isIP } from "node:net";
 import { IdentitySnapshot } from "@vektorprogrammet/database";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
 import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
@@ -93,6 +94,12 @@ const profileAuthorityError = (
  */
 export interface BackendAuthHandler {
   readonly handle: (request: Request, context: IdentityRequestContext) => Promise<Response>;
+  readonly handleOAuth?: (request: Request, context: IdentityRequestContext) => Promise<Response>;
+  readonly handleOAuthIntrospection?: (
+    request: Request,
+    context: IdentityRequestContext,
+  ) => Promise<Response>;
+  readonly exactRedirectAccepted?: (clientId: string, redirectUri: string) => Promise<boolean>;
   readonly recordTrustedOriginRejection: (context: IdentityRequestContext) => Promise<void>;
 }
 
@@ -305,6 +312,88 @@ const malformedRecruitmentPath = (method: string, pathname: string): boolean =>
       method === endpoint.method && pathname === endpoint.path.replace(":interviewId", ""),
   );
 
+const oauthAuthorizationServerMetadataPath = "/.well-known/oauth-authorization-server/api/auth";
+
+const externalOAuthRoutes = new Set([
+  `GET ${oauthAuthorizationServerMetadataPath}`,
+  "GET /api/auth/jwks",
+  "GET /api/auth/oauth2/authorize",
+  "GET /api/auth/oauth2/public-client",
+  "POST /api/auth/oauth2/consent",
+  "POST /api/auth/oauth2/token",
+  "POST /api/auth/oauth2/revoke",
+  "GET /api/auth/oauth2/get-consents",
+  "POST /api/auth/oauth2/delete-consent",
+]);
+
+const isOAuthProviderNamespace = (pathname: string): boolean =>
+  pathname === oauthAuthorizationServerMetadataPath ||
+  pathname === "/api/auth/jwks" ||
+  pathname.startsWith("/api/auth/oauth2/") ||
+  pathname.startsWith("/api/auth/admin/oauth2/") ||
+  pathname.startsWith("/admin/oauth2/") ||
+  pathname === "/api/auth/userinfo" ||
+  pathname.includes("openid-configuration");
+
+const invalidAuthorizationRequest = (): Response => jsonResponse({ error: "invalid_request" }, 400);
+
+const authorizationRequestAccepted = async (
+  request: Request,
+  authHandler: BackendAuthHandler,
+): Promise<boolean> => {
+  const url = new URL(request.url);
+  if (url.search.length > 8 * 1024) return false;
+  const required = [
+    "client_id",
+    "redirect_uri",
+    "state",
+    "code_challenge",
+    "code_challenge_method",
+    "resource",
+    "response_type",
+    "scope",
+  ] as const;
+  if (required.some((name) => url.searchParams.getAll(name).length !== 1)) return false;
+  const clientId = url.searchParams.get("client_id")!;
+  const redirectUri = url.searchParams.get("redirect_uri")!;
+  const state = url.searchParams.get("state")!;
+  const challenge = url.searchParams.get("code_challenge")!;
+  if (
+    clientId.length === 0 ||
+    !/^[A-Za-z0-9_-]{43,512}$/u.test(state) ||
+    url.searchParams.get("response_type") !== "code" ||
+    (url.searchParams.get("scope") !== "native-api" &&
+      url.searchParams.get("scope") !== "native-api offline_access") ||
+    url.searchParams.get("code_challenge_method") !== "S256" ||
+    !/^[A-Za-z0-9_-]{43,128}$/u.test(challenge) ||
+    url.searchParams.get("resource") !== "urn:vektorprogrammet:native-api" ||
+    authHandler.exactRedirectAccepted === undefined
+  ) {
+    return false;
+  }
+  return authHandler.exactRedirectAccepted(clientId, redirectUri);
+};
+
+const sourceNetworkList = (networks: ReadonlyArray<string>): BlockList => {
+  const list = new BlockList();
+  for (const network of networks) {
+    const separator = network.lastIndexOf("/");
+    const address = network.slice(0, separator);
+    const prefix = Number(network.slice(separator + 1));
+    const family = isIP(address);
+    if (
+      separator <= 0 ||
+      (family !== 4 && family !== 6) ||
+      !Number.isSafeInteger(prefix) ||
+      prefix < 0 ||
+      prefix > (family === 4 ? 32 : 128)
+    ) {
+      throw new TypeError("internal OAuth source network must be canonical CIDR");
+    }
+    list.addSubnet(address, prefix, family === 4 ? "ipv4" : "ipv6");
+  }
+  return list;
+};
 /**
  * Explicit external boundary around the native HttpApi handler.
  * Better Auth remains the only external path family outside `ExternalNativeApi`.
@@ -316,21 +405,45 @@ export const makeBackendHttp = (
 ): BackendHttp => ({
   fetch: async (request) => {
     const prepared = prepareIdentityBoundaryRequest(request);
+    const pathname = new URL(prepared.request.url).pathname;
+    const oauthNamespace = isOAuthProviderNamespace(pathname);
+    if (oauthNamespace && prepared.request.method === "OPTIONS") {
+      return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
+    }
+    const oauthRouteKey = `${prepared.request.method} ${pathname}`;
+    if (oauthNamespace && !externalOAuthRoutes.has(oauthRouteKey)) {
+      return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
+    }
+    const machineOAuthWithoutOrigin =
+      (pathname === "/api/auth/oauth2/token" || pathname === "/api/auth/oauth2/revoke") &&
+      prepared.request.headers.get("origin") === null;
     const decision = decideTrustedOrigin(sessionBoundary, prepared.request);
+    const acceptedOrigin = decision._tag === "Allowed" ? decision.origin : null;
     const preflightHeadersAllowed =
       prepared.request.method !== "OPTIONS" || allowsNativePreflightHeaders(prepared.request);
     if (
-      decision._tag === "Rejected" ||
+      (decision._tag === "Rejected" && !machineOAuthWithoutOrigin) ||
       (prepared.request.method === "OPTIONS" &&
-        (decision.origin === null || !preflightHeadersAllowed))
+        (acceptedOrigin === null || !preflightHeadersAllowed))
     ) {
       await authHandler.recordTrustedOriginRejection(prepared.context).catch(() => undefined);
       return trustedOriginRejectedResponse();
     }
     if (prepared.request.method === "OPTIONS") {
-      return trustedPreflightResponse(decision.origin!);
+      return trustedPreflightResponse(acceptedOrigin!);
     }
-    const pathname = new URL(prepared.request.url).pathname;
+    if (oauthNamespace) {
+      if (
+        pathname === "/api/auth/oauth2/authorize" &&
+        !(await authorizationRequestAccepted(prepared.request, authHandler))
+      ) {
+        return invalidAuthorizationRequest();
+      }
+      return (
+        authHandler.handleOAuth?.(prepared.request, prepared.context) ??
+        jsonResponse({ error: { tag: "RouteNotFound" } }, 404)
+      );
+    }
     let response: Response;
     if (pathname === "/api/auth/" || pathname.startsWith("/api/auth/")) {
       response = await authHandler.handle(prepared.request, prepared.context);
@@ -339,6 +452,49 @@ export const makeBackendHttp = (
     } else {
       response = await nativeHandler(prepared.request);
     }
-    return withTrustedOriginCors(response, decision.origin);
+    return withTrustedOriginCors(response, acceptedOrigin);
   },
 });
+
+/** Independent internal ingress: native internal API plus one non-fallthrough OAuth route. */
+export const makeInternalBackendHttp = (
+  nativeHandler: (request: Request) => Promise<Response>,
+  authHandler: BackendAuthHandler,
+  allowedSourceNetworks: ReadonlyArray<string>,
+): BackendHttp => {
+  const allowedSources = sourceNetworkList(allowedSourceNetworks);
+  return {
+    fetch: async (request) => {
+      const prepared = prepareIdentityBoundaryRequest(request);
+      const pathname = new URL(prepared.request.url).pathname;
+      if (isOAuthProviderNamespace(pathname)) {
+        if (prepared.request.method !== "POST" || pathname !== "/api/auth/oauth2/introspect") {
+          return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
+        }
+        const sourceIp = prepared.context.sourceIp;
+        const family = sourceIp === null ? 0 : isIP(sourceIp);
+        if (
+          sourceIp === null ||
+          (family !== 4 && family !== 6) ||
+          !allowedSources.check(sourceIp, family === 4 ? "ipv4" : "ipv6")
+        ) {
+          return Response.json(
+            { active: false },
+            {
+              status: 200,
+              headers: { "cache-control": "no-store", pragma: "no-cache" },
+            },
+          );
+        }
+        return (
+          authHandler.handleOAuthIntrospection?.(prepared.request, prepared.context) ??
+          Response.json(
+            { active: false },
+            { status: 200, headers: { "cache-control": "no-store", pragma: "no-cache" } },
+          )
+        );
+      }
+      return nativeHandler(prepared.request);
+    },
+  };
+};

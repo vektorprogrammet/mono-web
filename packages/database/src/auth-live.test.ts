@@ -60,6 +60,16 @@ const requestContext = new IdentityRequestContext({
   sourceIp: "127.0.0.1",
   userAgent: "auth-live-test",
 });
+const oauthMemoryModels = {
+  oauthClient: [],
+  oauthAccessToken: [],
+  oauthRefreshToken: [],
+  oauthConsent: [],
+  oauthResource: [],
+  oauthClientResource: [],
+  oauthClientAssertion: [],
+  jwks: [],
+};
 
 const assertDisposable = (url: string): void => {
   const parsed = new URL(url);
@@ -160,7 +170,7 @@ describe("Better Auth session hardening configuration", () => {
   it("rejects the public sign-up route before creating identity state", async () => {
     const engine = betterAuth({
       ...makeAuthEngineOptions(config, {} as Pool),
-      database: memoryAdapter({}),
+      database: memoryAdapter({ ...oauthMemoryModels }),
     });
     const response = await engine.handler(
       new Request("http://127.0.0.1:8790/api/auth/sign-up/email", {
@@ -185,7 +195,13 @@ describe("Better Auth session hardening configuration", () => {
   it("verifies the Better Auth cookie before the ambient snapshot reads its session row", async () => {
     const issuingEngine = betterAuth({
       ...localOptions,
-      database: memoryAdapter({ user: [], session: [], account: [], verification: [] }),
+      database: memoryAdapter({
+        user: [],
+        session: [],
+        account: [],
+        verification: [],
+        ...oauthMemoryModels,
+      }),
       emailAndPassword: {
         ...localOptions.emailAndPassword,
         disableSignUp: false,
