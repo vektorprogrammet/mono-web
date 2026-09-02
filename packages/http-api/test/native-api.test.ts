@@ -1,5 +1,5 @@
 import { PUBLIC_SYSTEM_ACCESS } from "@vektorprogrammet/domain/authz";
-import { Context } from "effect";
+import { Context, Schema } from "effect";
 import { OpenApi } from "effect/unstable/httpapi";
 import { describe, expect, it } from "vitest";
 import { ExternalNativeApi, InternalNativeApi } from "../src/api.js";
@@ -9,6 +9,13 @@ import {
   reflectAccessSpec,
 } from "../src/access.js";
 import { HealthEndpoint } from "../src/system.js";
+import {
+  NativeProblemRegistry,
+  PeopleDirectoryResponse,
+  ProfileMergePatch,
+  ProfileUpdateOwnProfileProblem,
+  SystemHealthProblem,
+} from "../src/index.js";
 
 const endpointInventory = () =>
   Object.values(ExternalNativeApi.groups).flatMap((group) =>
@@ -164,5 +171,69 @@ describe("native API reflection", () => {
       ],
     ).toBeDefined();
     expect(spec.paths["/api/news/{slug}"]?.get?.responses["200"]).toBeDefined();
+  });
+});
+
+describe("frozen v0.2 boundary schemas", () => {
+  const strict = { onExcessProperty: "error" } as const;
+
+  it("keeps merge-patch absence distinct from null and unknown fields", () => {
+    expect(Schema.decodeUnknownSync(ProfileMergePatch)({ firstName: "Ada" }, strict)).toEqual({
+      firstName: "Ada",
+    });
+    expect(Schema.decodeUnknownSync(ProfileMergePatch)({}, strict)).toEqual({});
+    expect(Schema.decodeUnknownSync(ProfileMergePatch)({ email: null }, strict)).toEqual({
+      email: null,
+    });
+    expect(() =>
+      Schema.decodeUnknownSync(ProfileMergePatch)({ personId: "person-1" }, strict),
+    ).toThrow();
+  });
+
+  it("cuts the directory response over to people names without an alias", () => {
+    const response = { activePeople: [], inactivePeople: [], nextCursor: null };
+    expect(Schema.decodeUnknownSync(PeopleDirectoryResponse)(response, strict)).toEqual(response);
+    expect(() =>
+      Schema.decodeUnknownSync(PeopleDirectoryResponse)(
+        { activeUsers: [], inactiveUsers: [], nextCursor: null },
+        strict,
+      ),
+    ).toThrow();
+  });
+
+  it("keeps endpoint problem variants correlated and validation extensions mandatory", () => {
+    const problem = {
+      ...NativeProblemRegistry["internal.error"],
+      code: "internal.error",
+    } as const;
+    expect(Schema.decodeUnknownSync(SystemHealthProblem)(problem, strict)).toEqual(problem);
+    expect(() =>
+      Schema.decodeUnknownSync(SystemHealthProblem)(
+        { ...problem, detail: "database password leaked" },
+        strict,
+      ),
+    ).toThrow();
+
+    const validationProblem = {
+      ...NativeProblemRegistry["validation.failed"],
+      code: "validation.failed",
+      validation: {
+        errors: [
+          {
+            pointer: "/firstName",
+            code: "invalid",
+            message: "The value is invalid.",
+          },
+        ],
+        truncated: false,
+      },
+    } as const;
+    expect(
+      Schema.decodeUnknownSync(ProfileUpdateOwnProfileProblem)(validationProblem, strict),
+    ).toEqual(validationProblem);
+    const { validation: _, ...validationCore } = validationProblem;
+    expect(() =>
+      Schema.decodeUnknownSync(ProfileUpdateOwnProfileProblem)(validationCore, strict),
+    ).toThrow();
   });
 });

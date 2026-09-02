@@ -4,10 +4,10 @@
  * Endpoints:
  *   GET /api/admin/users
  *
- * The endpoint returns { activeUsers, inactiveUsers, nextCursor } — a plain
- * object, NOT a Hydra collection. list() walks nextCursor pages until
- * exhaustion; the stable (lastName, firstName, personId) ordering law makes
- * the accumulated arrays deterministic.
+ * The endpoint returns { activePeople, inactivePeople, nextCursor } as a plain
+ * object. list() walks nextCursor pages until exhaustion. The stable
+ * (lastName, firstName, personId) ordering makes the accumulated arrays
+ * deterministic.
  */
 
 import { Effect, Schema } from "effect";
@@ -35,8 +35,8 @@ export const DirectoryEntrySchema = Schema.Struct({
 export type DirectoryEntry = typeof DirectoryEntrySchema.Type;
 
 export const AdminUsersPageSchema = Schema.Struct({
-  activeUsers: Schema.Array(DirectoryEntrySchema),
-  inactiveUsers: Schema.Array(DirectoryEntrySchema),
+  activePeople: Schema.Array(DirectoryEntrySchema),
+  inactivePeople: Schema.Array(DirectoryEntrySchema),
   nextCursor: Schema.NullOr(Schema.String),
 });
 
@@ -44,8 +44,8 @@ export type AdminUsersPage = typeof AdminUsersPageSchema.Type;
 
 const DIRECTORY_PAGE_LIMIT = 200;
 export interface AdminUsersResult {
-  readonly activeUsers: readonly DirectoryEntry[];
-  readonly inactiveUsers: readonly DirectoryEntry[];
+  readonly activePeople: readonly DirectoryEntry[];
+  readonly inactivePeople: readonly DirectoryEntry[];
 }
 
 const strictAdminUsers = {
@@ -55,8 +55,8 @@ const strictAdminUsers = {
 
 const accumulate = (
   transport: Transport,
-  activeUsers: DirectoryEntry[],
-  inactiveUsers: DirectoryEntry[],
+  activePeople: DirectoryEntry[],
+  inactivePeople: DirectoryEntry[],
   cursor?: string,
 ): Effect.Effect<AdminUsersResult, InternalSdkError | OrganizationDecodeError> =>
   Effect.flatMap(
@@ -67,10 +67,10 @@ const accumulate = (
       strictAdminUsers,
     ),
     (page) => {
-      const nextActive = [...activeUsers, ...page.activeUsers];
-      const nextInactive = [...inactiveUsers, ...page.inactiveUsers];
+      const nextActive = [...activePeople, ...page.activePeople];
+      const nextInactive = [...inactivePeople, ...page.inactivePeople];
       if (page.nextCursor === null) {
-        return Effect.succeed({ activeUsers: nextActive, inactiveUsers: nextInactive });
+        return Effect.succeed({ activePeople: nextActive, inactivePeople: nextInactive });
       }
       return accumulate(transport, nextActive, nextInactive, page.nextCursor);
     },

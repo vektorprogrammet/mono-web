@@ -122,6 +122,10 @@ const servicePrincipalGrantsMigrationUrl = new URL(
   "../migrations/0028-service-principal-grants.sql",
   import.meta.url,
 );
+const nativeHttpSemanticsMigrationUrl = new URL(
+  "../migrations/0029-native-http-semantics.sql",
+  import.meta.url,
+);
 export type ExecuteMigration = (
   source: string,
 ) => Effect.Effect<void, unknown, SqlClient.SqlClient>;
@@ -264,6 +268,11 @@ export const databaseMigrationDefinitions = [
     name: "service-principal-grants",
     url: servicePrincipalGrantsMigrationUrl,
   },
+  {
+    id: "29_native-http-semantics",
+    name: "native-http-semantics",
+    url: nativeHttpSemanticsMigrationUrl,
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>
@@ -272,7 +281,7 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       databaseMigrationDefinitions.map(({ id, name, url }) => [id, migration(name, url, execute)]),
     ),
   );
-export const databaseSchemaRevision = "28_service_principal_grants";
+export const databaseSchemaRevision = "29_native_http_semantics";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),

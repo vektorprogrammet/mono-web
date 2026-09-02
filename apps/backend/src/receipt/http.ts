@@ -42,6 +42,7 @@ import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { ExternalNativeApi, InternalNativeApi } from "@vektorprogrammet/http-api";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
+import { deriveStrongETag } from "../http-semantics.js";
 import type { ReceiptApiConfig } from "./config.js";
 import {
   makeReceiptFileStore,
@@ -789,6 +790,11 @@ const approvalList = async (
       receiptDate: row.receiptDate,
       status: row.status,
       revision: row.revision,
+      etag: deriveStrongETag({
+        representationKind: "ReceiptApprovalQueueItem",
+        resourceIdentity: row.receiptId,
+        version: row.revision,
+      }),
     };
   });
   return jsonResponse({ items, totalItems: items.length });
@@ -849,6 +855,11 @@ const list = async (request: Request, options: ReceiptApiHttpOptions): Promise<R
       receiptDate: row.receiptDate,
       status: row.status,
       revision: row.revision,
+      etag: deriveStrongETag({
+        representationKind: "ReceiptListItem",
+        resourceIdentity: row.receiptId,
+        version: row.revision,
+      }),
     };
   });
   return jsonResponse({ items, totalItems: items.length });

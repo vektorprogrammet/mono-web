@@ -31,6 +31,9 @@ import type { BackendConfig } from "./config.js";
 import { ContentApiHandlers } from "./content/http.js";
 import { SystemApiHandlers } from "./http-api/system.js";
 import { NativeHttpApiMiddlewareLive } from "./http-api/transport.js";
+import { methodNotAllowedResponse, nativeProblemResponse } from "./http-semantics.js";
+import { externalNativePreflightMethodsForPath } from "./native-api-preflight.js";
+import { decideNativePreflight } from "./native-preflight.js";
 import { OrganizationApiHandlers } from "./organization/http.js";
 import { ProfileApiHandlers } from "./profile/http.js";
 import {
@@ -414,24 +417,6 @@ export const makeBackendHttp = (
     if (oauthNamespace && !externalOAuthRoutes.has(oauthRouteKey)) {
       return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
     }
-    const machineOAuthWithoutOrigin =
-      (pathname === "/api/auth/oauth2/token" || pathname === "/api/auth/oauth2/revoke") &&
-      prepared.request.headers.get("origin") === null;
-    const decision = decideTrustedOrigin(sessionBoundary, prepared.request);
-    const acceptedOrigin = decision._tag === "Allowed" ? decision.origin : null;
-    const preflightHeadersAllowed =
-      prepared.request.method !== "OPTIONS" || allowsNativePreflightHeaders(prepared.request);
-    if (
-      (decision._tag === "Rejected" && !machineOAuthWithoutOrigin) ||
-      (prepared.request.method === "OPTIONS" &&
-        (acceptedOrigin === null || !preflightHeadersAllowed))
-    ) {
-      await authHandler.recordTrustedOriginRejection(prepared.context).catch(() => undefined);
-      return trustedOriginRejectedResponse();
-    }
-    if (prepared.request.method === "OPTIONS") {
-      return trustedPreflightResponse(acceptedOrigin!);
-    }
     if (oauthNamespace) {
       if (
         pathname === "/api/auth/oauth2/authorize" &&
@@ -442,6 +427,55 @@ export const makeBackendHttp = (
       return (
         authHandler.handleOAuth?.(prepared.request, prepared.context) ??
         jsonResponse({ error: { tag: "RouteNotFound" } }, 404)
+      );
+    }
+    const decision = decideTrustedOrigin(sessionBoundary, prepared.request);
+    const acceptedOrigin = decision._tag === "Allowed" ? decision.origin : null;
+    if (decision._tag === "Rejected") {
+      await authHandler.recordTrustedOriginRejection(prepared.context).catch(() => undefined);
+      return trustedOriginRejectedResponse();
+    }
+    if (prepared.request.method === "OPTIONS") {
+      if (acceptedOrigin === null) {
+        await authHandler.recordTrustedOriginRejection(prepared.context).catch(() => undefined);
+        return trustedOriginRejectedResponse();
+      }
+      const requestedMethod = prepared.request.headers.get("access-control-request-method");
+      const preflight = decideNativePreflight({
+        pathname,
+        requestedMethod,
+        headersAllowed: allowsNativePreflightHeaders(prepared.request),
+        methodsForPath: externalNativePreflightMethodsForPath,
+      });
+      if (preflight._tag === "HeaderMalformed") {
+        return withTrustedOriginCors(
+          nativeProblemResponse("header.malformed", 400),
+          acceptedOrigin,
+        );
+      }
+      if (preflight._tag === "MethodNotAllowed") {
+        return withTrustedOriginCors(methodNotAllowedResponse(preflight.methods), acceptedOrigin);
+      }
+      if (preflight._tag === "Ready") {
+        return trustedPreflightResponse(acceptedOrigin, preflight.methods);
+      }
+
+      if (pathname === "/api/auth/" || pathname.startsWith("/api/auth/")) {
+        if (!allowsNativePreflightHeaders(prepared.request)) {
+          return withTrustedOriginCors(
+            nativeProblemResponse("header.malformed", 400),
+            acceptedOrigin,
+          );
+        }
+        const authResponse = await authHandler.handle(prepared.request, prepared.context);
+        return authResponse.status >= 200 && authResponse.status < 300
+          ? trustedPreflightResponse(acceptedOrigin, [preflight.requestedMethod])
+          : withTrustedOriginCors(authResponse, acceptedOrigin);
+      }
+
+      return withTrustedOriginCors(
+        nativeProblemResponse("resource.not-found", 404),
+        acceptedOrigin,
       );
     }
     let response: Response;

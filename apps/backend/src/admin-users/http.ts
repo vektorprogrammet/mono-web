@@ -60,8 +60,8 @@ const DirectoryEntrySchema = Schema.Struct({
 });
 
 const DirectoryResponseSchema = Schema.Struct({
-  activeUsers: Schema.Array(DirectoryEntrySchema),
-  inactiveUsers: Schema.Array(DirectoryEntrySchema),
+  activePeople: Schema.Array(DirectoryEntrySchema),
+  inactivePeople: Schema.Array(DirectoryEntrySchema),
   nextCursor: Schema.NullOr(Schema.String),
 });
 
@@ -112,8 +112,8 @@ const listAdminUsers = async (
     Effect.gen(function* () {
       const organization = yield* Organization;
       const profile = yield* Profile;
-      const activeUsers: Array<typeof DirectoryEntrySchema.Type> = [];
-      const inactiveUsers: Array<typeof DirectoryEntrySchema.Type> = [];
+      const activePeople: Array<typeof DirectoryEntrySchema.Type> = [];
+      const inactivePeople: Array<typeof DirectoryEntrySchema.Type> = [];
       let cursor: string | undefined;
       while (true) {
         const page = yield* profile.readDirectoryPage({ limit: DIRECTORY_PAGE_LIMIT, cursor });
@@ -135,15 +135,15 @@ const listAdminUsers = async (
               departments: [...fact.departmentNames],
               isActive: fact.isActive,
             };
-            if (fact.isActive) activeUsers.push(row);
-            else inactiveUsers.push(row);
+            if (fact.isActive) activePeople.push(row);
+            else inactivePeople.push(row);
           }
         }
         if (page.nextCursor === undefined) break;
         cursor = page.nextCursor;
       }
       return yield* Schema.decodeUnknownEffect(DirectoryResponseSchema)(
-        { activeUsers, inactiveUsers, nextCursor: cursor ?? null },
+        { activePeople, inactivePeople, nextCursor: cursor ?? null },
         { onExcessProperty: "error" },
       ).pipe(Effect.mapError(() => taggedError("ProfileDecodeError")));
     }),

@@ -207,10 +207,10 @@ test.describe("Hybrid cross-line identity and school evidence", () => {
     );
     const nativeUsers = (await nativeUsersResponse.json()) as JsonValue;
     expect(isJsonObject(nativeUsers)).toBe(true);
-    const activeUsers = isJsonObject(nativeUsers) ? nativeUsers.activeUsers : null;
-    expect(Array.isArray(activeUsers)).toBe(true);
+    const activePeople = isJsonObject(nativeUsers) ? nativeUsers.activePeople : null;
+    expect(Array.isArray(activePeople)).toBe(true);
     expect(
-      (activeUsers as JsonValue[]).some(
+      (activePeople as JsonValue[]).some(
         (item) => isJsonObject(item) && item.email === nativeDirectoryEmail,
       ),
     ).toBe(true);

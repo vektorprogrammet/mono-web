@@ -30,6 +30,10 @@ import { Schools } from "@vektorprogrammet/domain/schools";
 import { DateTime, Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeBackendConfig } from "./config.js";
+import {
+  externalNativePreflightAttachmentGaps,
+  externalNativePreflightMethodsForPath,
+} from "./native-api-preflight.js";
 import type { BackendRun } from "./router.js";
 import { makeBackendTestHttp as makeBackendHttp } from "./test/native-http.js";
 import { runTestPromise } from "../test/runtime.js";
@@ -224,6 +228,14 @@ const request = (pathname: string, init?: RequestInit): Promise<Response> =>
   backend.fetch(new Request(`http://backend.test${pathname}`, init));
 
 describe("unified backend router", () => {
+  it("derives current preflight methods while exposing the 0077.2 attachment gap", () => {
+    expect(externalNativePreflightMethodsForPath("/api/session")).toEqual(["GET", "DELETE"]);
+    expect(externalNativePreflightAttachmentGaps).toContainEqual({
+      identifier: "readSession",
+      method: "GET",
+      path: "/api/session",
+    });
+  });
   it("owns health, Profile, Organization, Schools, Admission, Receipt, and Recruitment routes", async () => {
     const [
       health,
@@ -505,7 +517,13 @@ describe("unified backend router", () => {
       );
       expect({ status: rejected.status, body: await rejected.json() }).toEqual({
         status: 403,
-        body: { error: { tag: "TrustedOriginRejected" } },
+        body: {
+          type: "urn:vektorprogrammet:problem:v0.2:origin.denied",
+          title: "Origin denied",
+          status: 403,
+          code: "origin.denied",
+          detail: "The browser origin is not trusted for this operation.",
+        },
       });
       expect(rejected.headers.get("access-control-allow-origin")).toBeNull();
     }
@@ -523,7 +541,7 @@ describe("unified backend router", () => {
     const preflight = await originBackend.fetch(
       new Request("http://backend.test/api/session", {
         method: "OPTIONS",
-        headers: { origin: trustedOrigin },
+        headers: { origin: trustedOrigin, "access-control-request-method": "GET" },
       }),
     );
     expect(preflight.status).toBe(204);
@@ -532,6 +550,40 @@ describe("unified backend router", () => {
     expect(handled).toEqual(["/api/auth/sign-in/email"]);
     expect(rejectedCorrelations).toHaveLength(3);
     expect(new Set(rejectedCorrelations).size).toBe(3);
+  });
+  it("keeps OAuth protocol errors outside the native origin problem boundary", async () => {
+    const oauthCalls: string[] = [];
+    const rejectedCorrelations: string[] = [];
+    const oauthBackend = makeBackendHttp(config, successfulRun, {
+      handle: async () => new Response(null, { status: 404 }),
+      handleOAuth: async (request) => {
+        oauthCalls.push(`${request.method} ${new URL(request.url).pathname}`);
+        return new Response(JSON.stringify({ error: "invalid_request" }), {
+          status: 400,
+          headers: {
+            "cache-control": "no-store",
+            "content-type": "application/json",
+          },
+        });
+      },
+      recordTrustedOriginRejection: async (context) => {
+        rejectedCorrelations.push(context.requestCorrelation);
+      },
+    });
+
+    const response = await oauthBackend.fetch(
+      new Request("http://backend.test/api/auth/oauth2/consent", {
+        method: "POST",
+        headers: { origin: "https://untrusted.example.invalid" },
+      }),
+    );
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 400,
+      body: { error: "invalid_request" },
+    });
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+    expect(oauthCalls).toEqual(["POST /api/auth/oauth2/consent"]);
+    expect(rejectedCorrelations).toEqual([]);
   });
 
   it("allows only the centralized native browser request headers before dispatch", async () => {
@@ -549,11 +601,11 @@ describe("unified backend router", () => {
     });
 
     const allowed = await backend.fetch(
-      new Request("http://backend.test/api/auth/sign-in/email", {
+      new Request("http://backend.test/api/session", {
         method: "OPTIONS",
         headers: {
           origin,
-          "access-control-request-method": "PATCH",
+          "access-control-request-method": "DELETE",
           "access-control-request-headers":
             "CONTENT-type, idempotency-KEY, IF-match, If-None-Match, x-Recruitment-Invitation-Capability",
         },
@@ -561,15 +613,15 @@ describe("unified backend router", () => {
     );
     expect(allowed.status).toBe(204);
     expect(allowed.headers.get("access-control-allow-headers")).toBe(
-      "Content-Type, Idempotency-Key, If-Match, If-None-Match, X-Recruitment-Invitation-Capability",
+      "Authorization, Content-Type, Idempotency-Key, If-Match, If-None-Match, X-Recruitment-Invitation-Capability",
     );
-    expect(allowed.headers.get("access-control-allow-methods")).toBe(
-      "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+    expect(allowed.headers.get("access-control-allow-methods")).toBe("GET, HEAD, DELETE, OPTIONS");
+    expect(allowed.headers.get("vary")).toBe(
+      "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
     );
-    expect(allowed.headers.get("vary")).toBe("Origin, Access-Control-Request-Headers");
 
     const unknown = await backend.fetch(
-      new Request("http://backend.test/api/auth/sign-in/email", {
+      new Request("http://backend.test/api/session", {
         method: "OPTIONS",
         headers: {
           origin,
@@ -579,11 +631,29 @@ describe("unified backend router", () => {
       }),
     );
     expect({ status: unknown.status, body: await unknown.json() }).toEqual({
-      status: 403,
-      body: { error: { tag: "TrustedOriginRejected" } },
+      status: 400,
+      body: {
+        type: "urn:vektorprogrammet:problem:v0.2:header.malformed",
+        title: "Malformed header",
+        status: 400,
+        code: "header.malformed",
+        detail: "A request header is malformed.",
+      },
     });
+
+    const wrongMethod = await backend.fetch(
+      new Request("http://backend.test/api/session", {
+        method: "OPTIONS",
+        headers: {
+          origin,
+          "access-control-request-method": "POST",
+        },
+      }),
+    );
+    expect(wrongMethod.status).toBe(405);
+    expect(wrongMethod.headers.get("allow")).toBe("GET, HEAD, DELETE, OPTIONS");
     expect(dispatched).toEqual([]);
-    expect(rejectedCorrelations).toHaveLength(1);
+    expect(rejectedCorrelations).toHaveLength(0);
   });
 
   it("composes local, preview, and production cookie policy without invented origins", () => {
@@ -596,13 +666,13 @@ describe("unified backend router", () => {
       makeBackendConfig({
         ...environment,
         NATIVE_IDENTITY_DEPLOYMENT: "preview",
-        NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["https://preview.example.invalid"]),
-        OAUTH_CANONICAL_ORIGIN: "https://preview.example.invalid",
-        OAUTH_DASHBOARD_ORIGIN: "https://preview.example.invalid",
+        NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["https://vektor.phibkro.org"]),
+        OAUTH_CANONICAL_ORIGIN: "https://vektor.phibkro.org",
+        OAUTH_DASHBOARD_ORIGIN: "https://vektor.phibkro.org",
       }).sessionBoundary,
     ).toEqual({
       deployment: "preview",
-      trustedOrigins: ["https://preview.example.invalid"],
+      trustedOrigins: ["https://vektor.phibkro.org"],
       secureCookies: true,
     });
     expect(() =>
@@ -616,9 +686,9 @@ describe("unified backend router", () => {
       makeBackendConfig({
         ...environment,
         NATIVE_IDENTITY_DEPLOYMENT: "preview",
-        NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["http://127.0.0.1:5174"]),
+        NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["https://p999.vektor.phibkro.org"]),
       }),
-    ).toThrow("preview native identity origins must use HTTPS");
+    ).toThrow("frozen dev-main or p20 origin");
     expect(() =>
       makeBackendConfig({
         ...environment,

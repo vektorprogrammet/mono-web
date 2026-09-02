@@ -48,8 +48,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     const users = await client.admin.users.list();
     return {
       users: {
-        activeUsers: users.activeUsers.map(toRow),
-        inactiveUsers: users.inactiveUsers.map(toRow),
+        activeUsers: users.activePeople.map(toRow),
+        inactiveUsers: users.inactivePeople.map(toRow),
       },
     };
   } catch (error) {

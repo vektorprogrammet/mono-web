@@ -582,6 +582,14 @@ const replaceArticleDepartments = (
   articleId: number,
   departmentIds: ReadonlyArray<DepartmentId>,
 ): Effect.Effect<void, ContentPersistenceError | ContentDepartmentNotFound> => {
+  const markRevisionManaged = sql`
+    SELECT set_config('vektor.content_revision_managed', 'on', true)
+  `.pipe(
+    Effect.asVoid,
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("mark content revision managed", cause)),
+    ),
+  );
   const clear =
     sql`DELETE FROM public.content_article_departments WHERE article_id = ${articleId}`.pipe(
       Effect.asVoid,
@@ -604,10 +612,12 @@ const replaceArticleDepartments = (
         Effect.fail(persistenceError("insert content department link", cause)),
       ),
     );
-  return Effect.flatMap(clear, () =>
-    departmentIds.length === 0
-      ? Effect.void
-      : Effect.forEach(departmentIds, insertOne, { discard: true }),
+  return Effect.flatMap(markRevisionManaged, () =>
+    Effect.flatMap(clear, () =>
+      departmentIds.length === 0
+        ? Effect.void
+        : Effect.forEach(departmentIds, insertOne, { discard: true }),
+    ),
   ) as Effect.Effect<void, ContentPersistenceError | ContentDepartmentNotFound>;
 };
 

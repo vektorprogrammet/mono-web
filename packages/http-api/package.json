@@ -5,7 +5,8 @@
   "homepage": "https://github.com/vektorprogrammet/mono-web",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./http-semantics": "./src/http-semantics.ts"
   },
   "scripts": {
     "generate": "bun run scripts/generate-openapi.ts",

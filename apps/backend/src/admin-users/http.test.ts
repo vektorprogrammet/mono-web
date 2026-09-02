@@ -386,20 +386,20 @@ describe("GET /api/admin/users (spec 0057)", () => {
     const response = await request();
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
-      activeUsers: Array<Record<string, unknown>>;
-      inactiveUsers: Array<Record<string, unknown>>;
+      activePeople: Array<Record<string, unknown>>;
+      inactivePeople: Array<Record<string, unknown>>;
       nextCursor: string | null;
     };
-    expect(body.activeUsers.map((row) => row.personId)).toEqual([
+    expect(body.activePeople.map((row) => row.personId)).toEqual([
       "person-multi-department",
       "person-leader-a",
     ]);
-    expect(body.inactiveUsers.map((row) => row.personId)).toEqual(["person-ended-membership"]);
+    expect(body.inactivePeople.map((row) => row.personId)).toEqual(["person-ended-membership"]);
     expect(body.nextCursor).toBeNull();
-    const multi = body.activeUsers.find((row) => row.personId === "person-multi-department");
+    const multi = body.activePeople.find((row) => row.personId === "person-multi-department");
     // The frozen entry carries department NAMES (spec 0057 falsifier), sorted.
     expect(multi?.departments).toEqual(["Name of department-a", "Name of department-b"]);
-    for (const row of [...body.activeUsers, ...body.inactiveUsers]) {
+    for (const row of [...body.activePeople, ...body.inactivePeople]) {
       expect(Object.keys(row).sort()).toEqual([
         "departments",
         "email",
@@ -433,12 +433,12 @@ describe("GET /api/admin/users (spec 0057)", () => {
     const response = await request();
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
-      activeUsers: Array<{ personId: string; departments: string[] }>;
-      inactiveUsers: Array<{ personId: string }>;
+      activePeople: Array<{ personId: string; departments: string[] }>;
+      inactivePeople: Array<{ personId: string }>;
     };
     // Only the multi-department person touches department B.
-    expect(body.activeUsers.map((row) => row.personId)).toEqual(["person-multi-department"]);
-    expect(body.inactiveUsers).toEqual([]);
+    expect(body.activePeople.map((row) => row.personId)).toEqual(["person-multi-department"]);
+    expect(body.inactivePeople).toEqual([]);
   });
 
   it("returns a legitimate 200 with empty arrays when nothing intersects", async () => {
@@ -456,8 +456,8 @@ describe("GET /api/admin/users (spec 0057)", () => {
     const response = await request();
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      activeUsers: [],
-      inactiveUsers: [],
+      activePeople: [],
+      inactivePeople: [],
       nextCursor: null,
     });
   });
@@ -476,10 +476,10 @@ describe("GET /api/admin/users (spec 0057)", () => {
     const response = await request();
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
-      activeUsers: Array<{ personId: string }>;
-      inactiveUsers: Array<{ personId: string }>;
+      activePeople: Array<{ personId: string }>;
+      inactivePeople: Array<{ personId: string }>;
     };
-    const ids = [...body.activeUsers, ...body.inactiveUsers].map((row) => row.personId);
+    const ids = [...body.activePeople, ...body.inactivePeople].map((row) => row.personId);
     expect(new Set(ids).size).toBe(205);
     expect(ids.length).toBe(205);
   });

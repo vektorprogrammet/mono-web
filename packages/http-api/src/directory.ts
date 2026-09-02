@@ -14,7 +14,7 @@ import { errorBody, operationAnnotations, SessionSecurity } from "./common.js";
  * @since 0.1.0
  * @category Schemas
  */
-export const AdminUserDirectoryEntry = Schema.Struct({
+export const PeopleDirectoryEntry = Schema.Struct({
   personId: Schema.String,
   firstName: Schema.String,
   lastName: Schema.String,
@@ -24,7 +24,7 @@ export const AdminUserDirectoryEntry = Schema.Struct({
   departments: Schema.Array(Schema.String),
   isActive: Schema.Boolean,
 }).annotate({
-  identifier: "AdminUserDirectoryEntry",
+  identifier: "PeopleDirectoryEntry",
   description: "Person profile enriched with Organization-owned department facts.",
   examples: [
     {
@@ -46,16 +46,16 @@ export const AdminUserDirectoryEntry = Schema.Struct({
  * @since 0.1.0
  * @category Schemas
  */
-export const AdminUserDirectoryResponse = Schema.Struct({
-  activeUsers: Schema.Array(AdminUserDirectoryEntry),
-  inactiveUsers: Schema.Array(AdminUserDirectoryEntry),
+export const PeopleDirectoryResponse = Schema.Struct({
+  activePeople: Schema.Array(PeopleDirectoryEntry),
+  inactivePeople: Schema.Array(PeopleDirectoryEntry),
   nextCursor: Schema.NullOr(Schema.String),
 }).annotate({
-  identifier: "AdminUserDirectoryResponse",
-  description: "Active and inactive users visible in the caller's authority scope.",
+  identifier: "PeopleDirectoryResponse",
+  description: "Active and inactive people visible in the caller's authority scope.",
   examples: [
     {
-      activeUsers: [
+      activePeople: [
         {
           personId: "7202",
           firstName: "Ming",
@@ -67,7 +67,7 @@ export const AdminUserDirectoryResponse = Schema.Struct({
           isActive: true,
         },
       ],
-      inactiveUsers: [],
+      inactivePeople: [],
       nextCursor: null,
     },
   ],
@@ -91,7 +91,7 @@ const DirectoryUnavailableResponse = errorBody(
 
 /** @since 0.1.0 @category Endpoints */
 export const ListAdminUsersEndpoint = HttpApiEndpoint.get("listAdminUsers", "/api/admin/users", {
-  success: AdminUserDirectoryResponse,
+  success: PeopleDirectoryResponse,
   error: [DirectoryForbiddenResponse, DirectoryDecodeResponse, DirectoryUnavailableResponse],
 })
   .middleware(SessionSecurity)

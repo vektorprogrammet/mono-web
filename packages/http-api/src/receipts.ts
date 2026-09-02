@@ -14,6 +14,7 @@ import { Multipart } from "effect/unstable/http";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec } from "./access.js";
 import { operationAnnotations, receiptErrorBody, SessionSecurity } from "./common.js";
+import { StrongETag } from "./http-semantics.js";
 
 const MultipartText = Schema.String;
 
@@ -90,6 +91,7 @@ export const ReceiptListItemExample = {
   receiptDate: "2026-08-24",
   status: "Pending",
   revision: 2,
+  etag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',
 } as const;
 
 export const ReceiptListItem = Schema.Struct({
@@ -103,6 +105,7 @@ export const ReceiptListItem = Schema.Struct({
   receiptDate: Schema.String,
   status: ReceiptStatusSchema,
   revision: Schema.Int,
+  etag: StrongETag,
 }).annotate({
   identifier: "ReceiptListItem",
   description: "Owner or approver receipt projection.",
@@ -118,6 +121,7 @@ export const ReceiptListItem = Schema.Struct({
       receiptDate: "2026-08-24",
       status: "Pending",
       revision: 2,
+      etag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',
     },
   ],
 });
@@ -140,6 +144,30 @@ export const ReceiptListResponse = Schema.Struct({
       totalItems: 1,
     },
   ],
+});
+export const ReceiptApprovalQueueItem = Schema.Struct({
+  receiptId: Schema.String,
+  visualId: Schema.String,
+  ownerPersonId: Schema.String,
+  departmentId: Schema.String,
+  amountOre: Schema.Int,
+  currency: Schema.Literals(["NOK"]),
+  description: Schema.String,
+  receiptDate: Schema.String,
+  status: ReceiptStatusSchema,
+  revision: Schema.Int,
+  etag: StrongETag,
+}).annotate({
+  identifier: "ReceiptApprovalQueueItem",
+  description: "One receipt visible in the current approver queue.",
+});
+
+export const ReceiptApprovalQueueResponse = Schema.Struct({
+  items: Schema.Array(ReceiptApprovalQueueItem),
+  totalItems: Schema.Int,
+}).annotate({
+  identifier: "ReceiptApprovalQueueResponse",
+  description: "Receipts in the current approver queue and their count.",
 });
 
 /**
@@ -306,7 +334,7 @@ export const ListReceiptsEndpoint = HttpApiEndpoint.get("listReceipts", "/api/re
 export const ListReceiptsForApprovalEndpoint = HttpApiEndpoint.get(
   "listReceiptsForApproval",
   "/api/admin/receipts",
-  { query: ReceiptStatusQuery, success: ReceiptListResponse, error: ReceiptErrors },
+  { query: ReceiptStatusQuery, success: ReceiptApprovalQueueResponse, error: ReceiptErrors },
 )
   .middleware(SessionSecurity)
   .annotateMerge(

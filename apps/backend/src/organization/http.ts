@@ -19,6 +19,16 @@ import { ExternalNativeApi } from "@vektorprogrammet/http-api";
 import { Effect, Match, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
+import {
+  HttpSemanticFailure,
+  PUBLIC_CACHE_CONTROL,
+  deriveStrongETag,
+  evaluateReadPreconditions,
+  nativeProblemResponse,
+  notModifiedResponse,
+  parseIfNoneMatch,
+  parseReadIfMatch,
+} from "../http-semantics.js";
 import type { BackendRun } from "../router.js";
 import type { OrganizationApiConfig } from "./config.js";
 
@@ -201,6 +211,52 @@ const strictJsonResponse = async <S extends Schema.ConstraintDecoder<unknown, ne
   );
   return jsonResponse(decoded, status);
 };
+const publicListResponse = (
+  request: Request,
+  body: unknown,
+  representationKind: string,
+  versions: ReadonlyArray<readonly [string, number]>,
+): Response => {
+  const etag = deriveStrongETag({
+    representationKind,
+    resourceIdentity: new URL(request.url).pathname,
+    version: versions,
+  });
+  try {
+    const ifMatchValue = request.headers.get("if-match");
+    const decision = evaluateReadPreconditions({
+      currentETag: etag,
+      ifMatch: ifMatchValue === null ? null : parseReadIfMatch([ifMatchValue]),
+      ifNoneMatch: parseIfNoneMatch(
+        request.headers.get("if-none-match") === null
+          ? []
+          : [request.headers.get("if-none-match")!],
+      ),
+    });
+    if (decision._tag === "Failed") {
+      return nativeProblemResponse(decision.code, decision.status);
+    }
+    if (decision._tag === "NotModified") {
+      return notModifiedResponse({
+        etag,
+        cacheControl: PUBLIC_CACHE_CONTROL,
+        vary: "Origin",
+      });
+    }
+  } catch (cause) {
+    if (!(cause instanceof HttpSemanticFailure)) throw cause;
+    return nativeProblemResponse(cause.code, cause.status);
+  }
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: {
+      "content-type": "application/json",
+      "cache-control": PUBLIC_CACHE_CONTROL,
+      etag,
+      vary: "Origin",
+    },
+  });
+};
 
 const listDepartments = async (
   request: Request,
@@ -208,7 +264,17 @@ const listDepartments = async (
 ): Promise<Response> => {
   assertNoQuery(request);
   const rows = await input.run(Organization.use(({ listDepartments }) => listDepartments));
-  return strictJsonResponse(rows, Schema.Array(DepartmentJsonSchema), input);
+  const decoded = await input.run(
+    Schema.decodeUnknownEffect(Schema.Array(DepartmentJsonSchema))(rows, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError(() => taggedError("OrganizationPersistenceError"))),
+  );
+  return publicListResponse(
+    request,
+    decoded,
+    "DepartmentListResponse",
+    decoded.map((row) => [row.departmentId, row.revision] as const),
+  );
 };
 
 const listTeams = async (
@@ -217,7 +283,17 @@ const listTeams = async (
 ): Promise<Response> => {
   assertNoQuery(request);
   const rows = await input.run(Organization.use(({ listTeams }) => listTeams()));
-  return strictJsonResponse(rows, Schema.Array(TeamJsonSchema), input);
+  const decoded = await input.run(
+    Schema.decodeUnknownEffect(Schema.Array(TeamJsonSchema))(rows, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError(() => taggedError("OrganizationPersistenceError"))),
+  );
+  return publicListResponse(
+    request,
+    decoded,
+    "TeamListResponse",
+    decoded.map((row) => [row.teamId, row.revision] as const),
+  );
 };
 
 const listFieldOfStudies = async (
@@ -226,7 +302,17 @@ const listFieldOfStudies = async (
 ): Promise<Response> => {
   assertNoQuery(request);
   const rows = await input.run(Organization.use(({ listFieldOfStudies }) => listFieldOfStudies));
-  return strictJsonResponse(rows, Schema.Array(FieldOfStudyJsonSchema), input);
+  const decoded = await input.run(
+    Schema.decodeUnknownEffect(Schema.Array(FieldOfStudyJsonSchema))(rows, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError(() => taggedError("OrganizationPersistenceError"))),
+  );
+  return publicListResponse(
+    request,
+    decoded,
+    "FieldOfStudyListResponse",
+    decoded.map((row) => [row.fieldOfStudyId, row.revision] as const),
+  );
 };
 
 const createDepartment = async (

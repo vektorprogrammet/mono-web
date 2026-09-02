@@ -3,6 +3,7 @@ import { ExternalNativeApi } from "@vektorprogrammet/http-api";
 import { Effect, Match, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
+import { deriveProfileStrongETag } from "../http-semantics.js";
 import type { BackendConfig } from "../config.js";
 import type { BackendRun } from "../router.js";
 
@@ -62,12 +63,17 @@ const taggedError = (tag: ProfileHttpErrorTag): TaggedHttpError => {
   return error;
 };
 
-const jsonResponse = (body: unknown, status = 200): Response =>
+const jsonResponse = (
+  body: unknown,
+  status = 200,
+  extraHeaders: Readonly<Record<string, string>> = {},
+): Response =>
   new Response(JSON.stringify(body), {
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
       "cache-control": "no-store",
+      ...extraHeaders,
     },
   });
 
@@ -152,7 +158,14 @@ const strictProfileResponse = async (
       { onExcessProperty: "error" },
     ).pipe(Effect.mapError(() => taggedError("ProfilePersistenceError"))),
   );
-  return jsonResponse(decoded);
+  return jsonResponse(decoded, 200, {
+    etag: deriveProfileStrongETag({
+      personId: profile.personId,
+      nameRevision: profile.nameRevision,
+      contactRevision: profile.contactRevision,
+      role,
+    }),
+  });
 };
 
 const readOwnProfile = async (

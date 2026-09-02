@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
 import { Schema } from "effect";
+import { allowHeader, nativeProblemResponse } from "./http-semantics.js";
 
 const Deployment = Schema.Literals(["local", "preview", "production"]);
 export type IdentityDeployment = typeof Deployment.Type;
@@ -42,11 +43,6 @@ export interface NativeSessionBoundaryPolicy {
   readonly secureCookies: boolean;
 }
 
-const loopbackOrigin = (origin: string): boolean => {
-  const hostname = new URL(origin).hostname;
-  return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "[::1]";
-};
-
 /**
  * Decodes the one native session-origin configuration authority. Local,
  * preview, and production compositions must all provide it explicitly.
@@ -68,16 +64,20 @@ export const makeNativeSessionBoundaryPolicy = (
     throw new Error("NATIVE_IDENTITY_TRUSTED_ORIGINS must not contain duplicates");
   }
   if (deployment === "local") {
-    if (
-      trustedOrigins.length !== 1 ||
-      !loopbackOrigin(trustedOrigins[0]!) ||
-      new URL(trustedOrigins[0]!).protocol !== "http:"
-    ) {
-      throw new Error(
-        "local native identity composition requires one explicit HTTP loopback origin",
-      );
+    if (trustedOrigins.length !== 1 || trustedOrigins[0] !== "http://127.0.0.1:5174") {
+      throw new Error("local native identity composition requires http://127.0.0.1:5174");
     }
     return { deployment, trustedOrigins, secureCookies: false };
+  }
+  if (
+    deployment === "preview" &&
+    (trustedOrigins.length !== 1 ||
+      (trustedOrigins[0] !== "https://vektor.phibkro.org" &&
+        trustedOrigins[0] !== "https://p20.vektor.phibkro.org"))
+  ) {
+    throw new Error(
+      "preview native identity composition requires its frozen dev-main or p20 origin",
+    );
   }
   if (trustedOrigins.some((origin) => new URL(origin).protocol !== "https:")) {
     throw new Error(`${deployment} native identity origins must use HTTPS`);
@@ -169,19 +169,14 @@ export const decideTrustedOrigin = (
 };
 
 export const trustedOriginRejectedResponse = (): Response =>
-  new Response(JSON.stringify({ error: { tag: "TrustedOriginRejected" } }), {
-    status: 403,
-    headers: {
-      "cache-control": "no-store",
-      "content-type": "application/json; charset=utf-8",
-    },
-  });
+  nativeProblemResponse("origin.denied", 403, { vary: "Origin" });
 /**
  * Browser-controlled headers supported by the current native API contract.
  * Cookie and CORS-safelisted headers are intentionally absent because browsers
  * do not include them in Access-Control-Request-Headers.
  */
 export const NativeBrowserRequestHeaders = [
+  "Authorization",
   "Content-Type",
   "Idempotency-Key",
   "If-Match",
@@ -198,33 +193,54 @@ export const allowsNativePreflightHeaders = (request: Request): boolean => {
   const value = request.headers.get("access-control-request-headers");
   if (value === null) return true;
   const requested = value.split(",").map((header) => header.trim().toLowerCase());
+  const unique = new Set(requested);
   return (
     requested.length > 0 &&
+    unique.size === requested.length &&
     requested.every((header) => header.length > 0 && nativeBrowserRequestHeaderSet.has(header))
   );
 };
 
-export const trustedPreflightResponse = (origin: string): Response =>
+/**
+ * Emits preflight headers for the methods selected by authoritative route
+ * metadata. The caller must not pass a process-wide method superset.
+ */
+export const trustedPreflightResponse = (
+  origin: string,
+  allowedMethods: ReadonlyArray<string>,
+): Response =>
   new Response(null, {
     status: 204,
     headers: {
       "access-control-allow-credentials": "true",
       "access-control-allow-headers": NativeBrowserRequestHeaders.join(", "),
-      "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+      "access-control-allow-methods": allowHeader(allowedMethods),
       "access-control-allow-origin": origin,
       "access-control-max-age": "600",
       "cache-control": "no-store",
-      vary: "Origin, Access-Control-Request-Headers",
+      vary: "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
     },
   });
 
-/** Adds credentialed CORS only for the exact allowed origin. */
+const mergeVary = (headers: Headers, values: ReadonlyArray<string>): void => {
+  const seen = new Map<string, string>();
+  for (const value of (headers.get("vary") ?? "").split(",")) {
+    const trimmed = value.trim();
+    if (trimmed.length > 0) seen.set(trimmed.toLowerCase(), trimmed);
+  }
+  for (const value of values) seen.set(value.toLowerCase(), value);
+  headers.set("vary", [...seen.values()].join(", "));
+};
+
+/** Adds request-relative CORS while every external response varies by Origin. */
 export const withTrustedOriginCors = (response: Response, origin: string | null): Response => {
-  if (origin === null) return response;
   const headers = new Headers(response.headers);
-  headers.set("access-control-allow-credentials", "true");
-  headers.set("access-control-allow-origin", origin);
-  headers.append("vary", "Origin");
+  mergeVary(headers, ["Origin"]);
+  if (origin !== null) {
+    headers.set("access-control-allow-credentials", "true");
+    headers.set("access-control-expose-headers", "ETag, Location, Retry-After, WWW-Authenticate");
+    headers.set("access-control-allow-origin", origin);
+  }
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,

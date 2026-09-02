@@ -367,7 +367,13 @@ describe("receipt HTTP identity and authority resolution (spec 0055/0056)", () =
     const rejected = await multipartRequest(state.http, "/api/receipts/submit", false);
     expect({ status: rejected.status, body: await rejected.json() }).toEqual({
       status: 403,
-      body: { error: { tag: "TrustedOriginRejected" } },
+      body: {
+        type: "urn:vektorprogrammet:problem:v0.2:origin.denied",
+        title: "Origin denied",
+        status: 403,
+        code: "origin.denied",
+        detail: "The browser origin is not trusted for this operation.",
+      },
     });
     expect(state.counts()).toEqual({
       authorizationPrincipalCalls: 0,

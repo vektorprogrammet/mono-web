@@ -85,7 +85,7 @@ describe("AdminUsersPageSchema", () => {
   it("rejects a page with an unexpected top-level field", () => {
     expect(() =>
       Schema.decodeUnknownSync(AdminUsersPageSchema)(
-        { activeUsers: [], inactiveUsers: [], total: 0 },
+        { activePeople: [], inactivePeople: [], total: 0 },
         { onExcessProperty: "error" },
       ),
     ).toThrow(/total/);
@@ -107,16 +107,16 @@ describe("admin users list()", () => {
   it("returns the two-array result for a single exhausted page", async () => {
     mockFetch.mockResolvedValueOnce(
       makeFetchResponse(200, {
-        activeUsers: [entry()],
-        inactiveUsers: [entry({ personId: "person-2", isActive: false })],
+        activePeople: [entry()],
+        inactivePeople: [entry({ personId: "person-2", isActive: false })],
         nextCursor: null,
       }),
     );
     const transport = createTransport("http://api.test");
     const domain = createAdminUsersDomain(transport);
     const result = await run(domain.list());
-    expect(result.activeUsers.map((row) => row.personId)).toEqual(["person-1"]);
-    expect(result.inactiveUsers.map((row) => row.personId)).toEqual(["person-2"]);
+    expect(result.activePeople.map((row) => row.personId)).toEqual(["person-1"]);
+    expect(result.inactivePeople.map((row) => row.personId)).toEqual(["person-2"]);
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
@@ -124,31 +124,31 @@ describe("admin users list()", () => {
     mockFetch
       .mockResolvedValueOnce(
         makeFetchResponse(200, {
-          activeUsers: [entry()],
-          inactiveUsers: [],
+          activePeople: [entry()],
+          inactivePeople: [],
           nextCursor: "cursor-page-2",
         }),
       )
       .mockResolvedValueOnce(
         makeFetchResponse(200, {
-          activeUsers: [],
-          inactiveUsers: [entry({ personId: "person-ended", isActive: false })],
+          activePeople: [],
+          inactivePeople: [entry({ personId: "person-ended", isActive: false })],
           nextCursor: null,
         }),
       );
     const transport = createTransport("http://api.test");
     const domain = createAdminUsersDomain(transport);
     const result = await run(domain.list());
-    expect(result.activeUsers.map((row) => row.personId)).toEqual(["person-1"]);
-    expect(result.inactiveUsers.map((row) => row.personId)).toEqual(["person-ended"]);
+    expect(result.activePeople.map((row) => row.personId)).toEqual(["person-1"]);
+    expect(result.inactivePeople.map((row) => row.personId)).toEqual(["person-ended"]);
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
   it("fails with a typed decode error when a page carries excess fields", async () => {
     mockFetch.mockResolvedValueOnce(
       makeFetchResponse(200, {
-        activeUsers: [{ ...entry(), legacyField: "surprise" }],
-        inactiveUsers: [],
+        activePeople: [{ ...entry(), legacyField: "surprise" }],
+        inactivePeople: [],
         nextCursor: null,
       }),
     );
