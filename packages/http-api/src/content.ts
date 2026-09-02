@@ -24,7 +24,7 @@ import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, anonymousNativeAccess, personNativeAccess } from "./access.js";
-import { errorBody, operationAnnotations, SessionSecurity } from "./common.js";
+import { errorBody, operationAnnotations, PersonSecurity } from "./common.js";
 
 /**
  * Optional public/staff department filter using the transport key.
@@ -174,7 +174,7 @@ export const ReadContentWorkspaceEndpoint = HttpApiEndpoint.get(
   "/api/content/articles",
   { query: ContentDepartmentQuery, success: ContentWorkspaceSchema, error: ContentErrors },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -206,7 +206,7 @@ export const CreateArticleEndpoint = HttpApiEndpoint.post(
     error: ContentErrors,
   },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -232,7 +232,7 @@ export const ReadArticleEndpoint = HttpApiEndpoint.get(
   "/api/content/articles/:articleId",
   { params: ArticleParams, success: ContentArticleDetailSchema, error: ContentErrors },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -262,7 +262,7 @@ export const ReviseArticleEndpoint = HttpApiEndpoint.patch(
     error: ContentErrors,
   },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -300,7 +300,7 @@ export const PublishArticleEndpoint = HttpApiEndpoint.post(
     error: ContentErrors,
   },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -335,7 +335,7 @@ export const UnpublishArticleEndpoint = HttpApiEndpoint.post(
     error: ContentErrors,
   },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,

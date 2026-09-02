@@ -548,7 +548,7 @@ export const admissionCacheControl = (
 export const nativeProblemResponse = (
   code: NativeProblemCode,
   status: number,
-  headers: HeadersInit = {},
+  headers: ConstructorParameters<typeof Headers>[0] = {},
 ): Response => {
   const responseHeaders = new Headers(headers);
   responseHeaders.set("cache-control", NO_STORE);

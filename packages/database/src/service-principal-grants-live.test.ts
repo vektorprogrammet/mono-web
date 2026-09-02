@@ -87,8 +87,13 @@ const recordingPool = (
         return queryResult([
           {
             ...persistedGrant,
+            visual_id: "SERVICE-1",
             owner_person_id: "service-receipt-owner",
             department_id: "service-receipt-department",
+            amount_ore: "1250",
+            currency: "NOK",
+            description: "Service candidate",
+            receipt_date: "2032-06-01",
             receipt_status: "Pending",
             receipt_revision: 0,
           },
@@ -123,13 +128,8 @@ describe("service-principal grant PostgreSQL authority", () => {
         authorizationInstant,
       ),
     );
-    expect(authority.rules.map((rule) => rule.ruleId)).toEqual([
-      "service-receipt-pending-rule",
-    ]);
-    const sharedLock = statementIndex(
-      recording.statements,
-      "pg_advisory_xact_lock_shared",
-    );
+    expect(authority.rules.map((rule) => rule.ruleId)).toEqual(["service-receipt-pending-rule"]);
+    const sharedLock = statementIndex(recording.statements, "pg_advisory_xact_lock_shared");
     const tokenRead = statementIndex(recording.statements, "oauth_access_token_state");
     const grantRead = statementIndex(recording.statements, "service_principal_grants AS");
     const ruleRead = statementIndex(recording.statements, "FROM public.authz_rules");
@@ -199,10 +199,7 @@ describe("service-principal grant PostgreSQL authority", () => {
       }),
     );
     expect(created.grantId).toBe("service-receipt-approval-grant");
-    const exclusiveLock = statementIndex(
-      recording.statements,
-      "pg_advisory_xact_lock(",
-    );
+    const exclusiveLock = statementIndex(recording.statements, "pg_advisory_xact_lock(");
     const mutation = statementIndex(
       recording.statements,
       "INSERT INTO public.service_principal_grants",

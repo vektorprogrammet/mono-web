@@ -1,11 +1,12 @@
 import { BlockList, isIP } from "node:net";
-import { IdentitySnapshot } from "@vektorprogrammet/database";
+import { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
 import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
 import { InactiveActor, UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
 import { type Database } from "@vektorprogrammet/domain/database";
 import { Identity, type IdentityRequestContext } from "@vektorprogrammet/domain/identity";
+import { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
 import { DepartmentId, type Organization } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
@@ -24,8 +25,10 @@ import {
   recruitmentBoardActorFrom,
   resolveAuthenticatedPerson,
   resolveAuthenticatedPersonAtInstant,
-  resolvePersonAuthority,
-  resolvePersonAuthorityAfterSession,
+  resolveRequestPerson,
+  resolveRequestPersonAtInstant,
+  resolveRequestCredentialAtInstant,
+  resolveRequestPersonAuthority,
 } from "./authority.js";
 import type { BackendConfig } from "./config.js";
 import { ContentApiHandlers } from "./content/http.js";
@@ -64,7 +67,9 @@ export type BackendRun = <A, E>(
     | Recruitment
     | Schools
     | Identity
+    | ServicePrincipalGrantAuthority
     | IdentitySnapshot
+    | OAuthCredentialAuthority
     | ContentManagement
     | Content
   >,
@@ -124,9 +129,8 @@ export const makeExternalNativeApiRouterLayer = (
     request: Request,
     departmentScope?: string,
   ): Promise<AdmissionPeriodActor> => {
-    const cookie = request.headers.get("cookie") ?? undefined;
     if (departmentScope === undefined) {
-      const authority = await resolvePersonAuthority(cookie, { run, now: options.now });
+      const authority = await resolveRequestPersonAuthority(request, { run, now: options.now });
       if (authority.globalAdministrator !== "Active") {
         throw authority.globalAdministrator === "Inactive"
           ? new InactiveActor({ personId: authority.personId })
@@ -138,15 +142,16 @@ export const makeExternalNativeApiRouterLayer = (
         active: true,
       };
     }
-    const authority = await resolvePersonAuthority(cookie, { run, now: options.now });
+    const authority = await resolveRequestPersonAuthority(request, { run, now: options.now });
     return admissionActorForDepartment(authority, DepartmentId.make(departmentScope));
   };
 
   const receiptIdentity: ReceiptIdentityResolvers = {
-    resolveAuthorizationPrincipal: async (cookieHeader) =>
-      resolveAuthenticatedPersonAtInstant(cookieHeader, { run, now: options.now }),
-    resolvePersonId: async (cookieHeader) =>
-      resolveAuthenticatedPerson(cookieHeader, { run, now: options.now }),
+    resolveAuthorizationPrincipal: async (request) =>
+      resolveRequestPersonAtInstant(request, { run, now: options.now }),
+    resolvePersonId: async (request) => resolveRequestPerson(request, { run, now: options.now }),
+    resolveApprovalCredential: (request) =>
+      resolveRequestCredentialAtInstant(request, "Either", { run, now: options.now }),
   };
   const receiptOptions = {
     config: config.receipt,
@@ -166,10 +171,10 @@ export const makeExternalNativeApiRouterLayer = (
     RecruitmentApiHandlers({
       config: config.recruitment,
       resolveConductContext: async (request) => {
-        const authority = await resolvePersonAuthorityAfterSession(
-          request.headers.get("cookie") ?? undefined,
-          { run, now: options.now },
-        );
+        const authority = await resolveRequestPersonAuthority(request, {
+          run,
+          now: options.now,
+        });
         return {
           actor: {
             _tag: "Member",
@@ -181,7 +186,7 @@ export const makeExternalNativeApiRouterLayer = (
         };
       },
       resolveActor: async (request) => {
-        const authority = await resolvePersonAuthority(request.headers.get("cookie") ?? undefined, {
+        const authority = await resolveRequestPersonAuthority(request, {
           run,
           now: options.now,
         });
@@ -192,14 +197,14 @@ export const makeExternalNativeApiRouterLayer = (
     OrganizationApiHandlers({
       config: config.organization,
       resolveActor: async (request) => {
-        const authority = await resolvePersonAuthority(request.headers.get("cookie") ?? undefined, {
+        const authority = await resolveRequestPersonAuthority(request, {
           run,
           now: options.now,
         });
         return organizationActorFrom(authority);
       },
       resolveAuthority: (request) =>
-        resolvePersonAuthority(request.headers.get("cookie") ?? undefined, {
+        resolveRequestPersonAuthority(request, {
           run,
           now: options.now,
         }),
@@ -208,7 +213,7 @@ export const makeExternalNativeApiRouterLayer = (
     AdminUsersApiHandlers(
       {
         resolveAuthority: (request) =>
-          resolvePersonAuthority(request.headers.get("cookie") ?? undefined, {
+          resolveRequestPersonAuthority(request, {
             run,
             now: options.now,
           }),
@@ -216,7 +221,7 @@ export const makeExternalNativeApiRouterLayer = (
       },
       {
         resolveActor: (request) =>
-          resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, {
+          resolveRequestPersonAtInstant(request, {
             run,
             now: options.now,
           }),
@@ -225,7 +230,7 @@ export const makeExternalNativeApiRouterLayer = (
     ),
     ContentApiHandlers(
       (request) =>
-        resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, {
+        resolveRequestPersonAtInstant(request, {
           run,
           now: options.now,
         }),
@@ -234,7 +239,7 @@ export const makeExternalNativeApiRouterLayer = (
     ProfileApiHandlers({
       config,
       resolveActor: async (request) => {
-        const authority = await resolvePersonAuthority(request.headers.get("cookie") ?? undefined, {
+        const authority = await resolveRequestPersonAuthority(request, {
           run,
           now: options.now,
         });
@@ -278,10 +283,16 @@ export const makeInternalNativeApiRouterLayer = (
   const receiptOptions = {
     config: config.receipt,
     identity: {
-      resolveAuthorizationPrincipal: async (cookieHeader: string | undefined) =>
-        resolveAuthenticatedPersonAtInstant(cookieHeader, { run, now: options.now }),
-      resolvePersonId: async (cookieHeader: string | undefined) =>
-        resolveAuthenticatedPerson(cookieHeader, { run, now: options.now }),
+      resolveAuthorizationPrincipal: async (request: Request) =>
+        resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, {
+          run,
+          now: options.now,
+        }),
+      resolvePersonId: async (request: Request) =>
+        resolveAuthenticatedPerson(request.headers.get("cookie") ?? undefined, {
+          run,
+          now: options.now,
+        }),
     } satisfies ReceiptIdentityResolvers,
     run,
     now: options.now,

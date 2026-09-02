@@ -1,6 +1,7 @@
-import { IdentitySnapshot } from "@vektorprogrammet/database";
+import { IdentitySnapshot, type OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
+import type { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
 import {
   Identity,
   IdentityEngineError,
@@ -155,6 +156,8 @@ const makeRun =
       | Schools
       | Identity
       | IdentitySnapshot
+      | OAuthCredentialAuthority
+      | ServicePrincipalGrantAuthority
       | ContentManagement
       | Content
     >,

@@ -260,7 +260,7 @@ import {
   errorBody,
   InvitationCapabilitySecurity,
   operationAnnotations,
-  SessionSecurity,
+  PersonSecurity,
 } from "./common.js";
 
 /**
@@ -513,7 +513,7 @@ export const ReadAssignmentBoardEndpoint = HttpApiEndpoint.get(
     error: RecruitmentErrors,
   },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -538,7 +538,7 @@ export const ReadSchedulingBoardEndpoint = HttpApiEndpoint.get(
   "/api/recruitment/interviews",
   { success: SchedulingBoard, error: RecruitmentErrors },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -568,7 +568,7 @@ export const AssignApplicantEndpoint = HttpApiEndpoint.post(
     error: RecruitmentErrors,
   },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -594,7 +594,7 @@ export const ScheduleInterviewEndpoint = HttpApiEndpoint.post(
     error: RecruitmentErrors,
   },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -620,7 +620,7 @@ export const ReadInterviewConductEndpoint = HttpApiEndpoint.get(
     error: RecruitmentErrors,
   },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -650,7 +650,7 @@ export const FinalizeInterviewEndpoint = HttpApiEndpoint.post(
     error: RecruitmentErrors,
   },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -677,7 +677,7 @@ export const CancelInterviewEndpoint = HttpApiEndpoint.post(
     error: RecruitmentErrors,
   },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,

@@ -21,7 +21,7 @@ import { DepartmentId, SemesterId } from "@vektorprogrammet/domain/organization"
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, anonymousNativeAccess, personNativeAccess } from "./access.js";
-import { errorBody, operationAnnotations, SessionSecurity } from "./common.js";
+import { errorBody, operationAnnotations, PersonSecurity } from "./common.js";
 
 /**
  * Admission-period create payload accepted by the native transport.
@@ -257,7 +257,7 @@ export const ListAdmissionPeriodsEndpoint = HttpApiEndpoint.get(
   "/api/admission-periods",
   { success: AdmissionPeriodListResponse, error: AdminAdmissionErrors },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -285,7 +285,7 @@ export const CreateAdmissionPeriodEndpoint = HttpApiEndpoint.post(
     error: AdminAdmissionErrors,
   },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -314,7 +314,7 @@ export const ReviseAdmissionPeriodEndpoint = HttpApiEndpoint.patch(
     error: AdminAdmissionErrors,
   },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,

@@ -1,6 +1,7 @@
-import type { IdentitySnapshot } from "@vektorprogrammet/database";
+import type { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
+import type { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import type { Identity } from "@vektorprogrammet/domain/identity";
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
@@ -96,6 +97,8 @@ const makeRun = (
       | Schools
       | Identity
       | IdentitySnapshot
+      | OAuthCredentialAuthority
+      | ServicePrincipalGrantAuthority
       | ContentManagement
       | Content
     >,

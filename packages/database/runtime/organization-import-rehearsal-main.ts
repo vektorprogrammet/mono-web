@@ -1166,7 +1166,7 @@ const makeRehearsalRuntime = (
   );
   const platformLayer = Layer.mergeAll(BunServices.layer, BunHttpPlatform.layer, Etag.layer);
   const routerLayer = HttpRouter.layer;
-  const run: BackendRun = (effect) => runtime.runPromise(effect);
+  const run = runtime.runPromise as BackendRun;
   const nativeApiLayer = makeExternalNativeApiRouterLayer(config, run, {
     now: () => SPEC_0067.authorizationInstant,
   }).pipe(Layer.provide(platformLayer), Layer.provide(routerLayer));

@@ -1,3 +1,4 @@
+import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
   Identity,
@@ -20,7 +21,9 @@ import { runTestPromise } from "../test/runtime.js";
 
 const makeRun =
   (identity: IdentityShape): AuthorityResolutionOptions["run"] =>
-  <A, E>(effect: Effect.Effect<A, E, Organization | Identity>): Promise<A> => {
+  <A, E>(
+    effect: Effect.Effect<A, E, Organization | Identity | OAuthCredentialAuthority>,
+  ): Promise<A> => {
     const runnable = effect.pipe(Effect.provideService(Identity, identity)) as Effect.Effect<A, E>;
     return runTestPromise(runnable);
   };

@@ -21,7 +21,7 @@ import {
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, anonymousNativeAccess, personNativeAccess } from "./access.js";
-import { errorBody, operationAnnotations, SessionSecurity } from "./common.js";
+import { errorBody, operationAnnotations, PersonSecurity } from "./common.js";
 
 /**
  * Leader-scoped organization query. Repeated values remain representable because
@@ -275,7 +275,7 @@ export const ListTeamInterestEndpoint = HttpApiEndpoint.get(
   "/api/team-interest-registrations",
   { query: OrganizationScopeQuery, success: TeamInterestResponse, error: AdminOrganizationErrors },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -299,7 +299,7 @@ export const ListMailingListsEndpoint = HttpApiEndpoint.get(
   "/api/mailing-lists",
   { query: MailingListQuery, success: MailingListResponse, error: AdminOrganizationErrors },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -331,7 +331,7 @@ export const CreateDepartmentEndpoint = HttpApiEndpoint.post(
     error: AdminOrganizationErrors,
   },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -355,7 +355,7 @@ export const CreateTeamEndpoint = HttpApiEndpoint.post("createTeam", "/api/teams
   success: CreateTeamSuccess,
   error: AdminOrganizationErrors,
 })
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -380,7 +380,7 @@ export const CreateFieldOfStudyEndpoint = HttpApiEndpoint.post(
     error: AdminOrganizationErrors,
   },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,

@@ -1,10 +1,6 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import {
-  AuthorizationInstant,
-  CredentialEvidenceRef,
-  ServicePrincipalId,
-} from "./access.js";
+import { AuthorizationInstant, CredentialEvidenceRef, ServicePrincipalId } from "./access.js";
 import {
   NATIVE_API_PROTECTED_RESOURCE,
   RECEIPT_APPROVAL_QUEUE_OPERATION,
@@ -68,9 +64,15 @@ const receipt = (
 ): ServicePrincipalReceiptGrantAuthority["candidates"][number] => ({
   grant: resourceGrant,
   receipt: {
-    receiptId: resourceGrant.receiptId === receiptId ? resourceGrant.receiptId : (receiptId as never),
+    receiptId:
+      resourceGrant.receiptId === receiptId ? resourceGrant.receiptId : (receiptId as never),
+    visualId: "SERVICE-1" as never,
     ownerPersonId: "service-receipt-owner" as never,
     departmentId: "service-receipt-department" as never,
+    amountOre: "1250",
+    currency: "NOK",
+    description: "Service candidate",
+    receiptDate: "2032-06-01",
     status,
     revision: 0,
   },
@@ -99,18 +101,20 @@ describe("service-principal receipt grants", () => {
         AuthorizationInstant.make("2032-06-01T11:59:59.999Z"),
       ),
     ).toBe(true);
-    expect(servicePrincipalReceiptGrantActiveAt(grant({ revokedAt: instant }), instant)).toBe(false);
+    expect(servicePrincipalReceiptGrantActiveAt(grant({ revokedAt: instant }), instant)).toBe(
+      false,
+    );
     expect(() => grant({ endAt: "2032-06-01T10:59:59.999Z" })).toThrow();
   });
 
   it("denies without an explicit active grant", () => {
-    expect(evaluateServicePrincipalReceiptApprovalAccess(credential, authority([]), instant)).toEqual(
-      {
-        _tag: "Deny",
-        stage: "Capability",
-        reason: "CapabilityMissing",
-      },
-    );
+    expect(
+      evaluateServicePrincipalReceiptApprovalAccess(credential, authority([]), instant),
+    ).toEqual({
+      _tag: "Deny",
+      stage: "Capability",
+      reason: "CapabilityMissing",
+    });
   });
 
   it("allows only the matching pending receipt and preserves per-receipt requirements", () => {
@@ -200,11 +204,7 @@ describe("service-principal receipt grants", () => {
 
   it("composes the service rule snapshot and denies ambiguous rule requirements", () => {
     const pendingGrant = grant();
-    const candidate = receipt(
-      "service-receipt-approval-pending",
-      "Pending",
-      pendingGrant,
-    );
+    const candidate = receipt("service-receipt-approval-pending", "Pending", pendingGrant);
     const pendingRule = Schema.decodeUnknownSync(AuthzRuleSchema)(
       {
         ruleId: "service-receipt-pending-a",

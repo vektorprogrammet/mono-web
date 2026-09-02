@@ -1,3 +1,4 @@
+import { PersonId } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
@@ -14,7 +15,7 @@ const request = async (cause: unknown): Promise<Response> =>
     },
     run: vi.fn() as never,
   }).fetch(
-    new Request("http://backend.test/api/me", {
+    new Request("http://backend.test/api/profile", {
       headers: { cookie: "better-auth.session_token=profile-test-session" },
     }),
   );
@@ -40,7 +41,7 @@ describe("Profile HTTP authority failures", () => {
 
 describe("Profile HTTP ETag", () => {
   const profile = {
-    personId: "person-1",
+    personId: PersonId.make("person-1"),
     firstName: "Ada",
     lastName: "Lovelace",
     email: "ada@example.invalid",
@@ -60,7 +61,7 @@ describe("Profile HTTP ETag", () => {
       resolveActor: async () => ({ personId: profile.personId, role }),
       run,
     }).fetch(
-      new Request("http://backend.test/api/me", {
+      new Request("http://backend.test/api/profile", {
         headers: { cookie: "better-auth.session_token=profile-test-session" },
       }),
     );

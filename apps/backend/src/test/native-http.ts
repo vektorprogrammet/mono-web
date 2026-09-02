@@ -9,6 +9,7 @@ import {
   ReceiptsApi,
   RecruitmentApi,
   InvitationCapabilitySecurity,
+  PersonSecurity,
   RequestSchemaErrorMiddleware,
   SessionSecurity,
 } from "@vektorprogrammet/http-api";
@@ -84,7 +85,7 @@ const testRouterFetch = <Id extends string, Groups extends HttpApiGroup.Constrai
   handlers: Layer.Layer<
     HttpApiGroup.ToService<Id, Groups>,
     never,
-    SessionSecurity | InvitationCapabilitySecurity | RequestSchemaErrorMiddleware
+    SessionSecurity | PersonSecurity | InvitationCapabilitySecurity | RequestSchemaErrorMiddleware
   >,
 ): ((request: Request) => Promise<Response>) => {
   const app = HttpApiBuilder.layer(contract).pipe(
@@ -104,7 +105,7 @@ const testFetch = <Id extends string, Groups extends HttpApiGroup.Constraint>(
   handlers: Layer.Layer<
     HttpApiGroup.ToService<Id, Groups>,
     never,
-    SessionSecurity | InvitationCapabilitySecurity | RequestSchemaErrorMiddleware
+    SessionSecurity | PersonSecurity | InvitationCapabilitySecurity | RequestSchemaErrorMiddleware
   >,
 ): ((request: Request) => Promise<Response>) =>
   makeBackendHttp(

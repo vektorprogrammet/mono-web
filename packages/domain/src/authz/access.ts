@@ -1247,8 +1247,12 @@ export const PUBLIC_SYSTEM_ACCESS = makeAccessSpec({
 
 export const RECEIPT_APPROVAL_QUEUE_ACCESS = makeAccessSpec({
   exposure: "External",
-  acceptedCredentials: [{ _tag: "BetterAuthCookie" }, { _tag: "OAuthUserBearer" }],
-  principalKinds: ["Person"],
+  acceptedCredentials: [
+    { _tag: "BetterAuthCookie" },
+    { _tag: "OAuthUserBearer" },
+    { _tag: "OAuthServiceBearer" },
+  ],
+  principalKinds: ["Person", "ServicePrincipal"],
   capabilities: {
     _tag: "One",
     capability: { type: APPROVE_RECEIPT_CAPABILITY },

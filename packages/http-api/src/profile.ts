@@ -12,7 +12,7 @@ import { PersonId } from "@vektorprogrammet/domain/organization";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, personNativeAccess } from "./access.js";
-import { errorBody, operationAnnotations, SessionSecurity } from "./common.js";
+import { errorBody, operationAnnotations, PersonSecurity } from "./common.js";
 
 /**
  * Legacy-compatible dashboard role projection.
@@ -114,7 +114,7 @@ export const ReadOwnProfileEndpoint = HttpApiEndpoint.get("readOwnProfile", "/ap
   success: UserProfileResponse,
   error: ProfileErrors,
 })
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -148,7 +148,7 @@ export const UpdateOwnProfileEndpoint = HttpApiEndpoint.patch("updateOwnProfile"
   success: UserProfileResponse,
   error: ProfileErrors,
 })
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,

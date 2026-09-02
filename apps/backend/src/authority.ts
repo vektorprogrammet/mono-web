@@ -1,3 +1,4 @@
+import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
 import {
   AdmissionScopeDenied,
@@ -26,7 +27,12 @@ import {
   Organization,
   OrganizationAuthorityInstantSchema,
 } from "@vektorprogrammet/domain/organization";
-import type { Decision } from "@vektorprogrammet/domain/authz";
+import {
+  AuthorizationInstant,
+  CredentialEvidenceRef,
+  type CredentialOutcome,
+  type Decision,
+} from "@vektorprogrammet/domain/authz";
 import type { RecruitmentActor } from "@vektorprogrammet/domain/recruitment";
 import { Effect, Schema } from "effect";
 
@@ -71,6 +77,48 @@ const sessionEffect = (
     }),
   );
 
+type AcceptedCredential = Extract<CredentialOutcome, { readonly _tag: "Accepted" }>;
+
+const requestCredentialEffect = (
+  request: Request,
+  expected: "OAuthUserBearer" | "OAuthServiceBearer" | "Either",
+): Effect.Effect<
+  AcceptedCredential,
+  IdentityEngineError | UnauthenticatedActor,
+  Identity | OAuthCredentialAuthority
+> => {
+  if (request.headers.has("authorization")) {
+    return OAuthCredentialAuthority.use(({ resolve }) =>
+      Effect.promise(() => resolve(request, expected)),
+    ).pipe(
+      Effect.flatMap((outcome) =>
+        outcome._tag === "Accepted"
+          ? Effect.succeed(outcome)
+          : Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
+      ),
+    );
+  }
+  return Effect.map(sessionEffect(request.headers.get("cookie") ?? undefined), (actor) => ({
+    _tag: "Accepted" as const,
+    mechanism: { _tag: "BetterAuthCookie" as const },
+    principal: { _tag: "Person" as const, personId: actor.personId },
+    evidenceRef: CredentialEvidenceRef.make(`better-auth:session:${actor.sessionId}`),
+  }));
+};
+
+const requestPersonEffect = (
+  request: Request,
+): Effect.Effect<
+  PersonId,
+  IdentityEngineError | UnauthenticatedActor,
+  Identity | OAuthCredentialAuthority
+> =>
+  Effect.flatMap(requestCredentialEffect(request, "OAuthUserBearer"), (credential) =>
+    credential.principal._tag === "Person"
+      ? Effect.succeed(credential.principal.personId)
+      : Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
+  );
+
 const personAuthorityEffect = (
   cookieHeader: string | undefined,
   instant: OrganizationAuthorityInstant,
@@ -86,7 +134,9 @@ const personAuthorityEffect = (
   );
 
 export interface AuthorityResolutionOptions {
-  readonly run: <A, E>(effect: Effect.Effect<A, E, Organization | Identity>) => Promise<A>;
+  readonly run: <A, E>(
+    effect: Effect.Effect<A, E, Organization | Identity | OAuthCredentialAuthority>,
+  ) => Promise<A>;
   /** Injectable clock; defaults to the current ISO instant. */
   readonly now?: () => string;
 }
@@ -104,10 +154,36 @@ export const resolveAuthenticatedPerson = (
 ): Promise<PersonId> =>
   options.run(Effect.map(sessionEffect(cookieHeader), (actor) => actor.personId));
 
+/** Browser session or delegated OAuth user bearer -> canonical PersonId. */
+export const resolveRequestPerson = (
+  request: Request,
+  options: AuthorityResolutionOptions,
+): Promise<PersonId> => options.run(requestPersonEffect(request));
+
 export interface AuthenticatedPersonAtInstant {
   readonly personId: PersonId;
   readonly authorizationInstant: OrganizationAuthorityInstant;
 }
+
+export interface AuthenticatedCredentialAtInstant {
+  readonly credential: AcceptedCredential;
+  readonly authorizationInstant: AuthorizationInstant;
+}
+
+/** Resolves one accepted request credential and captures one authorization instant. */
+export const resolveRequestCredentialAtInstant = (
+  request: Request,
+  expected: "OAuthUserBearer" | "OAuthServiceBearer" | "Either",
+  options: AuthorityResolutionOptions,
+): Promise<AuthenticatedCredentialAtInstant> =>
+  options.run(
+    Effect.flatMap(requestCredentialEffect(request, expected), (credential) =>
+      Effect.sync(() => ({
+        credential,
+        authorizationInstant: AuthorizationInstant.make((options.now ?? defaultNow)()),
+      })),
+    ),
+  );
 
 /**
  * Authenticates first, then captures exactly one instant for a caller-owned
@@ -121,6 +197,20 @@ export const resolveAuthenticatedPersonAtInstant = (
     Effect.flatMap(sessionEffect(cookieHeader), (actor) =>
       Effect.sync(() => ({
         personId: actor.personId,
+        authorizationInstant: decodeAuthorizationInstant((options.now ?? defaultNow)()),
+      })),
+    ),
+  );
+
+/** Authenticates either person mechanism before capturing one authorization instant. */
+export const resolveRequestPersonAtInstant = (
+  request: Request,
+  options: AuthorityResolutionOptions,
+): Promise<AuthenticatedPersonAtInstant> =>
+  options.run(
+    Effect.flatMap(requestPersonEffect(request), (personId) =>
+      Effect.sync(() => ({
+        personId,
         authorizationInstant: decodeAuthorizationInstant((options.now ?? defaultNow)()),
       })),
     ),
@@ -147,6 +237,23 @@ export const resolvePersonAuthorityAfterSession = (
         (instant) =>
           Organization.use(({ resolvePersonAuthority }) =>
             resolvePersonAuthority(actor.personId, instant),
+          ),
+      ),
+    ),
+  );
+
+/** Resolves either person credential into the same current organization authority. */
+export const resolveRequestPersonAuthority = (
+  request: Request,
+  options: AuthorityResolutionOptions,
+): Promise<OrganizationPersonAuthority> =>
+  options.run(
+    Effect.flatMap(requestPersonEffect(request), (personId) =>
+      Effect.flatMap(
+        Effect.sync(() => decodeAuthorizationInstant((options.now ?? defaultNow)())),
+        (instant) =>
+          Organization.use(({ resolvePersonAuthority }) =>
+            resolvePersonAuthority(personId, instant),
           ),
       ),
     ),

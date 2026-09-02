@@ -45,8 +45,13 @@ type PersistedServiceReceiptGrantRow = {
 };
 
 type ServiceReceiptGrantRow = PersistedServiceReceiptGrantRow & {
+  readonly visual_id: string;
   readonly owner_person_id: string;
   readonly department_id: string;
+  readonly amount_ore: string;
+  readonly currency: string;
+  readonly description: string;
+  readonly receipt_date: string;
   readonly receipt_status: string;
   readonly receipt_revision: number;
 };
@@ -90,9 +95,7 @@ const acquireExclusiveAuthorizationLock = async (client: PoolClient): Promise<vo
 const credentialEvidencePattern =
   /^oauth:ServicePrincipal:([^:]{1,160}):([^:]{1,160}):([0-9]{1,20})$/u;
 
-const decodePersistedGrant = (
-  row: PersistedServiceReceiptGrantRow,
-): ServicePrincipalReceiptGrant =>
+const decodePersistedGrant = (row: PersistedServiceReceiptGrantRow): ServicePrincipalReceiptGrant =>
   Schema.decodeUnknownSync(ServicePrincipalReceiptGrantSchema)(
     {
       grantId: row.grant_id,
@@ -232,8 +235,13 @@ const readExactGrantCandidates = async (
        grant_row.end_at,
        grant_row.revoked_at,
        grant_row.revision AS grant_revision,
+       receipt.visual_id,
        receipt.owner_person_id,
        receipt.department_id,
+       receipt.amount_ore::text,
+       receipt.currency,
+       receipt.description,
+       receipt.receipt_date::text,
        receipt.status AS receipt_status,
        receipt.revision AS receipt_revision
      FROM public.service_principal_grants AS grant_row
@@ -263,8 +271,13 @@ const readExactGrantCandidates = async (
     receipt: Schema.decodeUnknownSync(ServicePrincipalReceiptCandidateSchema)(
       {
         receiptId: row.resource_id,
+        visualId: row.visual_id,
         ownerPersonId: row.owner_person_id,
         departmentId: row.department_id,
+        amountOre: row.amount_ore,
+        currency: row.currency,
+        description: row.description,
+        receiptDate: row.receipt_date,
         status: row.receipt_status,
         revision: row.receipt_revision,
       },

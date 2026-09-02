@@ -3,6 +3,7 @@ import { getSessionCookie } from "better-auth/cookies";
 import { Context, Effect, Layer, Schema } from "effect";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type { AuthorizationInstant } from "@vektorprogrammet/domain/authz";
+import { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/domain/database";
 import {
   decodeIdentityActor,
@@ -31,6 +32,7 @@ import {
   OAuthClientOperator,
   OAuthCredentialAuthority,
 } from "./oauth-live.js";
+import { makeServicePrincipalGrantAuthorityService } from "./service-principal-grants-live.js";
 
 /** The one Better Auth instance behind this module's services. */
 export type AuthEngineInstance = ReturnType<typeof makeAuthEngine>;
@@ -595,7 +597,12 @@ export const auditedAuthHandler =
 export const AuthLive = (
   config: AuthEngineConfig,
 ): Layer.Layer<
-  Identity | IdentitySnapshot | AuthEngine | OAuthCredentialAuthority | OAuthClientOperator,
+  | Identity
+  | IdentitySnapshot
+  | AuthEngine
+  | OAuthCredentialAuthority
+  | OAuthClientOperator
+  | ServicePrincipalGrantAuthority,
   never,
   DatabasePgPool
 > =>
@@ -610,6 +617,9 @@ export const AuthLive = (
       );
       const oauthClientOperator = OAuthClientOperator.of(
         makeOAuthClientOperatorService(pool, engine),
+      );
+      const servicePrincipalGrantAuthority = ServicePrincipalGrantAuthority.of(
+        makeServicePrincipalGrantAuthorityService(pool),
       );
       const oauthHandler = makeOAuthReleaseBarrier(engine, pool, config.oauth);
       const oauthIntrospectionHandler = makeOAuthInternalIntrospectionHandler(engine, pool);
@@ -640,6 +650,7 @@ export const AuthLive = (
         Context.merge(Context.make(IdentitySnapshot, identitySnapshot)),
         Context.merge(Context.make(OAuthCredentialAuthority, oauthCredentialAuthority)),
         Context.merge(Context.make(OAuthClientOperator, oauthClientOperator)),
+        Context.merge(Context.make(ServicePrincipalGrantAuthority, servicePrincipalGrantAuthority)),
       );
     }),
   );

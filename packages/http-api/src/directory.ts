@@ -7,7 +7,7 @@ import { SchoolDirectorySchema, SchoolId } from "@vektorprogrammet/domain/school
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, personNativeAccess } from "./access.js";
-import { errorBody, operationAnnotations, SessionSecurity } from "./common.js";
+import { errorBody, operationAnnotations, PersonSecurity } from "./common.js";
 
 /**
  * One profile/organization directory row.
@@ -95,7 +95,7 @@ export const ListAdminUsersEndpoint = HttpApiEndpoint.get("listPeople", "/api/pe
   success: PeopleDirectoryResponse,
   error: [DirectoryForbiddenResponse, DirectoryDecodeResponse, DirectoryUnavailableResponse],
 })
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -155,7 +155,7 @@ export const ListSchoolsEndpoint = HttpApiEndpoint.get("listSchools", "/api/scho
   }),
   error: [SchoolsForbiddenResponse, SchoolsDecodeResponse, SchoolsUnavailableResponse],
 })
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,

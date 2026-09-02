@@ -16,7 +16,7 @@ import { Schema } from "effect";
 import { Multipart } from "effect/unstable/http";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, personNativeAccess } from "./access.js";
-import { operationAnnotations, receiptErrorBody, SessionSecurity } from "./common.js";
+import { operationAnnotations, PersonSecurity, receiptErrorBody } from "./common.js";
 import { StrongETag } from "./http-semantics.js";
 
 const MultipartText = Schema.String;
@@ -278,7 +278,7 @@ export const SubmitReceiptEndpoint = HttpApiEndpoint.post("submitReceipt", "/api
   success: [ReceiptObservation200, ReceiptObservation201],
   error: ReceiptErrors,
 })
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -308,7 +308,7 @@ export const ReviseReceiptEndpoint = HttpApiEndpoint.patch(
     error: ReceiptErrors,
   },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -335,7 +335,7 @@ export const WithdrawReceiptEndpoint = HttpApiEndpoint.post(
     error: ReceiptErrors,
   },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -360,7 +360,7 @@ export const ListReceiptsEndpoint = HttpApiEndpoint.get("listReceipts", "/api/re
   success: ReceiptListResponse,
   error: ReceiptErrors,
 })
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -382,7 +382,7 @@ export const ListReceiptsForApprovalEndpoint = HttpApiEndpoint.get(
   "/api/receipt-approval-queue",
   { query: ReceiptStatusQuery, success: ReceiptApprovalQueueResponse, error: ReceiptErrors },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) => annotateAccessSpec(endpoint, RECEIPT_APPROVAL_QUEUE_ACCESS))
   .annotateMerge(
     operationAnnotations(
@@ -402,7 +402,7 @@ export const RefundReceiptEndpoint = HttpApiEndpoint.post(
     error: ReceiptErrors,
   },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -427,7 +427,7 @@ export const RejectReceiptEndpoint = HttpApiEndpoint.post(
     error: ReceiptErrors,
   },
 )
-  .middleware(SessionSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(
       endpoint,
@@ -471,7 +471,7 @@ export const ReadReceiptEvidenceEndpoint = annotateAccessSpec(
     success: ReceiptLifecycleEvidenceResponse,
     error: ReceiptErrors,
   })
-    .middleware(SessionSecurity)
+    .middleware(PersonSecurity)
     .annotateMerge(
       operationAnnotations("Read receipt evidence", "Reads E2E-only receipt lifecycle evidence."),
     ),

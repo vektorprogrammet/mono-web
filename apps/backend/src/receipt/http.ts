@@ -11,10 +11,14 @@ import {
   RECEIPT_DOMAIN_ID,
   RECEIPT_RESOURCE_KIND,
   ResourceId,
+  ServicePrincipalGrantAuthority,
   accessHttpStatus,
   evaluateAccess,
+  evaluateServicePrincipalReceiptApprovalAccess,
   makeGrant,
+  type AcceptedOAuthServiceCredential,
   type AccessEvaluation,
+  type CredentialOutcome,
   type ReceiptAccessFacts,
 } from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/domain/database";
@@ -88,20 +92,29 @@ interface WithdrawFields {
   readonly expectedRevision: number;
 }
 
+type AcceptedCredential = Extract<CredentialOutcome, { readonly _tag: "Accepted" }>;
+
 export interface ReceiptIdentityResolvers {
-  /** Cookie -> canonical person and one instant; never role or authority facts. */
-  readonly resolveAuthorizationPrincipal: (
-    cookieHeader: string | undefined,
-  ) => Promise<ReceiptCommandPrincipal>;
-  /** Cookie -> owner person id (session-only; no role facts). */
-  readonly resolvePersonId: (cookieHeader: string | undefined) => Promise<string>;
+  /** Request credential -> canonical person and one instant; never role or authority facts. */
+  readonly resolveAuthorizationPrincipal: (request: Request) => Promise<ReceiptCommandPrincipal>;
+  /** Request credential -> owner person id; no role or authority facts. */
+  readonly resolvePersonId: (request: Request) => Promise<string>;
+  /** Exact row 42 credential bridge; no token-carried authorization facts. */
+  readonly resolveApprovalCredential?: (request: Request) => Promise<{
+    readonly credential: AcceptedCredential;
+    readonly authorizationInstant: AuthorizationInstant;
+  }>;
 }
 
 export interface ReceiptApiHttpOptions {
   readonly config: ReceiptApiConfig;
   readonly identity: ReceiptIdentityResolvers;
   readonly run: <A, E>(
-    effect: Effect.Effect<A, E, Database | Economy | IdentitySnapshot>,
+    effect: Effect.Effect<
+      A,
+      E,
+      Database | Economy | IdentitySnapshot | ServicePrincipalGrantAuthority
+    >,
   ) => Promise<A>;
   readonly now?: () => string;
   readonly fileStore?: ReceiptFileStore;
@@ -346,7 +359,7 @@ const decodeReviseMultipart = async (
 
 const personIdFor = async (request: Request, options: ReceiptApiHttpOptions): Promise<string> => {
   try {
-    return await options.identity.resolvePersonId(request.headers.get("cookie") ?? undefined);
+    return await options.identity.resolvePersonId(request);
   } catch (cause) {
     if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
     throw new UnauthenticatedActor({ message: "authentication required" });
@@ -358,9 +371,7 @@ const authorizationPrincipalFor = async (
   options: ReceiptApiHttpOptions,
 ): Promise<ReceiptCommandPrincipal> => {
   try {
-    return await options.identity.resolveAuthorizationPrincipal(
-      request.headers.get("cookie") ?? undefined,
-    );
+    return await options.identity.resolveAuthorizationPrincipal(request);
   } catch (cause) {
     if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
     throw new UnauthenticatedActor({ message: "authentication required" });
@@ -763,8 +774,81 @@ const approvalList = async (
   request: Request,
   options: ReceiptApiHttpOptions,
 ): Promise<Response> => {
-  const principal = await authorizationPrincipalFor(request, options);
   const status = decodeApprovalStatusFilter(request);
+  const resolved = await options.identity.resolveApprovalCredential?.(request);
+  if (
+    resolved !== undefined &&
+    resolved.credential.mechanism._tag === "OAuthServiceBearer" &&
+    resolved.credential.principal._tag === "ServicePrincipal"
+  ) {
+    const credential = resolved.credential as AcceptedOAuthServiceCredential;
+    const authority = await options
+      .run(
+        ServicePrincipalGrantAuthority.use(({ readReceiptApprovalCandidates }) =>
+          readReceiptApprovalCandidates(credential, resolved.authorizationInstant),
+        ),
+      )
+      .catch(() => {
+        throw new ReceiptPersistenceError({
+          operation: "read service receipt approval authority",
+          message: "service receipt approval authority is unavailable",
+        });
+      });
+    const evaluation = evaluateServicePrincipalReceiptApprovalAccess(
+      credential,
+      authority,
+      resolved.authorizationInstant,
+    );
+    if (evaluation._tag !== "Allow") {
+      return jsonResponse({ error: { tag: "ReceiptScopeDenied" } }, 403);
+    }
+    const allowed = new Set<string>(
+      evaluation.resolution.contexts.flatMap((context) =>
+        context.resource === null ? [] : [context.resource.id],
+      ),
+    );
+    const seen = new Set<string>();
+    const items = authority.candidates.flatMap(({ receipt }) => {
+      if (seen.has(receipt.receiptId) || !allowed.has(receipt.receiptId)) return [];
+      seen.add(receipt.receiptId);
+      if (status !== undefined && receipt.status !== status) return [];
+      const amountOre = Number(receipt.amountOre);
+      if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
+        throw new ReceiptPersistenceError({
+          operation: "decode service approver projection",
+          message: "invalid amount",
+        });
+      }
+      return [
+        {
+          receiptId: receipt.receiptId,
+          visualId: receipt.visualId,
+          ownerPersonId: receipt.ownerPersonId,
+          departmentId: receipt.departmentId,
+          amountOre,
+          currency: receipt.currency,
+          description: receipt.description,
+          receiptDate: receipt.receiptDate,
+          status: receipt.status,
+          revision: receipt.revision,
+          etag: deriveStrongETag({
+            representationKind: "ReceiptApprovalQueueItem",
+            resourceIdentity: receipt.receiptId,
+            version: receipt.revision,
+          }),
+        },
+      ];
+    });
+    return jsonResponse({ items, totalItems: items.length });
+  }
+
+  const principal =
+    resolved !== undefined && resolved.credential.principal._tag === "Person"
+      ? {
+          personId: resolved.credential.principal.personId,
+          authorizationInstant: resolved.authorizationInstant,
+        }
+      : await authorizationPrincipalFor(request, options);
   const rows = await runDatabase(
     Economy.use(({ listReceiptsForApproval }) =>
       listReceiptsForApproval(principal.personId, principal.authorizationInstant, status),

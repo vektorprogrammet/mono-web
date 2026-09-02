@@ -1,5 +1,6 @@
 import {
   InvitationCapabilitySecurity,
+  PersonSecurity,
   RequestSchemaErrorMiddleware,
   SessionSecurity,
 } from "@vektorprogrammet/http-api";
@@ -66,6 +67,17 @@ const SessionSecurityLive = Layer.succeed(
   }),
 );
 
+const PersonSecurityLive = Layer.succeed(
+  PersonSecurity,
+  PersonSecurity.of({
+    cookieHeader: (httpEffect, { credential }) =>
+      hasBetterAuthSessionCredential(Redacted.value(credential))
+        ? httpEffect
+        : Effect.fail({ error: { tag: "UnauthenticatedActor" as const } }),
+    oauthUserBearer: (httpEffect) => httpEffect,
+  }),
+);
+
 const InvitationCapabilitySecurityLive = Layer.succeed(
   InvitationCapabilitySecurity,
   InvitationCapabilitySecurity.of({
@@ -84,6 +96,7 @@ const RequestSchemaErrorLive = HttpApiMiddleware.layerSchemaErrorTransform(
 /** Contract middleware implementations shared by every native handler group. */
 export const NativeHttpApiMiddlewareLive = Layer.mergeAll(
   SessionSecurityLive,
+  PersonSecurityLive,
   InvitationCapabilitySecurityLive,
   RequestSchemaErrorLive,
 );

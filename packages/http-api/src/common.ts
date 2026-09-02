@@ -87,6 +87,21 @@ export const RequestCookieHeader = HttpApiSecurity.apiKey({
 );
 
 /**
+ * Bearer security declaration for delegated person credentials. Service
+ * credentials are rejected by the backend credential authority.
+ *
+ * @since 0.1.0
+ * @category Security
+ */
+export const OAuthUserBearer = HttpApiSecurity.bearer.pipe(
+  HttpApiSecurity.annotateMerge(
+    OpenApi.annotations({
+      description: "Native OAuth delegated access token for a current Person principal.",
+    }),
+  ),
+);
+
+/**
  * Standard missing or invalid session response.
  *
  * @since 0.1.0
@@ -123,6 +138,26 @@ export class SessionSecurity extends HttpApiMiddleware.Service<SessionSecurity>(
   {
     security: {
       cookieHeader: RequestCookieHeader,
+    },
+    error: SessionUnauthorizedResponse,
+  },
+) {}
+
+/**
+ * Contract security marker for person-authenticated operations. The two
+ * security entries are alternatives: a current Better Auth browser session or
+ * a delegated OAuth user bearer. The backend resolves either mechanism to the
+ * same canonical Person principal before current authorization is evaluated.
+ *
+ * @since 0.1.0
+ * @category Security
+ */
+export class PersonSecurity extends HttpApiMiddleware.Service<PersonSecurity>()(
+  "@vektorprogrammet/http-api/PersonSecurity",
+  {
+    security: {
+      cookieHeader: RequestCookieHeader,
+      oauthUserBearer: OAuthUserBearer,
     },
     error: SessionUnauthorizedResponse,
   },

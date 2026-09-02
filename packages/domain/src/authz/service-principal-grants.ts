@@ -1,6 +1,6 @@
 import { Context, Data, Effect, Schema } from "effect";
 import { DepartmentId, PersonId } from "../organization/schema.js";
-import { ReceiptId, ReceiptStatusSchema } from "../receipt/schema.js";
+import { ReceiptId, ReceiptStatusSchema, ReceiptVisualId } from "../receipt/schema.js";
 import { compareRfc3339Instants } from "../time.js";
 import {
   APPROVE_RECEIPT_CAPABILITY,
@@ -62,8 +62,7 @@ export const ServicePrincipalReceiptGrantSchema = Schema.Struct({
     ),
   ),
 );
-export type ServicePrincipalReceiptGrant =
-  typeof ServicePrincipalReceiptGrantSchema.Type;
+export type ServicePrincipalReceiptGrant = typeof ServicePrincipalReceiptGrantSchema.Type;
 export type AcceptedOAuthServiceCredential = {
   readonly _tag: "Accepted";
   readonly mechanism: { readonly _tag: "OAuthServiceBearer" };
@@ -76,13 +75,17 @@ export type AcceptedOAuthServiceCredential = {
 
 export const ServicePrincipalReceiptCandidateSchema = Schema.Struct({
   receiptId: ReceiptId,
+  visualId: ReceiptVisualId,
   ownerPersonId: PersonId,
   departmentId: DepartmentId,
+  amountOre: Schema.String,
+  currency: Schema.Literal("NOK"),
+  description: Schema.String,
+  receiptDate: Schema.String,
   status: ReceiptStatusSchema,
   revision: Revision,
 });
-export type ServicePrincipalReceiptCandidate =
-  typeof ServicePrincipalReceiptCandidateSchema.Type;
+export type ServicePrincipalReceiptCandidate = typeof ServicePrincipalReceiptCandidateSchema.Type;
 
 export type ServicePrincipalReceiptGrantCandidate = {
   readonly grant: ServicePrincipalReceiptGrant;
@@ -96,9 +99,7 @@ export type ServicePrincipalReceiptGrantAuthority = {
   readonly candidates: ReadonlyArray<ServicePrincipalReceiptGrantCandidate>;
   readonly rules: ReadonlyArray<AuthzRule>;
 };
-const BoundedAuditText = TrimmedNonEmpty.pipe(
-  Schema.check(Schema.isMaxLength(160)),
-);
+const BoundedAuditText = TrimmedNonEmpty.pipe(Schema.check(Schema.isMaxLength(160)));
 
 export const ServicePrincipalGrantAuditContextSchema = Schema.Struct({
   eventId: BoundedAuditText,
@@ -106,15 +107,13 @@ export const ServicePrincipalGrantAuditContextSchema = Schema.Struct({
   operatorActor: BoundedAuditText,
   requestCorrelation: BoundedAuditText,
 });
-export type ServicePrincipalGrantAuditContext =
-  typeof ServicePrincipalGrantAuditContextSchema.Type;
+export type ServicePrincipalGrantAuditContext = typeof ServicePrincipalGrantAuditContextSchema.Type;
 
 export const CreateServicePrincipalGrantInputSchema = Schema.Struct({
   grant: ServicePrincipalReceiptGrantSchema,
   audit: ServicePrincipalGrantAuditContextSchema,
 });
-export type CreateServicePrincipalGrantInput =
-  typeof CreateServicePrincipalGrantInputSchema.Type;
+export type CreateServicePrincipalGrantInput = typeof CreateServicePrincipalGrantInputSchema.Type;
 
 export const EndServicePrincipalGrantInputSchema = Schema.Struct({
   grantId: GrantId,
@@ -122,8 +121,7 @@ export const EndServicePrincipalGrantInputSchema = Schema.Struct({
   expectedRevision: Revision,
   audit: ServicePrincipalGrantAuditContextSchema,
 });
-export type EndServicePrincipalGrantInput =
-  typeof EndServicePrincipalGrantInputSchema.Type;
+export type EndServicePrincipalGrantInput = typeof EndServicePrincipalGrantInputSchema.Type;
 
 export const RevokeServicePrincipalGrantInputSchema = Schema.Struct({
   grantId: GrantId,
@@ -131,8 +129,7 @@ export const RevokeServicePrincipalGrantInputSchema = Schema.Struct({
   expectedRevision: Revision,
   audit: ServicePrincipalGrantAuditContextSchema,
 });
-export type RevokeServicePrincipalGrantInput =
-  typeof RevokeServicePrincipalGrantInputSchema.Type;
+export type RevokeServicePrincipalGrantInput = typeof RevokeServicePrincipalGrantInputSchema.Type;
 
 export class ServicePrincipalGrantAuthorityError extends Data.TaggedError(
   "ServicePrincipalGrantAuthorityError",
@@ -149,10 +146,7 @@ export interface ServicePrincipalGrantAuthorityShape {
   readonly readReceiptApprovalCandidates: (
     credential: AcceptedOAuthServiceCredential,
     authorizationInstant: AuthorizationInstant,
-  ) => Effect.Effect<
-    ServicePrincipalReceiptGrantAuthority,
-    ServicePrincipalGrantAuthorityError
-  >;
+  ) => Effect.Effect<ServicePrincipalReceiptGrantAuthority, ServicePrincipalGrantAuthorityError>;
   readonly createGrant: (
     input: CreateServicePrincipalGrantInput,
   ) => Effect.Effect<ServicePrincipalReceiptGrant, ServicePrincipalGrantAuthorityError>;
@@ -179,20 +173,15 @@ export const composeServicePrincipalReceiptRuleRequirements = (
   context: CanonicalResourceContext<ReceiptAccessFacts>,
   authorizationInstant: AuthorizationInstant,
 ) =>
-  composeCapabilityEvidence(
-    "approveReceipt",
-    {},
-    authority.rules,
-    {
-      principal: {
-        _tag: "ServicePrincipal",
-        servicePrincipalId: authority.servicePrincipalId,
-      },
-      authorizationInstant,
-      context,
-      tagAssignments: [],
+  composeCapabilityEvidence("approveReceipt", {}, authority.rules, {
+    principal: {
+      _tag: "ServicePrincipal",
+      servicePrincipalId: authority.servicePrincipalId,
     },
-  );
+    authorizationInstant,
+    context,
+    tagAssignments: [],
+  });
 export const evaluateServicePrincipalReceiptApprovalAccess = (
   credential: AcceptedOAuthServiceCredential,
   authority: ServicePrincipalReceiptGrantAuthority,
@@ -209,10 +198,7 @@ export const evaluateServicePrincipalReceiptApprovalAccess = (
     };
   }
 
-  const candidateByReceipt = new Map<
-    string,
-    ServicePrincipalReceiptGrantCandidate
-  >();
+  const candidateByReceipt = new Map<string, ServicePrincipalReceiptGrantCandidate>();
   const activeGrants: Array<ServicePrincipalReceiptGrant> = [];
   for (const candidate of authority.candidates) {
     const grant = candidate.grant;

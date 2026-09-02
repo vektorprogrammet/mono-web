@@ -1,3 +1,4 @@
+import { StrongETag } from "@vektorprogrammet/http-api";
 import { describe, expect, it } from "vitest";
 import {
   HttpSemanticFailure,
@@ -32,8 +33,8 @@ import {
 } from "./session-security.js";
 
 const key = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY";
-const tagA = '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"' as const;
-const tagB = '"vkr2.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"' as const;
+const tagA = StrongETag.make('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"');
+const tagB = StrongETag.make('"vkr2.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"');
 
 describe("native HTTP semantics", () => {
   it("freezes key grammar, identity derivation, and target normalization", () => {
@@ -156,14 +157,14 @@ describe("native HTTP semantics", () => {
     const file = semanticFile(new TextEncoder().encode("same file"), "application/pdf");
     const first = semanticRequestDigest({
       body: { amountOre: 1250, file },
-      ifMatch: tagA,
+      ifMatch: parseReadIfMatch([tagA]),
       ifNoneMatch: null,
       query: {},
     });
     const second = semanticRequestDigest({
       query: {},
       ifNoneMatch: null,
-      ifMatch: tagA,
+      ifMatch: parseReadIfMatch([tagA]),
       body: { file, amountOre: 1250 },
     });
     expect(first).toBe(second);

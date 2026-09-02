@@ -424,12 +424,14 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     "GET",
     "/api/receipt-approval-queue",
     "receipts.listReceiptsForApproval",
-    person(
-      "approveReceipt",
-      "receipts.approval-queue",
-      ["receipts.pending", "receipts.approver-relationship"],
-      "SnapshotRead",
-    ),
+    expectedAccess({
+      credentials: ["BetterAuthCookie", "OAuthUserBearer", "OAuthServiceBearer"],
+      principals: ["Person", "ServicePrincipal"],
+      capability: "approveReceipt",
+      resolver: "receipts.approval-queue",
+      requirements: ["receipts.pending", "receipts.approver-relationship"],
+      decisionTime: "SnapshotRead",
+    }),
   ],
   [
     "POST",

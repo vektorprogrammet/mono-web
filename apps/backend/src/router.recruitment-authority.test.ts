@@ -1,6 +1,7 @@
-import type { IdentitySnapshot } from "@vektorprogrammet/database";
+import type { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
+import type { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
 import {
   Identity,
   IdentityActor,
@@ -130,6 +131,8 @@ const run: BackendRun = <A, E>(
     | Schools
     | Identity
     | IdentitySnapshot
+    | OAuthCredentialAuthority
+    | ServicePrincipalGrantAuthority
     | ContentManagement
     | Content
   >,
