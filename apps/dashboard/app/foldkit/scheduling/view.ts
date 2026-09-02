@@ -3,7 +3,7 @@ import type {
   RecruitmentInterviewQuestionSnapshot,
   RecruitmentSchedulingBoard,
   RecruitmentSchedulingInterview,
-} from "@vektorprogrammet/sdk";
+} from "@vektorprogrammet/domain/recruitment";
 import { Button, Dialog, Input } from "@foldkit/ui";
 import { AsyncData, FieldValidation } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";

@@ -1,6 +1,9 @@
-import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/sdk";
+import {
+  RecruitmentInterviewConductObservationSchema,
+  RecruitmentSchedulingBoardSchema,
+} from "@vektorprogrammet/domain/recruitment";
+import { IdempotencyKey, StrongETag } from "@vektorprogrammet/http-api";
 import { Dialog } from "@foldkit/ui";
-import { RecruitmentSchedulingBoardSchema } from "@vektorprogrammet/sdk/effect";
 import type { HtmlBuilder } from "foldkit/html";
 import { FieldValidation } from "foldkit";
 import { Schema as S } from "effect";
@@ -10,6 +13,7 @@ import { ConductData, makeInitialModel, type Model, type ReadyModel } from "./mo
 import type { SchedulingCommands } from "./command";
 import { makeUpdate } from "./update";
 import { view } from "./view";
+const etag = StrongETag.make(`"vkr2.${"A".repeat(43)}"`);
 
 interface RenderedAttribute {
   readonly name: string;
@@ -170,10 +174,14 @@ const terminalModel = (state: "Completed" | "Cancelled"): Model => {
         responseState: "Accepted",
         responseMessage: null,
         notificationState: "Delivered",
+        etag,
       },
     ],
   });
-  const initial = makeInitialModel({ _tag: "Loaded", board }, "conduct-view-test");
+  const initial = makeInitialModel(
+    { _tag: "Loaded", board },
+    IdempotencyKey.make("conduct-view-test-command"),
+  );
   const score =
     detail.score === null
       ? initial._tag === "Ready"

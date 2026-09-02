@@ -52,7 +52,6 @@ export const makeInterviewCommands = (client: InvitationResponseClient): Intervi
     messages: [SucceededInvitationResponse, FailedInvitationResponse],
     execute: ({ requestId, etag }) =>
       client.recruitment.confirmInvitation({ etag }).pipe(
-        Effect.flatMap(() => client.recruitment.readInvitationResponse()),
         Effect.map(({ observation, etag }) =>
           SucceededInvitationResponse({ requestId, action: "Confirm", observation, etag }),
         ),
@@ -71,7 +70,6 @@ export const makeInterviewCommands = (client: InvitationResponseClient): Intervi
     messages: [SucceededInvitationResponse, FailedInvitationResponse],
     execute: ({ requestId, etag, message }) =>
       client.recruitment.rejectInvitation({ etag, message }).pipe(
-        Effect.flatMap(() => client.recruitment.readInvitationResponse()),
         Effect.map(({ observation, etag }) =>
           SucceededInvitationResponse({ requestId, action: "Reject", observation, etag }),
         ),
@@ -90,7 +88,6 @@ export const makeInterviewCommands = (client: InvitationResponseClient): Intervi
     messages: [SucceededInvitationResponse, FailedInvitationResponse],
     execute: ({ requestId, etag, message }) =>
       client.recruitment.requestNewInvitationTime({ etag, message }).pipe(
-        Effect.flatMap(() => client.recruitment.readInvitationResponse()),
         Effect.map(({ observation, etag }) =>
           SucceededInvitationResponse({
             requestId,

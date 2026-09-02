@@ -1,15 +1,13 @@
-import { RecruitmentScheduleCommandSchema } from "@vektorprogrammet/sdk/effect";
-import {
-  CancelInterviewCommandSchema,
-  FinalizeInterviewCommandSchema,
-} from "@vektorprogrammet/sdk";
-import type {
-  RecruitmentInterviewQuestionSnapshot,
-  RecruitmentScheduleCommand,
-} from "@vektorprogrammet/sdk";
+import type { RecruitmentInterviewQuestionSnapshot } from "@vektorprogrammet/domain/recruitment";
+import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Dialog } from "@foldkit/ui";
 import { Match as M, Option, Schema as S } from "effect";
 import { AsyncData, Command, FieldValidation } from "foldkit";
+import {
+  CancelInterviewInputSchema,
+  FinalizeInterviewInputSchema,
+  ScheduleInterviewInputSchema,
+} from "../recruitment/bridge";
 import type { SchedulingCommands } from "./command";
 import { GotConductDialogMessage, GotScheduleDialogMessage, type Message } from "./message";
 import { ConductData, SchedulingBoardData, type Model, type ReadyModel } from "./model";
@@ -327,18 +325,24 @@ export const makeUpdate =
             ];
           }
 
-          let command: RecruitmentScheduleCommand;
+          let input;
           try {
-            command = S.decodeUnknownSync(RecruitmentScheduleCommandSchema)(
+            input = S.decodeUnknownSync(ScheduleInterviewInputSchema)(
               {
-                commandId: `${model.idempotencyKeySeed}-${model.commandSequence}`,
-                interviewId: interview.interviewId,
-                expectedRevision: interview.revision,
-                scheduledAt: scheduledAt.value.trim(),
-                room: room.value.trim(),
-                campus: campus.value.trim().length === 0 ? null : campus.value.trim(),
-                mapLink: mapLink.value.trim().length === 0 ? null : mapLink.value.trim(),
-                message: scheduleMessage.value.trim(),
+                params: { interviewId: interview.interviewId },
+                headers: {
+                  "idempotency-key": IdempotencyKey.make(
+                    `${model.idempotencyKeySeed}-${model.commandSequence}`,
+                  ),
+                  "if-match": interview.etag,
+                },
+                payload: {
+                  scheduledAt: scheduledAt.value.trim(),
+                  room: room.value.trim(),
+                  campus: campus.value.trim().length === 0 ? null : campus.value.trim(),
+                  mapLink: mapLink.value.trim().length === 0 ? null : mapLink.value.trim(),
+                  message: scheduleMessage.value.trim(),
+                },
               },
               { onExcessProperty: "error" },
             );
@@ -372,7 +376,7 @@ export const makeUpdate =
               feedback: null,
               boardRequestId: requestId,
             },
-            [ScheduleInterview({ requestId, command })],
+            [ScheduleInterview({ requestId, input })],
           ];
         },
         SucceededSchedule: ({ requestId, board }) => {
@@ -634,21 +638,34 @@ export const makeUpdate =
             return [model, []];
           }
           const current = AsyncData.getData(model.conduct);
-          if (current._tag === "None") return [model, []];
+          const board = AsyncData.getData(model.board);
+          const interview =
+            board._tag === "Some"
+              ? board.value.interviews.find(
+                  (candidate) => candidate.interviewId === model.selectedInterviewId,
+                )
+              : undefined;
+          if (current._tag === "None" || interview === undefined) return [model, []];
           const score = {
             explanatoryPower: Number(model.score.explanatoryPower.value),
             roleModel: Number(model.score.roleModel.value),
             suitability: Number(model.score.suitability.value),
           };
-          let command;
+          let input;
           try {
-            command = S.decodeUnknownSync(FinalizeInterviewCommandSchema)(
+            input = S.decodeUnknownSync(FinalizeInterviewInputSchema)(
               {
-                commandId: `${model.idempotencyKeySeed}-${model.commandSequence}`,
-                interviewId: model.selectedInterviewId,
-                expectedRevision: current.value.revision,
-                answers: model.answers,
-                score,
+                params: { interviewId: model.selectedInterviewId },
+                headers: {
+                  "idempotency-key": IdempotencyKey.make(
+                    `${model.idempotencyKeySeed}-${model.commandSequence}`,
+                  ),
+                  "if-match": interview.etag,
+                },
+                payload: {
+                  answers: model.answers,
+                  score,
+                },
               },
               { onExcessProperty: "error" },
             );
@@ -675,7 +692,7 @@ export const makeUpdate =
                 requestId,
                 generation: model.conductGeneration,
                 interviewId: model.selectedInterviewId,
-                command,
+                input,
               }),
             ],
           ];
@@ -685,14 +702,26 @@ export const makeUpdate =
             return [model, []];
           }
           const current = AsyncData.getData(model.conduct);
-          if (current._tag === "None") return [model, []];
-          let command;
+          const board = AsyncData.getData(model.board);
+          const interview =
+            board._tag === "Some"
+              ? board.value.interviews.find(
+                  (candidate) => candidate.interviewId === model.selectedInterviewId,
+                )
+              : undefined;
+          if (current._tag === "None" || interview === undefined) return [model, []];
+          let input;
           try {
-            command = S.decodeUnknownSync(CancelInterviewCommandSchema)(
+            input = S.decodeUnknownSync(CancelInterviewInputSchema)(
               {
-                commandId: `${model.idempotencyKeySeed}-${model.commandSequence}`,
-                interviewId: model.selectedInterviewId,
-                expectedRevision: current.value.revision,
+                params: { interviewId: model.selectedInterviewId },
+                headers: {
+                  "idempotency-key": IdempotencyKey.make(
+                    `${model.idempotencyKeySeed}-${model.commandSequence}`,
+                  ),
+                  "if-match": interview.etag,
+                },
+                payload: {},
               },
               { onExcessProperty: "error" },
             );
@@ -716,7 +745,7 @@ export const makeUpdate =
                 requestId,
                 generation: model.conductGeneration,
                 interviewId: model.selectedInterviewId,
-                command,
+                input,
               }),
             ],
           ];

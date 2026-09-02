@@ -140,10 +140,19 @@ export const RecruitmentBridgeFailure = S.Struct({
 });
 export type RecruitmentBridgeFailure = S.Schema.Type<typeof RecruitmentBridgeFailure>;
 
-const nativeProblem = (error: unknown): typeof NativeProblem.Type | undefined => {
-  if (S.is(NativeProblem)(error)) return error;
-  if (typeof error !== "object" || error === null || !("body" in error)) return undefined;
-  return S.is(NativeProblem)(error.body) ? error.body : undefined;
+const NativeProblemSummary = S.Struct({ status: S.Number, code: S.String });
+type NativeProblemSummary = S.Schema.Type<typeof NativeProblemSummary>;
+
+const nativeProblem = (error: unknown): NativeProblemSummary | undefined => {
+  const problem = S.is(NativeProblem)(error)
+    ? error
+    : typeof error === "object" &&
+        error !== null &&
+        "body" in error &&
+        S.is(NativeProblem)(error.body)
+      ? error.body
+      : undefined;
+  return problem === undefined ? undefined : S.decodeUnknownSync(NativeProblemSummary)(problem);
 };
 
 export const toRecruitmentBridgeFailure = (error: unknown): RecruitmentBridgeFailure => {

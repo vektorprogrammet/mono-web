@@ -1,4 +1,5 @@
-import { RecruitmentAssignmentBoardSchema } from "@vektorprogrammet/sdk/effect";
+import { RecruitmentAssignmentBoardSchema } from "@vektorprogrammet/domain/recruitment";
+import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Effect, Schema as S } from "effect";
 import { AsyncData } from "foldkit";
 import { describe, expect, it } from "vitest";
@@ -63,16 +64,14 @@ const assignedBoard = decodeBoard({
 });
 
 const client: RecruitmentClient = {
-  admin: {
-    recruitment: {
-      readAssignmentBoard: () => Effect.die("not executed by transition tests"),
-      assignApplicant: () => Effect.die("not executed by transition tests"),
-      readSchedulingBoard: () => Effect.die("not executed by transition tests"),
-      scheduleInterview: () => Effect.die("not executed by transition tests"),
-      readInterviewConduct: () => Effect.die("not executed by transition tests"),
-      finalizeInterview: () => Effect.die("not executed by transition tests"),
-      cancelInterview: () => Effect.die("not executed by transition tests"),
-    },
+  recruitment: {
+    readAssignmentBoard: () => Effect.die("not executed by transition tests"),
+    createApplicationInterview: () => Effect.die("not executed by transition tests"),
+    readSchedulingBoard: () => Effect.die("not executed by transition tests"),
+    scheduleInterview: () => Effect.die("not executed by transition tests"),
+    readInterviewConduct: () => Effect.die("not executed by transition tests"),
+    finalizeInterview: () => Effect.die("not executed by transition tests"),
+    cancelInterview: () => Effect.die("not executed by transition tests"),
   },
 };
 const update = makeUpdate(makeRecruitmentCommands(client));
@@ -80,7 +79,7 @@ const update = makeUpdate(makeRecruitmentCommands(client));
 const readyModel = () => {
   const model = makeInitialModel(
     { _tag: "Loaded", status: "all", board: unassignedBoard },
-    "recruitment-test-command",
+    IdempotencyKey.make("recruitment-test-command"),
   );
   if (model._tag !== "Ready") throw new Error("expected a ready recruitment model");
   return model;

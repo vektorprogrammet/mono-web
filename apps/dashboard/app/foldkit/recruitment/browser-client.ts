@@ -3,12 +3,6 @@ import type {
   RecruitmentAssignmentBoardQuery,
   RecruitmentSchedulingBoard,
 } from "@vektorprogrammet/domain/recruitment";
-import type {
-  CancelInterviewResponse,
-  FinalizeInterviewResponse,
-  RecruitmentInterviewResource,
-  ScheduleInterviewResponse,
-} from "@vektorprogrammet/http-api";
 import { Effect, Schema as S } from "effect";
 import {
   CancelInterviewInputSchema,
@@ -29,6 +23,10 @@ import {
   type RecruitmentBridgeOperation,
   type RecruitmentInterviewConductResource,
 } from "./bridge";
+type RecruitmentInterviewResource = S.Schema.Type<typeof RecruitmentInterviewResourceSchema>;
+type ScheduleInterviewResponse = S.Schema.Type<typeof ScheduleInterviewResponseSchema>;
+type FinalizeInterviewResponse = S.Schema.Type<typeof FinalizeInterviewResponseSchema>;
+type CancelInterviewResponse = S.Schema.Type<typeof CancelInterviewResponseSchema>;
 
 export type CreateApplicationInterviewInput = S.Schema.Type<
   typeof CreateApplicationInterviewInputSchema

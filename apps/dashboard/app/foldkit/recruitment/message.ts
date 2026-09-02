@@ -1,6 +1,8 @@
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
-import { InterviewSchemaId } from "@vektorprogrammet/domain/recruitment";
-import { PersonId } from "@vektorprogrammet/domain/schema";
+import {
+  InterviewSchemaId,
+  RecruitmentInterviewerOptionSchema,
+} from "@vektorprogrammet/domain/recruitment";
 import { Dialog } from "@foldkit/ui";
 import { Schema as S } from "effect";
 import { m } from "foldkit/message";
@@ -21,7 +23,7 @@ export const OpenedAssignment = m("OpenedAssignment", {
 });
 export const ClosedAssignment = m("ClosedAssignment");
 export const SelectedInterviewer = m("SelectedInterviewer", {
-  personId: PersonId,
+  personId: RecruitmentInterviewerOptionSchema.fields.personId,
 });
 export const SelectedSchema = m("SelectedSchema", {
   interviewSchemaId: InterviewSchemaId,

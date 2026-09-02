@@ -1,3 +1,4 @@
+import { StrongETag } from "@vektorprogrammet/http-api";
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema as S } from "effect";
 import * as fc from "effect/testing/FastCheck";
@@ -33,13 +34,15 @@ const decodeObservation = (
     },
     { onExcessProperty: "error" },
   );
+const etag = StrongETag.make(`"vkr2.${"A".repeat(43)}"`);
+const nextEtag = StrongETag.make(`"vkr2.${"B".repeat(43)}"`);
 
 const dormantClient: InvitationResponseClient = {
-  recruitmentInvitationResponses: {
-    read: () => Effect.die("not executed by transition tests"),
-    confirm: () => Effect.die("not executed by transition tests"),
-    reject: () => Effect.die("not executed by transition tests"),
-    requestNewTime: () => Effect.die("not executed by transition tests"),
+  recruitment: {
+    readInvitationResponse: () => Effect.die("not executed by transition tests"),
+    confirmInvitation: () => Effect.die("not executed by transition tests"),
+    rejectInvitation: () => Effect.die("not executed by transition tests"),
+    requestNewInvitationTime: () => Effect.die("not executed by transition tests"),
   },
 };
 const update = makeUpdate(makeInterviewCommands(dormantClient));
@@ -48,6 +51,7 @@ const pendingModel = (): Model => ({
   ...makeInitialModel(),
   invitationResponse: InvitationResponseData.Success({ data: decodeObservation("Pending") }),
   requestId: 1,
+  etag,
 });
 
 const bridgeFailure = {
@@ -97,14 +101,17 @@ const modelArbitrary = fc.record({
   selectedAction: fc.oneof(fc.constant(null), actionArbitrary),
   requestId: requestIdArbitrary,
   failure: fc.oneof(fc.constant(null), failureArbitrary),
+  etag: fc.constantFrom(etag, nextEtag, null),
   validationFeedback: fc.oneof(fc.constant(null), fc.string({ maxLength: 128 })),
 });
 const messageArbitrary = fc.oneof(
   fc.constant(OpenedInvitationResponse()),
   requestIdArbitrary.chain((requestId) =>
-    observationArbitrary.map((observation) =>
-      SucceededReadInvitationResponse({ requestId, observation }),
-    ),
+    fc
+      .tuple(observationArbitrary, fc.constantFrom(etag, nextEtag))
+      .map(([observation, etag]) =>
+        SucceededReadInvitationResponse({ requestId, observation, etag }),
+      ),
   ),
   requestIdArbitrary.chain((requestId) =>
     failureArbitrary.map((failure) => FailedReadInvitationResponse({ requestId, failure })),
@@ -114,9 +121,14 @@ const messageArbitrary = fc.oneof(
   fc.constant(RejectedInvitation()),
   fc.constant(RequestedNewInvitationTime()),
   fc
-    .tuple(requestIdArbitrary, actionArbitrary, observationArbitrary)
-    .map(([requestId, action, observation]) =>
-      SucceededInvitationResponse({ requestId, action, observation }),
+    .tuple(
+      requestIdArbitrary,
+      actionArbitrary,
+      observationArbitrary,
+      fc.constantFrom(etag, nextEtag),
+    )
+    .map(([requestId, action, observation, etag]) =>
+      SucceededInvitationResponse({ requestId, action, observation, etag }),
     ),
   fc
     .tuple(requestIdArbitrary, actionArbitrary, failureArbitrary)
@@ -137,6 +149,7 @@ it("loads every native response state through a current read observation", () =>
       SucceededReadInvitationResponse({
         requestId: 1,
         observation: decodeObservation(responseState),
+        etag,
       }),
     );
     expect(next.invitationResponse._tag).toBe("Success");
@@ -163,7 +176,7 @@ it("emits response transitions only from Pending", () => {
   }
 });
 
-it("keeps the pending observation until a confirm command returns its fresh read", () => {
+it("keeps the pending observation until a confirm command returns its current resource", async () => {
   const initial = pendingModel();
   const [inFlight, commands] = update(initial, ConfirmedInvitation());
 
@@ -171,49 +184,47 @@ it("keeps the pending observation until a confirm command returns its fresh read
   expect(inFlight.invitationResponse).toBe(initial.invitationResponse);
   expect(commands).toHaveLength(1);
 
+  const operations: string[] = [];
+  const client: InvitationResponseClient = {
+    recruitment: {
+      confirmInvitation: () =>
+        Effect.sync(() => {
+          operations.push("confirm");
+          return { observation: decodeObservation("Accepted"), etag: nextEtag };
+        }),
+      readInvitationResponse: () => Effect.die("not used"),
+      rejectInvitation: () => Effect.die("not used"),
+      requestNewInvitationTime: () => Effect.die("not used"),
+    },
+  };
+  const command = makeInterviewCommands(client).ConfirmInvitation({ requestId: 7, etag });
+  const result = await Effect.runPromise(command.effect);
+
+  expect(operations).toEqual(["confirm"]);
+  expect(result).toEqual(
+    SucceededInvitationResponse({
+      requestId: 7,
+      action: "Confirm",
+      observation: decodeObservation("Accepted"),
+      etag: nextEtag,
+    }),
+  );
+
   const [completed] = update(
     inFlight,
     SucceededInvitationResponse({
       requestId: inFlight.requestId,
       action: "Confirm",
       observation: decodeObservation("Accepted"),
+      etag: nextEtag,
     }),
   );
   expect(completed.selectedAction).toBeNull();
+  expect(completed.etag).toBe(nextEtag);
   const completedObservation = AsyncData.getData(completed.invitationResponse);
   expect(completedObservation._tag).toBe("Some");
-  if (completedObservation._tag !== "Some") throw new Error("expected a fresh observation");
+  if (completedObservation._tag !== "Some") throw new Error("expected a current observation");
   expect(completedObservation.value).toEqual(decodeObservation("Accepted"));
-});
-
-it("executes the mutation before the mandatory fresh read", async () => {
-  const operations: string[] = [];
-  const client: InvitationResponseClient = {
-    recruitmentInvitationResponses: {
-      confirm: () =>
-        Effect.sync(() => {
-          operations.push("confirm");
-        }),
-      read: () =>
-        Effect.sync(() => {
-          operations.push("read");
-          return decodeObservation("Accepted");
-        }),
-      reject: () => Effect.die("not used"),
-      requestNewTime: () => Effect.die("not used"),
-    },
-  };
-  const command = makeInterviewCommands(client).ConfirmInvitation({ requestId: 7 });
-  const result = await Effect.runPromise(command.effect);
-
-  expect(operations).toEqual(["confirm", "read"]);
-  expect(result).toEqual(
-    SucceededInvitationResponse({
-      requestId: 7,
-      action: "Confirm",
-      observation: decodeObservation("Accepted"),
-    }),
-  );
 });
 
 it("allows a blank rejection message and normalizes it to absent", () => {
@@ -221,7 +232,7 @@ it("allows a blank rejection message and normalizes it to absent", () => {
 
   expect(next.selectedAction).toBe("Reject");
   expect(commands).toHaveLength(1);
-  expect(commands[0]?.args).toEqual({ requestId: next.requestId, message: null });
+  expect(commands[0]?.args).toEqual({ requestId: next.requestId, etag, message: null });
 });
 
 it("requires a bounded message only when requesting a new time", () => {
@@ -255,6 +266,7 @@ it("requires a bounded message only when requesting a new time", () => {
   expect(requested.selectedAction).toBe("RequestNewTime");
   expect(commands[0]?.args).toEqual({
     requestId: requested.requestId,
+    etag,
     message: validMaximumMessage,
   });
 });
@@ -315,17 +327,23 @@ it("rejects stale read, command success, and command failure observations", () =
     requestId: 4,
   };
   const staleMessages = [
-    SucceededReadInvitationResponse({ requestId: 3, observation: decodeObservation("Pending") }),
+    SucceededReadInvitationResponse({
+      requestId: 3,
+      observation: decodeObservation("Pending"),
+      etag,
+    }),
     FailedReadInvitationResponse({ requestId: 3, failure: bridgeFailure }),
     SucceededInvitationResponse({
       requestId: 3,
       action: "Confirm",
       observation: decodeObservation("Accepted"),
+      etag: nextEtag,
     }),
     SucceededInvitationResponse({
       requestId: 4,
       action: "Reject",
       observation: decodeObservation("Rejected"),
+      etag: nextEtag,
     }),
     FailedInvitationResponse({ requestId: 3, action: "Confirm", failure: bridgeFailure }),
   ];
@@ -345,6 +363,7 @@ it("does not adopt a fresh read that contradicts the completed operation", () =>
       requestId: inFlight.requestId,
       action: "Confirm",
       observation: decodeObservation("Pending"),
+      etag: nextEtag,
     }),
   );
 

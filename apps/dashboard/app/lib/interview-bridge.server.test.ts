@@ -1,9 +1,10 @@
+import { makeNativeProblem, StrongETag } from "@vektorprogrammet/http-api";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { INVITATION_INTERACTION_HEADER } from "../foldkit/interview/bridge";
 
-const createServerClient = vi.hoisted(() => vi.fn());
+const createConfiguredPromiseClient = vi.hoisted(() => vi.fn());
 
-vi.mock("./api.server", () => ({ createServerClient }));
+vi.mock("@vektorprogrammet/sdk", () => ({ createConfiguredPromiseClient }));
 
 import {
   bridgeFailureFrom,
@@ -15,10 +16,11 @@ import {
   runOperation,
   statusForInvitationFailure,
 } from "./interview-bridge.server";
+const etag = StrongETag.make(`"vkr2.${"A".repeat(43)}"`);
 
 describe("server-held recruitment invitation bridge", () => {
   beforeEach(() => {
-    createServerClient.mockReset();
+    createConfiguredPromiseClient.mockReset();
   });
 
   it("creates distinct interaction-bound session cookies scoped to the bridge", () => {
@@ -58,35 +60,41 @@ describe("server-held recruitment invitation bridge", () => {
     expect(decodeOperation({ operation: "readInvitationResponse" })).toEqual({
       operation: "readInvitationResponse",
     });
-    expect(decodeOperation({ operation: "confirmInvitation" })).toEqual({
+    expect(decodeOperation({ operation: "confirmInvitation", etag })).toEqual({
       operation: "confirmInvitation",
+      etag,
     });
-    expect(decodeOperation({ operation: "rejectInvitation", message: null })).toEqual({
+    expect(decodeOperation({ operation: "rejectInvitation", etag, message: null })).toEqual({
       operation: "rejectInvitation",
+      etag,
       message: null,
     });
-    expect(decodeOperation({ operation: "rejectInvitation", message: "   " })).toEqual({
+    expect(decodeOperation({ operation: "rejectInvitation", etag, message: "   " })).toEqual({
       operation: "rejectInvitation",
+      etag,
       message: null,
     });
     expect(
       decodeOperation({
         operation: "requestNewInvitationTime",
+        etag,
         message: "  Kan vi møtes torsdag?  ",
       }),
     ).toEqual({
       operation: "requestNewInvitationTime",
+      etag,
       message: "Kan vi møtes torsdag?",
     });
     expect(() =>
-      decodeOperation({ operation: "confirmInvitation", capability: "forbidden" }),
+      decodeOperation({ operation: "confirmInvitation", etag, capability: "forbidden" }),
     ).toThrow();
     expect(() =>
-      decodeOperation({ operation: "rejectInvitation", message: "x".repeat(2_001) }),
+      decodeOperation({ operation: "rejectInvitation", etag, message: "x".repeat(2_001) }),
     ).toThrow();
     expect(() =>
       decodeOperation({
         operation: "requestNewInvitationTime",
+        etag,
         message: `Flytt intervjuet ${"A".repeat(43)} takk`,
       }),
     ).toThrow();
@@ -102,9 +110,12 @@ describe("server-held recruitment invitation bridge", () => {
 
     await expect(
       decodeOperationRequest(
-        request("http://dashboard.test/interview", '{"operation":"confirmInvitation"}'),
+        request(
+          "http://dashboard.test/interview",
+          JSON.stringify({ operation: "confirmInvitation", etag }),
+        ),
       ),
-    ).resolves.toEqual({ operation: "confirmInvitation" });
+    ).resolves.toEqual({ operation: "confirmInvitation", etag });
     await expect(
       decodeOperationRequest(request("http://dashboard.test/interview?operation=confirm", "{}")),
     ).rejects.toMatchObject({ _tag: "InvitationDecodeError" });
@@ -115,7 +126,7 @@ describe("server-held recruitment invitation bridge", () => {
       decodeOperationRequest(
         request(
           "http://dashboard.test/interview",
-          '{"operation":"confirmInvitation","extra":true}',
+          JSON.stringify({ operation: "confirmInvitation", etag, extra: true }),
         ),
       ),
     ).rejects.toMatchObject({ _tag: "InvitationDecodeError" });
@@ -167,7 +178,7 @@ describe("server-held recruitment invitation bridge", () => {
       expect(failure._tag).toBe(expectedTag);
       expect(statusForInvitationFailure(failure)).toBe(expectedStatus);
     }
-    expect(createServerClient).not.toHaveBeenCalled();
+    expect(createConfiguredPromiseClient).not.toHaveBeenCalled();
   });
 
   it("resolves only the capability cookie named by the request interaction id", async () => {
@@ -175,9 +186,22 @@ describe("server-held recruitment invitation bridge", () => {
     const unrelatedInteractionId = "e".repeat(32);
     const requestedCapability = "D".repeat(43);
     const unrelatedCapability = "E".repeat(43);
-    const read = vi.fn().mockResolvedValue({ responseState: "Pending" });
-    createServerClient.mockReturnValue({
-      recruitmentInvitationResponses: { read },
+    const resource = {
+      observation: {
+        scheduledAt: "2031-09-20T13:30:00.000Z",
+        room: "K-101",
+        campus: "Gløshaugen",
+        responseState: "Pending",
+        responseMessage: null,
+      },
+      etag,
+    };
+    const read = vi.fn().mockResolvedValue({
+      body: resource.observation,
+      headers: { ETag: etag },
+    });
+    createConfiguredPromiseClient.mockReturnValue({
+      recruitment: { readInvitationResponse: read },
     } as never);
     const requestedCookie = createInvitationCapabilityCookie(
       requestedInteractionId,
@@ -194,26 +218,27 @@ describe("server-held recruitment invitation bridge", () => {
       },
     });
 
-    await expect(runOperation(request, { operation: "readInvitationResponse" })).resolves.toEqual({
-      responseState: "Pending",
+    await expect(runOperation(request, { operation: "readInvitationResponse" })).resolves.toEqual(
+      resource,
+    );
+    expect(createConfiguredPromiseClient).toHaveBeenCalledWith({
+      headers: { "X-Recruitment-Invitation-Capability": requestedCapability },
     });
-    expect(createServerClient).toHaveBeenCalledOnce();
-    expect(read).toHaveBeenCalledWith(requestedCapability);
+    expect(read).toHaveBeenCalledWith({ headers: {} });
   });
 
-  it("projects only safe typed SDK failures and stable statuses", () => {
+  it("projects only safe current problem codes and stable statuses", () => {
     const cases = [
-      ["RecruitmentInvitationNotFound", "InvitationNotFound", 404],
-      ["RecruitmentInvitationAlreadyResponded", "InvitationAlreadyResponded", 409],
-      ["RecruitmentDecodeError", "InvitationDecodeError", 422],
-      ["RecruitmentPersistenceError", "InvitationUnavailable", 503],
+      ["resource.not-found", "InvitationNotFound", 404],
+      ["invitation.already-responded", "InvitationAlreadyResponded", 409],
+      ["validation.failed", "InvitationDecodeError", 422],
+      ["idempotency.unavailable", "InvitationUnavailable", 503],
     ] as const;
 
-    for (const [recruitmentTag, bridgeTag, status] of cases) {
-      const failure = bridgeFailureFrom({
-        recruitmentTag,
-        message: "unsafe backend detail",
-      });
+    for (const [code, bridgeTag, status] of cases) {
+      const failure = bridgeFailureFrom(
+        makeNativeProblem(code, status, "urn:uuid:00000000-0000-4000-8000-000000000001"),
+      );
       expect(failure._tag).toBe(bridgeTag);
       expect(failure.message).not.toContain("unsafe");
       expect(statusForInvitationFailure(failure)).toBe(status);

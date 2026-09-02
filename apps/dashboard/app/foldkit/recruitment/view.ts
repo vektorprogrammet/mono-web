@@ -1,9 +1,9 @@
-import { Button, Dialog, Select } from "@foldkit/ui";
 import {
   InterviewSchemaId,
   type RecruitmentAssignmentBoard,
+  RecruitmentInterviewerOptionSchema,
 } from "@vektorprogrammet/domain/recruitment";
-import { PersonId } from "@vektorprogrammet/domain/schema";
+import { Button, Dialog, Select } from "@foldkit/ui";
 import { Schema as S } from "effect";
 import { AsyncData } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
@@ -25,7 +25,9 @@ const dateTime = new Intl.DateTimeFormat("nb-NO", {
 });
 
 type AssignmentBoard = RecruitmentAssignmentBoard;
-const decodeInterviewerPersonId = S.decodeUnknownSync(PersonId);
+const decodeInterviewerPersonId = S.decodeUnknownSync(
+  RecruitmentInterviewerOptionSchema.fields.personId,
+);
 const decodeInterviewSchemaId = S.decodeUnknownSync(InterviewSchemaId);
 
 type Candidate = AssignmentBoard["candidates"][number];

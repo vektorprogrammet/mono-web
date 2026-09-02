@@ -168,43 +168,49 @@ export const runOperation = async (
       if (result.body === undefined) throw new Error("Invitation response did not include a body");
       return { observation: result.body, etag: result.headers.ETag };
     }
-    case "confirmInvitation":
-      await client.confirmInvitation({
+    case "confirmInvitation": {
+      const result = await client.confirmInvitation({
         headers: {
           "idempotency-key": makeIdempotencyKey(),
           "if-match": operation.etag,
         },
         payload: {},
       });
-      return undefined;
-    case "rejectInvitation":
-      await client.rejectInvitation({
+      if (result.body === undefined) throw new Error("Invitation response did not include a body");
+      return { observation: result.body, etag: result.headers.ETag };
+    }
+    case "rejectInvitation": {
+      const result = await client.rejectInvitation({
         headers: {
           "idempotency-key": makeIdempotencyKey(),
           "if-match": operation.etag,
         },
         payload: operation.message === null ? {} : { message: operation.message },
       });
-      return undefined;
-    case "requestNewInvitationTime":
-      await client.requestNewInvitationTime({
+      if (result.body === undefined) throw new Error("Invitation response did not include a body");
+      return { observation: result.body, etag: result.headers.ETag };
+    }
+    case "requestNewInvitationTime": {
+      const result = await client.requestNewInvitationTime({
         headers: {
           "idempotency-key": makeIdempotencyKey(),
           "if-match": operation.etag,
         },
         payload: { message: operation.message },
       });
-      return undefined;
+      if (result.body === undefined) throw new Error("Invitation response did not include a body");
+      return { observation: result.body, etag: result.headers.ETag };
+    }
   }
 };
-
 const safeFailure = (
   tag: InvitationBridgeFailure["_tag"],
   message: string,
 ): InvitationBridgeFailure => ({ _tag: tag, message });
+const NativeProblemSummary = S.Struct({ status: S.Number, code: S.String });
+type NativeProblemSummary = S.Schema.Type<typeof NativeProblemSummary>;
 
-export const bridgeFailureFrom = (error: unknown): InvitationBridgeFailure => {
-  if (S.is(InvitationBridgeFailureSchema)(error)) return error;
+const nativeProblem = (error: unknown): NativeProblemSummary | undefined => {
   const problem = S.is(NativeProblem)(error)
     ? error
     : typeof error === "object" &&
@@ -213,6 +219,23 @@ export const bridgeFailureFrom = (error: unknown): InvitationBridgeFailure => {
         S.is(NativeProblem)(error.body)
       ? error.body
       : undefined;
+  return problem === undefined ? undefined : S.decodeUnknownSync(NativeProblemSummary)(problem);
+};
+
+export const bridgeFailureFrom = (error: unknown): InvitationBridgeFailure => {
+  if (S.is(InvitationBridgeFailureSchema)(error)) {
+    switch (error._tag) {
+      case "InvitationNotFound":
+        return safeFailure("InvitationNotFound", "Invitation unavailable");
+      case "InvitationAlreadyResponded":
+        return safeFailure("InvitationAlreadyResponded", "Invitation already responded");
+      case "InvitationDecodeError":
+        return safeFailure("InvitationDecodeError", "Invitation response input invalid");
+      case "InvitationUnavailable":
+        return safeFailure("InvitationUnavailable", "Invitation response unavailable");
+    }
+  }
+  const problem = nativeProblem(error);
   if (problem === undefined) {
     return safeFailure("InvitationUnavailable", "Invitation response unavailable");
   }

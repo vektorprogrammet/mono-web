@@ -1,8 +1,10 @@
+import { RecruitmentSchedulingBoardSchema } from "@vektorprogrammet/domain/recruitment";
 import {
-  RecruitmentScheduleResultSchema,
-  RecruitmentSchedulingBoardSchema,
-  type RecruitmentScheduleCommand,
-} from "@vektorprogrammet/sdk/effect";
+  IdempotencyKey,
+  ScheduleInterviewResponse,
+  StrongETag,
+  type ScheduleInterviewRequest,
+} from "@vektorprogrammet/http-api";
 import { Effect, Schema as S } from "effect";
 import { AsyncData, Command } from "foldkit";
 import { describe, expect, it } from "vitest";
@@ -30,8 +32,10 @@ const decodeBoard = (value: unknown) =>
   S.decodeUnknownSync(RecruitmentSchedulingBoardSchema)(value, {
     onExcessProperty: "error",
   });
-const decodeResult = S.decodeUnknownSync(RecruitmentScheduleResultSchema);
+const decodeResult = S.decodeUnknownSync(ScheduleInterviewResponse);
 
+const etag = StrongETag.make(`"vkr2.${"A".repeat(43)}"`);
+const nextEtag = StrongETag.make(`"vkr2.${"B".repeat(43)}"`);
 const rawInterview = {
   interviewId: "recruitment-interview-50",
   applicationId: "recruitment-application-50",
@@ -50,6 +54,7 @@ const rawInterview = {
     email: "ada@example.invalid",
     phone: "+4722222222",
   },
+  etag,
 } as const;
 
 const unscheduledBoard = decodeBoard({
@@ -93,16 +98,14 @@ const freshBoard = decodeBoard({
 });
 
 const inertClient: RecruitmentClient = {
-  admin: {
-    recruitment: {
-      readSchedulingBoard: () => Effect.die("not executed by transition tests"),
-      scheduleInterview: () => Effect.die("not executed by transition tests"),
-      readAssignmentBoard: () => Effect.die("not executed by transition tests"),
-      assignApplicant: () => Effect.die("not executed by transition tests"),
-      readInterviewConduct: () => Effect.die("not executed by transition tests"),
-      finalizeInterview: () => Effect.die("not executed by transition tests"),
-      cancelInterview: () => Effect.die("not executed by transition tests"),
-    },
+  recruitment: {
+    readSchedulingBoard: () => Effect.die("not executed by transition tests"),
+    scheduleInterview: () => Effect.die("not executed by transition tests"),
+    readAssignmentBoard: () => Effect.die("not executed by transition tests"),
+    createApplicationInterview: () => Effect.die("not executed by transition tests"),
+    readInterviewConduct: () => Effect.die("not executed by transition tests"),
+    finalizeInterview: () => Effect.die("not executed by transition tests"),
+    cancelInterview: () => Effect.die("not executed by transition tests"),
   },
 };
 const commands = makeSchedulingCommands(inertClient);
@@ -119,7 +122,12 @@ const ready = (model: Model): ReadyModel => {
 };
 
 const initialModel = (): ReadyModel =>
-  ready(makeInitialModel({ _tag: "Loaded", board: unscheduledBoard }, "scheduling-test-command"));
+  ready(
+    makeInitialModel(
+      { _tag: "Loaded", board: unscheduledBoard },
+      IdempotencyKey.make("scheduling-test-command"),
+    ),
+  );
 
 const advance = (transition: SchedulingUpdate, model: Model, message: Message): ReadyModel =>
   ready(transition(model, message)[0]);
@@ -182,7 +190,10 @@ const responseBoard = decodeBoard({
 describe("Foldkit scheduling transitions", () => {
   it("projects every invitation response label and only provided response messages", () => {
     const model = ready(
-      makeInitialModel({ _tag: "Loaded", board: responseBoard }, "response-test"),
+      makeInitialModel(
+        { _tag: "Loaded", board: responseBoard },
+        IdempotencyKey.make("response-test-command-01"),
+      ),
     );
     const board = AsyncData.getData(model.board);
     expect(board._tag).toBe("Some");
@@ -251,42 +262,48 @@ describe("Foldkit scheduling transitions", () => {
   it("uses a fresh scheduling-board read as the only success state replacement", async () => {
     let postCalls = 0;
     let readCalls = 0;
-    let observedCommand: RecruitmentScheduleCommand | null = null;
+    let observedInput: {
+      readonly params: { readonly interviewId: string };
+      readonly headers: {
+        readonly "idempotency-key": IdempotencyKey;
+        readonly "if-match": StrongETag;
+      };
+      readonly payload: ScheduleInterviewRequest;
+    } | null = null;
     const postObservationSchedule = {
       ...freshSchedule,
       room: "POST observation room",
     };
     const client: RecruitmentClient = {
-      admin: {
-        recruitment: {
-          scheduleInterview: (command) =>
-            Effect.sync(() => {
-              postCalls += 1;
-              observedCommand = command;
-              return decodeResult({
-                observation: {
-                  _tag: "InterviewScheduled",
-                  commandId: command.commandId,
-                  interviewId: command.interviewId,
-                  schedule: postObservationSchedule,
-                  interviewRevision: 1,
-                  responseState: "Pending",
-                  notificationState: "Pending",
-                },
-                replayed: false,
-              });
-            }),
-          readSchedulingBoard: () =>
-            Effect.sync(() => {
-              readCalls += 1;
-              return freshBoard;
-            }),
-          readAssignmentBoard: () => Effect.die("not executed by transition tests"),
-          assignApplicant: () => Effect.die("not executed by transition tests"),
-          readInterviewConduct: () => Effect.die("not executed by transition tests"),
-          finalizeInterview: () => Effect.die("not executed by transition tests"),
-          cancelInterview: () => Effect.die("not executed by transition tests"),
-        },
+      recruitment: {
+        scheduleInterview: (input) =>
+          Effect.sync(() => {
+            postCalls += 1;
+            observedInput = input;
+            return decodeResult({
+              observation: {
+                _tag: "InterviewScheduled",
+                commandId: input.headers["idempotency-key"],
+                interviewId: input.params.interviewId,
+                schedule: postObservationSchedule,
+                interviewRevision: 1,
+                responseState: "Pending",
+                notificationState: "Pending",
+              },
+              replayed: false,
+              etag: nextEtag,
+            });
+          }),
+        readSchedulingBoard: () =>
+          Effect.sync(() => {
+            readCalls += 1;
+            return freshBoard;
+          }),
+        readAssignmentBoard: () => Effect.die("not executed by transition tests"),
+        createApplicationInterview: () => Effect.die("not executed by transition tests"),
+        readInterviewConduct: () => Effect.die("not executed by transition tests"),
+        finalizeInterview: () => Effect.die("not executed by transition tests"),
+        cancelInterview: () => Effect.die("not executed by transition tests"),
       },
     };
     const flowUpdate = makeUpdate(makeSchedulingCommands(client));
@@ -304,9 +321,9 @@ describe("Foldkit scheduling transitions", () => {
 
     expect(postCalls).toBe(1);
     expect(readCalls).toBe(1);
-    expect(observedCommand).toMatchObject({
-      interviewId: unscheduledBoard.interviews[0]!.interviewId,
-      expectedRevision: 0,
+    expect(observedInput).toMatchObject({
+      params: { interviewId: unscheduledBoard.interviews[0]!.interviewId },
+      headers: { "if-match": etag },
     });
     expect(successMessage).toEqual(
       SucceededSchedule({ requestId: ready(pending).boardRequestId, board: freshBoard }),

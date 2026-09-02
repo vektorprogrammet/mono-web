@@ -1,6 +1,8 @@
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
-import { InterviewSchemaId } from "@vektorprogrammet/domain/recruitment";
-import { PersonId } from "@vektorprogrammet/domain/schema";
+import {
+  InterviewSchemaId,
+  RecruitmentInterviewerOptionSchema,
+} from "@vektorprogrammet/domain/recruitment";
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Dialog } from "@foldkit/ui";
 import { Schema as S } from "effect";
@@ -34,7 +36,7 @@ const ReadyModel = S.Struct({
   selectedFilter: RecruitmentBoardStatus,
   boardRequestId: RecruitmentBoardRequestId,
   selectedApplicationId: S.NullOr(PublicApplicationIdSchema),
-  selectedInterviewerPersonId: S.NullOr(PersonId),
+  selectedInterviewerPersonId: S.NullOr(RecruitmentInterviewerOptionSchema.fields.personId),
   selectedInterviewSchemaId: S.NullOr(InterviewSchemaId),
   assignmentDialog: Dialog.Model,
   isAssigning: S.Boolean,

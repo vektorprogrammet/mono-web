@@ -1,3 +1,4 @@
+import { StrongETag } from "@vektorprogrammet/http-api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
 import { createBrowserInterviewClient } from "./browser-client";
@@ -10,6 +11,8 @@ const observation = {
   responseState: "Pending",
   responseMessage: null,
 } as const;
+const etag = StrongETag.make(`"vkr2.${"A".repeat(43)}"`);
+const resource = { observation, etag };
 
 const interactionId = "a".repeat(32);
 
@@ -33,23 +36,25 @@ describe("browser invitation response bridge", () => {
 
   it("sends the strict interaction binding on every capability-free bridge operation", async () => {
     fetchMock
-      .mockResolvedValueOnce(jsonResponse(observation))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }));
-    const client = createBrowserInterviewClient(interactionId).recruitmentInvitationResponses;
+      .mockResolvedValueOnce(jsonResponse(resource))
+      .mockResolvedValueOnce(jsonResponse(resource))
+      .mockResolvedValueOnce(jsonResponse(resource))
+      .mockResolvedValueOnce(jsonResponse(resource));
+    const client = createBrowserInterviewClient(interactionId).recruitment;
 
-    await Effect.runPromise(client.read());
-    await Effect.runPromise(client.confirm());
-    await Effect.runPromise(client.reject({ message: null }));
-    await Effect.runPromise(client.requestNewTime({ message: "Kan vi møtes torsdag?" }));
+    await Effect.runPromise(client.readInvitationResponse());
+    await Effect.runPromise(client.confirmInvitation({ etag }));
+    await Effect.runPromise(client.rejectInvitation({ etag, message: null }));
+    await Effect.runPromise(
+      client.requestNewInvitationTime({ etag, message: "Kan vi møtes torsdag?" }),
+    );
 
     const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)));
     expect(bodies).toEqual([
       { operation: "readInvitationResponse" },
-      { operation: "confirmInvitation" },
-      { operation: "rejectInvitation", message: null },
-      { operation: "requestNewInvitationTime", message: "Kan vi møtes torsdag?" },
+      { operation: "confirmInvitation", etag },
+      { operation: "rejectInvitation", etag, message: null },
+      { operation: "requestNewInvitationTime", etag, message: "Kan vi møtes torsdag?" },
     ]);
     expect(fetchMock.mock.calls.every(([, init]) => init?.credentials === "same-origin")).toBe(
       true,
@@ -63,10 +68,12 @@ describe("browser invitation response bridge", () => {
   });
 
   it("strictly decodes the applicant observation", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ ...observation, invitationId: "forbidden" }));
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ ...resource, observation: { ...observation, invitationId: "forbidden" } }),
+    );
     const failure = await Effect.runPromise(
       createBrowserInterviewClient(interactionId)
-        .recruitmentInvitationResponses.read()
+        .recruitment.readInvitationResponse()
         .pipe(Effect.flip),
     );
 
@@ -85,7 +92,7 @@ describe("browser invitation response bridge", () => {
     );
     const failure = await Effect.runPromise(
       createBrowserInterviewClient(interactionId)
-        .recruitmentInvitationResponses.confirm()
+        .recruitment.confirmInvitation({ etag })
         .pipe(Effect.flip),
     );
 
@@ -96,13 +103,13 @@ describe("browser invitation response bridge", () => {
   });
 
   it("maps malformed failures and unexpected success statuses to unavailable", async () => {
-    const client = createBrowserInterviewClient(interactionId).recruitmentInvitationResponses;
+    const client = createBrowserInterviewClient(interactionId).recruitment;
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ message: "unsafe persistence detail" }, 503))
-      .mockResolvedValueOnce(jsonResponse(observation, 201));
+      .mockResolvedValueOnce(jsonResponse(resource, 201));
 
-    const malformed = await Effect.runPromise(client.read().pipe(Effect.flip));
-    const unexpected = await Effect.runPromise(client.read().pipe(Effect.flip));
+    const malformed = await Effect.runPromise(client.readInvitationResponse().pipe(Effect.flip));
+    const unexpected = await Effect.runPromise(client.readInvitationResponse().pipe(Effect.flip));
 
     expect(malformed._tag).toBe("InvitationUnavailable");
     expect(unexpected._tag).toBe("InvitationUnavailable");
