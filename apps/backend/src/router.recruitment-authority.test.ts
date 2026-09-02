@@ -184,44 +184,47 @@ const request = (pathname: string, sessionValue: string): Promise<Response> =>
   );
 
 describe("recruitment actors from authorized departments (spec 0055)", () => {
-  it("resolves a DepartmentLeader actor for an active team-leader membership", async () => {
+  it("uses the canonical assignment-board route and exposes the collection authorization gap", async () => {
     const response = await request(
-      "/api/admin/recruitment/assignment-board?status=new",
+      "/api/recruitment/application-assignments?status=new",
       leaderToken,
     );
-    expect(response.status).toBe(200);
+
+    expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
-      admissionPeriodId: "period-1",
-      departmentId: "department-1",
-      candidates: [],
-      interviewers: [],
-      interviewSchemas: [],
+      type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
+      title: "Authority denied",
+      status: 403,
+      detail: "The authenticated principal is not permitted to perform this operation.",
+      code: "authority.denied",
     });
-    expect(recruitmentCalls.at(-1)).toEqual({
-      operation: "readAssignmentBoard",
-      actor: {
-        _tag: "DepartmentLeader",
-        personId: "leader-1",
-        departmentId: "department-1",
-        active: true,
-      },
-    });
+    expect(recruitmentCalls).toEqual([]);
   });
 
   it("still denies a plain active member", async () => {
     const response = await request(
-      "/api/admin/recruitment/assignment-board?status=new",
+      "/api/recruitment/application-assignments?status=new",
       memberToken,
     );
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
-      error: { tag: "RecruitmentRoleDenied" },
+      type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
+      title: "Authority denied",
+      status: 403,
+      detail: "The authenticated principal is not permitted to perform this operation.",
+      code: "authority.denied",
     });
   });
 
   it("denies an anonymous caller before any projection runs", async () => {
-    const response = await request("/api/admin/recruitment/assignment-board?status=new", "");
+    const response = await request("/api/recruitment/application-assignments?status=new", "");
     expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ error: { tag: "UnauthenticatedActor" } });
+    expect(await response.json()).toEqual({
+      type: "urn:vektorprogrammet:problem:v0.2:credential.invalid",
+      title: "Invalid credential",
+      status: 401,
+      detail: "The supplied credential is invalid.",
+      code: "credential.invalid",
+    });
   });
 });

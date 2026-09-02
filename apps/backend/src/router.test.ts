@@ -53,10 +53,35 @@ const environment = {
 } as const;
 const config = makeBackendConfig(environment);
 
-const database = Object.assign((() => Effect.succeed([])) as unknown as DatabaseShape, {
-  health: Effect.void,
-  withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect,
-});
+const database = Object.assign(
+  ((strings: TemplateStringsArray) => {
+    const statement = strings.join(" ");
+    if (statement.includes("FROM person_profiles AS profile")) {
+      return Effect.succeed([
+        {
+          personId: "member-1",
+          firstName: "Member",
+          lastName: "One",
+          nameRevision: 0,
+          representationRevision: 0,
+          contactPersonId: "member-1",
+          email: "member@example.invalid",
+          phone: "90000000",
+          contactRevision: 0,
+        },
+      ]);
+    }
+    if (statement.includes("SELECT pg_try_advisory_xact_lock")) {
+      return Effect.succeed([{ acquired: true }]);
+    }
+    return Effect.succeed([]);
+  }) as unknown as DatabaseShape,
+  {
+    health: Effect.void,
+    json: (value: unknown) => value,
+    withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect,
+  },
+);
 const profile: ProfileShape = {
   readProfiles: (personIds) =>
     Effect.succeed(
@@ -184,7 +209,11 @@ const makeRun =
                       }),
               }),
             revokeCurrentSession: () => Effect.succeed({ setCookies: [] }),
-            revokeSession: () => Effect.succeed({ setCookies: [] }),
+            revokeSession: (_actor, sessionId, request) =>
+              Effect.tryPromise({
+                try: () => identity.revokeSession(undefined, sessionId, request),
+                catch: (cause) => cause as IdentityOwnedSessionNotFound,
+              }),
             revokeOtherSessions: () => Effect.succeed({ setCookies: [] }),
             revokeAllSessions: () => Effect.succeed({ setCookies: [] }),
           }),
@@ -233,15 +262,18 @@ const backend = makeBackendHttp(config, successfulRun, unavailableAuthHandler);
 
 const request = (pathname: string, init?: RequestInit): Promise<Response> =>
   backend.fetch(new Request(`http://backend.test${pathname}`, init));
+const expectedProblem = (code: string, title: string, status: number, detail: string) => ({
+  type: `urn:vektorprogrammet:problem:v0.2:${code}`,
+  title,
+  status,
+  detail,
+  code,
+});
 
 describe("unified backend router", () => {
-  it("derives current preflight methods while exposing the 0077.2 attachment gap", () => {
+  it("derives preflight methods with every generated operation attached", () => {
     expect(externalNativePreflightMethodsForPath("/api/session")).toEqual(["GET", "DELETE"]);
-    expect(externalNativePreflightAttachmentGaps).toContainEqual({
-      identifier: "readSession",
-      method: "GET",
-      path: "/api/session",
-    });
+    expect(externalNativePreflightAttachmentGaps).toEqual([]);
   });
   it("owns health, Profile, Organization, Schools, Admission, Receipt, and Recruitment routes", async () => {
     const [
@@ -257,12 +289,12 @@ describe("unified backend router", () => {
       internalEvidence,
     ] = await Promise.all([
       request("/health"),
-      request("/api/me", { headers: { cookie: `${token}=value` } }),
+      request("/api/profile", { headers: { cookie: `${token}=value` } }),
       request("/api/departments"),
-      request("/api/admin/schools", { headers: { cookie: `${token}=value` } }),
-      request("/api/admin/admission-periods"),
+      request("/api/schools", { headers: { cookie: `${token}=value` } }),
+      request("/api/admission-periods"),
       request("/api/receipts"),
-      request("/api/admin/recruitment/assignment-board?status=new"),
+      request("/api/recruitment/application-assignments?status=new"),
       request("/api/recruitment/invitation-response"),
       request("/api/not-a-capability"),
       request("/api/e2e/receipts/receipt-one/evidence", {
@@ -300,22 +332,42 @@ describe("unified backend router", () => {
     });
     expect({ status: admission.status, body: await admission.json() }).toEqual({
       status: 401,
-      body: { error: { tag: "UnauthenticatedActor" } },
+      body: expectedProblem(
+        "credential.invalid",
+        "Invalid credential",
+        401,
+        "The supplied credential is invalid.",
+      ),
     });
     expect({ status: receipt.status, body: await receipt.json() }).toEqual({
       status: 401,
-      body: { error: { tag: "UnauthenticatedActor" } },
+      body: expectedProblem(
+        "credential.missing",
+        "Credential required",
+        401,
+        "A credential is required for this operation.",
+      ),
     });
     expect({ status: recruitment.status, body: await recruitment.json() }).toEqual({
       status: 401,
-      body: { error: { tag: "UnauthenticatedActor" } },
+      body: expectedProblem(
+        "credential.invalid",
+        "Invalid credential",
+        401,
+        "The supplied credential is invalid.",
+      ),
     });
     expect({
       status: publicRecruitment.status,
       body: await publicRecruitment.json(),
     }).toEqual({
       status: 404,
-      body: { error: { tag: "RecruitmentInvitationNotFound" } },
+      body: expectedProblem(
+        "resource.not-found",
+        "Resource not found",
+        404,
+        "The requested resource was not found.",
+      ),
     });
     expect({ status: missing.status, body: await missing.json() }).toEqual({
       status: 404,
@@ -346,14 +398,19 @@ describe("unified backend router", () => {
 
   it("dispatches team-interest and mailing-list reads through Organization", async () => {
     const [teamInterest, mailingLists] = await Promise.all([
-      request("/api/admin/team-interest"),
-      request("/api/admin/mailing-lists"),
+      request("/api/team-interest-registrations"),
+      request("/api/mailing-lists"),
     ]);
 
     for (const response of [teamInterest, mailingLists]) {
       expect({ status: response.status, body: await response.json() }).toEqual({
         status: 401,
-        body: { error: { tag: "UnauthenticatedActor" } },
+        body: expectedProblem(
+          "credential.invalid",
+          "Invalid credential",
+          401,
+          "The supplied credential is invalid.",
+        ),
       });
     }
   });
@@ -363,12 +420,14 @@ describe("unified backend router", () => {
     const mutationHeaders = {
       ...cookieHeaders,
       origin: "http://127.0.0.1:5174",
+      "idempotency-key": "session-mutation-key-0001",
     };
     const current = await request("/api/session", { headers: cookieHeaders });
     expect({ status: current.status, body: await current.json() }).toEqual({
       status: 200,
       body: {
         sessionId: "session-1",
+        personId: "member-1",
         createdAt: "2031-09-15T12:00:00.000Z",
         updatedAt: "2031-09-15T12:00:00.000Z",
         expiresAt: "2031-09-16T12:00:00.000Z",
@@ -388,6 +447,7 @@ describe("unified backend router", () => {
           expiresAt: "2031-09-16T12:00:00.000Z",
           ipAddress: "127.0.0.1",
           userAgent: "router-test",
+          personId: "member-1",
           current: true,
         },
       ],
@@ -462,6 +522,7 @@ describe("unified backend router", () => {
     const headers = {
       cookie: `${token}=value`,
       origin: "http://127.0.0.1:5174",
+      "idempotency-key": "owned-session-delete-key-01",
     };
     expect(
       (
@@ -482,7 +543,12 @@ describe("unified backend router", () => {
       );
       expect({ status: response.status, body: await response.json() }).toEqual({
         status: 404,
-        body: { error: { tag: "SessionNotFound" } },
+        body: expectedProblem(
+          "resource.not-found",
+          "Resource not found",
+          404,
+          "The requested resource was not found.",
+        ),
       });
     }
     expect(revokeCalls).toBe(4);
@@ -632,7 +698,7 @@ describe("unified backend router", () => {
         method: "OPTIONS",
         headers: {
           origin,
-          "access-control-request-method": "POST",
+          "access-control-request-method": "DELETE",
           "access-control-request-headers": "Content-Type, X-Unknown-Native-Header",
         },
       }),
@@ -722,7 +788,7 @@ describe("unified backend router", () => {
     );
 
     const response = await pinnedBackend.fetch(
-      new Request("http://backend.test/api/me", {
+      new Request("http://backend.test/api/profile", {
         headers: { cookie: `${token}=value` },
       }),
     );
@@ -732,7 +798,14 @@ describe("unified backend router", () => {
   });
 
   it.each([
-    ["expired session", new IdentitySessionExpired(), 401, "UnauthenticatedActor"],
+    [
+      "expired session",
+      new IdentitySessionExpired(),
+      401,
+      "credential.invalid",
+      "Invalid credential",
+      "The supplied credential is invalid.",
+    ],
     [
       "typed provider failure",
       new IdentityEngineError({
@@ -740,12 +813,21 @@ describe("unified backend router", () => {
         message: "authentication provider unavailable",
       }),
       503,
-      "IdentityEngineError",
+      "identity.unavailable",
+      "Identity unavailable",
+      "The identity service is temporarily unavailable.",
     ],
-    ["unknown provider failure", new Error("connection refused"), 503, "IdentityEngineError"],
+    [
+      "unknown provider failure",
+      new Error("connection refused"),
+      503,
+      "identity.unavailable",
+      "Identity unavailable",
+      "The identity service is temporarily unavailable.",
+    ],
   ] as const)(
     "maps %s at the session HTTP boundary",
-    async (_name, failure, expectedStatus, expectedTag) => {
+    async (_name, failure, status, code, title, detail) => {
       const failingBackend = makeBackendHttp(
         config,
         makeRun({
@@ -762,8 +844,8 @@ describe("unified backend router", () => {
       );
 
       expect({ status: response.status, body: await response.json() }).toEqual({
-        status: expectedStatus,
-        body: { error: { tag: expectedTag } },
+        status,
+        body: expectedProblem(code, title, status, detail),
       });
     },
   );

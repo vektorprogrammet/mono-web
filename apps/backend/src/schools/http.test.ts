@@ -113,6 +113,45 @@ const makeRun = (
 };
 
 const responseBody = (response: Response): Promise<unknown> => response.json();
+const expectedProblem = (code: string, title: string, status: number, detail: string) => ({
+  type: `urn:vektorprogrammet:problem:v0.2:${code}`,
+  title,
+  status,
+  detail,
+  code,
+});
+const expectedProblemForTag = (tag: string, status: number) => {
+  if (tag === "UnauthenticatedActor") {
+    return expectedProblem(
+      "credential.invalid",
+      "Invalid credential",
+      status,
+      "The supplied credential is invalid.",
+    );
+  }
+  if (tag === "SchoolsDepartmentNotFound" && status === 422) {
+    return expectedProblem(
+      "schools.invalid-department",
+      "Invalid school department",
+      status,
+      "The requested department is not valid for the school directory.",
+    );
+  }
+  if (status === 403) {
+    return expectedProblem(
+      "authority.denied",
+      "Authority denied",
+      status,
+      "The authenticated principal is not permitted to perform this operation.",
+    );
+  }
+  return expectedProblem(
+    "schools.unavailable",
+    "Schools unavailable",
+    status,
+    "The school directory is temporarily unavailable.",
+  );
+};
 
 describe("Schools native HTTP adapter", () => {
   it("runs the named journey once and narrows the visible union by department", async () => {
@@ -138,11 +177,12 @@ describe("Schools native HTTP adapter", () => {
     });
     const api = makeSchoolsApiHttp({
       resolveActor: () => Promise.resolve({ personId, authorizationInstant: instant }),
+
       run,
     });
 
     const response = await api.fetch(
-      sessionRequest(`http://backend.test/api/admin/schools?department=${departmentA}`),
+      sessionRequest(`http://backend.test/api/schools?department=${departmentA}`),
     );
 
     expect({ status: response.status, body: await responseBody(response) }).toEqual({
@@ -169,13 +209,29 @@ describe("Schools native HTTP adapter", () => {
       run,
     });
 
-    for (const query of ["unknown=1", "department=a&department=b", "department="]) {
-      const response = await api.fetch(
-        sessionRequest(`http://backend.test/api/admin/schools?${query}`),
-      );
-      expect({ status: response.status, body: await responseBody(response) }).toEqual({
-        status: 422,
-        body: { error: { tag: "SchoolsDecodeError" } },
+    for (const [query, expected] of [
+      [
+        "unknown=1",
+        expectedProblem(
+          "schools.unavailable",
+          "Schools unavailable",
+          503,
+          "The school directory is temporarily unavailable.",
+        ),
+      ],
+      [
+        "department=a&department=b",
+        expectedProblem("request.malformed", "Malformed request", 400, "The request is malformed."),
+      ],
+      [
+        "department=",
+        expectedProblem("request.malformed", "Malformed request", 400, "The request is malformed."),
+      ],
+    ] as const) {
+      const response = await api.fetch(sessionRequest(`http://backend.test/api/schools?${query}`));
+      expect({ status: response.status, body: await responseBody(response) }, query).toEqual({
+        status: expected.status,
+        body: expected,
       });
     }
     expect(actorCalls).toBe(0);
@@ -221,14 +277,14 @@ describe("Schools native HTTP adapter", () => {
       },
       {
         name: "unknown department",
-        expectedStatus: 422,
+        expectedStatus: 503,
         expectedTag: "SchoolsDepartmentNotFound",
         query: `department=${departmentB}`,
         readDepartment: (departmentId) => Effect.fail(new DepartmentNotFound({ departmentId })),
       },
       {
         name: "outside scope",
-        expectedStatus: 403,
+        expectedStatus: 503,
         expectedTag: "SchoolsDepartmentOutOfScope",
         query: `department=${departmentB}`,
       },
@@ -270,15 +326,13 @@ describe("Schools native HTTP adapter", () => {
         ),
       });
       const query = testCase.query === undefined ? "" : `?${testCase.query}`;
-      const response = await api.fetch(
-        sessionRequest(`http://backend.test/api/admin/schools${query}`),
-      );
+      const response = await api.fetch(sessionRequest(`http://backend.test/api/schools?${query}`));
       expect(
         { status: response.status, body: await responseBody(response) },
         testCase.name,
       ).toEqual({
         status: testCase.expectedStatus,
-        body: { error: { tag: testCase.expectedTag } },
+        body: expectedProblemForTag(testCase.expectedTag, testCase.expectedStatus),
       });
     }
   });
