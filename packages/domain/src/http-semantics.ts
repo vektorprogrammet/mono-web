@@ -23,6 +23,11 @@ export interface NativeHttpResponseCapsule {
   readonly bodyBytes: Uint8Array | null;
   readonly headers: Readonly<Record<string, string>>;
 }
+export interface NativeHttpCommandPlan<E, R> {
+  readonly identity: NativeHttpReceiptIdentity;
+  readonly execute: Effect.Effect<NativeHttpResponseCapsule, E, R | Database>;
+}
+
 
 interface NativeHttpReceiptRow {
   readonly requestSha256: string;
@@ -184,71 +189,85 @@ const writeCompleteReceipt = (
   `.pipe(Effect.asVoid);
 
 /**
- * Runs one accepted command and its complete HTTP receipt in one transaction.
- * The caller must finish current authentication, authorization, requirements,
- * absence, and concealment before it invokes this function. The returned domain
- * program runs with the transaction-scoped Database service, so its injected
- * domain state, audit, outbox, and receipt writes share the transaction.
+ * Resolves current authentication and authorization, then runs one accepted
+ * command and its complete HTTP receipt in one transaction. `prepare` runs
+ * before every receipt lookup, including replay, so a revoked credential or
+ * authority cannot recover a previously committed response.
+ *
+ * The transaction connection is inherited by every SQL client used by the
+ * prepared program. Domain state, audit, outbox, and receipt writes therefore
+ * commit or roll back as one unit.
  */
-export const executeNativeHttpCommandPostgres = <E>(
-  identity: NativeHttpReceiptIdentity,
-  execute: Effect.Effect<NativeHttpResponseCapsule, E, Database>,
+export const executeNativeHttpCommandPostgres = <E, R = never>(
+  prepareOrIdentity:
+    | Effect.Effect<NativeHttpCommandPlan<E, R>, E, R | Database>
+    | NativeHttpReceiptIdentity,
+  legacyExecute?: Effect.Effect<NativeHttpResponseCapsule, E, R | Database>,
 ): Effect.Effect<
   NativeHttpCommandOutcome,
   E | NativeHttpReceiptInvalid | NativeHttpReceiptPersistenceError,
-  Database
-> =>
-  Effect.try({
-    try: () => validateIdentity(identity),
-    catch: (cause) =>
-      cause instanceof NativeHttpReceiptInvalid
-        ? cause
-        : new NativeHttpReceiptInvalid({ reason: "invalid receipt identity" }),
-  }).pipe(
-    Effect.flatMap(() =>
-      Database.use((sql) =>
-        sql.withTransaction(
-          Effect.gen(function* () {
-            const lockRows = yield* sql<LockRow>`
-              SELECT pg_try_advisory_xact_lock(
-                hashtextextended(${identity.identitySha256}, 0)
-              ) AS acquired
-            `;
-            if (lockRows[0]?.acquired !== true) {
-              return { _tag: "InFlight", retryAfterSeconds: 1 } as const;
-            }
+  R | Database
+> => {
+  const prepare =
+    legacyExecute === undefined
+      ? (prepareOrIdentity as Effect.Effect<NativeHttpCommandPlan<E, R>, E, R | Database>)
+      : Effect.succeed({
+          identity: prepareOrIdentity as NativeHttpReceiptIdentity,
+          execute: legacyExecute,
+        });
+  return Database.use((sql) =>
+    sql.withTransaction(
+      Effect.gen(function* () {
+        const plan = yield* prepare;
+        const identity = plan.identity;
+        yield* Effect.try({
+          try: () => validateIdentity(identity),
+          catch: (cause) =>
+            cause instanceof NativeHttpReceiptInvalid
+              ? cause
+              : new NativeHttpReceiptInvalid({ reason: "invalid receipt identity" }),
+        });
 
-            yield* redactIdentityIfExpired(sql, identity.identitySha256);
-            const stored = yield* readReceipt(sql, identity.identitySha256);
-            if (stored !== undefined) {
-              if (
-                stored.requestSha256 !== identity.requestSha256 ||
-                stored.operationId !== identity.operationId
-              ) {
-                return { _tag: "DigestConflict" } as const;
-              }
-              if (stored.state === "Tombstone") return { _tag: "ResponseExpired" } as const;
-              return { _tag: "Replay", response: capsuleFromRow(stored) } as const;
-            }
+        const lockRows = yield* sql<LockRow>`
+          SELECT pg_try_advisory_xact_lock(
+            hashtextextended(${identity.identitySha256}, 0)
+          ) AS acquired
+        `;
+        if (lockRows[0]?.acquired !== true) {
+          return { _tag: "InFlight", retryAfterSeconds: 1 } as const;
+        }
 
-            const response = yield* execute.pipe(Effect.provideService(Database, sql));
-            yield* Effect.try({
-              try: () => validateCapsule(response),
-              catch: (cause) =>
-                cause instanceof NativeHttpReceiptInvalid
-                  ? cause
-                  : new NativeHttpReceiptInvalid({ reason: "invalid response capsule" }),
-            });
-            yield* writeCompleteReceipt(sql, identity, response);
-            return { _tag: "Committed", response } as const;
-          }),
-        ),
-      ),
+        yield* redactIdentityIfExpired(sql, identity.identitySha256);
+        const stored = yield* readReceipt(sql, identity.identitySha256);
+        if (stored !== undefined) {
+          if (
+            stored.requestSha256 !== identity.requestSha256 ||
+            stored.operationId !== identity.operationId
+          ) {
+            return { _tag: "DigestConflict" } as const;
+          }
+          if (stored.state === "Tombstone") return { _tag: "ResponseExpired" } as const;
+          return { _tag: "Replay", response: capsuleFromRow(stored) } as const;
+        }
+
+        const response = yield* plan.execute.pipe(Effect.provideService(Database, sql));
+        yield* Effect.try({
+          try: () => validateCapsule(response),
+          catch: (cause) =>
+            cause instanceof NativeHttpReceiptInvalid
+              ? cause
+              : new NativeHttpReceiptInvalid({ reason: "invalid response capsule" }),
+        });
+        yield* writeCompleteReceipt(sql, identity, response);
+        return { _tag: "Committed", response } as const;
+      }),
     ),
+  ).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(new NativeHttpReceiptPersistenceError({ operation: "execute", cause })),
     ),
   );
+};
 
 /** Redacts all expired response capsules while retaining durable tombstones. */
 export const redactExpiredNativeHttpReceipts = Database.use((sql) =>

@@ -1,4 +1,4 @@
-import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
+import { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
 import {
   AdmissionScopeDenied,
@@ -118,6 +118,46 @@ const requestPersonEffect = (
       ? Effect.succeed(credential.principal.personId)
       : Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
   );
+const requestCredentialInTransactionEffect = (
+  request: Request,
+  expected: "OAuthUserBearer" | "OAuthServiceBearer" | "Either",
+  authorizationInstant: AuthorizationInstant,
+): Effect.Effect<
+  AcceptedCredential,
+  IdentityEngineError | UnauthenticatedActor,
+  IdentitySnapshot | OAuthCredentialAuthority
+> => {
+  if (request.headers.has("authorization")) {
+    return OAuthCredentialAuthority.use(({ resolveInTransaction }) =>
+      resolveInTransaction(request, expected, new Date(authorizationInstant)),
+    ).pipe(
+      Effect.flatMap((outcome) =>
+        outcome._tag === "Accepted"
+          ? Effect.succeed(outcome)
+          : Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
+      ),
+    );
+  }
+  if (expected === "OAuthServiceBearer") {
+    return Effect.fail(new UnauthenticatedActor({ message: "authentication required" }));
+  }
+  return IdentitySnapshot.use(({ resolveSession }) =>
+    resolveSession(request.headers.get("cookie") ?? undefined, authorizationInstant),
+  ).pipe(
+    Effect.map((actor) => ({
+      _tag: "Accepted" as const,
+      mechanism: { _tag: "BetterAuthCookie" as const },
+      principal: { _tag: "Person" as const, personId: actor.personId },
+      evidenceRef: CredentialEvidenceRef.make(`better-auth:session:${actor.sessionId}`),
+    })),
+    Effect.mapError((cause) =>
+      cause instanceof IdentitySessionNotFound || cause instanceof IdentitySessionExpired
+        ? new UnauthenticatedActor({ message: "authentication required" })
+        : cause,
+    ),
+  );
+};
+
 
 const personAuthorityEffect = (
   cookieHeader: string | undefined,
@@ -135,7 +175,11 @@ const personAuthorityEffect = (
 
 export interface AuthorityResolutionOptions {
   readonly run: <A, E>(
-    effect: Effect.Effect<A, E, Organization | Identity | OAuthCredentialAuthority>,
+    effect: Effect.Effect<
+      A,
+      E,
+      Organization | Identity | IdentitySnapshot | OAuthCredentialAuthority
+    >,
   ) => Promise<A>;
   /** Injectable clock; defaults to the current ISO instant. */
   readonly now?: () => string;
@@ -184,6 +228,55 @@ export const resolveRequestCredentialAtInstant = (
       })),
     ),
   );
+/**
+ * Resolves the current cookie or delegated bearer state through the caller's
+ * ambient database transaction, then returns that exact credential evidence
+ * and authorization instant to the AccessSpec evaluator.
+ */
+export const resolveRequestCredentialInTransaction = (
+  request: Request,
+  expected: "OAuthUserBearer" | "OAuthServiceBearer" | "Either",
+  options: AuthorityResolutionOptions,
+): Promise<AuthenticatedCredentialAtInstant> => {
+  const authorizationInstant = AuthorizationInstant.make((options.now ?? defaultNow)());
+  return options.run(
+    Effect.map(
+      requestCredentialInTransactionEffect(request, expected, authorizationInstant),
+      (credential) => ({ credential, authorizationInstant }),
+    ),
+  );
+};
+export interface TransactionPersonAuthority {
+  readonly credential: AcceptedCredential;
+  readonly authority: OrganizationPersonAuthority;
+  readonly authorizationInstant: AuthorizationInstant;
+}
+
+/** Resolves one current Person credential and its organization projection at one instant. */
+export const resolveRequestPersonAuthorityInTransaction = async (
+  request: Request,
+  options: AuthorityResolutionOptions,
+): Promise<TransactionPersonAuthority> => {
+  const authenticated = await resolveRequestCredentialInTransaction(
+    request,
+    "OAuthUserBearer",
+    options,
+  );
+  if (authenticated.credential.principal._tag !== "Person") {
+    throw new UnauthenticatedActor({ message: "authentication required" });
+  }
+  const authority = await options.run(
+    Organization.use(({ resolvePersonAuthority }) =>
+      resolvePersonAuthority(
+        authenticated.credential.principal.personId,
+        decodeAuthorizationInstant(authenticated.authorizationInstant),
+      ),
+    ),
+  );
+  return { ...authenticated, authority };
+};
+
+
 
 /**
  * Authenticates first, then captures exactly one instant for a caller-owned

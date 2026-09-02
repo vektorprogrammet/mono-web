@@ -19,6 +19,8 @@ import {
   type IdentityActor,
   type IdentityRequestContext,
   type IdentitySession,
+  type IdentitySessionId,
+  type IdentitySessionMutationSuccess,
   type IdentityShape,
 } from "@vektorprogrammet/domain/identity";
 import { DatabasePgPool } from "./layers.js";
@@ -64,6 +66,35 @@ export interface IdentitySnapshotService {
     cookieHeader: string | undefined,
     authorizationInstant: AuthorizationInstant,
   ) => Effect.Effect<IdentityActor, IdentitySessionNotFound | IdentityEngineError, Database>;
+  readonly revokeCurrentSession: (
+    actor: IdentityActor,
+    request: IdentityRequestContext,
+  ) => Effect.Effect<
+    IdentitySessionMutationSuccess,
+    IdentitySessionNotFound | IdentityEngineError,
+    Database
+  >;
+  readonly revokeSession: (
+    actor: IdentityActor,
+    sessionId: IdentitySessionId,
+    request: IdentityRequestContext,
+  ) => Effect.Effect<
+    IdentitySessionMutationSuccess,
+    IdentityOwnedSessionNotFound | IdentityEngineError,
+    Database
+  >;
+  readonly revokeOtherSessions: (
+    actor: IdentityActor,
+    request: IdentityRequestContext,
+  ) => Effect.Effect<IdentitySessionMutationSuccess, IdentityEngineError, Database>;
+  readonly revokeAllSessions: (
+    actor: IdentityActor,
+    request: IdentityRequestContext,
+  ) => Effect.Effect<
+    IdentitySessionMutationSuccess,
+    IdentitySessionNotFound | IdentityEngineError,
+    Database
+  >;
 }
 
 export class IdentitySnapshot extends Context.Service<IdentitySnapshot, IdentitySnapshotService>()(
@@ -225,6 +256,57 @@ const verifiedBetterAuthSessionToken = (
     ? token
     : null;
 };
+const appendSnapshotAudit = (event: IdentitySecurityEvent) =>
+  Database.use((sql) =>
+    sql`
+      INSERT INTO auth.identity_security_audit (
+        event_id,
+        event_kind,
+        subject_person_id,
+        session_id,
+        actor_principal,
+        request_correlation,
+        source_ip,
+        user_agent,
+        details
+      ) VALUES (
+        ${randomUUID()},
+        ${event.eventKind},
+        ${event.subjectPersonId},
+        ${event.sessionId},
+        ${event.actorPrincipal},
+        ${event.requestCorrelation},
+        ${event.sourceIp},
+        ${event.userAgent},
+        ${sql.json(event.details)}
+      )
+    `.pipe(Effect.asVoid),
+  );
+
+const snapshotMutationAudit = (
+  actor: IdentityActor,
+  request: IdentityRequestContext,
+  input: {
+    readonly eventKind: IdentitySecurityEvent["eventKind"];
+    readonly sessionId: IdentitySessionId;
+    readonly outcomeCode: IdentitySecurityEventDetails["outcomeCode"];
+    readonly affectedSessionCount: number;
+  },
+) =>
+  appendSnapshotAudit(
+    auditEvent({
+      eventKind: input.eventKind,
+      actor,
+      subjectPersonId: actor.personId,
+      sessionId: input.sessionId,
+      context: request,
+      details: new IdentitySecurityEventDetails({
+        outcomeCode: input.outcomeCode,
+        affectedSessionCount: input.affectedSessionCount,
+      }),
+    }),
+  );
+
 
 /** @internal Constructor used by AuthLive and focused boundary tests. */
 export const makeIdentitySnapshotService = (config: AuthEngineConfig): IdentitySnapshotService => ({
@@ -248,6 +330,91 @@ export const makeIdentitySnapshotService = (config: AuthEngineConfig): IdentityS
     }).pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(engineFailure("resolveSnapshotSession", cause)),
+      ),
+    ),
+  revokeCurrentSession: (actor, request) =>
+    Effect.gen(function* () {
+      const sql = yield* Database;
+      const deleted = yield* sql<DeletedSessionRow>`
+        DELETE FROM auth."session"
+        WHERE "id" = ${actor.sessionId} AND "userId" = ${actor.personId}
+        RETURNING "id" AS "sessionId"
+      `;
+      if (deleted.length !== 1) return yield* new IdentitySessionNotFound();
+      yield* snapshotMutationAudit(actor, request, {
+        eventKind: "sign-out",
+        sessionId: actor.sessionId,
+        outcomeCode: "current-session-ended",
+        affectedSessionCount: 1,
+      });
+      return { setCookies: [] };
+    }).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(engineFailure("revokeCurrentSessionSnapshot", cause)),
+      ),
+    ),
+  revokeSession: (actor, sessionId, request) =>
+    Effect.gen(function* () {
+      const sql = yield* Database;
+      const deleted = yield* sql<DeletedSessionRow>`
+        DELETE FROM auth."session"
+        WHERE "id" = ${sessionId} AND "userId" = ${actor.personId}
+        RETURNING "id" AS "sessionId"
+      `;
+      if (deleted.length !== 1) return yield* new IdentityOwnedSessionNotFound({ sessionId });
+      yield* snapshotMutationAudit(actor, request, {
+        eventKind: "session-revoked-one",
+        sessionId,
+        outcomeCode: "owned-session-revoked",
+        affectedSessionCount: 1,
+      });
+      return { setCookies: [] };
+    }).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(engineFailure("revokeOwnedSessionSnapshot", cause)),
+      ),
+    ),
+  revokeOtherSessions: (actor, request) =>
+    Effect.gen(function* () {
+      const sql = yield* Database;
+      const deleted = yield* sql<DeletedSessionRow>`
+        DELETE FROM auth."session"
+        WHERE "userId" = ${actor.personId} AND "id" <> ${actor.sessionId}
+        RETURNING "id" AS "sessionId"
+      `;
+      if (deleted.length > 0) {
+        yield* snapshotMutationAudit(actor, request, {
+          eventKind: "session-revoked-others",
+          sessionId: actor.sessionId,
+          outcomeCode: "other-sessions-revoked",
+          affectedSessionCount: deleted.length,
+        });
+      }
+      return { setCookies: [] };
+    }).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(engineFailure("revokeOtherSessionsSnapshot", cause)),
+      ),
+    ),
+  revokeAllSessions: (actor, request) =>
+    Effect.gen(function* () {
+      const sql = yield* Database;
+      const deleted = yield* sql<DeletedSessionRow>`
+        DELETE FROM auth."session"
+        WHERE "userId" = ${actor.personId}
+        RETURNING "id" AS "sessionId"
+      `;
+      if (deleted.length === 0) return yield* new IdentitySessionNotFound();
+      yield* snapshotMutationAudit(actor, request, {
+        eventKind: "session-revoked-all",
+        sessionId: actor.sessionId,
+        outcomeCode: "all-sessions-revoked",
+        affectedSessionCount: deleted.length,
+      });
+      return { setCookies: [] };
+    }).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(engineFailure("revokeAllSessionsSnapshot", cause)),
       ),
     ),
 });

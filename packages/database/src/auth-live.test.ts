@@ -253,6 +253,38 @@ describe("Better Auth session hardening configuration", () => {
     }
     expect(sessionReads).toBe(1);
   });
+
+  it("revokes owned session state and appends its audit through the ambient database", async () => {
+    const statements: string[] = [];
+    const actor = new IdentityActor({
+      personId: PersonId.make("snapshot-mutation-person"),
+      sessionId: "snapshot-mutation-session",
+      expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
+    });
+    const query = ((strings: TemplateStringsArray) => {
+      const statement = strings.join("?").replaceAll(/\s+/gu, " ").trim();
+      statements.push(statement);
+      return statement.startsWith('DELETE FROM auth."session"')
+        ? Effect.succeed([{ sessionId: actor.sessionId }])
+        : Effect.succeed([]);
+    }) as unknown as DatabaseShape;
+    const database = Object.assign(query, {
+      json: (value: unknown) => value,
+      health: Effect.void,
+      withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect,
+    });
+
+    const result = await Effect.runPromise(
+      makeIdentitySnapshotService(config)
+        .revokeSession(actor, actor.sessionId, requestContext)
+        .pipe(Effect.provideService(Database, database)),
+    );
+
+    expect(result).toEqual({ setCookies: [] });
+    expect(statements).toHaveLength(2);
+    expect(statements[0]).toContain('DELETE FROM auth."session"');
+    expect(statements[1]).toContain("INSERT INTO auth.identity_security_audit");
+  });
 });
 
 describe("audited Better Auth response ordering", () => {

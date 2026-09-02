@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual, webcrypto } from "node:crypto";
-import { Context, Schema } from "effect";
+import { Context, Effect, Schema } from "effect";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import {
   CredentialEvidenceRef,
@@ -7,6 +7,7 @@ import {
   type CredentialOutcome,
 } from "@vektorprogrammet/domain/authz";
 import { PersonId } from "@vektorprogrammet/domain/organization";
+import { Database } from "@vektorprogrammet/domain/database";
 import type { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
 import {
   NativeAccessTokenClaimsSchema,
@@ -47,6 +48,16 @@ export interface OAuthCredentialAuthorityService {
     expected: OAuthExpectedMechanism,
     now?: Date,
   ) => Promise<CredentialOutcome>;
+  /**
+   * Resolves current bearer state through the ambient Effect SQL transaction.
+   * Native mutations use this path so token/client/session revocation and the
+   * protected write observe one database snapshot.
+   */
+  readonly resolveInTransaction: (
+    request: Request,
+    expected: OAuthExpectedMechanism,
+    now?: Date,
+  ) => Effect.Effect<CredentialOutcome, never, Database>;
 }
 
 export class OAuthCredentialAuthority extends Context.Service<
@@ -333,6 +344,41 @@ const selectTokenState = async (
   );
   return result.rows[0];
 };
+const selectTokenStateInTransaction = (
+  claims: NativeAccessTokenClaims,
+  kid: string,
+): Effect.Effect<TokenStateRow | undefined, unknown, Database> =>
+  Database.use((sql) =>
+    sql<TokenStateRow>`
+      SELECT state.*, binding.client_kind, binding.secret_expires_at,
+             client.disabled AS client_disabled, client.scopes AS client_scopes,
+             client."clientCredentialsScopes" AS client_credentials_scopes,
+             principal.state AS service_state, session."expiresAt" AS session_expires_at,
+             family.revoked_at AS family_revoked_at,
+             family.inactivity_expires_at AS family_inactivity_expires_at,
+             family.absolute_expires_at AS family_absolute_expires_at,
+             CASE WHEN state.principal_kind = 'Person' THEN EXISTS (
+               SELECT 1 FROM auth."oauthConsent" consent
+               WHERE consent."clientId" = state.client_id
+                 AND consent."userId" = state.person_id
+                 AND consent.resources ? ${OAUTH_NATIVE_API_RESOURCE}
+                 AND consent.scopes ? 'native-api'
+                 AND (${claims.scope} <> 'native-api offline_access'
+                   OR consent.scopes ? 'offline_access')
+             ) ELSE TRUE END AS consent_live,
+             jwks."publicKey" AS public_key, jwks.alg AS key_alg
+        FROM auth.oauth_access_token_state state
+        JOIN auth.oauth_client_bindings binding ON binding.client_id = state.client_id
+        JOIN auth."oauthClient" client ON client."clientId" = state.client_id
+        JOIN auth.jwks jwks ON jwks.id = ${kid}
+        LEFT JOIN public.service_principals principal
+          ON principal.service_principal_id = state.service_principal_id
+        LEFT JOIN auth."session" session ON session.id = state.session_id
+        LEFT JOIN auth.oauth_refresh_families family ON family.family_id = state.family_id
+       WHERE state.jti = ${claims.jti}
+    `.pipe(Effect.map((rows) => rows[0])),
+  );
+
 
 const canonicalClientScopes = (
   kind: OAuthClientKind,
@@ -355,44 +401,54 @@ const canonicalClientScopes = (
   );
 };
 
-export const makeOAuthCredentialAuthorityService = (
-  pool: Pool,
+type TokenStateLookup<R> = (
+  claims: NativeAccessTokenClaims,
+  kid: string,
+) => Effect.Effect<TokenStateRow | undefined, unknown, R>;
+
+const resolveOAuthCredential = <R>(
+  request: Request,
+  expected: OAuthExpectedMechanism,
+  now: Date,
+  lookup: TokenStateLookup<R>,
   config: OAuthProviderRuntimeConfig,
-): OAuthCredentialAuthorityService => ({
-  resolve: async (request, expected, now = new Date()) => {
+): Effect.Effect<CredentialOutcome, never, R> =>
+  Effect.gen(function* () {
     const bearer = bearerFromRequest(request);
-    if (bearer.malformed) return { _tag: "Rejected", reason: "Malformed" };
-    if (bearer.token === undefined) return { _tag: "Rejected", reason: "Missing" };
-    if (hasBetterAuthCookie(request)) return { _tag: "Rejected", reason: "AmbiguousMechanism" };
+    if (bearer.malformed) return { _tag: "Rejected", reason: "Malformed" } as const;
+    if (bearer.token === undefined) return { _tag: "Rejected", reason: "Missing" } as const;
+    if (hasBetterAuthCookie(request)) {
+      return { _tag: "Rejected", reason: "AmbiguousMechanism" } as const;
+    }
 
     let decoded: DecodedNativeJwt;
     try {
       decoded = decodeJwt(bearer.token);
     } catch {
-      return { _tag: "Rejected", reason: "Malformed" };
+      return { _tag: "Rejected", reason: "Malformed" } as const;
     }
-    if (decoded.claims.iss !== oauthIssuer(config)) {
-      return { _tag: "Rejected", reason: "Invalid" };
-    }
-    if (decoded.claims.client_id !== decoded.claims.azp) {
-      return { _tag: "Rejected", reason: "Invalid" };
+    if (
+      decoded.claims.iss !== oauthIssuer(config) ||
+      decoded.claims.client_id !== decoded.claims.azp
+    ) {
+      return { _tag: "Rejected", reason: "Invalid" } as const;
     }
     const nowSeconds = Math.floor(now.getTime() / 1_000);
     if (decoded.claims.iat > nowSeconds || decoded.claims.exp <= decoded.claims.iat) {
-      return { _tag: "Rejected", reason: "Invalid" };
+      return { _tag: "Rejected", reason: "Invalid" } as const;
     }
 
-    let state: TokenStateRow | undefined;
-    try {
-      state = await selectTokenState(pool, decoded.claims, decoded.header.kid);
-      if (state === undefined || state.key_alg !== "ES256") {
-        return { _tag: "Rejected", reason: "Invalid" };
-      }
-      const signatureValid = await verifyJwtSignature(decoded, state.public_key);
-      if (!signatureValid) return { _tag: "Rejected", reason: "Invalid" };
-    } catch {
-      return { _tag: "Rejected", reason: "Invalid" };
+    const state = yield* lookup(decoded.claims, decoded.header.kid).pipe(
+      Effect.catch(() => Effect.succeed(undefined)),
+    );
+    if (state === undefined || state.key_alg !== "ES256") {
+      return { _tag: "Rejected", reason: "Invalid" } as const;
     }
+    const signatureValid = yield* Effect.tryPromise({
+      try: () => verifyJwtSignature(decoded, state.public_key),
+      catch: (cause) => cause,
+    }).pipe(Effect.catch(() => Effect.succeed(false)));
+    if (!signatureValid) return { _tag: "Rejected", reason: "Invalid" } as const;
 
     const immutableClaimsMatch =
       state.client_id === decoded.claims.client_id &&
@@ -406,10 +462,10 @@ export const makeOAuthCredentialAuthorityService = (
         state.client_credentials_scopes,
       )
     ) {
-      return { _tag: "Rejected", reason: "Invalid" };
+      return { _tag: "Rejected", reason: "Invalid" } as const;
     }
     if (decoded.claims.exp <= nowSeconds || state.expires_at.getTime() <= now.getTime()) {
-      return { _tag: "Rejected", reason: "Expired" };
+      return { _tag: "Rejected", reason: "Expired" } as const;
     }
     if (
       state.revoked_at !== null ||
@@ -421,7 +477,7 @@ export const makeOAuthCredentialAuthorityService = (
       (state.family_absolute_expires_at !== null &&
         state.family_absolute_expires_at.getTime() <= now.getTime())
     ) {
-      return { _tag: "Rejected", reason: "Revoked" };
+      return { _tag: "Rejected", reason: "Revoked" } as const;
     }
 
     const evidenceRef = CredentialEvidenceRef.make(
@@ -443,14 +499,14 @@ export const makeOAuthCredentialAuthorityService = (
         return {
           _tag: "Rejected",
           reason: expected === "OAuthServiceBearer" ? "WrongMechanism" : "Revoked",
-        };
+        } as const;
       }
       return {
         _tag: "Accepted",
         mechanism: { _tag: "OAuthUserBearer" },
         principal: { _tag: "Person", personId: PersonId.make(state.person_id) },
         evidenceRef,
-      };
+      } as const;
     }
 
     if (
@@ -466,7 +522,7 @@ export const makeOAuthCredentialAuthorityService = (
       return {
         _tag: "Rejected",
         reason: expected === "OAuthUserBearer" ? "WrongMechanism" : "Revoked",
-      };
+      } as const;
     }
     return {
       _tag: "Accepted",
@@ -476,8 +532,29 @@ export const makeOAuthCredentialAuthorityService = (
         servicePrincipalId: ServicePrincipalId.make(state.service_principal_id),
       },
       evidenceRef,
-    };
-  },
+    } as const;
+  });
+
+export const makeOAuthCredentialAuthorityService = (
+  pool: Pool,
+  config: OAuthProviderRuntimeConfig,
+): OAuthCredentialAuthorityService => ({
+  resolve: (request, expected, now = new Date()) =>
+    Effect.runPromise(
+      resolveOAuthCredential(
+        request,
+        expected,
+        now,
+        (claims, kid) =>
+          Effect.tryPromise({
+            try: () => selectTokenState(pool, claims, kid),
+            catch: (cause) => cause,
+          }),
+        config,
+      ),
+    ),
+  resolveInTransaction: (request, expected, now = new Date()) =>
+    resolveOAuthCredential(request, expected, now, selectTokenStateInTransaction, config),
 });
 
 const inTransaction = async <A>(

@@ -9,15 +9,19 @@ import {
   ResourceKind,
   type AccessSpec,
   type CanonicalScopeResolution,
+  type CredentialOutcome,
   type Grant,
   type Scope,
   accessHttpStatus,
   evaluateAccessJourney,
   makeGrant,
 } from "@vektorprogrammet/domain/authz";
-import type { NativeHttpCommandOutcome } from "@vektorprogrammet/domain/http-semantics";
+import type {
+  NativeHttpCommandOutcome,
+  NativeHttpCommandPlan,
+} from "@vektorprogrammet/domain/http-semantics";
 import type { PersonId } from "@vektorprogrammet/domain/organization";
-import { Effect } from "effect";
+import { Effect, Runtime } from "effect";
 import {
   HttpSemanticFailure,
   nativeProblemResponse,
@@ -43,6 +47,25 @@ const rejectedCode = (status: 401 | 403 | 404) =>
     : status === 404
       ? "resource.not-found"
       : "authority.denied";
+type RunRequirement<Run> =
+  Run extends <A, E>(effect: Effect.Effect<A, E, infer R>) => Promise<A> ? R : never;
+
+/**
+ * Adapts an existing Promise-oriented backend boundary to the current Effect
+ * runtime. The first argument is a type witness only. At execution, the nested
+ * runner inherits the SQL transaction connection and the witness's services.
+ */
+export const prepareNativeHttpCommand = <Run, E, R>(
+  _run: Run,
+  prepare: (run: Run) => Promise<NativeHttpCommandPlan<E, R>>,
+): Effect.Effect<NativeHttpCommandPlan<E, R>, E, RunRequirement<Run>> =>
+  Effect.flatMap(Effect.runtime<RunRequirement<Run>>(), (runtime) =>
+    Effect.tryPromise({
+      try: () => prepare(Runtime.runPromise(runtime) as unknown as Run),
+      catch: (cause) => cause as E,
+    }),
+  );
+
 
 export const authorizeAnonymousNativeOperation = async (
   spec: AccessSpec,
@@ -68,17 +91,41 @@ export const authorizeAnonymousNativeOperation = async (
   if (status !== 200) throw new HttpSemanticFailure(rejectedCode(status), status);
 };
 
+type AcceptedCredential = Extract<CredentialOutcome, { readonly _tag: "Accepted" }>;
+
 export const authorizePersonNativeOperation = async (input: {
   readonly spec: AccessSpec;
-  readonly request: Request;
+  readonly credential?: AcceptedCredential;
+  readonly request?: Request;
   readonly personId: PersonId;
   readonly resolution: CanonicalScopeResolution<Record<string, unknown>>;
   readonly grantScopes: ReadonlyArray<Scope>;
   readonly now: string;
   readonly run: BackendRun;
 }): Promise<void> => {
+  const credential =
+    input.credential ??
+    (input.request === undefined
+      ? undefined
+      : ({
+          _tag: "Accepted" as const,
+          mechanism: {
+            _tag: input.request.headers.get("authorization")?.startsWith("Bearer ") === true
+              ? ("OAuthUserBearer" as const)
+              : ("BetterAuthCookie" as const),
+          },
+          principal: { _tag: "Person" as const, personId: input.personId },
+          evidenceRef: CredentialEvidenceRef.make("native-person-credential"),
+        } satisfies AcceptedCredential));
+  if (credential === undefined) throw new HttpSemanticFailure("credential.invalid", 401);
+  if (
+    credential.principal._tag !== "Person" ||
+    credential.principal.personId !== input.personId
+  ) {
+    throw new HttpSemanticFailure("credential.invalid", 401);
+  }
   const instant = AuthorizationInstant.make(input.now);
-  const principal = { _tag: "Person" as const, personId: input.personId };
+  const principal = credential.principal;
   const grants: ReadonlyArray<Grant> = capabilities(input.spec).flatMap(
     (capability, capabilityIndex) =>
       input.grantScopes.map((scope, scopeIndex) =>
@@ -97,19 +144,10 @@ export const authorizePersonNativeOperation = async (input: {
         }),
       ),
   );
-  const bearer = input.request.headers.get("authorization")?.startsWith("Bearer ") === true;
   const evaluation = await input.run(
     evaluateAccessJourney(input.spec, undefined, {
       now: Effect.succeed(instant),
-      resolveCredential: () =>
-        Effect.succeed({
-          _tag: "Accepted" as const,
-          mechanism: {
-            _tag: bearer ? ("OAuthUserBearer" as const) : ("BetterAuthCookie" as const),
-          },
-          principal,
-          evidenceRef: CredentialEvidenceRef.make("native-person-credential"),
-        }),
+      resolveCredential: () => Effect.succeed(credential),
       resolveScope: () => Effect.succeed(input.resolution),
       resolveGrants: () => Effect.succeed(grants),
     }),

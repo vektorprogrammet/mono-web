@@ -39,6 +39,8 @@ interface FakeDatabaseState {
 class FakeSqlError extends Data.TaggedError("SqlError")<{
   readonly cause: string;
 }> {}
+class CredentialRevoked extends Data.TaggedError("CredentialRevoked") {}
+
 
 const makeSql = () => {
   let committed: FakeDatabaseState = {
@@ -162,11 +164,24 @@ const makeSql = () => {
 
 const run = <A, E>(sql: DatabaseShape, effect: Effect.Effect<A, E, Database>): Promise<A> =>
   Effect.runPromise(effect.pipe(Effect.provideService(Database, sql)));
+const preparedCommand = <E>(
+  preparedIdentity: NativeHttpReceiptIdentity,
+  execute: Effect.Effect<NativeHttpResponseCapsule, E, Database>,
+  onPrepare: () => void = () => {},
+) =>
+  executeNativeHttpCommandPostgres(
+    Effect.sync(() => {
+      onPrepare();
+      return { identity: preparedIdentity, execute };
+    }),
+  );
+
 
 describe("native HTTP command receipt transaction", () => {
   it("commits the injected domain write and HTTP receipt once, then replays", async () => {
     const state = makeSql();
     let executions = 0;
+    let preparations = 0;
     const execute = Database.use((sql) =>
       Effect.sync(() => {
         executions += 1;
@@ -179,23 +194,37 @@ describe("native HTTP command receipt transaction", () => {
       ),
     );
 
-    const committed = await run(state.sql, executeNativeHttpCommandPostgres(identity, execute));
+    const committed = await run(
+      state.sql,
+      preparedCommand(identity, execute, () => {
+        preparations += 1;
+      }),
+    );
     expect(committed).toEqual({ _tag: "Committed", response });
     expect(state.committedDomainRevision()).toBe(1);
     expect(state.committedReceiptCount()).toBe(1);
 
-    const replay = await run(state.sql, executeNativeHttpCommandPostgres(identity, execute));
+    const replay = await run(
+      state.sql,
+      preparedCommand(identity, execute, () => {
+        preparations += 1;
+      }),
+    );
     expect(replay).toEqual({ _tag: "Replay", response });
     expect(executions).toBe(1);
     expect(state.committedDomainRevision()).toBe(1);
     expect(state.committedReceiptCount()).toBe(1);
+    expect(preparations).toBe(2);
 
     const conflict = await run(
       state.sql,
-      executeNativeHttpCommandPostgres({ ...identity, requestSha256: "c".repeat(64) }, execute),
+      preparedCommand({ ...identity, requestSha256: "c".repeat(64) }, execute, () => {
+        preparations += 1;
+      }),
     );
     expect(conflict).toEqual({ _tag: "DigestConflict" });
     expect(executions).toBe(1);
+    expect(preparations).toBe(3);
   });
 
   it("rolls back the injected domain write and HTTP receipt when commit fails", async () => {
@@ -208,9 +237,7 @@ describe("native HTTP command receipt transaction", () => {
       `.pipe(Effect.as(response)),
     );
 
-    await expect(
-      run(state.sql, executeNativeHttpCommandPostgres(identity, execute)),
-    ).rejects.toMatchObject({
+    await expect(run(state.sql, preparedCommand(identity, execute))).rejects.toMatchObject({
       _tag: "NativeHttpReceiptPersistenceError",
       operation: "execute",
     });
@@ -228,8 +255,31 @@ describe("native HTTP command receipt transaction", () => {
       executed = true;
       return response;
     });
-    const result = await run(state.sql, executeNativeHttpCommandPostgres(identity, execute));
+    const result = await run(state.sql, preparedCommand(identity, execute));
     expect(result).toEqual({ _tag: "InFlight", retryAfterSeconds: 1 });
     expect(executed).toBe(false);
+  });
+
+  it("checks current credential state before returning a replay", async () => {
+    const state = makeSql();
+    let credentialCurrent = true;
+    let executions = 0;
+    const execute = Effect.sync(() => {
+      executions += 1;
+      return response;
+    });
+    const command = executeNativeHttpCommandPostgres(
+      Effect.suspend(() =>
+        credentialCurrent
+          ? Effect.succeed({ identity, execute })
+          : Effect.fail(new CredentialRevoked()),
+      ),
+    );
+
+    await expect(run(state.sql, command)).resolves.toMatchObject({ _tag: "Committed" });
+    credentialCurrent = false;
+    await expect(run(state.sql, command)).rejects.toMatchObject({ _tag: "CredentialRevoked" });
+    expect(executions).toBe(1);
+    expect(state.committedReceiptCount()).toBe(1);
   });
 });
