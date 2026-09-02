@@ -25,7 +25,7 @@ import {
 } from "@vektorprogrammet/domain/recruitment";
 import type { Schools } from "@vektorprogrammet/domain/schools";
 import { DateTime, Effect } from "effect";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { makeBackendConfig } from "./config.js";
 import type { BackendRun } from "./router.js";
 import { makeBackendTestHttp as makeBackendHttp } from "./test/native-http.js";
@@ -33,6 +33,7 @@ import { runTestPromise } from "../test/runtime.js";
 
 const leaderToken = "leader-session-token";
 const memberToken = "member-session-token";
+const inactiveToken = "inactive-session-token";
 
 const environment = {
   BACKEND_PG_URL: "postgres://test.invalid/vektorprogrammet",
@@ -59,10 +60,16 @@ interface AuthorityMembershipRow {
 const membershipsByToken: Record<string, ReadonlyArray<AuthorityMembershipRow>> = {
   [leaderToken]: [{ departmentId: "department-1", active: true, teamLeader: true }],
   [memberToken]: [{ departmentId: "department-1", active: true, teamLeader: false }],
+  [inactiveToken]: [{ departmentId: "department-1", active: false, teamLeader: false }],
 };
 
+const personIdsByToken: Readonly<Record<string, string>> = {
+  [leaderToken]: "leader-1",
+  [memberToken]: "member-1",
+  [inactiveToken]: "inactive-1",
+};
 const personIdForToken = (tokenValue: string): string =>
-  tokenValue === leaderToken ? "leader-1" : "member-1";
+  personIdsByToken[tokenValue] ?? "unknown-person";
 
 const organization = {
   listDepartments: Effect.succeed([]),
@@ -91,26 +98,37 @@ const recruitmentCalls: Array<{
   readonly operation: string;
   readonly actor: unknown;
 }> = [];
+const assignmentBoard = {
+  admissionPeriodId: "period-1",
+  departmentId: "department-1",
+  candidates: [],
+  interviewers: [],
+  interviewSchemas: [],
+};
+const schedulingBoard = {
+  departmentId: "department-1",
+  interviews: [],
+};
 
-// Models the frozen domain law (checkContext): only active DepartmentLeaders
-// may read or assign; everyone else receives RecruitmentRoleDenied.
+// Models the frozen domain laws: assignment reads require an active DepartmentLeader;
+// scheduling reads require an active department member.
 const recruitment = {
   readAssignmentBoard: (query: unknown, context: { readonly actor: RecruitmentActor }) =>
     context.actor.active && context.actor._tag === "DepartmentLeader"
       ? Effect.sync(() => {
           recruitmentCalls.push({ operation: "readAssignmentBoard", actor: context.actor });
           void query;
-          return {
-            admissionPeriodId: "period-1",
-            departmentId: "department-1",
-            candidates: [],
-            interviewers: [],
-            interviewSchemas: [],
-          };
+          return assignmentBoard;
         })
       : Effect.fail(new RecruitmentRoleDenied({ personId: context.actor.personId })),
   assignApplicant: () => Effect.die("unexpected assignApplicant"),
-  readSchedulingBoard: () => Effect.die("unexpected readSchedulingBoard"),
+  readSchedulingBoard: (context: { readonly actor: RecruitmentActor }) =>
+    context.actor._tag !== "GlobalAdmin" && context.actor.active
+      ? Effect.sync(() => {
+          recruitmentCalls.push({ operation: "readSchedulingBoard", actor: context.actor });
+          return schedulingBoard;
+        })
+      : Effect.fail(new RecruitmentRoleDenied({ personId: context.actor.personId })),
   scheduleInterview: () => Effect.die("unexpected scheduleInterview"),
   readInvitationResponse: () => Effect.die("unexpected readInvitationResponse"),
   confirmInvitation: () => Effect.die("unexpected confirmInvitation"),
@@ -184,24 +202,32 @@ const request = (pathname: string, sessionValue: string): Promise<Response> =>
   );
 
 describe("recruitment actors from authorized departments (spec 0055)", () => {
-  it("uses the canonical assignment-board route and exposes the collection authorization gap", async () => {
+  beforeEach(() => {
+    recruitmentCalls.length = 0;
+  });
+
+  it("allows a DepartmentLeader to read the canonical assignment board once", async () => {
     const response = await request(
       "/api/recruitment/application-assignments?status=new",
       leaderToken,
     );
 
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({
-      type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
-      title: "Authority denied",
-      status: 403,
-      detail: "The authenticated principal is not permitted to perform this operation.",
-      code: "authority.denied",
-    });
-    expect(recruitmentCalls).toEqual([]);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(assignmentBoard);
+    expect(recruitmentCalls).toEqual([
+      {
+        operation: "readAssignmentBoard",
+        actor: expect.objectContaining({
+          _tag: "DepartmentLeader",
+          personId: "leader-1",
+          departmentId: "department-1",
+          active: true,
+        }),
+      },
+    ]);
   });
 
-  it("still denies a plain active member", async () => {
+  it("denies a plain active member from the assignment board", async () => {
     const response = await request(
       "/api/recruitment/application-assignments?status=new",
       memberToken,
@@ -214,9 +240,10 @@ describe("recruitment actors from authorized departments (spec 0055)", () => {
       detail: "The authenticated principal is not permitted to perform this operation.",
       code: "authority.denied",
     });
+    expect(recruitmentCalls).toEqual([]);
   });
 
-  it("denies an anonymous caller before any projection runs", async () => {
+  it("denies an anonymous assignment-board caller before any domain call", async () => {
     const response = await request("/api/recruitment/application-assignments?status=new", "");
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({
@@ -226,5 +253,50 @@ describe("recruitment actors from authorized departments (spec 0055)", () => {
       detail: "The supplied credential is invalid.",
       code: "credential.invalid",
     });
+    expect(recruitmentCalls).toEqual([]);
+  });
+
+  it("allows an active department member to read the scheduling board once", async () => {
+    const response = await request("/api/recruitment/interviews", memberToken);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(schedulingBoard);
+    expect(recruitmentCalls).toEqual([
+      {
+        operation: "readSchedulingBoard",
+        actor: expect.objectContaining({
+          _tag: "Member",
+          personId: "member-1",
+          departmentId: "department-1",
+          active: true,
+        }),
+      },
+    ]);
+  });
+
+  it("rejects an inactive department member from the scheduling board", async () => {
+    const response = await request("/api/recruitment/interviews", inactiveToken);
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      type: "urn:vektorprogrammet:problem:v0.2:credential.invalid",
+      title: "Invalid credential",
+      status: 401,
+      detail: "The supplied credential is invalid.",
+      code: "credential.invalid",
+    });
+    expect(recruitmentCalls).toEqual([]);
+  });
+
+  it("denies an anonymous scheduling-board caller before any domain call", async () => {
+    const response = await request("/api/recruitment/interviews", "");
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      type: "urn:vektorprogrammet:problem:v0.2:credential.invalid",
+      title: "Invalid credential",
+      status: 401,
+      detail: "The supplied credential is invalid.",
+      code: "credential.invalid",
+    });
+    expect(recruitmentCalls).toEqual([]);
   });
 });

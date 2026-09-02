@@ -857,7 +857,7 @@ const readAssignmentBoard = async (
     request,
     actor,
     resolution: {
-      selection: "ExactlyOne",
+      selection: "AllMatching",
       contexts: [
         boardContext(
           actor,
@@ -899,7 +899,7 @@ const readSchedulingBoard = async (
     request,
     actor,
     resolution: {
-      selection: "ExactlyOne",
+      selection: "AllMatching",
       contexts: [
         boardContext(
           actor,
