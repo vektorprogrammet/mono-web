@@ -1,3 +1,9 @@
+import {
+  AdmissionPeriodManagementItem,
+  StrongETag,
+  makeNativeProblem,
+} from "@vektorprogrammet/http-api";
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   mapAdmissionPeriodError,
@@ -20,35 +26,39 @@ const createForm = (overrides: Readonly<Record<string, string>> = {}): FormData 
   return form;
 };
 
+const createCommandId = "A".repeat(22);
+const reviseCommandId = "B".repeat(22);
+const periodEtag = StrongETag.make('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"');
+
 describe("admission-period dashboard boundary", () => {
-  it("strictly decodes create fields and supplies the stable fallback command ID", () => {
-    const parsed = parseAdmissionPeriodForm(createForm(), "command-create-1");
+  it("keeps local correlation outside the canonical create payload", () => {
+    const parsed = parseAdmissionPeriodForm(createForm(), createCommandId);
 
     expect("value" in parsed).toBe(true);
     if (!("value" in parsed) || parsed.value._tag !== "CreateAdmissionPeriod") return;
-    expect(parsed.value.commandId).toBe("command-create-1");
+    expect(parsed.value.commandId).toBe(createCommandId);
     expect(parsed.value.draft).toEqual({
       semesterId: "semester-autumn-2031",
       departmentId: "",
       startAt: "2031-08-15T08:00",
       endAt: "2031-10-01T20:00",
     });
-    expect(parsed.value.input).toEqual({
-      commandId: "command-create-1",
+    expect(parsed.value.payload).toEqual({
       semesterId: "semester-autumn-2031",
       startAt: "2031-08-15T08:00:00.000Z",
       endAt: "2031-10-01T20:00:00.000Z",
     });
+    expect(parsed.value.payload).not.toHaveProperty("commandId");
   });
 
   it("rejects excess form fields without losing the entered values", () => {
     const form = createForm();
     form.set("actorDepartmentId", "browser-asserted-department");
-    const parsed = parseAdmissionPeriodForm(form, "command-create-2");
+    const parsed = parseAdmissionPeriodForm(form, createCommandId);
 
     expect("failure" in parsed).toBe(true);
     if (!("failure" in parsed) || parsed.failure.intent !== "create") return;
-    expect(parsed.failure.commandId).toBe("command-create-2");
+    expect(parsed.failure.commandId).toBe(createCommandId);
     expect(parsed.failure.error._tag).toBe("AdmissionPeriodFormError");
     expect(parsed.failure.draft.semesterId).toBe("semester-autumn-2031");
     expect(parsed.failure.draft.startAt).toBe("2031-08-15T08:00");
@@ -60,7 +70,7 @@ describe("admission-period dashboard boundary", () => {
         startAt: "2031-10-01T20:00",
         endAt: "2031-08-15T08:00",
       }),
-      "command-create-3",
+      createCommandId,
     );
 
     expect("failure" in parsed).toBe(true);
@@ -75,12 +85,12 @@ describe("admission-period dashboard boundary", () => {
     });
   });
 
-  it("decodes a revision with optimistic revision and stable identity", () => {
+  it("decodes the strong item ETag separately from the merge-patch payload", () => {
     const form = new FormData();
     form.set("_intent", "revise");
-    form.set("commandId", "command-revise-1");
+    form.set("commandId", reviseCommandId);
     form.set("admissionPeriodId", "admission-period-1");
-    form.set("expectedRevision", "4");
+    form.set("etag", periodEtag);
     form.set("startAt", "2031-08-15T08:00");
     form.set("endAt", "2031-08-31T12:00");
 
@@ -90,39 +100,45 @@ describe("admission-period dashboard boundary", () => {
     if (!("value" in parsed) || parsed.value._tag !== "ReviseAdmissionPeriod") return;
     expect(parsed.value).toMatchObject({
       admissionPeriodId: "admission-period-1",
-      expectedRevision: 4,
-      commandId: "command-revise-1",
+      etag: periodEtag,
+      commandId: reviseCommandId,
     });
-    expect(parsed.value.input.endAt).toBe("2031-08-31T12:00:00.000Z");
-  });
-
-  it("keeps canonical SDK rejection tags visible to the interface", () => {
-    expect(
-      mapAdmissionPeriodError({ admissionPeriodTag: "AdmissionScopeDenied" }),
-    ).toEqual({
-      _tag: "AdmissionScopeDenied",
-      message: "Du har ikke tilgang til opptaksperioder for denne avdelingen.",
-      field: "departmentId",
-    });
-    expect(
-      mapAdmissionPeriodError({ _tag: "StaleAdmissionPeriodRevision" }),
-    ).toMatchObject({
-      _tag: "StaleAdmissionPeriodRevision",
-      field: "expectedRevision",
-    });
-  });
-
-  it("maps decoded SDK dates to deterministic UTC display values", () => {
-    const view = mapAdmissionPeriodView({
-      id: "admission-period-1",
-      departmentId: "department-trondheim",
-      semesterId: "semester-autumn-2031",
+    expect(parsed.value.payload).toEqual({
       startAt: "2031-08-15T08:00:00.000Z",
-      endAt: "2031-10-01T20:00:00.000Z",
-      revision: 0,
-      lastCommandId: "command-create-1",
-      eligible: true,
+      endAt: "2031-08-31T12:00:00.000Z",
     });
+    expect(parsed.value.payload).not.toHaveProperty("expectedRevision");
+    expect(parsed.value.payload).not.toHaveProperty("commandId");
+  });
+
+  it("maps decoded RFC 9457 problems to bounded UI failures", () => {
+    expect(mapAdmissionPeriodError(makeNativeProblem("authority.denied"))).toEqual({
+      _tag: "AdmissionRoleDenied",
+      message: "Rollen din gir ikke tilgang til opptaksperioder.",
+      field: undefined,
+    });
+    expect(mapAdmissionPeriodError(makeNativeProblem("precondition.failed"))).toEqual({
+      _tag: "StaleAdmissionPeriodRevision",
+      message:
+        "Opptaksperioden ble endret et annet sted. Kontroller den nyeste versjonen og prøv igjen.",
+      field: undefined,
+    });
+  });
+
+  it("carries the canonical item ETag into the deterministic view", () => {
+    const period = Schema.decodeUnknownSync(AdmissionPeriodManagementItem)(
+      {
+        id: "admission-period-1",
+        departmentId: "department-trondheim",
+        semesterId: "semester-autumn-2031",
+        startAt: "2031-08-15T08:00:00.000Z",
+        endAt: "2031-10-01T20:00:00.000Z",
+        revision: 0,
+        etag: periodEtag,
+      },
+      { onExcessProperty: "error" },
+    );
+    const view = mapAdmissionPeriodView(period);
 
     expect(view).toMatchObject({
       id: "admission-period-1",
@@ -131,7 +147,7 @@ describe("admission-period dashboard boundary", () => {
       endAt: "2031-10-01T20:00:00.000Z",
       endAtInput: "2031-10-01T20:00",
       revision: 0,
-      eligible: true,
+      etag: periodEtag,
     });
   });
 });

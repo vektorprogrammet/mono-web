@@ -10,6 +10,14 @@ import {
   type ReceiptStatus,
   type ReceiptUiError,
 } from "@/lib/receipt-view";
+import { ReceiptId } from "@vektorprogrammet/domain/receipt";
+import {
+  IdempotencyKey,
+  StrongETag,
+  type IdempotencyKey as IdempotencyKeyValue,
+  type StrongETag as StrongETagValue,
+} from "@vektorprogrammet/http-api";
+import { Schema } from "effect";
 import { Link, useActionData, useLoaderData, useNavigation } from "react-router";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
@@ -17,9 +25,9 @@ import type { Route } from "./+types/dashboard.utlegg._index";
 
 type ParsedApprovalCommand = {
   intent: ReceiptApprovalIntent;
-  receiptId: string;
-  expectedRevision: number;
-  commandId: string;
+  receiptId: typeof ReceiptId.Type;
+  etag: StrongETagValue;
+  commandId: IdempotencyKeyValue;
 };
 
 type ApprovalCommandParseResult =
@@ -49,60 +57,41 @@ function parseApprovalCommand(
   form: FormData,
   intent: ReceiptApprovalIntent,
 ): ApprovalCommandParseResult {
-  const receiptId = readFormText(form, "receiptId")?.trim() ?? "";
-  const revisionText = readFormText(form, "expectedRevision")?.trim() ?? "";
-  const commandId = readFormText(form, "commandId")?.trim() ?? "";
-  const decodedRevision = /^(0|[1-9]\d*)$/.test(revisionText) ? Number(revisionText) : Number.NaN;
-  const expectedRevision = Number.isSafeInteger(decodedRevision) ? decodedRevision : 0;
-
-  if (receiptId.length === 0) {
-    return {
-      failure: {
-        intent,
-        receiptId,
-        expectedRevision,
-        commandId,
-        error: {
-          _tag: "ReceiptDecodeError",
-          message: "Utleggs-ID mangler. Last inn siden på nytt og prøv igjen.",
-        },
-      },
-    };
+  const receiptIdText = readFormText(form, "receiptId")?.trim() ?? "";
+  const etagText = readFormText(form, "etag")?.trim() ?? "";
+  const commandIdText = readFormText(form, "commandId")?.trim() ?? "";
+  let etag: StrongETagValue | undefined;
+  try {
+    etag = Schema.decodeUnknownSync(StrongETag)(etagText);
+  } catch {
+    etag = undefined;
   }
 
-  if (!Number.isSafeInteger(decodedRevision)) {
+  const failure = (message: string): ApprovalCommandParseResult => ({
+    failure: {
+      intent,
+      receiptId: receiptIdText,
+      ...(etag === undefined ? {} : { etag }),
+      commandId: commandIdText,
+      error: {
+        _tag: "ReceiptDecodeError",
+        message,
+      },
+    },
+  });
+
+  try {
     return {
-      failure: {
+      value: {
         intent,
-        receiptId,
-        expectedRevision,
-        commandId,
-        error: {
-          _tag: "ReceiptDecodeError",
-          message: "Utleggsversjonen er ugyldig. Last inn siden på nytt og prøv igjen.",
-        },
+        receiptId: Schema.decodeUnknownSync(ReceiptId)(receiptIdText),
+        etag: Schema.decodeUnknownSync(StrongETag)(etagText),
+        commandId: Schema.decodeUnknownSync(IdempotencyKey)(commandIdText),
       },
     };
+  } catch {
+    return failure("Handlingsgrunnlaget er ugyldig. Åpne bekreftelsen på nytt og prøv igjen.");
   }
-
-  if (commandId.length === 0) {
-    return {
-      failure: {
-        intent,
-        receiptId,
-        expectedRevision,
-        commandId,
-        error: {
-          _tag: "ReceiptDecodeError",
-          message: "Handlings-ID mangler. Åpne bekreftelsen på nytt og prøv igjen.",
-        },
-      },
-    };
-  }
-
-  return {
-    value: { intent, receiptId, expectedRevision, commandId },
-  };
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -125,9 +114,11 @@ export async function loader({ request }: Route.LoaderArgs) {
   const status = isReceiptStatus(requestedStatus) ? requestedStatus : undefined;
 
   try {
-    const result = await client.receipts.listForApproval(status ? { status } : undefined);
+    const result = await client.receipts.listReceiptsForApproval({
+      query: status === undefined ? {} : { status },
+    });
     return {
-      receipts: result.items.map(mapApprovalReceiptView),
+      receipts: result.body.items.map(mapApprovalReceiptView),
       status,
       error: undefined,
     };
@@ -165,28 +156,28 @@ export async function action({ request }: Route.ActionArgs) {
   const command = parsed.value;
 
   try {
-    const observation =
+    const requestInput = {
+      params: { receiptId: command.receiptId },
+      headers: {
+        "idempotency-key": command.commandId,
+        "if-match": command.etag,
+      },
+      payload: {},
+    };
+    const result =
       command.intent === "refund"
-        ? await client.receipts.refund(
-            command.receiptId,
-            command.expectedRevision,
-            command.commandId,
-          )
-        : await client.receipts.reject(
-            command.receiptId,
-            command.expectedRevision,
-            command.commandId,
-          );
+        ? await client.receipts.refundReceipt(requestInput)
+        : await client.receipts.rejectReceipt(requestInput);
 
     return {
       success: true as const,
       actionNotice: {
         intent: command.intent,
-        commandId: observation.commandId,
-        receiptId: observation.receiptId,
-        status: observation.status,
-        revision: observation.revision,
-        replayed: observation.replayed,
+        commandId: command.commandId,
+        receiptId: result.body.receiptId,
+        status: result.body.status,
+        revision: result.body.revision,
+        etag: result.body.etag,
       },
     };
   } catch (error) {

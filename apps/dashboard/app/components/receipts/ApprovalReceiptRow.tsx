@@ -27,16 +27,9 @@ type ResolutionActionProps = {
   actionErrorId: string;
 };
 
-function ResolutionAction({
-  receipt,
-  intent,
-  failure,
-  actionErrorId,
-}: ResolutionActionProps) {
+function ResolutionAction({ receipt, intent, failure, actionErrorId }: ResolutionActionProps) {
   const relevantFailure =
-    failure?.intent === intent && failure.expectedRevision === receipt.revision
-      ? failure
-      : undefined;
+    failure?.intent === intent && failure.etag === receipt.etag ? failure : undefined;
   const [commandId, setCommandId] = useState(relevantFailure?.commandId ?? "");
   const dialogId = useId();
   const titleId = `${dialogId}-${intent}-title`;
@@ -85,7 +78,7 @@ function ResolutionAction({
         >
           <input type="hidden" name="_intent" value={intent} />
           <input type="hidden" name="receiptId" value={receipt.receiptId} />
-          <input type="hidden" name="expectedRevision" value={receipt.revision} />
+          <input type="hidden" name="etag" value={receipt.etag} />
           <input type="hidden" name="commandId" value={commandId} readOnly />
 
           {busy && (
@@ -118,11 +111,7 @@ type ApprovalReceiptRowProps = {
   actionErrorId: string;
 };
 
-export function ApprovalReceiptRow({
-  receipt,
-  failure,
-  actionErrorId,
-}: ApprovalReceiptRowProps) {
+export function ApprovalReceiptRow({ receipt, failure, actionErrorId }: ApprovalReceiptRowProps) {
   const relevantFailure = failure?.receiptId === receipt.receiptId ? failure : undefined;
 
   return (
@@ -130,6 +119,7 @@ export function ApprovalReceiptRow({
       data-receipt-id={receipt.receiptId}
       data-department-id={receipt.departmentId}
       data-owner-person-id={receipt.ownerPersonId}
+      data-etag={receipt.etag}
     >
       <TableCell className="whitespace-normal">
         <div className="flex min-w-40 flex-col gap-1">

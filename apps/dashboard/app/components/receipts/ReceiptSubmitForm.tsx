@@ -1,3 +1,4 @@
+import type { StrongETag } from "@vektorprogrammet/http-api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,7 +10,7 @@ import { Form, useNavigation } from "react-router";
 export type ReceiptSubmissionNotice = {
   commandId: string;
   receiptId: string;
-  replayed: boolean;
+  etag: StrongETag;
 };
 
 type Props = {
@@ -74,7 +75,7 @@ export function ReceiptSubmitForm({ error, submission, commandId, draft }: Props
               role="status"
               aria-live="polite"
               data-command-id={submission.commandId}
-              data-replayed={submission.replayed}
+              data-etag={submission.etag}
             >
               Utlegget er sendt inn. Kvitterings-ID:{" "}
               <code className="font-mono">{submission.receiptId}</code>.

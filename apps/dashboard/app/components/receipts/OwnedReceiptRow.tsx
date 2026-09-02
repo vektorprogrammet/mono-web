@@ -30,7 +30,8 @@ function fieldDescription(
 }
 
 export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
-  const relevantFailure = failure?.receiptId === receipt.receiptId ? failure : undefined;
+  const relevantFailure =
+    failure?.receiptId === receipt.receiptId && failure.etag === receipt.etag ? failure : undefined;
   const [panel, setPanel] = useState<ActionPanel>(relevantFailure?.intent ?? null);
   const [reviseCommandId, setReviseCommandId] = useState(
     relevantFailure?.intent === "revise" ? relevantFailure.commandId : "",
@@ -58,7 +59,7 @@ export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
 
   return (
     <Fragment>
-      <TableRow data-receipt-id={receipt.receiptId}>
+      <TableRow data-receipt-id={receipt.receiptId} data-etag={receipt.etag}>
         <TableCell>
           <div className="flex flex-col gap-1">
             <code className="break-all font-mono text-xs" data-testid="receipt-id">
@@ -148,7 +149,7 @@ export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
               >
                 <input type="hidden" name="_intent" value="revise" />
                 <input type="hidden" name="receiptId" value={receipt.receiptId} />
-                <input type="hidden" name="expectedRevision" value={receipt.revision} />
+                <input type="hidden" name="etag" value={receipt.etag} />
                 <input type="hidden" name="commandId" value={reviseCommandId} readOnly />
 
                 <div>
@@ -296,7 +297,7 @@ export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
               >
                 <input type="hidden" name="_intent" value="withdraw" />
                 <input type="hidden" name="receiptId" value={receipt.receiptId} />
-                <input type="hidden" name="expectedRevision" value={receipt.revision} />
+                <input type="hidden" name="etag" value={receipt.etag} />
                 <input type="hidden" name="commandId" value={withdrawCommandId} readOnly />
 
                 <div>

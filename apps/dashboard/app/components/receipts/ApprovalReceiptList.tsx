@@ -79,7 +79,7 @@ export function ApprovalReceiptList({
                 data-error-tag={actionFailure.error._tag}
                 data-action-intent={actionFailure.intent}
                 data-receipt-id={actionFailure.receiptId}
-                data-expected-revision={actionFailure.expectedRevision}
+                data-etag={actionFailure.etag}
                 data-command-id={actionFailure.commandId}
               >
                 {actionFailure.error.message}
@@ -106,10 +106,10 @@ export function ApprovalReceiptList({
                 data-receipt-id={actionNotice.receiptId}
                 data-status={actionNotice.status}
                 data-revision={actionNotice.revision}
-                data-replayed={actionNotice.replayed}
+                data-etag={actionNotice.etag}
               >
-                Utlegget er {actionNotice.intent === "refund" ? "refundert" : "avvist"} som
-                versjon {actionNotice.revision}.
+                Utlegget er {actionNotice.intent === "refund" ? "refundert" : "avvist"} som versjon{" "}
+                {actionNotice.revision}.
               </p>
             )}
 

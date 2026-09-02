@@ -19,9 +19,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const client = createAuthenticatedClient(cookie, request);
 
   try {
-    const result = await client.admissionPeriods.listForManagement();
+    const result = await client.admissions.listAdmissionPeriods({ headers: {} });
+    if (result.body === undefined) {
+      throw new Error("Admission-period response did not include a body");
+    }
     return {
-      periods: result.items.map(mapAdmissionPeriodView),
+      periods: result.body.items.map(mapAdmissionPeriodView),
       error: undefined,
     };
   } catch (error) {
@@ -48,23 +51,36 @@ export async function action({ request }: Route.ActionArgs) {
   const command = parsed.value;
   try {
     if (command._tag === "CreateAdmissionPeriod") {
-      await client.admissionPeriods.create(command.input);
+      const result = await client.admissions.createAdmissionPeriod({
+        headers: { "idempotency-key": command.commandId },
+        payload: command.payload,
+      });
       return {
         success: true as const,
         notice: {
           intent: "create" as const,
           commandId: command.commandId,
+          admissionPeriodId: result.body.id,
+          etag: result.body.etag,
         },
       };
     }
 
-    await client.admissionPeriods.revise(command.admissionPeriodId, command.input);
+    const result = await client.admissions.reviseAdmissionPeriod({
+      params: { admissionPeriodId: command.admissionPeriodId },
+      headers: {
+        "idempotency-key": command.commandId,
+        "if-match": command.etag,
+      },
+      payload: command.payload,
+    });
     return {
       success: true as const,
       notice: {
         intent: "revise" as const,
         commandId: command.commandId,
-        admissionPeriodId: command.admissionPeriodId,
+        admissionPeriodId: result.body.id,
+        etag: result.body.etag,
       },
     };
   } catch (error) {
@@ -85,7 +101,7 @@ export async function action({ request }: Route.ActionArgs) {
     const failure: AdmissionPeriodRevisionFailure = {
       intent: "revise",
       admissionPeriodId: command.admissionPeriodId,
-      expectedRevision: command.expectedRevision,
+      etag: command.etag,
       commandId:
         mappedError._tag === "StaleAdmissionPeriodRevision"
           ? crypto.randomUUID()

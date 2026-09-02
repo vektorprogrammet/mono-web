@@ -26,7 +26,7 @@ const fieldDescription = (
 
 export function AdmissionPeriodRow({ period, failure, actionErrorId }: Props) {
   const relevantFailure =
-    failure?.admissionPeriodId === period.id ? failure : undefined;
+    failure?.admissionPeriodId === period.id && failure.etag === period.etag ? failure : undefined;
   const [editing, setEditing] = useState(relevantFailure !== undefined);
   const [commandId, setCommandId] = useState(relevantFailure?.commandId ?? "");
   const fieldId = useId();
@@ -46,15 +46,12 @@ export function AdmissionPeriodRow({ period, failure, actionErrorId }: Props) {
         data-department-id={period.departmentId}
         data-semester-id={period.semesterId}
         data-revision={period.revision}
-        data-eligible={period.eligible}
-        data-last-command-id={period.lastCommandId}
+        data-etag={period.etag}
       >
         <TableCell>
           <div className="flex flex-col gap-1">
             <span className="font-medium">{period.semesterId}</span>
-            <code className="break-all font-mono text-muted-foreground text-xs">
-              {period.id}
-            </code>
+            <code className="break-all font-mono text-muted-foreground text-xs">{period.id}</code>
           </div>
         </TableCell>
         <TableCell>
@@ -65,18 +62,6 @@ export function AdmissionPeriodRow({ period, failure, actionErrorId }: Props) {
         </TableCell>
         <TableCell>
           <time dateTime={period.endAt}>{period.endAtLabel}</time>
-        </TableCell>
-        <TableCell>
-          <span
-            className={
-              period.eligible
-                ? "inline-flex rounded-full bg-primary px-2.5 py-0.5 font-medium text-primary-foreground text-xs"
-                : "inline-flex rounded-full bg-muted px-2.5 py-0.5 font-medium text-muted-foreground text-xs"
-            }
-            data-eligibility={period.eligible ? "eligible" : "ineligible"}
-          >
-            {period.eligible ? "Åpen for søknader" : "Ikke åpen"}
-          </span>
         </TableCell>
         <TableCell>
           <span data-testid="admission-period-revision">Versjon {period.revision}</span>
@@ -102,7 +87,7 @@ export function AdmissionPeriodRow({ period, failure, actionErrorId }: Props) {
       </TableRow>
 
       <TableRow id={panelId} hidden={!editing} data-admission-period-revision-panel>
-        <TableCell colSpan={7} className="bg-muted/30 p-4 whitespace-normal sm:p-6">
+        <TableCell colSpan={6} className="bg-muted/30 p-4 whitespace-normal sm:p-6">
           <Form
             method="post"
             onSubmit={ensureStableAdmissionPeriodCommandId}
@@ -113,7 +98,7 @@ export function AdmissionPeriodRow({ period, failure, actionErrorId }: Props) {
           >
             <input type="hidden" name="_intent" value="revise" />
             <input type="hidden" name="admissionPeriodId" value={period.id} />
-            <input type="hidden" name="expectedRevision" value={period.revision} />
+            <input type="hidden" name="etag" value={period.etag} />
             <input
               type="hidden"
               name="commandId"
@@ -126,8 +111,8 @@ export function AdmissionPeriodRow({ period, failure, actionErrorId }: Props) {
                 Revider opptaksperioden
               </h3>
               <p className="mt-1 text-muted-foreground text-sm">
-                Du reviderer versjon {period.revision}. Periodens identitet og historiske
-                søknader blir ikke endret.
+                Du reviderer versjon {period.revision}. Periodens identitet og historiske søknader
+                blir ikke endret.
               </p>
             </div>
 

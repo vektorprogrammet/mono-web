@@ -20,15 +20,9 @@ const describedBy = (
   helpId: string,
   field: "semesterId" | "departmentId" | "startAt" | "endAt",
   failure?: AdmissionPeriodCreateFailure,
-): string =>
-  failure?.error.field === field ? `${helpId} admission-period-create-error` : helpId;
+): string => (failure?.error.field === field ? `${helpId} admission-period-create-error` : helpId);
 
-export function AdmissionPeriodCreateForm({
-  failure,
-  notice,
-  semesterIds,
-  departmentIds,
-}: Props) {
+export function AdmissionPeriodCreateForm({ failure, notice, semesterIds, departmentIds }: Props) {
   const navigation = useNavigation();
   const isSubmitting =
     navigation.state !== "idle" && navigation.formData?.get("_intent") === "create";
@@ -76,6 +70,8 @@ export function AdmissionPeriodCreateForm({
               role="status"
               aria-live="polite"
               data-command-id={notice.commandId}
+              data-admission-period-id={notice.admissionPeriodId}
+              data-etag={notice.etag}
             >
               Opptaksperioden er opprettet.
             </p>
@@ -148,11 +144,7 @@ export function AdmissionPeriodCreateForm({
               required
               defaultValue={draft?.startAt}
               aria-invalid={failure?.error.field === "startAt" || undefined}
-              aria-describedby={describedBy(
-                "admission-period-start-help",
-                "startAt",
-                failure,
-              )}
+              aria-describedby={describedBy("admission-period-start-help", "startAt", failure)}
             />
             <p id="admission-period-start-help" className="text-muted-foreground text-xs">
               Tidspunktet tolkes og lagres som UTC.
@@ -172,11 +164,7 @@ export function AdmissionPeriodCreateForm({
               required
               defaultValue={draft?.endAt}
               aria-invalid={failure?.error.field === "endAt" || undefined}
-              aria-describedby={describedBy(
-                "admission-period-end-help",
-                "endAt",
-                failure,
-              )}
+              aria-describedby={describedBy("admission-period-end-help", "endAt", failure)}
             />
             <p id="admission-period-end-help" className="text-muted-foreground text-xs">
               Slutt må være etter start og innenfor semesteret.

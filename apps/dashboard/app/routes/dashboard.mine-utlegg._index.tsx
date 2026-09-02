@@ -14,6 +14,14 @@ import {
   type ReceiptUiError,
   type ReceiptUiErrorField,
 } from "@/lib/receipt-view";
+import { ReceiptId } from "@vektorprogrammet/domain/receipt";
+import {
+  IdempotencyKey,
+  StrongETag,
+  type IdempotencyKey as IdempotencyKeyValue,
+  type StrongETag as StrongETagValue,
+} from "@vektorprogrammet/http-api";
+import { Schema } from "effect";
 import { useActionData, useLoaderData, useNavigation } from "react-router";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
@@ -30,8 +38,7 @@ const SUPPORTED_FILE_TYPES: Record<string, true> = {
 type ParseResult<T> = { value: T } | { error: ReceiptUiError };
 
 type ParsedReceiptFields = {
-  input: {
-    commandId: string;
+  payload: {
     description: string;
     amountOre: number;
     receiptDate: string;
@@ -40,8 +47,8 @@ type ParsedReceiptFields = {
 };
 
 type ParsedReceiptIdentity = {
-  receiptId: string;
-  expectedRevision: number;
+  receiptId: typeof ReceiptId.Type;
+  etag: StrongETagValue;
 };
 
 function readFormText(form: FormData, name: string): string | null {
@@ -51,6 +58,14 @@ function readFormText(form: FormData, name: string): string | null {
 
 function receiptDecodeError(message: string, field?: ReceiptUiErrorField): ReceiptUiError {
   return { _tag: "ReceiptDecodeError", message, field };
+}
+
+function decodeIdempotencyKey(value: string): IdempotencyKeyValue | undefined {
+  try {
+    return Schema.decodeUnknownSync(IdempotencyKey)(value);
+  } catch {
+    return undefined;
+  }
 }
 
 function parseAmountOre(value: string): number | undefined {
@@ -71,7 +86,7 @@ function isRealCalendarDate(value: string): boolean {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
-function parseReceiptFields(form: FormData, commandId: string): ParseResult<ParsedReceiptFields> {
+function parseReceiptFields(form: FormData): ParseResult<ParsedReceiptFields> {
   const description = readFormText(form, "description")?.trim() ?? "";
   if (description.length === 0) {
     return {
@@ -104,8 +119,7 @@ function parseReceiptFields(form: FormData, commandId: string): ParseResult<Pars
 
   return {
     value: {
-      input: {
-        commandId,
+      payload: {
         description,
         amountOre,
         receiptDate,
@@ -120,31 +134,22 @@ function parseReceiptFields(form: FormData, commandId: string): ParseResult<Pars
 }
 
 function parseReceiptIdentity(form: FormData): ParseResult<ParsedReceiptIdentity> {
-  const receiptId = readFormText(form, "receiptId")?.trim() ?? "";
-  if (receiptId.length === 0) {
+  try {
     return {
-      error: receiptDecodeError("Utleggs-ID mangler. Last inn siden på nytt og prøv igjen."),
+      value: {
+        receiptId: Schema.decodeUnknownSync(ReceiptId)(
+          readFormText(form, "receiptId")?.trim() ?? "",
+        ),
+        etag: Schema.decodeUnknownSync(StrongETag)(readFormText(form, "etag")?.trim() ?? ""),
+      },
     };
-  }
-
-  const revisionValue = readFormText(form, "expectedRevision")?.trim() ?? "";
-  if (!/^(0|[1-9]\d*)$/.test(revisionValue)) {
+  } catch {
     return {
       error: receiptDecodeError(
-        "Utleggsversjonen er ugyldig. Last inn siden på nytt og prøv igjen.",
+        "Utleggsidentiteten er ugyldig. Last inn siden på nytt og prøv igjen.",
       ),
     };
   }
-  const expectedRevision = Number(revisionValue);
-  if (!Number.isSafeInteger(expectedRevision)) {
-    return {
-      error: receiptDecodeError(
-        "Utleggsversjonen er ugyldig. Last inn siden på nytt og prøv igjen.",
-      ),
-    };
-  }
-
-  return { value: { receiptId, expectedRevision } };
 }
 
 function parseReceiptFile(form: FormData, required: true): ParseResult<File>;
@@ -170,14 +175,26 @@ function parseReceiptFile(form: FormData, required: boolean): ParseResult<File |
   return { value: fileValue };
 }
 
+function receiptMultipartPayload(
+  fields: ParsedReceiptFields["payload"],
+  file: File | undefined,
+): FormData {
+  const payload = new FormData();
+  payload.set("description", fields.description);
+  payload.set("amountOre", String(fields.amountOre));
+  payload.set("receiptDate", fields.receiptDate);
+  if (file !== undefined) payload.set("file", file);
+  return payload;
+}
+
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
 
   try {
-    const result = await client.receipts.listOwned();
+    const result = await client.receipts.listReceipts({ query: {} });
     return {
-      receipts: result.items.map(mapOwnedReceiptView),
+      receipts: result.body.items.map(mapOwnedReceiptView),
       error: undefined,
     };
   } catch (error) {
@@ -195,7 +212,8 @@ export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
   const form = await request.formData();
-  const commandId = readFormText(form, "commandId")?.trim() || crypto.randomUUID();
+  const commandIdText = readFormText(form, "commandId")?.trim() || crypto.randomUUID();
+  const commandId = decodeIdempotencyKey(commandIdText);
   const intent = readFormText(form, "_intent");
   const draft: ReceiptRevisionDraft = {
     description: readFormText(form, "description") ?? "",
@@ -204,12 +222,21 @@ export async function action({ request }: Route.ActionArgs) {
   };
 
   if (intent === "submit") {
-    const fields = parseReceiptFields(form, commandId);
+    if (commandId === undefined) {
+      return {
+        success: false as const,
+        intent,
+        commandId: commandIdText,
+        error: receiptDecodeError("Handlings-ID-en er ugyldig. Prøv å sende inn på nytt."),
+        draft,
+      };
+    }
+    const fields = parseReceiptFields(form);
     if ("error" in fields) {
       return {
         success: false as const,
-        intent: "submit" as const,
-        commandId,
+        intent,
+        commandId: commandIdText,
         error: fields.error,
         draft,
       };
@@ -219,29 +246,33 @@ export async function action({ request }: Route.ActionArgs) {
     if ("error" in file) {
       return {
         success: false as const,
-        intent: "submit" as const,
-        commandId,
+        intent,
+        commandId: commandIdText,
         error: file.error,
         draft,
       };
     }
 
     try {
-      const observation = await client.receipts.submit(fields.value.input, file.value);
+      const result = await client.receipts.submitReceipt({
+        query: {},
+        headers: { "idempotency-key": commandId },
+        payload: receiptMultipartPayload(fields.value.payload, file.value),
+      });
       const submission: ReceiptSubmissionNotice = {
-        commandId: observation.commandId,
-        receiptId: observation.receiptId,
-        replayed: observation.replayed,
+        commandId: commandIdText,
+        receiptId: result.body.receiptId,
+        etag: result.body.etag,
       };
-      return { success: true as const, intent: "submit" as const, submission };
+      return { success: true as const, intent, submission };
     } catch (error) {
       if (isUnauthorizedError(error)) {
         throw await expiredSessionRedirect(request);
       }
       return {
         success: false as const,
-        intent: "submit" as const,
-        commandId,
+        intent,
+        commandId: commandIdText,
         error: mapOwnedReceiptError(error),
         draft,
       };
@@ -250,23 +281,25 @@ export async function action({ request }: Route.ActionArgs) {
 
   if (intent === "revise") {
     const identity = parseReceiptIdentity(form);
-    if ("error" in identity) {
+    if ("error" in identity || commandId === undefined) {
       const mutationFailure: ReceiptOwnerMutationFailure = {
         intent,
         receiptId: readFormText(form, "receiptId")?.trim() ?? "",
-        expectedRevision: 0,
-        commandId,
-        error: identity.error,
+        commandId: commandIdText,
+        error:
+          "error" in identity
+            ? identity.error
+            : receiptDecodeError("Handlings-ID-en er ugyldig. Åpne redigeringen på nytt."),
       };
       return { success: false as const, intent, mutationFailure };
     }
 
-    const fields = parseReceiptFields(form, commandId);
+    const fields = parseReceiptFields(form);
     if ("error" in fields) {
       const mutationFailure: ReceiptOwnerMutationFailure = {
         intent,
         ...identity.value,
-        commandId,
+        commandId: commandIdText,
         error: fields.error,
       };
       return { success: false as const, intent, mutationFailure };
@@ -277,7 +310,7 @@ export async function action({ request }: Route.ActionArgs) {
       const mutationFailure: ReceiptOwnerMutationFailure = {
         intent,
         ...identity.value,
-        commandId,
+        commandId: commandIdText,
         error: replacementFile.error,
         draft: fields.value.draft,
       };
@@ -285,26 +318,21 @@ export async function action({ request }: Route.ActionArgs) {
     }
 
     try {
-      const observation =
-        replacementFile.value === undefined
-          ? await client.receipts.revise(
-              identity.value.receiptId,
-              identity.value.expectedRevision,
-              fields.value.input,
-            )
-          : await client.receipts.revise(
-              identity.value.receiptId,
-              identity.value.expectedRevision,
-              fields.value.input,
-              replacementFile.value,
-            );
+      const result = await client.receipts.reviseReceipt({
+        params: { receiptId: identity.value.receiptId },
+        headers: {
+          "idempotency-key": commandId,
+          "if-match": identity.value.etag,
+        },
+        payload: receiptMultipartPayload(fields.value.payload, replacementFile.value),
+      });
       const mutationNotice: ReceiptOwnerMutationNotice = {
         intent,
-        commandId: observation.commandId,
-        receiptId: observation.receiptId,
-        status: observation.status,
-        revision: observation.revision,
-        replayed: observation.replayed,
+        commandId: commandIdText,
+        receiptId: result.body.receiptId,
+        status: result.body.status,
+        revision: result.body.revision,
+        etag: result.body.etag,
       };
       return { success: true as const, intent, mutationNotice };
     } catch (error) {
@@ -315,7 +343,8 @@ export async function action({ request }: Route.ActionArgs) {
       const mutationFailure: ReceiptOwnerMutationFailure = {
         intent,
         ...identity.value,
-        commandId: mappedError._tag === "StaleReceiptRevision" ? crypto.randomUUID() : commandId,
+        commandId:
+          mappedError._tag === "StaleReceiptRevision" ? crypto.randomUUID() : commandIdText,
         error: mappedError,
         ...(mappedError._tag === "StaleReceiptRevision" ? {} : { draft: fields.value.draft }),
       };
@@ -325,30 +354,35 @@ export async function action({ request }: Route.ActionArgs) {
 
   if (intent === "withdraw") {
     const identity = parseReceiptIdentity(form);
-    if ("error" in identity) {
+    if ("error" in identity || commandId === undefined) {
       const mutationFailure: ReceiptOwnerMutationFailure = {
         intent,
         receiptId: readFormText(form, "receiptId")?.trim() ?? "",
-        expectedRevision: 0,
-        commandId,
-        error: identity.error,
+        commandId: commandIdText,
+        error:
+          "error" in identity
+            ? identity.error
+            : receiptDecodeError("Handlings-ID-en er ugyldig. Åpne bekreftelsen på nytt."),
       };
       return { success: false as const, intent, mutationFailure };
     }
 
     try {
-      const observation = await client.receipts.withdraw(
-        identity.value.receiptId,
-        identity.value.expectedRevision,
-        commandId,
-      );
+      const result = await client.receipts.withdrawReceipt({
+        params: { receiptId: identity.value.receiptId },
+        headers: {
+          "idempotency-key": commandId,
+          "if-match": identity.value.etag,
+        },
+        payload: {},
+      });
       const mutationNotice: ReceiptOwnerMutationNotice = {
         intent,
-        commandId: observation.commandId,
-        receiptId: observation.receiptId,
-        status: observation.status,
-        revision: observation.revision,
-        replayed: observation.replayed,
+        commandId: commandIdText,
+        receiptId: result.body.receiptId,
+        status: result.body.status,
+        revision: result.body.revision,
+        etag: result.body.etag,
       };
       return { success: true as const, intent, mutationNotice };
     } catch (error) {
@@ -358,7 +392,7 @@ export async function action({ request }: Route.ActionArgs) {
       const mutationFailure: ReceiptOwnerMutationFailure = {
         intent,
         ...identity.value,
-        commandId,
+        commandId: commandIdText,
         error: mapOwnedReceiptError(error),
       };
       return { success: false as const, intent, mutationFailure };
@@ -368,7 +402,7 @@ export async function action({ request }: Route.ActionArgs) {
   return {
     success: false as const,
     intent: "submit" as const,
-    commandId,
+    commandId: commandIdText,
     error: receiptDecodeError("Ukjent handling."),
   };
 }

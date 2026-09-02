@@ -65,7 +65,7 @@ export function AdmissionPeriodList({ periods, error, failure, notice, busy }: P
                 data-error-tag={failure.error._tag}
                 data-error-field={failure.error.field}
                 data-admission-period-id={failure.admissionPeriodId}
-                data-expected-revision={failure.expectedRevision}
+                data-etag={failure.etag}
                 data-command-id={failure.commandId}
               >
                 {failure.error.message}
@@ -79,6 +79,7 @@ export function AdmissionPeriodList({ periods, error, failure, notice, busy }: P
                 aria-live="polite"
                 data-admission-period-id={notice.admissionPeriodId}
                 data-command-id={notice.commandId}
+                data-etag={notice.etag}
               >
                 Opptaksperioden er lagret som en ny versjon.
               </p>
@@ -94,8 +95,8 @@ export function AdmissionPeriodList({ periods, error, failure, notice, busy }: P
             ) : (
               <Table>
                 <TableCaption className="sr-only">
-                  Opptaksperioder med stabil ID, avdeling, semester, start, slutt,
-                  søknadsstatus, versjon og tilgjengelige handlinger.
+                  Opptaksperioder med stabil ID, avdeling, semester, start, slutt, versjon og
+                  tilgjengelige handlinger.
                 </TableCaption>
                 <TableHeader>
                   <TableRow>
@@ -103,7 +104,6 @@ export function AdmissionPeriodList({ periods, error, failure, notice, busy }: P
                     <TableHead scope="col">Avdeling</TableHead>
                     <TableHead scope="col">Starter</TableHead>
                     <TableHead scope="col">Slutter</TableHead>
-                    <TableHead scope="col">Søknadsstatus</TableHead>
                     <TableHead scope="col">Versjon</TableHead>
                     <TableHead scope="col" className="text-right">
                       Handlinger
@@ -113,7 +113,7 @@ export function AdmissionPeriodList({ periods, error, failure, notice, busy }: P
                 <TableBody>
                   {periods.map((period) => (
                     <AdmissionPeriodRow
-                      key={`${period.id}:${period.revision}`}
+                      key={`${period.id}:${period.etag}`}
                       period={period}
                       failure={failure}
                       actionErrorId={actionErrorId}

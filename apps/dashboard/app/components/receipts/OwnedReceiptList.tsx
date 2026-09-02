@@ -71,7 +71,7 @@ export function OwnedReceiptList({
                 data-error-field={mutationFailure.error.field}
                 data-action-intent={mutationFailure.intent}
                 data-receipt-id={mutationFailure.receiptId}
-                data-expected-revision={mutationFailure.expectedRevision}
+                data-etag={mutationFailure.etag}
                 data-command-id={mutationFailure.commandId}
               >
                 {mutationFailure.error.message}
@@ -88,7 +88,7 @@ export function OwnedReceiptList({
                 data-receipt-id={mutationNotice.receiptId}
                 data-status={mutationNotice.status}
                 data-revision={mutationNotice.revision}
-                data-replayed={mutationNotice.replayed}
+                data-etag={mutationNotice.etag}
               >
                 {mutationNotice.intent === "revise"
                   ? `Utlegget er oppdatert til versjon ${mutationNotice.revision}.`

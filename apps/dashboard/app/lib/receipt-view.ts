@@ -1,16 +1,16 @@
 import {
-  ConflictError,
-  ConfigurationError,
-  NetworkError,
-  NotFoundError,
-  RateLimitedError,
-  SdkError,
-  UnauthorizedError,
-  ValidationError,
-} from "@vektorprogrammet/sdk";
-import type { ReceiptProjection } from "@vektorprogrammet/sdk";
+  NativeProblem,
+  ReceiptApprovalQueueItem,
+  ReceiptListItem,
+  ValidationProblem,
+  type StrongETag as StrongETagValue,
+} from "@vektorprogrammet/http-api";
+import { Schema } from "effect";
 
-export type ReceiptStatus = ReceiptProjection["status"];
+type OwnedReceiptProjection = typeof ReceiptListItem.Type;
+type ApprovalReceiptProjection = typeof ReceiptApprovalQueueItem.Type;
+
+export type ReceiptStatus = OwnedReceiptProjection["status"];
 export type OwnedReceiptStatus = ReceiptStatus;
 
 export type OwnedReceiptView = {
@@ -23,6 +23,7 @@ export type OwnedReceiptView = {
   receiptDate: string;
   status: OwnedReceiptStatus;
   revision: number;
+  etag: StrongETagValue;
 };
 
 export type ApprovalReceiptView = {
@@ -37,13 +38,13 @@ export type ApprovalReceiptView = {
   receiptDate: string;
   status: ReceiptStatus;
   revision: number;
+  etag: StrongETagValue;
 };
 
 export type ReceiptUiErrorField = "description" | "amountNok" | "receiptDate" | "file";
 
 export type ReceiptUiErrorTag =
   | "UnauthenticatedActor"
-  | "InactiveActor"
   | "ReceiptOwnerDenied"
   | "ReceiptScopeDenied"
   | "ReceiptDecodeError"
@@ -54,8 +55,6 @@ export type ReceiptUiErrorTag =
   | "StaleReceiptRevision"
   | "InvalidReceiptTransition"
   | "ReceiptFileNotStaged"
-  | "ConfigurationError"
-  | "ReceiptRateLimited"
   | "ReceiptNetworkError"
   | "UnknownReceiptError";
 
@@ -76,7 +75,7 @@ export type ReceiptRevisionDraft = {
 export type ReceiptOwnerMutationFailure = {
   readonly intent: ReceiptOwnerMutationIntent;
   readonly receiptId: string;
-  readonly expectedRevision: number;
+  readonly etag?: StrongETagValue;
   readonly commandId: string;
   readonly error: ReceiptUiError;
   readonly draft?: ReceiptRevisionDraft;
@@ -88,7 +87,7 @@ export type ReceiptOwnerMutationNotice = {
   readonly commandId: string;
   readonly status: OwnedReceiptStatus;
   readonly revision: number;
-  readonly replayed: boolean;
+  readonly etag: StrongETagValue;
 };
 
 export type ReceiptApprovalIntent = "refund" | "reject";
@@ -96,7 +95,7 @@ export type ReceiptApprovalIntent = "refund" | "reject";
 export type ReceiptApprovalFailure = {
   readonly intent: ReceiptApprovalIntent;
   readonly receiptId: string;
-  readonly expectedRevision: number;
+  readonly etag?: StrongETagValue;
   readonly commandId: string;
   readonly error: ReceiptUiError;
 };
@@ -107,7 +106,7 @@ export type ReceiptApprovalNotice = {
   readonly commandId: string;
   readonly status: ReceiptStatus;
   readonly revision: number;
-  readonly replayed: boolean;
+  readonly etag: StrongETagValue;
 };
 
 const statusLabels: Record<ReceiptStatus, string> = {
@@ -119,7 +118,6 @@ const statusLabels: Record<ReceiptStatus, string> = {
 
 const receiptErrorMessages: Record<ReceiptUiErrorTag, string> = {
   UnauthenticatedActor: "Du må logge inn før du kan administrere utlegg.",
-  InactiveActor: "Kontoen din er ikke aktiv for administrasjon av utlegg.",
   ReceiptOwnerDenied: "Du har ikke tilgang til dette utlegget.",
   ReceiptScopeDenied: "Du har ikke godkjenningsområde for dette utlegget.",
   ReceiptDecodeError: "Kontroller feltene og prøv igjen.",
@@ -130,48 +128,47 @@ const receiptErrorMessages: Record<ReceiptUiErrorTag, string> = {
   ReceiptNotFound: "Utlegget ble ikke funnet.",
   StaleReceiptRevision:
     "Utlegget ble endret et annet sted. Listen viser nå siste versjon. Kontroller statusen og prøv igjen.",
-  InvalidReceiptTransition:
-    "Utlegget har en ferdig status og kan ikke behandles på nytt.",
+  InvalidReceiptTransition: "Utlegget har en ferdig status og kan ikke behandles på nytt.",
   ReceiptFileNotStaged:
     "Erstatningsfilen kunne ikke behandles. Den gjeldende filen er ikke endret.",
-  ConfigurationError: "API-konfigurasjon mangler eller er ugyldig.",
-  ReceiptRateLimited: "For mange forespørsler. Prøv igjen senere.",
   ReceiptNetworkError: "Kunne ikke nå API-et. Prøv igjen senere.",
   UnknownReceiptError: "Kunne ikke fullføre forespørselen.",
 };
 
-const canonicalReceiptErrorTags: Partial<Record<ReceiptUiErrorTag, true>> = {
-  UnauthenticatedActor: true,
-  InactiveActor: true,
-  ReceiptOwnerDenied: true,
-  ReceiptScopeDenied: true,
-  ReceiptDecodeError: true,
-  ReceiptAlreadyExists: true,
-  DuplicateReceiptCommandConflict: true,
-  ReceiptPersistenceError: true,
-  ReceiptNotFound: true,
-  StaleReceiptRevision: true,
-  InvalidReceiptTransition: true,
-  ReceiptFileNotStaged: true,
+const nativeProblemSchema = Schema.Union([ValidationProblem, NativeProblem]);
+type DecodedNativeProblem = {
+  readonly code: string;
+  readonly validation?: {
+    readonly errors: ReadonlyArray<{ readonly pointer: string }>;
+  };
 };
 
-
-function canonicalReceiptErrorTag(error: unknown): ReceiptUiErrorTag | undefined {
-  if (typeof error !== "object" || error === null) return undefined;
-  const record = error as Record<string, unknown>;
-
-  for (const key of ["receiptTag", "tag", "_tag"] as const) {
-    const value = record[key];
-    if (
-      typeof value === "string" &&
-      canonicalReceiptErrorTags[value as ReceiptUiErrorTag] === true
-    ) {
-      return value as ReceiptUiErrorTag;
-    }
+const decodeNativeProblem = (error: unknown): DecodedNativeProblem | undefined => {
+  try {
+    return Schema.decodeUnknownSync(nativeProblemSchema)(error, {
+      onExcessProperty: "error",
+    });
+  } catch {
+    return undefined;
   }
+};
 
-  return undefined;
-}
+const validationField = (problem: DecodedNativeProblem): ReceiptUiErrorField | undefined => {
+  if (problem.validation === undefined) return undefined;
+  const pointer = problem.validation.errors[0]?.pointer;
+  switch (pointer) {
+    case "/description":
+      return "description";
+    case "/amountOre":
+      return "amountNok";
+    case "/receiptDate":
+      return "receiptDate";
+    case "/file":
+      return "file";
+    default:
+      return undefined;
+  }
+};
 
 export function formatNokAmount(amountOre: number): string {
   if (!Number.isSafeInteger(amountOre) || amountOre <= 0) return "—";
@@ -185,7 +182,7 @@ export function formatNokInput(amountOre: number): string {
   return `${digits.slice(0, -2)},${digits.slice(-2)}`;
 }
 
-export function mapOwnedReceiptView(receipt: ReceiptProjection): OwnedReceiptView {
+export function mapOwnedReceiptView(receipt: OwnedReceiptProjection): OwnedReceiptView {
   return {
     receiptId: receipt.receiptId,
     visualId: receipt.visualId,
@@ -196,10 +193,11 @@ export function mapOwnedReceiptView(receipt: ReceiptProjection): OwnedReceiptVie
     receiptDate: receipt.receiptDate,
     status: receipt.status,
     revision: receipt.revision,
+    etag: receipt.etag,
   };
 }
 
-export function mapApprovalReceiptView(receipt: ReceiptProjection): ApprovalReceiptView {
+export function mapApprovalReceiptView(receipt: ApprovalReceiptProjection): ApprovalReceiptView {
   return {
     receiptId: receipt.receiptId,
     visualId: receipt.visualId,
@@ -212,6 +210,7 @@ export function mapApprovalReceiptView(receipt: ReceiptProjection): ApprovalRece
     receiptDate: receipt.receiptDate,
     status: receipt.status,
     revision: receipt.revision,
+    etag: receipt.etag,
   };
 }
 
@@ -220,81 +219,84 @@ export function mapReceiptStatus(status: ReceiptStatus): string {
 }
 
 export function isUnauthorizedError(error: unknown): boolean {
-  return (
-    canonicalReceiptErrorTag(error) === "UnauthenticatedActor" ||
-    error instanceof UnauthorizedError ||
-    (error instanceof SdkError && error.type === "unauthorized")
-  );
+  const code = decodeNativeProblem(error)?.code;
+  return code === "credential.missing" || code === "credential.invalid";
 }
 
+const receiptError = (_tag: ReceiptUiErrorTag, field?: ReceiptUiErrorField): ReceiptUiError => ({
+  _tag,
+  message: receiptErrorMessages[_tag],
+  field,
+});
+
+const mapReceiptError = (
+  error: unknown,
+  authorityTag: "ReceiptOwnerDenied" | "ReceiptScopeDenied",
+): ReceiptUiError => {
+  const problem = decodeNativeProblem(error);
+  if (problem === undefined) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "_tag" in error &&
+      error._tag === "SchemaError"
+    ) {
+      return receiptError("ReceiptDecodeError");
+    }
+    return error instanceof Error
+      ? receiptError("ReceiptNetworkError")
+      : receiptError("UnknownReceiptError");
+  }
+
+  switch (problem.code) {
+    case "credential.missing":
+    case "credential.invalid":
+      return receiptError("UnauthenticatedActor");
+    case "authority.denied":
+      return receiptError(authorityTag);
+    case "receipt.not-found":
+    case "resource.not-found":
+      return receiptError("ReceiptNotFound");
+    case "receipt.already-exists":
+      return receiptError("ReceiptAlreadyExists");
+    case "receipt.invalid-transition":
+      return receiptError("InvalidReceiptTransition");
+    case "receipt.file-not-staged":
+      return receiptError("ReceiptFileNotStaged", "file");
+    case "precondition.failed":
+      return receiptError("StaleReceiptRevision");
+    case "idempotency.digest-conflict":
+    case "idempotency.in-flight":
+    case "idempotency.response-expired":
+      return receiptError("DuplicateReceiptCommandConflict");
+    case "receipts.unavailable":
+    case "dependency.unavailable":
+    case "idempotency.unavailable":
+    case "internal.error":
+      return receiptError("ReceiptPersistenceError");
+    case "validation.failed":
+    case "validation.no-change":
+    case "validation.field-not-deletable":
+      return receiptError("ReceiptDecodeError", validationField(problem));
+    case "body.invalid-json":
+    case "body.missing":
+    case "idempotency-key.invalid":
+    case "media-type.unsupported":
+    case "precondition.invalid":
+    case "precondition.required":
+    case "request.malformed":
+      return receiptError("ReceiptDecodeError");
+    case "request.too-large":
+      return receiptError("ReceiptDecodeError", "file");
+    default:
+      return receiptError("UnknownReceiptError");
+  }
+};
+
 export function mapOwnedReceiptError(error: unknown): ReceiptUiError {
-  const canonicalTag = canonicalReceiptErrorTag(error);
-  if (canonicalTag !== undefined) {
-    return { _tag: canonicalTag, message: receiptErrorMessages[canonicalTag] };
-  }
-
-  if (error instanceof ConfigurationError) {
-    return {
-      _tag: "ConfigurationError",
-      message: receiptErrorMessages.ConfigurationError,
-    };
-  }
-
-  if (error instanceof ValidationError) {
-    const fieldName = Object.keys(error.fields)[0];
-    const field =
-      fieldName === "amountOre"
-        ? "amountNok"
-        : fieldName === "replacementFile"
-          ? "file"
-          : fieldName === "description" ||
-              fieldName === "amountNok" ||
-              fieldName === "receiptDate" ||
-              fieldName === "file"
-            ? fieldName
-            : undefined;
-    return {
-      _tag: "ReceiptDecodeError",
-      message: receiptErrorMessages.ReceiptDecodeError,
-      field,
-    };
-  }
-
-  if (error instanceof ConflictError) {
-    return {
-      _tag: "DuplicateReceiptCommandConflict",
-      message: receiptErrorMessages.DuplicateReceiptCommandConflict,
-    };
-  }
-
-  if (error instanceof NotFoundError) {
-    return {
-      _tag: "ReceiptNotFound",
-      message: receiptErrorMessages.ReceiptNotFound,
-    };
-  }
-
-  if (error instanceof RateLimitedError) {
-    return {
-      _tag: "ReceiptRateLimited",
-      message: receiptErrorMessages.ReceiptRateLimited,
-    };
-  }
-
-  if (error instanceof NetworkError) {
-    return {
-      _tag: "ReceiptNetworkError",
-      message: receiptErrorMessages.ReceiptNetworkError,
-    };
-  }
-
-  return {
-    _tag: "UnknownReceiptError",
-    message: receiptErrorMessages.UnknownReceiptError,
-  };
+  return mapReceiptError(error, "ReceiptOwnerDenied");
 }
 
 export function mapApprovalReceiptError(error: unknown): ReceiptUiError {
-  return mapOwnedReceiptError(error);
+  return mapReceiptError(error, "ReceiptScopeDenied");
 }
-
