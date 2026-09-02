@@ -7,80 +7,44 @@ import {
   INTERNAL_RECEIPT_EVIDENCE_ACCESS,
   RECEIPT_APPROVAL_QUEUE_ACCESS,
 } from "@vektorprogrammet/domain/authz";
-import {
-  ReceiptId,
-  ReceiptObservationSchema,
-  ReceiptStatusSchema,
-} from "@vektorprogrammet/domain/receipt";
+import { ReceiptId, ReceiptStatusSchema } from "@vektorprogrammet/domain/receipt";
 import { Schema } from "effect";
-import { Multipart } from "effect/unstable/http";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, personNativeAccess } from "./access.js";
 import {
   operationAnnotations,
+  PersonOrServiceSecurity,
   PersonSecurity,
-  receiptErrorBody,
   SessionSecurity,
 } from "./common.js";
-import { StrongETag } from "./http-semantics.js";
-
-const MultipartText = Schema.String;
-
-/**
- * Strict receipt submission multipart payload.
- *
- * @since 0.1.0
- * @category Schemas
- */
-export const SubmitReceiptMultipart = Schema.Struct({
-  commandId: MultipartText,
-  description: MultipartText,
-  amountOre: MultipartText,
-  receiptDate: MultipartText,
-  file: Multipart.PersistedFileSchema,
-})
-  .pipe(HttpApiSchema.asMultipart())
-  .annotate({
-    identifier: "SubmitReceiptMultipart",
-    description:
-      "Receipt fields plus one JPEG, PNG, or PDF file. Multipart form-data: commandId, description, amountOre, receiptDate as text fields plus one file.",
-  });
-
-/**
- * Strict receipt revision multipart payload with an optional replacement file.
- *
- * @since 0.1.0
- * @category Schemas
- */
-export const ReviseReceiptMultipart = Schema.Struct({
-  commandId: MultipartText,
-  expectedRevision: MultipartText,
-  description: MultipartText,
-  amountOre: MultipartText,
-  receiptDate: MultipartText,
-  file: Schema.optional(Multipart.PersistedFileSchema),
-})
-  .pipe(HttpApiSchema.asMultipart())
-  .annotate({
-    identifier: "ReviseReceiptMultipart",
-    description:
-      "Receipt revision fields and an optional replacement file. Multipart form-data: commandId, expectedRevision, description, amountOre, receiptDate as text fields plus an optional replacement file.",
-  });
-
-/**
- * JSON receipt command payload with optimistic revision.
- *
- * @since 0.1.0
- * @category Schemas
- */
-export const ReceiptRevisionCommand = Schema.Struct({
-  commandId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-  expectedRevision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
-}).annotate({
-  identifier: "ReceiptRevisionCommand",
-  description: "Idempotent receipt command and expected revision.",
-  examples: [{ commandId: "receipt-command-example", expectedRevision: 0 }],
-});
+import {
+  InternalReadReceiptEvidenceProblem,
+  ReceiptsListReceiptsForApprovalProblem,
+  ReceiptsListReceiptsProblem,
+  ReceiptsRefundReceiptProblem,
+  ReceiptsRejectReceiptProblem,
+  ReceiptsReviseReceiptProblem,
+  ReceiptsSubmitReceiptProblem,
+  ReceiptsWithdrawReceiptProblem,
+} from "./endpoint-problems.js";
+import {
+  createdMutationResponse,
+  endpointProblemResponses,
+  entityMutationResponse,
+  IdempotencyHeaders,
+  IdempotencyIfMatchHeaders,
+  internalNoStoreResponse,
+  privateReadResponse,
+  StrongETag,
+} from "./http-semantics.js";
+import {
+  ReceiptResource,
+  RefundReceiptRequest,
+  RejectReceiptRequest,
+  ReviseReceiptMultipartV2,
+  SubmitReceiptMultipartV2,
+  WithdrawReceiptRequest,
+} from "./v2-schemas.js";
 
 /**
  * Receipt list projection item.
@@ -218,70 +182,21 @@ export const ReceiptLifecycleEvidenceResponse = Schema.Struct({
   description: "E2E-only receipt file, outbox, and audit evidence.",
 });
 
-const ReceiptForbiddenResponse = receiptErrorBody(
-  "ReceiptForbiddenResponse",
-  [
-    "InactiveActor",
-    "ReceiptOwnerDenied",
-    "ReceiptScopeDenied",
-    "ReceiptAuthorityDenied",
-    "AmbiguousPaymentSelection",
-    "AmbiguousParameterFill",
-    "FailedComposedRequirement",
-  ],
-  403,
-);
-const ReceiptNotFoundResponse = receiptErrorBody(
-  "ReceiptNotFoundResponse",
-  ["ReceiptNotFound"],
-  404,
-);
-const ReceiptConflictResponse = receiptErrorBody(
-  "ReceiptConflictResponse",
-  [
-    "ReceiptAlreadyExists",
-    "DuplicateReceiptCommandConflict",
-    "StaleReceiptRevision",
-    "InvalidReceiptTransition",
-  ],
-  409,
-);
-const ReceiptDecodeResponse = receiptErrorBody(
-  "ReceiptDecodeResponse",
-  ["ReceiptDecodeError", "ReceiptFileNotStaged"],
-  422,
-);
-const ReceiptUnavailableResponse = receiptErrorBody(
-  "ReceiptUnavailableResponse",
-  ["ReceiptPersistenceError"],
-  503,
-);
-const ReceiptErrors = [
-  ReceiptForbiddenResponse,
-  ReceiptNotFoundResponse,
-  ReceiptConflictResponse,
-  ReceiptDecodeResponse,
-  ReceiptUnavailableResponse,
-] as const;
-
-const ReceiptObservation200 = ReceiptObservationSchema.pipe(HttpApiSchema.status(200));
-const ReceiptObservation201 = ReceiptObservationSchema.pipe(HttpApiSchema.status(201));
 const ReceiptStatusQuery = {
   status: Schema.optional(ReceiptStatusSchema),
 };
 const OwnerReceiptStatusQuery = {
   status: Schema.optional(Schema.Union([ReceiptStatusSchema, Schema.Array(ReceiptStatusSchema)])),
 };
-const MultipartHeaders = { "content-length": Schema.String };
 const ReceiptParams = { receiptId: ReceiptId };
 
 /** @since 0.1.0 @category Endpoints */
 export const SubmitReceiptEndpoint = HttpApiEndpoint.post("submitReceipt", "/api/receipts", {
   query: { departmentId: Schema.optional(Schema.String) },
-  headers: MultipartHeaders,
-  payload: SubmitReceiptMultipart,
-  success: [ReceiptObservation200, ReceiptObservation201],
-  error: ReceiptErrors,
+  headers: IdempotencyHeaders,
+  payload: SubmitReceiptMultipartV2,
+  success: createdMutationResponse(ReceiptResource.pipe(HttpApiSchema.status(201))),
+  error: endpointProblemResponses(ReceiptsSubmitReceiptProblem),
 })
   .middleware(PersonSecurity)
   .pipe((endpoint) =>
@@ -307,10 +222,10 @@ export const ReviseReceiptEndpoint = HttpApiEndpoint.patch(
   "/api/receipts/:receiptId",
   {
     params: ReceiptParams,
-    headers: MultipartHeaders,
-    payload: ReviseReceiptMultipart,
-    success: ReceiptObservation200,
-    error: ReceiptErrors,
+    headers: IdempotencyIfMatchHeaders,
+    payload: ReviseReceiptMultipartV2,
+    success: entityMutationResponse(ReceiptResource),
+    error: endpointProblemResponses(ReceiptsReviseReceiptProblem),
   },
 )
   .middleware(PersonSecurity)
@@ -335,9 +250,10 @@ export const WithdrawReceiptEndpoint = HttpApiEndpoint.post(
   "/api/receipts/:receiptId::withdraw",
   {
     params: ReceiptParams,
-    payload: ReceiptRevisionCommand,
-    success: ReceiptObservation200,
-    error: ReceiptErrors,
+    headers: IdempotencyIfMatchHeaders,
+    payload: WithdrawReceiptRequest,
+    success: entityMutationResponse(ReceiptResource),
+    error: endpointProblemResponses(ReceiptsWithdrawReceiptProblem),
   },
 )
   .middleware(PersonSecurity)
@@ -362,8 +278,8 @@ export const WithdrawReceiptEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const ListReceiptsEndpoint = HttpApiEndpoint.get("listReceipts", "/api/receipts", {
   query: OwnerReceiptStatusQuery,
-  success: ReceiptListResponse,
-  error: ReceiptErrors,
+  success: privateReadResponse(ReceiptListResponse),
+  error: endpointProblemResponses(ReceiptsListReceiptsProblem),
 })
   .middleware(PersonSecurity)
   .pipe((endpoint) =>
@@ -385,9 +301,13 @@ export const ListReceiptsEndpoint = HttpApiEndpoint.get("listReceipts", "/api/re
 export const ListReceiptsForApprovalEndpoint = HttpApiEndpoint.get(
   "listReceiptsForApproval",
   "/api/receipt-approval-queue",
-  { query: ReceiptStatusQuery, success: ReceiptApprovalQueueResponse, error: ReceiptErrors },
+  {
+    query: ReceiptStatusQuery,
+    success: privateReadResponse(ReceiptApprovalQueueResponse),
+    error: endpointProblemResponses(ReceiptsListReceiptsForApprovalProblem),
+  },
 )
-  .middleware(PersonSecurity)
+  .middleware(PersonOrServiceSecurity)
   .pipe((endpoint) => annotateAccessSpec(endpoint, RECEIPT_APPROVAL_QUEUE_ACCESS))
   .annotateMerge(
     operationAnnotations(
@@ -402,9 +322,10 @@ export const RefundReceiptEndpoint = HttpApiEndpoint.post(
   "/api/receipts/:receiptId::refund",
   {
     params: ReceiptParams,
-    payload: ReceiptRevisionCommand,
-    success: ReceiptObservation200,
-    error: ReceiptErrors,
+    headers: IdempotencyIfMatchHeaders,
+    payload: RefundReceiptRequest,
+    success: entityMutationResponse(ReceiptResource),
+    error: endpointProblemResponses(ReceiptsRefundReceiptProblem),
   },
 )
   .middleware(PersonSecurity)
@@ -427,9 +348,10 @@ export const RejectReceiptEndpoint = HttpApiEndpoint.post(
   "/api/receipts/:receiptId::reject",
   {
     params: ReceiptParams,
-    payload: ReceiptRevisionCommand,
-    success: ReceiptObservation200,
-    error: ReceiptErrors,
+    headers: IdempotencyIfMatchHeaders,
+    payload: RejectReceiptRequest,
+    success: entityMutationResponse(ReceiptResource),
+    error: endpointProblemResponses(ReceiptsRejectReceiptProblem),
   },
 )
   .middleware(PersonSecurity)
@@ -473,8 +395,8 @@ export class ReceiptsApi extends HttpApiGroup.make("receipts")
 export const ReadReceiptEvidenceEndpoint = annotateAccessSpec(
   HttpApiEndpoint.get("readReceiptEvidence", "/api/receipt-lifecycle-evidence-records/:receiptId", {
     params: ReceiptParams,
-    success: ReceiptLifecycleEvidenceResponse,
-    error: ReceiptErrors,
+    success: internalNoStoreResponse(ReceiptLifecycleEvidenceResponse),
+    error: endpointProblemResponses(InternalReadReceiptEvidenceProblem, { cors: false }),
   })
     .middleware(SessionSecurity)
     .annotateMerge(

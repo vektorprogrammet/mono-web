@@ -3,11 +3,28 @@
  *
  * @since 0.1.0
  */
+import { PersonId } from "@vektorprogrammet/domain/organization";
 import { PUBLIC_SYSTEM_ACCESS } from "@vektorprogrammet/domain/authz";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, browserSessionNativeAccess } from "./access.js";
-import { errorBody, operationAnnotations, SessionSecurity } from "./common.js";
+import { operationAnnotations, SessionSecurity } from "./common.js";
+import {
+  SystemDeleteOwnedSessionProblem,
+  SystemDeleteSessionProblem,
+  SystemHealthProblem,
+  SystemListSessionsProblem,
+  SystemReadSessionProblem,
+  SystemRevokeAllSessionsProblem,
+  SystemRevokeOtherSessionsProblem,
+} from "./endpoint-problems.js";
+import {
+  endpointProblemResponses,
+  IdempotencyHeaders,
+  noContentMutationResponse,
+  noStoreReadResponse,
+  privateReadResponse,
+} from "./http-semantics.js";
 
 export const HealthOkResponse = Schema.Struct({ status: Schema.Literals(["ok"]) })
   .pipe(HttpApiSchema.status(200))
@@ -21,8 +38,8 @@ export const HealthUnavailableResponse = Schema.Struct({ status: Schema.Literals
   });
 
 export const HealthEndpoint = HttpApiEndpoint.get("health", "/health", {
-  success: HealthOkResponse,
-  error: HealthUnavailableResponse,
+  success: noStoreReadResponse(HealthOkResponse),
+  error: endpointProblemResponses(SystemHealthProblem),
 })
   .pipe((endpoint) => annotateAccessSpec(endpoint, PUBLIC_SYSTEM_ACCESS))
   .annotateMerge(
@@ -40,6 +57,7 @@ const SessionId = Schema.String.pipe(
 /** Credential-free owner-only session metadata. */
 export const SessionResponse = Schema.Struct({
   sessionId: SessionId,
+  personId: PersonId,
   createdAt: Schema.String,
   updatedAt: Schema.String,
   expiresAt: Schema.String,
@@ -56,21 +74,9 @@ export const SessionListResponse = Schema.Array(SessionResponse).annotate({
   description: "Sessions owned by the authenticated person.",
 });
 
-export const IdentityEngineUnavailableResponse = errorBody(
-  "IdentityEngineUnavailableResponse",
-  ["IdentityEngineError"],
-  503,
-);
-
-export const OwnedSessionNotFoundResponse = errorBody(
-  "OwnedSessionNotFoundResponse",
-  ["SessionNotFound"],
-  404,
-);
-
 export const ReadSessionEndpoint = HttpApiEndpoint.get("readSession", "/api/session", {
-  success: SessionResponse,
-  error: IdentityEngineUnavailableResponse,
+  success: privateReadResponse(SessionResponse),
+  error: endpointProblemResponses(SystemReadSessionProblem),
 })
   .middleware(SessionSecurity)
   .pipe((endpoint) =>
@@ -90,7 +96,9 @@ export const ReadSessionEndpoint = HttpApiEndpoint.get("readSession", "/api/sess
   );
 
 export const DeleteSessionEndpoint = HttpApiEndpoint.delete("deleteSession", "/api/session", {
-  error: IdentityEngineUnavailableResponse,
+  headers: IdempotencyHeaders,
+  success: noContentMutationResponse(),
+  error: endpointProblemResponses(SystemDeleteSessionProblem),
 })
   .middleware(SessionSecurity)
   .pipe((endpoint) =>
@@ -107,8 +115,8 @@ export const DeleteSessionEndpoint = HttpApiEndpoint.delete("deleteSession", "/a
   );
 
 export const ListSessionsEndpoint = HttpApiEndpoint.get("listSessions", "/api/sessions", {
-  success: SessionListResponse,
-  error: IdentityEngineUnavailableResponse,
+  success: privateReadResponse(SessionListResponse),
+  error: endpointProblemResponses(SystemListSessionsProblem),
 })
   .middleware(SessionSecurity)
   .pipe((endpoint) =>
@@ -133,7 +141,9 @@ export const DeleteOwnedSessionEndpoint = HttpApiEndpoint.delete(
   "/api/sessions/:sessionId",
   {
     params: { sessionId: SessionId },
-    error: [OwnedSessionNotFoundResponse, IdentityEngineUnavailableResponse],
+    success: noContentMutationResponse(),
+    headers: IdempotencyHeaders,
+    error: endpointProblemResponses(SystemDeleteOwnedSessionProblem),
   },
 )
   .middleware(SessionSecurity)
@@ -158,7 +168,11 @@ export const DeleteOwnedSessionEndpoint = HttpApiEndpoint.delete(
 export const RevokeOtherSessionsEndpoint = HttpApiEndpoint.post(
   "revokeOtherSessions",
   "/api/sessions::revoke-others",
-  { error: IdentityEngineUnavailableResponse },
+  {
+    headers: IdempotencyHeaders,
+    success: noContentMutationResponse(),
+    error: endpointProblemResponses(SystemRevokeOtherSessionsProblem),
+  },
 )
   .middleware(SessionSecurity)
   .pipe((endpoint) =>
@@ -180,7 +194,11 @@ export const RevokeOtherSessionsEndpoint = HttpApiEndpoint.post(
 export const RevokeAllSessionsEndpoint = HttpApiEndpoint.post(
   "revokeAllSessions",
   "/api/sessions::revoke-all",
-  { error: IdentityEngineUnavailableResponse },
+  {
+    headers: IdempotencyHeaders,
+    success: noContentMutationResponse(),
+    error: endpointProblemResponses(SystemRevokeAllSessionsProblem),
+  },
 )
   .middleware(SessionSecurity)
   .pipe((endpoint) =>

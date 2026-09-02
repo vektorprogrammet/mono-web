@@ -3,33 +3,19 @@
  *
  * @since 0.1.0
  */
+import { AdmissionPeriodId } from "@vektorprogrammet/domain/admission-period";
+import { ApplicantIdSchema, PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
+import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
-  CancelInterviewCommandSchema,
-  CancelInterviewResultSchema,
-  FinalizeInterviewCommandSchema,
-  FinalizeInterviewResultSchema,
+  InterviewSchemaId,
   RecruitmentAssignmentBoardQuerySchema,
   RecruitmentAssignmentBoardSchema,
-  RecruitmentAssignmentCommandSchema,
-  RecruitmentAssignmentResultSchema,
   RecruitmentInterviewConductObservationSchema,
   RecruitmentInterviewId,
   RecruitmentInvitationRejectInputSchema,
   RecruitmentInvitationRequestNewTimeInputSchema,
   RecruitmentInvitationResponseObservationSchema,
-  RecruitmentScheduleCommandSchema,
-  RecruitmentScheduleResultSchema,
   RecruitmentSchedulingBoardSchema,
-} from "@vektorprogrammet/domain/recruitment";
-import { AdmissionPeriodId } from "@vektorprogrammet/domain/admission-period";
-import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
-import { ApplicantIdSchema, PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
-import {
-  InterviewSchemaId,
-  RecruitmentAssignmentCommandId,
-  RecruitmentCancellationCommandId,
-  RecruitmentConductCommandId,
-  RecruitmentScheduleCommandId,
 } from "@vektorprogrammet/domain/recruitment";
 const InvitationResponseObservationExample: any = {
   scheduledAt: "2026-09-10T14:00:00.000Z",
@@ -38,108 +24,6 @@ const InvitationResponseObservationExample: any = {
   responseState: "Pending",
   responseMessage: null,
 } as const;
-
-const AssignmentCommandExample: any = {
-  commandId: RecruitmentAssignmentCommandId.make("assign-command-0080"),
-  applicationId: PublicApplicationIdSchema.make("app-0080"),
-  interviewerPersonId: PersonId.make("1001"),
-  interviewSchemaId: InterviewSchemaId.make("interview-schema-1"),
-};
-
-const AssignmentResultExample: any = {
-  observation: {
-    _tag: "ApplicantAssigned",
-    commandId: RecruitmentAssignmentCommandId.make("assign-command-0080"),
-    interview: {
-      interviewId: RecruitmentInterviewId.make("interview-1"),
-      applicationId: PublicApplicationIdSchema.make("app-0080"),
-      departmentId: DepartmentId.make("1"),
-      interviewerPersonId: PersonId.make("1001"),
-      interviewSchemaId: InterviewSchemaId.make("interview-schema-1"),
-      assignedByPersonId: PersonId.make("1002"),
-      assignedAt: "2026-08-20T10:00:00.000Z",
-      revision: 1,
-    },
-  },
-  replayed: false,
-};
-
-const ScheduleCommandExample: any = {
-  commandId: RecruitmentScheduleCommandId.make("schedule-command-0080"),
-  interviewId: RecruitmentInterviewId.make("interview-1"),
-  expectedRevision: 1,
-  scheduledAt: "2026-09-10T14:00:00.000Z",
-  room: "Realfagbygget, R90",
-  campus: "Gløshaugen",
-  mapLink: "https://maps.example.org/r90",
-  message: "Interview invitation with room details.",
-};
-
-const ScheduleResultExample: any = {
-  observation: {
-    _tag: "InterviewScheduled",
-    commandId: RecruitmentScheduleCommandId.make("schedule-command-0080"),
-    interviewId: RecruitmentInterviewId.make("interview-1"),
-    schedule: {
-      interviewId: RecruitmentInterviewId.make("interview-1"),
-      scheduledAt: "2026-09-10T14:00:00.000Z",
-      room: "Realfagbygget, R90",
-      campus: "Gløshaugen",
-      mapLink: "https://maps.example.org/r90",
-      message: "Interview invitation with room details.",
-      scheduledByPersonId: PersonId.make("1002"),
-      committedAt: "2026-08-20T10:05:00.000Z",
-      scheduleRevision: 1,
-    },
-    interviewRevision: 2,
-    responseState: "Pending",
-    notificationState: "Pending",
-  },
-  replayed: false,
-};
-
-const FinalizeCommandExample: any = {
-  commandId: RecruitmentConductCommandId.make("finalize-command-0080"),
-  interviewId: RecruitmentInterviewId.make("interview-1"),
-  expectedRevision: 2,
-  answers: [
-    { questionId: "q-1", answer: "I am drawn to the study programme's breadth." },
-    { questionId: "q-2", answer: ["Motivation", "Teamwork"] },
-  ],
-  score: { explanatoryPower: 7, roleModel: 8, suitability: 6 },
-};
-
-const FinalizeResultExample: any = {
-  observation: {
-    _tag: "InterviewFinalized",
-    commandId: RecruitmentConductCommandId.make("finalize-command-0080"),
-    interviewId: RecruitmentInterviewId.make("interview-1"),
-    interviewRevision: 3,
-    finalizedAt: "2026-09-12T15:00:00.000Z",
-    completionState: "Completed",
-    cancellationState: "NotCancelled",
-  },
-  replayed: false,
-};
-
-const CancelCommandExample: any = {
-  commandId: RecruitmentCancellationCommandId.make("cancel-command-0080"),
-  interviewId: RecruitmentInterviewId.make("interview-1"),
-  expectedRevision: 3,
-};
-
-const CancelResultExample: any = {
-  observation: {
-    _tag: "InterviewCancelled",
-    commandId: RecruitmentCancellationCommandId.make("cancel-command-0080"),
-    interviewId: RecruitmentInterviewId.make("interview-1"),
-    interviewRevision: 4,
-    cancelledAt: "2026-09-12T16:00:00.000Z",
-    completionState: "NotCompleted",
-    cancellationState: "Cancelled",
-  },
-  replayed: false,
-};
 
 const AssignmentBoardExample: any = {
   admissionPeriodId: AdmissionPeriodId.make("period-1"),
@@ -253,15 +137,44 @@ const ConductObservationExample: any = {
   canCancel: false,
 };
 
-import { Schema } from "effect";
-import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, invitationNativeAccess, personNativeAccess } from "./access.js";
+import { InvitationCapabilitySecurity, operationAnnotations, PersonSecurity } from "./common.js";
 import {
-  errorBody,
-  InvitationCapabilitySecurity,
-  operationAnnotations,
-  PersonSecurity,
-} from "./common.js";
+  RecruitmentCancelInterviewProblem,
+  RecruitmentConfirmInvitationProblem,
+  RecruitmentCreateApplicationInterviewProblem,
+  RecruitmentFinalizeInterviewProblem,
+  RecruitmentReadAssignmentBoardProblem,
+  RecruitmentReadInterviewConductProblem,
+  RecruitmentReadInvitationResponseProblem,
+  RecruitmentReadSchedulingBoardProblem,
+  RecruitmentRejectInvitationProblem,
+  RecruitmentRequestNewInvitationTimeProblem,
+  RecruitmentScheduleInterviewProblem,
+} from "./endpoint-problems.js";
+import {
+  ConditionalReadHeaders,
+  createdMutationResponse,
+  endpointProblemResponses,
+  entityMutationResponse,
+  IdempotencyHeaders,
+  IdempotencyIfMatchHeaders,
+  noContentMutationResponse,
+  privateConditionalResponses,
+  privateReadResponse,
+} from "./http-semantics.js";
+import {
+  CancelInterviewRequest,
+  CancelInterviewResponse,
+  CreateApplicationInterviewRequest,
+  EmptyJsonRequest,
+  FinalizeInterviewRequest,
+  FinalizeInterviewResponse,
+  RecruitmentInterviewResource,
+  ScheduleInterviewRequest,
+  ScheduleInterviewResponse,
+} from "./v2-schemas.js";
 
 /**
  * Exact empty JSON object required when accepting an invitation.
@@ -269,9 +182,9 @@ import {
  * @since 0.1.0
  * @category Schemas
  */
-export const ConfirmInvitationPayload = Schema.Record(Schema.String, Schema.Never).annotate({
-  identifier: "ConfirmInvitationPayload",
-  description: "An empty JSON object. Any other payload is rejected.",
+export const ConfirmInvitationPayload = EmptyJsonRequest.annotate({
+  identifier: "ConfirmInvitationRequest",
+  description: "An exact empty JSON object.",
   examples: [{}],
 });
 
@@ -295,54 +208,6 @@ export const InvitationResponseObservation =
     examples: [InvitationResponseObservationExample],
   });
 
-export const AssignmentCommand = RecruitmentAssignmentCommandSchema.annotate({
-  identifier: "AssignmentCommand",
-  description: "Idempotent assign-applicant command.",
-  examples: [AssignmentCommandExample],
-});
-
-export const AssignmentResult = RecruitmentAssignmentResultSchema.annotate({
-  identifier: "AssignmentResult",
-  description: "Assignment observation and replay flag.",
-  examples: [AssignmentResultExample],
-});
-
-export const ScheduleCommand = RecruitmentScheduleCommandSchema.annotate({
-  identifier: "ScheduleCommand",
-  description: "Idempotent interview scheduling command.",
-  examples: [ScheduleCommandExample],
-});
-
-export const ScheduleResult = RecruitmentScheduleResultSchema.annotate({
-  identifier: "ScheduleResult",
-  description: "Scheduling observation and replay flag.",
-  examples: [ScheduleResultExample],
-});
-
-export const FinalizeCommand = FinalizeInterviewCommandSchema.annotate({
-  identifier: "FinalizeCommand",
-  description: "Idempotent finalize command with answers and scores.",
-  examples: [FinalizeCommandExample],
-});
-
-export const FinalizeResult = FinalizeInterviewResultSchema.annotate({
-  identifier: "FinalizeResult",
-  description: "Finalize observation and replay flag.",
-  examples: [FinalizeResultExample],
-});
-
-export const CancelCommand = CancelInterviewCommandSchema.annotate({
-  identifier: "CancelCommand",
-  description: "Idempotent cancel command with expected revision.",
-  examples: [CancelCommandExample],
-});
-
-export const CancelResult = CancelInterviewResultSchema.annotate({
-  identifier: "CancelResult",
-  description: "Cancel observation and replay flag.",
-  examples: [CancelResultExample],
-});
-
 export const AssignmentBoard = RecruitmentAssignmentBoardSchema.annotate({
   identifier: "AssignmentBoard",
   description: "Candidates and interviewers in the caller's leader scope.",
@@ -361,84 +226,15 @@ export const ConductObservation = RecruitmentInterviewConductObservationSchema.a
   examples: [ConductObservationExample],
 });
 
-const RecruitmentForbiddenResponse = errorBody(
-  "RecruitmentForbiddenResponse",
-  [
-    "RecruitmentInactiveActor",
-    "RecruitmentRoleDenied",
-    "RecruitmentScopeDenied",
-    "RecruitmentInterviewerNotEligible",
-  ],
-  403,
-);
-const RecruitmentNotFoundResponse = errorBody(
-  "RecruitmentNotFoundResponse",
-  [
-    "RecruitmentAdmissionPeriodNotFound",
-    "RecruitmentApplicationNotFound",
-    "RecruitmentInterviewSchemaNotFound",
-    "RecruitmentInterviewNotFound",
-    "RecruitmentInvitationNotFound",
-  ],
-  404,
-);
-const RecruitmentConflictResponse = errorBody(
-  "RecruitmentConflictResponse",
-  [
-    "RecruitmentApplicationAlreadyAssigned",
-    "RecruitmentAmbiguousAdmissionPeriod",
-    "RecruitmentAssignmentCommandConflict",
-    "RecruitmentInterviewAlreadyScheduled",
-    "RecruitmentInterviewStaleRevision",
-    "RecruitmentInvitationAlreadyResponded",
-    "RecruitmentScheduleCommandConflict",
-    "RecruitmentLifecycleCommandConflict",
-    "RecruitmentInterviewAlreadyFinalized",
-    "RecruitmentInterviewAlreadyCancelled",
-    "RecruitmentInvitationNotAccepted",
-    "RecruitmentInterviewNotScheduled",
-  ],
-  409,
-);
-const RecruitmentTooLargeResponse = errorBody(
-  "RecruitmentTooLargeResponse",
-  ["RequestBodyTooLarge"],
-  413,
-);
-const RecruitmentDecodeResponse = errorBody(
-  "RecruitmentDecodeResponse",
-  [
-    "RecruitmentDecodeError",
-    "RecruitmentInterviewSchemaInactive",
-    "RecruitmentScheduleInPast",
-    "RecruitmentConductValidationError",
-  ],
-  422,
-);
-const RecruitmentUnavailableResponse = errorBody(
-  "RecruitmentUnavailableResponse",
-  [
-    "ProfileContactNotFound",
-    "RecruitmentPersistenceError",
-    "InterviewQuestionsUnavailable",
-    "RecruitmentInvalidContext",
-  ],
-  503,
-);
-const RecruitmentErrors = [
-  RecruitmentForbiddenResponse,
-  RecruitmentNotFoundResponse,
-  RecruitmentConflictResponse,
-  RecruitmentTooLargeResponse,
-  RecruitmentDecodeResponse,
-  RecruitmentUnavailableResponse,
-] as const;
-
 /** @since 0.1.0 @category Endpoints */
 export const ReadInvitationResponseEndpoint = HttpApiEndpoint.get(
   "readInvitationResponse",
   "/api/recruitment/invitation-response",
-  { success: InvitationResponseObservation, error: RecruitmentErrors },
+  {
+    headers: ConditionalReadHeaders,
+    success: privateConditionalResponses(InvitationResponseObservation),
+    error: endpointProblemResponses(RecruitmentReadInvitationResponseProblem),
+  },
 )
   .middleware(InvitationCapabilitySecurity)
   .pipe((endpoint) => annotateAccessSpec(endpoint, invitationNativeAccess([], "SnapshotRead")))
@@ -453,7 +249,12 @@ export const ReadInvitationResponseEndpoint = HttpApiEndpoint.get(
 export const ConfirmInvitationEndpoint = HttpApiEndpoint.post(
   "confirmInvitation",
   "/api/recruitment/invitation-response::confirm",
-  { payload: ConfirmInvitationPayload, error: RecruitmentErrors },
+  {
+    headers: IdempotencyIfMatchHeaders,
+    payload: ConfirmInvitationPayload,
+    success: noContentMutationResponse({ etag: true }),
+    error: endpointProblemResponses(RecruitmentConfirmInvitationProblem),
+  },
 )
   .middleware(InvitationCapabilitySecurity)
   .pipe((endpoint) =>
@@ -470,7 +271,12 @@ export const ConfirmInvitationEndpoint = HttpApiEndpoint.post(
 export const RejectInvitationEndpoint = HttpApiEndpoint.post(
   "rejectInvitation",
   "/api/recruitment/invitation-response::reject",
-  { payload: InvitationRejectInput, error: RecruitmentErrors },
+  {
+    headers: IdempotencyIfMatchHeaders,
+    payload: InvitationRejectInput,
+    success: noContentMutationResponse({ etag: true }),
+    error: endpointProblemResponses(RecruitmentRejectInvitationProblem),
+  },
 )
   .middleware(InvitationCapabilitySecurity)
   .pipe((endpoint) =>
@@ -487,7 +293,12 @@ export const RejectInvitationEndpoint = HttpApiEndpoint.post(
 export const RequestNewInvitationTimeEndpoint = HttpApiEndpoint.post(
   "requestNewInvitationTime",
   "/api/recruitment/invitation-response::request-new-time",
-  { payload: InvitationRequestNewTimeInput, error: RecruitmentErrors },
+  {
+    headers: IdempotencyIfMatchHeaders,
+    payload: InvitationRequestNewTimeInput,
+    success: noContentMutationResponse({ etag: true }),
+    error: endpointProblemResponses(RecruitmentRequestNewInvitationTimeProblem),
+  },
 )
   .middleware(InvitationCapabilitySecurity)
   .pipe((endpoint) =>
@@ -509,8 +320,8 @@ export const ReadAssignmentBoardEndpoint = HttpApiEndpoint.get(
   "/api/recruitment/application-assignments",
   {
     query: RecruitmentAssignmentBoardQuerySchema.fields,
-    success: AssignmentBoard,
-    error: RecruitmentErrors,
+    success: privateReadResponse(AssignmentBoard),
+    error: endpointProblemResponses(RecruitmentReadAssignmentBoardProblem),
   },
 )
   .middleware(PersonSecurity)
@@ -536,7 +347,10 @@ export const ReadAssignmentBoardEndpoint = HttpApiEndpoint.get(
 export const ReadSchedulingBoardEndpoint = HttpApiEndpoint.get(
   "readSchedulingBoard",
   "/api/recruitment/interviews",
-  { success: SchedulingBoard, error: RecruitmentErrors },
+  {
+    success: privateReadResponse(SchedulingBoard),
+    error: endpointProblemResponses(RecruitmentReadSchedulingBoardProblem),
+  },
 )
   .middleware(PersonSecurity)
   .pipe((endpoint) =>
@@ -563,9 +377,10 @@ export const AssignApplicantEndpoint = HttpApiEndpoint.post(
   "/api/recruitment/applications/:applicationId/interviews",
   {
     params: { applicationId: PublicApplicationIdSchema },
-    payload: AssignmentCommand,
-    success: AssignmentResult,
-    error: RecruitmentErrors,
+    headers: IdempotencyHeaders,
+    payload: CreateApplicationInterviewRequest,
+    success: createdMutationResponse(RecruitmentInterviewResource.pipe(HttpApiSchema.status(201))),
+    error: endpointProblemResponses(RecruitmentCreateApplicationInterviewProblem),
   },
 )
   .middleware(PersonSecurity)
@@ -589,9 +404,11 @@ export const ScheduleInterviewEndpoint = HttpApiEndpoint.post(
   "scheduleInterview",
   "/api/recruitment/interviews/:interviewId::schedule",
   {
-    payload: ScheduleCommand,
-    success: ScheduleResult,
-    error: RecruitmentErrors,
+    params: { interviewId: RecruitmentInterviewId },
+    headers: IdempotencyIfMatchHeaders,
+    payload: ScheduleInterviewRequest,
+    success: entityMutationResponse(ScheduleInterviewResponse),
+    error: endpointProblemResponses(RecruitmentScheduleInterviewProblem),
   },
 )
   .middleware(PersonSecurity)
@@ -616,8 +433,9 @@ export const ReadInterviewConductEndpoint = HttpApiEndpoint.get(
   "/api/recruitment/interviews/:interviewId",
   {
     params: { interviewId: RecruitmentInterviewId },
-    success: ConductObservation,
-    error: RecruitmentErrors,
+    headers: ConditionalReadHeaders,
+    success: privateConditionalResponses(ConductObservation),
+    error: endpointProblemResponses(RecruitmentReadInterviewConductProblem),
   },
 )
   .middleware(PersonSecurity)
@@ -645,9 +463,10 @@ export const FinalizeInterviewEndpoint = HttpApiEndpoint.post(
   "/api/recruitment/interviews/:interviewId::finalize",
   {
     params: { interviewId: RecruitmentInterviewId },
-    payload: FinalizeCommand,
-    success: FinalizeResult,
-    error: RecruitmentErrors,
+    headers: IdempotencyIfMatchHeaders,
+    payload: FinalizeInterviewRequest,
+    success: entityMutationResponse(FinalizeInterviewResponse),
+    error: endpointProblemResponses(RecruitmentFinalizeInterviewProblem),
   },
 )
   .middleware(PersonSecurity)
@@ -672,9 +491,10 @@ export const CancelInterviewEndpoint = HttpApiEndpoint.post(
   "/api/recruitment/interviews/:interviewId::cancel",
   {
     params: { interviewId: RecruitmentInterviewId },
-    payload: CancelCommand,
-    success: CancelResult,
-    error: RecruitmentErrors,
+    headers: IdempotencyIfMatchHeaders,
+    payload: CancelInterviewRequest,
+    success: entityMutationResponse(CancelInterviewResponse),
+    error: endpointProblemResponses(RecruitmentCancelInterviewProblem),
   },
 )
   .middleware(PersonSecurity)

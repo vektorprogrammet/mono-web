@@ -4,24 +4,40 @@
  * @since 0.1.0
  */
 import {
-  CreateDepartmentCommandSchema,
-  CreateDepartmentResultSchema,
-  CreateFieldOfStudyCommandSchema,
-  CreateFieldOfStudyResultSchema,
-  CreateTeamCommandSchema,
-  CreateTeamResultSchema,
   DepartmentId,
   DepartmentJsonSchema,
   FieldOfStudyJsonSchema,
   FieldOfStudyId,
-  OrganizationCommandId,
   TeamId,
   TeamJsonSchema,
 } from "@vektorprogrammet/domain/organization";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, anonymousNativeAccess, personNativeAccess } from "./access.js";
-import { errorBody, operationAnnotations, PersonSecurity } from "./common.js";
+import { operationAnnotations, PersonSecurity } from "./common.js";
+import {
+  OrganizationCreateDepartmentProblem,
+  OrganizationCreateFieldOfStudyProblem,
+  OrganizationCreateTeamProblem,
+  OrganizationListDepartmentsProblem,
+  OrganizationListFieldOfStudiesProblem,
+  OrganizationListMailingListsProblem,
+  OrganizationListTeamInterestProblem,
+  OrganizationListTeamsProblem,
+} from "./endpoint-problems.js";
+import {
+  ConditionalReadHeaders,
+  createdMutationResponse,
+  endpointProblemResponses,
+  IdempotencyHeaders,
+  privateReadResponse,
+  publicConditionalResponses,
+} from "./http-semantics.js";
+import {
+  CreateDepartmentRequest,
+  CreateFieldOfStudyRequest,
+  CreateTeamRequest,
+} from "./v2-schemas.js";
 
 /**
  * Leader-scoped organization query. Repeated values remain representable because
@@ -87,55 +103,6 @@ export const MailingListResponse = Schema.Array(
   examples: [[{ name: "leder-trondheim", emails: ["lina.leder@example.org"] }]],
 });
 
-const OrganizationForbiddenResponse = errorBody(
-  "OrganizationForbiddenResponse",
-  ["OrganizationRoleDenied"],
-  403,
-);
-const OrganizationConflictResponse = errorBody(
-  "OrganizationConflictResponse",
-  ["OrganizationCommandConflict"],
-  409,
-);
-const OrganizationTooLargeResponse = errorBody(
-  "OrganizationTooLargeResponse",
-  ["RequestBodyTooLarge"],
-  413,
-);
-const OrganizationDecodeResponse = errorBody(
-  "OrganizationDecodeResponse",
-  ["OrganizationInvalidReference", "OrganizationDecodeError"],
-  422,
-);
-const OrganizationUnavailableResponse = errorBody(
-  "OrganizationUnavailableResponse",
-  ["OrganizationPersistenceError"],
-  503,
-);
-const PublicOrganizationErrors = [
-  OrganizationDecodeResponse,
-  OrganizationUnavailableResponse,
-] as const;
-const AdminOrganizationErrors = [
-  OrganizationForbiddenResponse,
-  OrganizationConflictResponse,
-  OrganizationTooLargeResponse,
-  OrganizationDecodeResponse,
-  OrganizationUnavailableResponse,
-] as const;
-const CreateDepartmentSuccess = [
-  CreateDepartmentResultSchema.pipe(HttpApiSchema.status(200)),
-  CreateDepartmentResultSchema.pipe(HttpApiSchema.status(201)),
-] as const;
-const CreateTeamSuccess = [
-  CreateTeamResultSchema.pipe(HttpApiSchema.status(200)),
-  CreateTeamResultSchema.pipe(HttpApiSchema.status(201)),
-] as const;
-const CreateFieldOfStudySuccess = [
-  CreateFieldOfStudyResultSchema.pipe(HttpApiSchema.status(200)),
-  CreateFieldOfStudyResultSchema.pipe(HttpApiSchema.status(201)),
-] as const;
-
 /**
  * Representative department JSON projection.
  *
@@ -192,38 +159,19 @@ export const FieldOfStudyExample = {
   revision: 0,
 } as const;
 
-/**
- * Representative create-department command payload.
- *
- * @since 0.1.0
- * @category Schemas
- */
-export const CreateDepartmentCommandExample = {
-  _tag: "CreateDepartment",
-  commandId: OrganizationCommandId.make("org-command-0080"),
-  departmentId: DepartmentId.make("2"),
-  name: "Elektroteknologi",
-  shortName: "ELEK",
-  email: "elektroteknologi@example.org",
-  address: "Sem Sælands vei 11",
-  city: "Trondheim",
-  latitude: null,
-  longitude: null,
-  slackChannel: null,
-  logoPath: null,
-  active: true,
-} as const;
-
 /** @since 0.1.0 @category Endpoints */
 export const ListDepartmentsEndpoint = HttpApiEndpoint.get("listDepartments", "/api/departments", {
-  success: Schema.Array(
-    DepartmentJsonSchema.annotate({
-      identifier: "DepartmentJson",
-      description: "One native department directory row.",
-      examples: [DepartmentExample],
-    }),
+  headers: ConditionalReadHeaders,
+  success: publicConditionalResponses(
+    Schema.Array(
+      DepartmentJsonSchema.annotate({
+        identifier: "DepartmentJson",
+        description: "One native department directory row.",
+        examples: [DepartmentExample],
+      }),
+    ),
   ),
-  error: PublicOrganizationErrors,
+  error: endpointProblemResponses(OrganizationListDepartmentsProblem),
 })
   .pipe((endpoint) =>
     annotateAccessSpec(endpoint, anonymousNativeAccess("organization.public-departments")),
@@ -234,14 +182,17 @@ export const ListDepartmentsEndpoint = HttpApiEndpoint.get("listDepartments", "/
 
 /** @since 0.1.0 @category Endpoints */
 export const ListTeamsEndpoint = HttpApiEndpoint.get("listTeams", "/api/teams", {
-  success: Schema.Array(
-    TeamJsonSchema.annotate({
-      identifier: "TeamJson",
-      description: "One native team directory row.",
-      examples: [TeamExample],
-    }),
+  headers: ConditionalReadHeaders,
+  success: publicConditionalResponses(
+    Schema.Array(
+      TeamJsonSchema.annotate({
+        identifier: "TeamJson",
+        description: "One native team directory row.",
+        examples: [TeamExample],
+      }),
+    ),
   ),
-  error: PublicOrganizationErrors,
+  error: endpointProblemResponses(OrganizationListTeamsProblem),
 })
   .pipe((endpoint) =>
     annotateAccessSpec(endpoint, anonymousNativeAccess("organization.public-teams")),
@@ -252,14 +203,17 @@ export const ListFieldOfStudiesEndpoint = HttpApiEndpoint.get(
   "listFieldOfStudies",
   "/api/field-of-studies",
   {
-    success: Schema.Array(
-      FieldOfStudyJsonSchema.annotate({
-        identifier: "FieldOfStudyJson",
-        description: "One native field-of-study directory row.",
-        examples: [FieldOfStudyExample],
-      }),
+    headers: ConditionalReadHeaders,
+    success: publicConditionalResponses(
+      Schema.Array(
+        FieldOfStudyJsonSchema.annotate({
+          identifier: "FieldOfStudyJson",
+          description: "One native field-of-study directory row.",
+          examples: [FieldOfStudyExample],
+        }),
+      ),
     ),
-    error: PublicOrganizationErrors,
+    error: endpointProblemResponses(OrganizationListFieldOfStudiesProblem),
   },
 )
   .pipe((endpoint) =>
@@ -273,7 +227,11 @@ export const ListFieldOfStudiesEndpoint = HttpApiEndpoint.get(
 export const ListTeamInterestEndpoint = HttpApiEndpoint.get(
   "listTeamInterest",
   "/api/team-interest-registrations",
-  { query: OrganizationScopeQuery, success: TeamInterestResponse, error: AdminOrganizationErrors },
+  {
+    query: OrganizationScopeQuery,
+    success: privateReadResponse(TeamInterestResponse),
+    error: endpointProblemResponses(OrganizationListTeamInterestProblem),
+  },
 )
   .middleware(PersonSecurity)
   .pipe((endpoint) =>
@@ -297,7 +255,11 @@ export const ListTeamInterestEndpoint = HttpApiEndpoint.get(
 export const ListMailingListsEndpoint = HttpApiEndpoint.get(
   "listMailingLists",
   "/api/mailing-lists",
-  { query: MailingListQuery, success: MailingListResponse, error: AdminOrganizationErrors },
+  {
+    query: MailingListQuery,
+    success: privateReadResponse(MailingListResponse),
+    error: endpointProblemResponses(OrganizationListMailingListsProblem),
+  },
 )
   .middleware(PersonSecurity)
   .pipe((endpoint) =>
@@ -322,13 +284,10 @@ export const CreateDepartmentEndpoint = HttpApiEndpoint.post(
   "createDepartment",
   "/api/departments",
   {
-    payload: CreateDepartmentCommandSchema.annotate({
-      identifier: "CreateDepartmentCommand",
-      description: "Idempotent create-department command.",
-      examples: [CreateDepartmentCommandExample],
-    }),
-    success: CreateDepartmentSuccess,
-    error: AdminOrganizationErrors,
+    headers: IdempotencyHeaders,
+    payload: CreateDepartmentRequest,
+    success: createdMutationResponse(DepartmentJsonSchema.pipe(HttpApiSchema.status(201))),
+    error: endpointProblemResponses(OrganizationCreateDepartmentProblem),
   },
 )
   .middleware(PersonSecurity)
@@ -351,9 +310,10 @@ export const CreateDepartmentEndpoint = HttpApiEndpoint.post(
 
 /** @since 0.1.0 @category Endpoints */
 export const CreateTeamEndpoint = HttpApiEndpoint.post("createTeam", "/api/teams", {
-  payload: CreateTeamCommandSchema,
-  success: CreateTeamSuccess,
-  error: AdminOrganizationErrors,
+  headers: IdempotencyHeaders,
+  payload: CreateTeamRequest,
+  success: createdMutationResponse(TeamJsonSchema.pipe(HttpApiSchema.status(201))),
+  error: endpointProblemResponses(OrganizationCreateTeamProblem),
 })
   .middleware(PersonSecurity)
   .pipe((endpoint) =>
@@ -375,9 +335,10 @@ export const CreateFieldOfStudyEndpoint = HttpApiEndpoint.post(
   "createFieldOfStudy",
   "/api/field-of-studies",
   {
-    payload: CreateFieldOfStudyCommandSchema,
-    success: CreateFieldOfStudySuccess,
-    error: AdminOrganizationErrors,
+    headers: IdempotencyHeaders,
+    payload: CreateFieldOfStudyRequest,
+    success: createdMutationResponse(FieldOfStudyJsonSchema.pipe(HttpApiSchema.status(201))),
+    error: endpointProblemResponses(OrganizationCreateFieldOfStudyProblem),
   },
 )
   .middleware(PersonSecurity)

@@ -139,17 +139,14 @@ for (const [path, method] of [
   assert(operation?.responses?.["401"] !== undefined, `${method} ${path} session 401 schema`);
 }
 assert(paths["/api/me/session"] === undefined, "obsolete session route must be absent");
-assert(paths["/api/admin/departments"]?.post?.responses?.["201"] !== undefined, "admin create 201");
+assert(paths["/api/departments"]?.post?.responses?.["201"] !== undefined, "department create 201");
 assert(
-  paths["/api/receipts/submit"]?.post?.requestBody?.content?.["multipart/form-data"] !== undefined,
+  paths["/api/receipts"]?.post?.requestBody?.content?.["multipart/form-data"] !== undefined,
   "receipt multipart request",
 );
+assert(paths["/api/receipts"]?.post?.responses?.["422"] !== undefined, "receipt decode error");
 assert(
-  paths["/api/receipts/submit"]?.post?.responses?.["422"] !== undefined,
-  "receipt decode error",
-);
-assert(
-  paths["/api/admin/recruitment/interviews/{interviewId}/finalize"]?.post?.responses?.["409"] !==
+  paths["/api/recruitment/interviews/{interviewId}:finalize"]?.post?.responses?.["409"] !==
     undefined,
   "recruitment conflict error",
 );

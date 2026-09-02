@@ -7,7 +7,9 @@ import { SchoolDirectorySchema, SchoolId } from "@vektorprogrammet/domain/school
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, personNativeAccess } from "./access.js";
-import { errorBody, operationAnnotations, PersonSecurity } from "./common.js";
+import { operationAnnotations, PersonSecurity } from "./common.js";
+import { DirectoryListPeopleProblem, DirectoryListSchoolsProblem } from "./endpoint-problems.js";
+import { endpointProblemResponses, privateReadResponse } from "./http-semantics.js";
 
 /**
  * One profile/organization directory row.
@@ -74,26 +76,10 @@ export const PeopleDirectoryResponse = Schema.Struct({
   ],
 });
 
-const DirectoryForbiddenResponse = errorBody(
-  "DirectoryForbiddenResponse",
-  ["InactiveActor", "NotInScope"],
-  403,
-);
-const DirectoryDecodeResponse = errorBody(
-  "DirectoryDecodeResponse",
-  ["DirectoryCursorMalformed"],
-  422,
-);
-const DirectoryUnavailableResponse = errorBody(
-  "DirectoryUnavailableResponse",
-  ["ProfileDecodeError", "ProfilePersistenceError"],
-  503,
-);
-
 /** @since 0.1.0 @category Endpoints */
 export const ListAdminUsersEndpoint = HttpApiEndpoint.get("listPeople", "/api/people", {
-  success: PeopleDirectoryResponse,
-  error: [DirectoryForbiddenResponse, DirectoryDecodeResponse, DirectoryUnavailableResponse],
+  success: privateReadResponse(PeopleDirectoryResponse),
+  error: endpointProblemResponses(DirectoryListPeopleProblem),
 })
   .middleware(PersonSecurity)
   .pipe((endpoint) =>
@@ -112,22 +98,6 @@ export const ListAdminUsersEndpoint = HttpApiEndpoint.get("listPeople", "/api/pe
       "Returns the person directory within the caller's scope.",
     ),
   );
-
-const SchoolsForbiddenResponse = errorBody(
-  "SchoolsForbiddenResponse",
-  ["AuthorityInactive", "NotInScope", "SchoolsDepartmentOutOfScope"],
-  403,
-);
-const SchoolsDecodeResponse = errorBody(
-  "SchoolsDecodeResponse",
-  ["SchoolsDecodeError", "SchoolsDepartmentNotFound"],
-  422,
-);
-const SchoolsUnavailableResponse = errorBody(
-  "SchoolsUnavailableResponse",
-  ["SchoolsDecodeError", "SchoolsPersistenceError"],
-  503,
-);
 
 export const SchoolDirectoryExample = {
   activeSchools: [
@@ -148,12 +118,14 @@ export const SchoolDirectoryExample = {
 /** @since 0.1.0 @category Endpoints */
 export const ListSchoolsEndpoint = HttpApiEndpoint.get("listSchools", "/api/schools", {
   query: { department: Schema.optional(DepartmentId) },
-  success: SchoolDirectorySchema.annotate({
-    identifier: "SchoolDirectory",
-    description: "Active and inactive school directory entries.",
-    examples: [SchoolDirectoryExample],
-  }),
-  error: [SchoolsForbiddenResponse, SchoolsDecodeResponse, SchoolsUnavailableResponse],
+  success: privateReadResponse(
+    SchoolDirectorySchema.annotate({
+      identifier: "SchoolDirectory",
+      description: "Active and inactive school directory entries.",
+      examples: [SchoolDirectoryExample],
+    }),
+  ),
+  error: endpointProblemResponses(DirectoryListSchoolsProblem),
 })
   .middleware(PersonSecurity)
   .pipe((endpoint) =>

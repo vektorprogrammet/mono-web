@@ -10,65 +10,7 @@ import {
   HttpApiSecurity,
   OpenApi,
 } from "effect/unstable/httpapi";
-
-/**
- * Creates the stable JSON error envelope used by the native backend.
- *
- * @since 0.1.0
- * @category Schemas
- */
-export const errorBody = <const Tags extends readonly [string, ...Array<string>]>(
-  identifier: string,
-  tags: Tags,
-  status: number,
-) =>
-  Schema.Struct({
-    error: Schema.Struct({ tag: Schema.Literals(tags) }),
-  })
-    .pipe(HttpApiSchema.status(status))
-    .annotate({
-      identifier,
-      description: `Native HTTP ${status} error response.`,
-      examples: [{ error: { tag: tags[0] } }],
-    });
-
-/**
- * Creates the receipt error envelope that can include a stable denial message.
- *
- * @since 0.1.0
- * @category Schemas
- */
-export const receiptErrorBody = <const Tags extends readonly [string, ...Array<string>]>(
-  identifier: string,
-  tags: Tags,
-  status: number,
-) =>
-  Schema.Struct({
-    error: Schema.Struct({
-      tag: Schema.Literals(tags),
-      message: Schema.optional(Schema.String),
-    }),
-  })
-    .pipe(HttpApiSchema.status(status))
-    .annotate({
-      identifier,
-      description: `Receipt HTTP ${status} error response.`,
-      examples: [{ error: { tag: tags[0] } }],
-    });
-
-/**
- * Response returned when no native route matches a request.
- *
- * @since 0.1.0
- * @category Schemas
- */
-export const RouteNotFoundResponse = Schema.Struct({
-  error: Schema.Struct({ tag: Schema.Literals(["RouteNotFound"]) }),
-}).annotate({
-  identifier: "RouteNotFoundResponse",
-  description: "No native route matched.",
-  examples: [{ error: { tag: "RouteNotFound" } }],
-});
+import { problemUnion } from "./http-semantics.js";
 
 /**
  * Request Cookie header marker for endpoints that perform authoritative session resolution.
@@ -101,30 +43,34 @@ export const OAuthUserBearer = HttpApiSecurity.bearer.pipe(
   ),
 );
 
+/** Bearer security declaration for service-principal OAuth access tokens. */
+export const OAuthServiceBearer = HttpApiSecurity.bearer.pipe(
+  HttpApiSecurity.annotateMerge(
+    OpenApi.annotations({
+      description: "Native OAuth service access token for a current ServicePrincipal.",
+    }),
+  ),
+);
+
 /**
  * Standard missing or invalid session response.
  *
  * @since 0.1.0
  * @category Schemas
  */
-const SessionUnauthorizedBody = errorBody(
-  "SessionUnauthorizedResponse",
-  ["UnauthenticatedActor"],
-  401,
+const SessionUnauthorizedBody = problemUnion("SessionUnauthorizedProblem", [
+  ["credential.missing", 401],
+  ["credential.invalid", 401],
+]).pipe(
+  HttpApiSchema.status(401),
+  HttpApiSchema.asJson({ contentType: "application/problem+json" }),
 );
 
-export const SessionUnauthorizedResponse = SessionUnauthorizedBody.pipe(
-  HttpApiSchema.encodeToWithHeaders(
-    {
-      body: SessionUnauthorizedBody,
-      headers: { "cache-control": Schema.Literal("no-store") },
-    },
-    {
-      decode: ({ body }) => body,
-      encode: (body) => ({ body, headers: { "cache-control": "no-store" as const } }),
-    },
-  ),
-);
+export const SessionUnauthorizedResponse = HttpApiSchema.WithHeaders(SessionUnauthorizedBody, {
+  "Cache-Control": Schema.Literal("no-store"),
+  Vary: Schema.Literal("Origin"),
+  "WWW-Authenticate": Schema.String,
+});
 
 /**
  * Contract security marker for session-authenticated native operations.
@@ -164,6 +110,22 @@ export class PersonSecurity extends HttpApiMiddleware.Service<PersonSecurity>()(
 ) {}
 
 /**
+ * Contract marker for the one native operation that accepts either a person
+ * credential or a service-principal bearer.
+ */
+export class PersonOrServiceSecurity extends HttpApiMiddleware.Service<PersonOrServiceSecurity>()(
+  "@vektorprogrammet/http-api/PersonOrServiceSecurity",
+  {
+    security: {
+      cookieHeader: RequestCookieHeader,
+      oauthUserBearer: OAuthUserBearer,
+      oauthServiceBearer: OAuthServiceBearer,
+    },
+    error: SessionUnauthorizedResponse,
+  },
+) {}
+
+/**
  * Header security declaration for public recruitment invitation responses.
  *
  * @since 0.1.0
@@ -184,11 +146,17 @@ export const RecruitmentInvitationCapability = HttpApiSecurity.apiKey({
  * @since 0.1.0
  * @category Schemas
  */
-export const InvitationNotFoundResponse = errorBody(
-  "InvitationNotFoundResponse",
-  ["RecruitmentInvitationNotFound"],
-  404,
+const InvitationNotFoundBody = problemUnion("InvitationNotFoundProblem", [
+  ["resource.not-found", 404],
+]).pipe(
+  HttpApiSchema.status(404),
+  HttpApiSchema.asJson({ contentType: "application/problem+json" }),
 );
+
+export const InvitationNotFoundResponse = HttpApiSchema.WithHeaders(InvitationNotFoundBody, {
+  "Cache-Control": Schema.Literal("no-store"),
+  Vary: Schema.Literal("Origin"),
+});
 
 /**
  * Contract security marker for invitation-capability operations.
@@ -240,7 +208,8 @@ export const operationAnnotations = (summary: string, description: string) =>
   OpenApi.annotations({
     summary,
     description,
-    override: {
+    transform: (operation) => ({
+      ...operation,
       "x-vektorprogrammet-provenance": NativeOperationProvenance,
-    },
+    }),
   });

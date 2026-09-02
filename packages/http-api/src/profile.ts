@@ -3,16 +3,24 @@
  *
  * @since 0.1.0
  */
-import {
-  OwnProfile,
-  UpdateOwnProfileCommand,
-  ProfileCommandId,
-} from "@vektorprogrammet/domain/profile";
 import { PersonId } from "@vektorprogrammet/domain/organization";
+import { OwnProfile } from "@vektorprogrammet/domain/profile";
 import { Schema } from "effect";
-import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, personNativeAccess } from "./access.js";
-import { errorBody, operationAnnotations, PersonSecurity } from "./common.js";
+import {
+  ProfileReadOwnProfileProblem,
+  ProfileUpdateOwnProfileProblem,
+} from "./endpoint-problems.js";
+import {
+  ConditionalReadHeaders,
+  endpointProblemResponses,
+  entityMutationResponse,
+  IdempotencyIfMatchHeaders,
+  privateConditionalResponses,
+} from "./http-semantics.js";
+import { operationAnnotations, PersonSecurity } from "./common.js";
+import { ProfileMergePatch } from "./v2-schemas.js";
 
 /**
  * Legacy-compatible dashboard role projection.
@@ -59,60 +67,15 @@ export const UserProfileResponse = Schema.Struct({
 });
 
 /**
- * Representative self-profile update payload for generated examples.
- *
- * @since 0.1.0
- * @category Schemas
- */
-export const UpdateOwnProfileCommandExample = {
-  _tag: "UpdateOwnProfile",
-  commandId: ProfileCommandId.make("profile-command-0080"),
-  expectedNameRevision: 0,
-  expectedContactRevision: 1,
-  firstName: "Ming",
-  lastName: "Medlem",
-  email: "ming.medlem@example.org",
-  phone: "+47 900 00 000",
-} as const;
-
-const ProfileForbiddenResponse = errorBody(
-  "ProfileForbiddenResponse",
-  ["AuthorityInactive", "NotInScope"],
-  403,
-);
-const ProfileNotFoundResponse = errorBody(
-  "ProfileNotFoundResponse",
-  ["ProfileNotFound", "ProfileContactNotFound"],
-  404,
-);
-const ProfileConflictResponse = errorBody(
-  "ProfileConflictResponse",
-  ["ProfileStaleRevision", "ProfileCommandConflict"],
-  409,
-);
-const ProfileDecodeResponse = errorBody("ProfileDecodeResponse", ["ProfileDecodeError"], 422);
-const ProfileUnavailableResponse = errorBody(
-  "ProfileUnavailableResponse",
-  ["ProfilePersistenceError"],
-  503,
-);
-const ProfileErrors = [
-  ProfileForbiddenResponse,
-  ProfileNotFoundResponse,
-  ProfileConflictResponse,
-  ProfileDecodeResponse,
-  ProfileUnavailableResponse,
-] as const;
-
-/**
  * Reads the current person's profile.
  *
  * @since 0.1.0
  * @category Endpoints
  */
 export const ReadOwnProfileEndpoint = HttpApiEndpoint.get("readOwnProfile", "/api/profile", {
-  success: UserProfileResponse,
-  error: ProfileErrors,
+  headers: ConditionalReadHeaders,
+  success: privateConditionalResponses(UserProfileResponse),
+  error: endpointProblemResponses(ProfileReadOwnProfileProblem),
 })
   .middleware(PersonSecurity)
   .pipe((endpoint) =>
@@ -140,13 +103,12 @@ export const ReadOwnProfileEndpoint = HttpApiEndpoint.get("readOwnProfile", "/ap
  * @category Endpoints
  */
 export const UpdateOwnProfileEndpoint = HttpApiEndpoint.patch("updateOwnProfile", "/api/profile", {
-  payload: UpdateOwnProfileCommand.annotate({
-    identifier: "UpdateOwnProfileCommand",
-    description: "Optimistic self-profile update command.",
-    examples: [UpdateOwnProfileCommandExample],
-  }),
-  success: UserProfileResponse,
-  error: ProfileErrors,
+  headers: IdempotencyIfMatchHeaders,
+  payload: ProfileMergePatch.pipe(
+    HttpApiSchema.asJson({ contentType: "application/merge-patch+json" }),
+  ),
+  success: entityMutationResponse(UserProfileResponse),
+  error: endpointProblemResponses(ProfileUpdateOwnProfileProblem),
 })
   .middleware(PersonSecurity)
   .pipe((endpoint) =>

@@ -43,6 +43,136 @@ export const Sha256Hex = Schema.String.pipe(
 );
 export type Sha256Hex = typeof Sha256Hex.Type;
 
+/** Headers accepted by every external native mutation. */
+export const IdempotencyHeaders = Schema.Struct({
+  "idempotency-key": IdempotencyKey,
+}).annotate({ identifier: "IdempotencyHeaders" });
+export type IdempotencyHeaders = typeof IdempotencyHeaders.Type;
+
+/** Headers accepted by an existing-resource native mutation. */
+export const IdempotencyIfMatchHeaders = Schema.Struct({
+  "idempotency-key": IdempotencyKey,
+  "if-match": StrongETag,
+}).annotate({ identifier: "IdempotencyIfMatchHeaders" });
+export type IdempotencyIfMatchHeaders = typeof IdempotencyIfMatchHeaders.Type;
+
+const EntityTagConditionHeader = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => value.trim().length > 0 && value.length <= 4096, {
+      message: "an entity-tag condition",
+    }),
+  ),
+);
+
+/** Optional validators accepted by each frozen conditional read. */
+export const ConditionalReadHeaders = Schema.Struct({
+  "if-match": Schema.optional(EntityTagConditionHeader),
+  "if-none-match": Schema.optional(EntityTagConditionHeader),
+}).annotate({ identifier: "ConditionalReadHeaders" });
+export type ConditionalReadHeaders = typeof ConditionalReadHeaders.Type;
+
+const OriginVary = Schema.Literal("Origin");
+const NoStore = Schema.Literal("no-store");
+const PrivateNoStore = Schema.Literal("private, no-store");
+const PublicCache = Schema.Literal("public, max-age=60, s-maxage=300, must-revalidate");
+const DynamicAdmissionCache = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value) => {
+        const match =
+          /^public, max-age=([0-9]|[12][0-9]|30), s-maxage=([0-9]|[12][0-9]|30), must-revalidate$/u.exec(
+            value,
+          );
+        return match !== null && match[1] === match[2];
+      },
+      { message: "the frozen dynamic admission cache policy" },
+    ),
+  ),
+);
+const OriginRelativeLocation = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => /^\/api\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]+$/u.test(value), {
+      message: "an origin-relative API resource location",
+    }),
+  ),
+);
+const RetryAfterSeconds = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value) => {
+        const seconds = Number(value);
+        return Number.isSafeInteger(seconds) && seconds >= 1 && seconds <= 3_600;
+      },
+      { message: "a retry delay from 1 through 3600 seconds" },
+    ),
+  ),
+);
+
+const externalHeaders = <CacheControl extends Schema.Top>(cacheControl: CacheControl) => ({
+  "Cache-Control": cacheControl,
+  Vary: OriginVary,
+});
+
+const conditionalReadResponses = <S extends Schema.Top, CacheControl extends Schema.Top>(
+  success: S,
+  cacheControl: CacheControl,
+) => {
+  const headers = {
+    ...externalHeaders(cacheControl),
+    ETag: StrongETag,
+  };
+  return [
+    HttpApiSchema.WithHeaders(success, headers),
+    HttpApiSchema.WithHeaders(HttpApiSchema.NoContent.pipe(HttpApiSchema.status(304)), headers),
+  ] as const;
+};
+
+/** Public conditional response with the fixed five-minute shared cache policy. */
+export const publicConditionalResponses = <S extends Schema.Top>(success: S) =>
+  conditionalReadResponses(success, PublicCache);
+
+/** Public conditional response whose TTL is bounded by the next admission boundary. */
+export const dynamicAdmissionConditionalResponses = <S extends Schema.Top>(success: S) =>
+  conditionalReadResponses(success, DynamicAdmissionCache);
+
+/** Credential-selected conditional response that is never stored. */
+export const privateConditionalResponses = <S extends Schema.Top>(success: S) =>
+  conditionalReadResponses(success, PrivateNoStore);
+
+/** Credential-selected non-conditional read response. */
+export const privateReadResponse = <S extends Schema.Top>(success: S) =>
+  HttpApiSchema.WithHeaders(success, externalHeaders(PrivateNoStore));
+
+/** Anonymous or health response that is not cacheable. */
+export const noStoreReadResponse = <S extends Schema.Top>(success: S) =>
+  HttpApiSchema.WithHeaders(success, externalHeaders(NoStore));
+
+/** Internal response with no browser CORS contract. */
+export const internalNoStoreResponse = <S extends Schema.Top>(success: S) =>
+  HttpApiSchema.WithHeaders(success, { "Cache-Control": NoStore });
+
+/** Successful resource creation response. */
+export const createdMutationResponse = <S extends Schema.Top>(success: S) =>
+  HttpApiSchema.WithHeaders(success, {
+    ...externalHeaders(NoStore),
+    ETag: StrongETag,
+    Location: OriginRelativeLocation,
+  });
+
+/** Successful mutation response carrying a current mutable representation. */
+export const entityMutationResponse = <S extends Schema.Top>(success: S) =>
+  HttpApiSchema.WithHeaders(success, {
+    ...externalHeaders(NoStore),
+    ETag: StrongETag,
+  });
+
+/** Successful no-content mutation response, optionally with a new entity tag. */
+export const noContentMutationResponse = (options?: { readonly etag?: boolean }) =>
+  HttpApiSchema.WithHeaders(HttpApiSchema.NoContent, {
+    ...externalHeaders(NoStore),
+    ...(options?.etag === true ? { ETag: StrongETag } : {}),
+  });
+
 const ValidationPointer = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter(
@@ -632,6 +762,56 @@ export const problemUnion = (identifier: string, descriptors: ReadonlyArray<Prob
     identifier,
     title: identifier,
     description: `Closed RFC 9457 error union for ${identifier}.`,
+  });
+};
+
+/**
+ * Splits an endpoint-specific Problem union into status-bearing response
+ * schemas. Effect resolves an HTTP status only from the outer schema, so a
+ * plain union of annotated variants would collapse to the default 500.
+ */
+export const endpointProblemResponses = <S extends Schema.Top>(
+  problem: S,
+  options?: { readonly cors?: boolean },
+): ReadonlyArray<Schema.Top> => {
+  const ast = problem.ast;
+  const members = ast._tag === "Union" ? ast.types : [ast];
+  const grouped = new Map<number, Array<(typeof members)[number]>>();
+  for (const member of members) {
+    const annotations = member.annotations;
+    const annotatedStatus =
+      annotations !== undefined && "httpApiStatus" in annotations
+        ? annotations.httpApiStatus
+        : undefined;
+    const status = typeof annotatedStatus === "number" ? annotatedStatus : 500;
+    const bucket = grouped.get(status);
+    if (bucket === undefined) grouped.set(status, [member]);
+    else bucket.push(member);
+  }
+  const hasProblemCode = (variant: (typeof members)[number], code: NativeProblemCode): boolean =>
+    variant._tag === "Objects" &&
+    variant.propertySignatures.some(
+      (property) =>
+        property.name === "code" &&
+        property.type._tag === "Literal" &&
+        property.type.literal === code,
+    );
+  return [...grouped.entries()].map(([status, variants]) => {
+    const headers = {
+      "Cache-Control": NoStore,
+      ...(options?.cors === false ? {} : { Vary: OriginVary }),
+      ...(status === 401 ? { "WWW-Authenticate": Schema.String } : {}),
+      ...(variants.some((variant) => hasProblemCode(variant, "idempotency.in-flight"))
+        ? { "Retry-After": Schema.optional(Schema.Literal("1")) }
+        : {}),
+      ...(status === 429 ? { "Retry-After": RetryAfterSeconds } : {}),
+      ...(status === 503 ? { "Retry-After": Schema.Literal("5") } : {}),
+    };
+    const body = Schema.Union(variants.map((variant) => Schema.make(variant)) as never).pipe(
+      HttpApiSchema.status(status),
+      HttpApiSchema.asJson({ contentType: "application/problem+json" }),
+    );
+    return HttpApiSchema.WithHeaders(body, headers);
   });
 };
 

@@ -524,6 +524,84 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
   ],
 ];
 
+const publicConditionalOperations = [
+  "organization.listDepartments",
+  "organization.listTeams",
+  "organization.listFieldOfStudies",
+  "admissions.listOpenAdmissionPeriods",
+  "admissions.listApplicationOptions",
+  "content.listNews",
+  "content.readNewsArticle",
+] as const;
+
+const privateConditionalOperations = [
+  "profile.readOwnProfile",
+  "admissions.listAdmissionPeriods",
+  "recruitment.readInvitationResponse",
+  "recruitment.readInterviewConduct",
+  "content.readArticle",
+] as const;
+
+const createdMutationOperations = [
+  "organization.createDepartment",
+  "organization.createTeam",
+  "organization.createFieldOfStudy",
+  "admissions.submitApplication",
+  "admissions.createAdmissionPeriod",
+  "recruitment.createApplicationInterview",
+  "receipts.submitReceipt",
+  "content.createArticle",
+] as const;
+
+const entityMutationOperations = [
+  "profile.updateOwnProfile",
+  "admissions.reviseAdmissionPeriod",
+  "recruitment.scheduleInterview",
+  "recruitment.finalizeInterview",
+  "recruitment.cancelInterview",
+  "receipts.reviseReceipt",
+  "receipts.withdrawReceipt",
+  "receipts.refundReceipt",
+  "receipts.rejectReceipt",
+  "content.reviseArticle",
+  "content.publishArticle",
+  "content.unpublishArticle",
+] as const;
+
+const taggedNoContentMutationOperations = [
+  "recruitment.confirmInvitation",
+  "recruitment.rejectInvitation",
+  "recruitment.requestNewInvitationTime",
+] as const;
+
+const plainNoContentMutationOperations = [
+  "system.deleteSession",
+  "system.deleteOwnedSession",
+  "system.revokeOtherSessions",
+  "system.revokeAllSessions",
+] as const;
+
+const privateReadOperations = [
+  "system.readSession",
+  "system.listSessions",
+  "organization.listTeamInterest",
+  "organization.listMailingLists",
+  "directory.listPeople",
+  "directory.listSchools",
+  "recruitment.readAssignmentBoard",
+  "recruitment.readSchedulingBoard",
+  "receipts.listReceipts",
+  "receipts.listReceiptsForApproval",
+  "content.readContentWorkspace",
+] as const;
+
+const noStoreReadOperations = ["system.health", "admissions.readApplicationConfirmation"] as const;
+
+const existingResourceMutationOperations = new Set<string>([
+  ...entityMutationOperations,
+  ...taggedNoContentMutationOperations,
+]);
+
 const reflectedOperations = () =>
   [
     ...Object.values(ExternalNativeApi.groups).flatMap((group) =>
@@ -686,6 +764,152 @@ describe("native API reflection", () => {
       spec.paths["/api/recruitment/interviews/{interviewId}:finalize"]?.post?.responses["409"],
     ).toBeDefined();
     expect(spec.paths["/api/news/{slug}"]?.get?.responses["200"]).toBeDefined();
+  });
+
+  it("freezes endpoint metadata, schemas, headers, and access projections programmatically", () => {
+    const spec = OpenApi.fromApi(ExternalNativeApi);
+    const operations = documentedOperations();
+    const byId = new Map(
+      operations.map(({ operation }) => [operation.operationId, operation] as const),
+    );
+    const categories = [
+      ...publicConditionalOperations,
+      ...privateConditionalOperations,
+      ...createdMutationOperations,
+      ...entityMutationOperations,
+      ...taggedNoContentMutationOperations,
+      ...plainNoContentMutationOperations,
+      ...privateReadOperations,
+      ...noStoreReadOperations,
+    ];
+    expect(categories).toHaveLength(52);
+    expect(new Set(categories).size).toBe(52);
+    expect([...byId.keys()].sort()).toEqual([...categories].sort());
+
+    const operation = (operationId: string) => {
+      const value = byId.get(operationId);
+      if (value === undefined) throw new TypeError(`missing ${operationId}`);
+      return value;
+    };
+    const assertSuccess = (
+      operationId: string,
+      status: "200" | "201" | "204" | "304",
+      headers: ReadonlyArray<string>,
+      body: boolean,
+    ) => {
+      const response = operation(operationId).responses[status];
+      if (response === undefined) throw new TypeError(`${operationId} has no ${status}`);
+      expect(Object.keys(response.headers ?? {}).sort()).toEqual([...headers].sort());
+      expect(Object.keys(response.content ?? {})).toEqual(body ? ["application/json"] : []);
+    };
+
+    for (const operationId of [...publicConditionalOperations, ...privateConditionalOperations]) {
+      assertSuccess(operationId, "200", ["cache-control", "etag", "vary"], true);
+      assertSuccess(operationId, "304", ["cache-control", "etag", "vary"], false);
+    }
+    for (const operationId of createdMutationOperations) {
+      assertSuccess(operationId, "201", ["cache-control", "etag", "location", "vary"], true);
+    }
+    for (const operationId of entityMutationOperations) {
+      assertSuccess(operationId, "200", ["cache-control", "etag", "vary"], true);
+    }
+    for (const operationId of taggedNoContentMutationOperations) {
+      assertSuccess(operationId, "204", ["cache-control", "etag", "vary"], false);
+    }
+    for (const operationId of plainNoContentMutationOperations) {
+      assertSuccess(operationId, "204", ["cache-control", "vary"], false);
+    }
+    for (const operationId of [...privateReadOperations, ...noStoreReadOperations]) {
+      assertSuccess(operationId, "200", ["cache-control", "vary"], true);
+    }
+
+    const tags = new Map<string, string>([
+      ["admissions", "Admissions"],
+      ["content", "Content and news"],
+      ["directory", "Directories"],
+      ["organization", "Organization"],
+      ["profile", "Profile"],
+      ["receipts", "Receipts"],
+      ["recruitment", "Recruitment"],
+      ["system", "System"],
+    ]);
+    for (const [operationId, documented] of byId) {
+      const group = operationId.slice(0, operationId.indexOf("."));
+      const tag = tags.get(group);
+      if (tag === undefined) throw new TypeError(`unknown group ${group}`);
+      expect(documented.tags).toEqual([tag]);
+      expect(documented.summary?.trim().length).toBeGreaterThan(0);
+      expect(documented.description?.trim().length).toBeGreaterThan(0);
+      for (const [status, response] of Object.entries(documented.responses)) {
+        if (Number(status) < 400) {
+          if (status !== "201") expect(response.headers).not.toHaveProperty("location");
+          continue;
+        }
+        expect(Object.keys(response.content ?? {})).toEqual(["application/problem+json"]);
+        const headers = Object.keys(response.headers ?? {});
+        expect(headers).toEqual(expect.arrayContaining(["cache-control", "vary"]));
+        if (status === "401") expect(headers).toContain("www-authenticate");
+        if (status === "429" || status === "503") expect(headers).toContain("retry-after");
+        if (status === "500") expect(headers).not.toContain("retry-after");
+      }
+    }
+
+    const conditional = new Set<string>([
+      ...publicConditionalOperations,
+      ...privateConditionalOperations,
+    ]);
+    const mutations = new Set<string>([
+      ...createdMutationOperations,
+      ...entityMutationOperations,
+      ...taggedNoContentMutationOperations,
+      ...plainNoContentMutationOperations,
+    ]);
+    for (const operationId of categories) {
+      const headerParameters = (operation(operationId).parameters ?? [])
+        .filter((parameter) => "in" in parameter && parameter.in === "header")
+        .map((parameter) => ("name" in parameter ? parameter.name.toLowerCase() : ""))
+        .sort();
+      if (conditional.has(operationId)) {
+        expect(headerParameters).toEqual(["if-match", "if-none-match"]);
+      } else if (mutations.has(operationId)) {
+        expect(headerParameters).toEqual(
+          existingResourceMutationOperations.has(operationId)
+            ? ["idempotency-key", "if-match"]
+            : ["idempotency-key"],
+        );
+      } else {
+        expect(headerParameters).toEqual([]);
+      }
+    }
+
+    for (const operationId of [
+      "profile.updateOwnProfile",
+      "admissions.reviseAdmissionPeriod",
+      "content.reviseArticle",
+    ]) {
+      expect(Object.keys(operation(operationId).requestBody?.content ?? {})).toEqual([
+        "application/merge-patch+json",
+      ]);
+    }
+    for (const operationId of ["receipts.submitReceipt", "receipts.reviseReceipt"]) {
+      const multipart = operation(operationId).requestBody?.content["multipart/form-data"];
+      if (multipart === undefined) throw new TypeError(`${operationId} has no multipart body`);
+      const requestSchema = multipart.schema;
+      if (
+        requestSchema === undefined ||
+        !("$ref" in requestSchema) ||
+        typeof requestSchema.$ref !== "string"
+      ) {
+        throw new TypeError(`${operationId} multipart schema is not a component reference`);
+      }
+      const componentName = requestSchema.$ref.slice(requestSchema.$ref.lastIndexOf("/") + 1);
+      expect(JSON.stringify(spec.components.schemas[componentName])).toContain('"format":"binary"');
+    }
+    expect(operation("receipts.listReceiptsForApproval").security).toEqual([
+      { cookieHeader: [] },
+      { oauthUserBearer: [] },
+      { oauthServiceBearer: [] },
+    ]);
   });
 });
 

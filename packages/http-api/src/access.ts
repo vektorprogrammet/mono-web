@@ -251,11 +251,10 @@ export const accessSpecAnnotations = (input: unknown): Context.Context<AccessSpe
   return Context.merge(
     Context.make(AccessSpecAnnotation, spec),
     OpenApi.annotations({
-      transform: (operation) => ({
-        ...operation,
+      override: {
         "x-vektor-access": projectVektorAccess(spec),
         security: projectCredentialSecurity(spec),
-      }),
+      },
     }),
   );
 };

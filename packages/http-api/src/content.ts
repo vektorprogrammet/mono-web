@@ -4,27 +4,47 @@
  * @since 0.1.0
  */
 import {
-  ArticleDraft,
   ArticleId,
+  ArticleSlug,
   ContentArticleDetailSchema,
   ContentWorkspaceSchema,
-  CreateArticleDraftInputSchema,
-  PublishArticleInputSchema,
-  PublishObservationSchema,
   PublishedNewsArticleSchema,
   PublishedNewsListingSchema,
-  ReviseArticleDraftInputSchema,
-  UnpublishArticleInputSchema,
-  UnpublishObservationSchema,
-  ArticleSlug,
-  ArticleVersionNumber,
-  ContentCommandId,
 } from "@vektorprogrammet/domain/content";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, anonymousNativeAccess, personNativeAccess } from "./access.js";
-import { errorBody, operationAnnotations, PersonSecurity } from "./common.js";
+import { operationAnnotations, PersonSecurity } from "./common.js";
+import {
+  ContentCreateArticleProblem,
+  ContentListNewsProblem,
+  ContentPublishArticleProblem,
+  ContentReadArticleProblem,
+  ContentReadContentWorkspaceProblem,
+  ContentReadNewsArticleProblem,
+  ContentReviseArticleProblem,
+  ContentUnpublishArticleProblem,
+} from "./endpoint-problems.js";
+import {
+  ConditionalReadHeaders,
+  createdMutationResponse,
+  endpointProblemResponses,
+  entityMutationResponse,
+  IdempotencyHeaders,
+  IdempotencyIfMatchHeaders,
+  privateConditionalResponses,
+  privateReadResponse,
+  publicConditionalResponses,
+} from "./http-semantics.js";
+import {
+  ArticleMergePatch,
+  CreateArticleRequest,
+  PublishArticleRequest,
+  PublishArticleResponse,
+  UnpublishArticleRequest,
+  UnpublishArticleResponse,
+} from "./v2-schemas.js";
 
 /**
  * Optional public/staff department filter using the transport key.
@@ -45,31 +65,6 @@ export const ContentDepartmentQuery = {
 export const NewsVersionQuery = {
   version: Schema.optional(Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(1)))),
 };
-
-const ContentForbiddenResponse = errorBody(
-  "ContentForbiddenResponse",
-  ["AuthorityInactive", "NotInScope", "NotPublisher", "DraftNotOwned"],
-  403,
-);
-const ContentNotFoundResponse = errorBody("ContentNotFoundResponse", ["ArticleNotFound"], 404);
-const ContentConflictResponse = errorBody("ContentConflictResponse", ["CommandConflict"], 409);
-const ContentDecodeResponse = errorBody(
-  "ContentDecodeResponse",
-  ["SlugConflict", "ContentDecodeError", "DepartmentNotFound"],
-  422,
-);
-const ContentUnavailableResponse = errorBody(
-  "ContentUnavailableResponse",
-  ["ContentIntegrityError", "ContentPersistenceError"],
-  503,
-);
-const ContentErrors = [
-  ContentForbiddenResponse,
-  ContentNotFoundResponse,
-  ContentConflictResponse,
-  ContentDecodeResponse,
-  ContentUnavailableResponse,
-] as const;
 
 export const WorkspaceEntryExample = {
   articleId: ArticleId.make(1),
@@ -99,47 +94,6 @@ export const ArticleDetailExample = {
   canRevise: true,
   canPublish: true,
   authorDisplayName: "Kari Penerbit",
-} as const;
-
-export const CreateArticleInputExample = {
-  commandId: ContentCommandId.make("content-command-0080"),
-  title: "Penerimaan Anggota Baru 2026",
-  bodyHtml: "<p>Informasi penerimaan anggota baru tahun 2026.</p>",
-  departmentIds: [DepartmentId.make("1")],
-  sticky: false,
-} as const;
-
-export const ReviseArticleInputExample = {
-  commandId: ContentCommandId.make("content-revise-0080"),
-  articleId: ArticleId.make(1),
-  expectedRevision: 0,
-  title: "Penerimaan Anggota Baru 2026",
-  bodyHtml: "<p>Informasi penerimaan anggota baru tahun 2026.</p>",
-  departmentIds: [DepartmentId.make("1")],
-} as const;
-
-export const PublishArticleInputExample = {
-  commandId: ContentCommandId.make("publish-command-0080"),
-  articleId: ArticleId.make(1),
-} as const;
-
-export const UnpublishArticleInputExample = {
-  commandId: ContentCommandId.make("unpublish-command-0080"),
-  articleId: ArticleId.make(1),
-} as const;
-
-export const PublishObservationExample = {
-  _tag: "Published",
-  commandId: ContentCommandId.make("publish-command-0080"),
-  articleId: ArticleId.make(1),
-  versionNumber: ArticleVersionNumber.make(1),
-  publishedAt: "2026-08-25T08:00:00.000Z",
-} as const;
-
-export const UnpublishObservationExample = {
-  _tag: "Unpublished",
-  commandId: ContentCommandId.make("unpublish-command-0080"),
-  articleId: ArticleId.make(1),
 } as const;
 
 export const NewsListingExample = {
@@ -172,7 +126,11 @@ export const NewsArticleExample = {
 export const ReadContentWorkspaceEndpoint = HttpApiEndpoint.get(
   "readContentWorkspace",
   "/api/content/articles",
-  { query: ContentDepartmentQuery, success: ContentWorkspaceSchema, error: ContentErrors },
+  {
+    query: ContentDepartmentQuery,
+    success: privateReadResponse(ContentWorkspaceSchema),
+    error: endpointProblemResponses(ContentReadContentWorkspaceProblem),
+  },
 )
   .middleware(PersonSecurity)
   .pipe((endpoint) =>
@@ -197,13 +155,10 @@ export const CreateArticleEndpoint = HttpApiEndpoint.post(
   "createArticle",
   "/api/content/articles",
   {
-    payload: CreateArticleDraftInputSchema.annotate({
-      identifier: "CreateArticleDraftInput",
-      description: "Idempotent create-draft command.",
-      examples: [CreateArticleInputExample],
-    }),
-    success: ArticleDraft.json.pipe(HttpApiSchema.status(201)),
-    error: ContentErrors,
+    headers: IdempotencyHeaders,
+    payload: CreateArticleRequest,
+    success: createdMutationResponse(ContentArticleDetailSchema.pipe(HttpApiSchema.status(201))),
+    error: endpointProblemResponses(ContentCreateArticleProblem),
   },
 )
   .middleware(PersonSecurity)
@@ -230,7 +185,12 @@ const ArticleParams = { articleId: ArticleId };
 export const ReadArticleEndpoint = HttpApiEndpoint.get(
   "readArticle",
   "/api/content/articles/:articleId",
-  { params: ArticleParams, success: ContentArticleDetailSchema, error: ContentErrors },
+  {
+    params: ArticleParams,
+    headers: ConditionalReadHeaders,
+    success: privateConditionalResponses(ContentArticleDetailSchema),
+    error: endpointProblemResponses(ContentReadArticleProblem),
+  },
 )
   .middleware(PersonSecurity)
   .pipe((endpoint) =>
@@ -253,13 +213,12 @@ export const ReviseArticleEndpoint = HttpApiEndpoint.patch(
   "/api/content/articles/:articleId",
   {
     params: ArticleParams,
-    payload: ReviseArticleDraftInputSchema.annotate({
-      identifier: "ReviseArticleDraftInput",
-      description: "Idempotent revise command with optimistic revision.",
-      examples: [ReviseArticleInputExample],
-    }),
-    success: ArticleDraft.json,
-    error: ContentErrors,
+    headers: IdempotencyIfMatchHeaders,
+    payload: ArticleMergePatch.pipe(
+      HttpApiSchema.asJson({ contentType: "application/merge-patch+json" }),
+    ),
+    success: entityMutationResponse(ContentArticleDetailSchema),
+    error: endpointProblemResponses(ContentReviseArticleProblem),
   },
 )
   .middleware(PersonSecurity)
@@ -287,17 +246,10 @@ export const PublishArticleEndpoint = HttpApiEndpoint.post(
   "/api/content/articles/:articleId::publish",
   {
     params: ArticleParams,
-    payload: PublishArticleInputSchema.annotate({
-      identifier: "PublishArticleInput",
-      description: "Idempotent publish command.",
-      examples: [PublishArticleInputExample],
-    }),
-    success: PublishObservationSchema.annotate({
-      identifier: "PublishObservation",
-      description: "Published version observation.",
-      examples: [PublishObservationExample],
-    }),
-    error: ContentErrors,
+    headers: IdempotencyIfMatchHeaders,
+    payload: PublishArticleRequest,
+    success: entityMutationResponse(PublishArticleResponse),
+    error: endpointProblemResponses(ContentPublishArticleProblem),
   },
 )
   .middleware(PersonSecurity)
@@ -322,17 +274,10 @@ export const UnpublishArticleEndpoint = HttpApiEndpoint.post(
   "/api/content/articles/:articleId::unpublish",
   {
     params: ArticleParams,
-    payload: UnpublishArticleInputSchema.annotate({
-      identifier: "UnpublishArticleInput",
-      description: "Idempotent unpublish command.",
-      examples: [UnpublishArticleInputExample],
-    }),
-    success: UnpublishObservationSchema.annotate({
-      identifier: "UnpublishObservation",
-      description: "Unpublish observation.",
-      examples: [UnpublishObservationExample],
-    }),
-    error: ContentErrors,
+    headers: IdempotencyIfMatchHeaders,
+    payload: UnpublishArticleRequest,
+    success: entityMutationResponse(UnpublishArticleResponse),
+    error: endpointProblemResponses(ContentUnpublishArticleProblem),
   },
 )
   .middleware(PersonSecurity)
@@ -357,12 +302,15 @@ export const UnpublishArticleEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const ListNewsEndpoint = HttpApiEndpoint.get("listNews", "/api/news", {
   query: ContentDepartmentQuery,
-  success: PublishedNewsListingSchema.annotate({
-    identifier: "PublishedNewsListing",
-    description: "Current public news listing.",
-    examples: [NewsListingExample],
-  }),
-  error: ContentErrors,
+  headers: ConditionalReadHeaders,
+  success: publicConditionalResponses(
+    PublishedNewsListingSchema.annotate({
+      identifier: "PublishedNewsListing",
+      description: "Current public news listing.",
+      examples: [NewsListingExample],
+    }),
+  ),
+  error: endpointProblemResponses(ContentListNewsProblem),
 })
   .pipe((endpoint) => annotateAccessSpec(endpoint, anonymousNativeAccess("content.public-news")))
   .annotateMerge(
@@ -371,14 +319,17 @@ export const ListNewsEndpoint = HttpApiEndpoint.get("listNews", "/api/news", {
 
 /** @since 0.1.0 @category Endpoints */
 export const ReadNewsArticleEndpoint = HttpApiEndpoint.get("readNewsArticle", "/api/news/:slug", {
-  params: { slug: Schema.String.pipe(Schema.check(Schema.isMinLength(1))) },
+  params: { slug: ArticleSlug },
   query: NewsVersionQuery,
-  success: PublishedNewsArticleSchema.annotate({
-    identifier: "PublishedNewsArticle",
-    description: "One published news article.",
-    examples: [NewsArticleExample],
-  }),
-  error: ContentErrors,
+  headers: ConditionalReadHeaders,
+  success: publicConditionalResponses(
+    PublishedNewsArticleSchema.annotate({
+      identifier: "PublishedNewsArticle",
+      description: "One published news article.",
+      examples: [NewsArticleExample],
+    }),
+  ),
+  error: endpointProblemResponses(ContentReadNewsArticleProblem),
 })
   .pipe((endpoint) =>
     annotateAccessSpec(endpoint, anonymousNativeAccess("content.public-news-by-slug")),
