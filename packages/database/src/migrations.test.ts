@@ -747,8 +747,13 @@ describe("declarative authorization rule migration in PGlite", () => {
 });
 
 describe("declarative rule reconciliation migration", () => {
+  const reconciliationMigrationIndex = databaseMigrationDefinitions.findIndex(
+    ({ id }) => id === "26_declarative-rule-reconciliation",
+  );
+  const reconciliationMigration =
+    databaseMigrationDefinitions[reconciliationMigrationIndex]!;
   const prepareMigration25State = async (database: PGlite) => {
-    for (const migration of databaseMigrationDefinitions.slice(0, -2)) {
+    for (const migration of databaseMigrationDefinitions.slice(0, reconciliationMigrationIndex)) {
       await database.exec(await readFile(migration.url, "utf8"));
     }
     await database.exec(`
@@ -812,11 +817,12 @@ describe("declarative rule reconciliation migration", () => {
         );
     `);
 
-  it("orders immutable migration 25, reconciliation 26, then native OAuth 27", () => {
-    expect(databaseMigrationDefinitions.slice(-3).map(({ id }) => id)).toEqual([
+  it("orders immutable migration 25, reconciliation 26, OAuth 27, then service grants 28", () => {
+    expect(databaseMigrationDefinitions.slice(-4).map(({ id }) => id)).toEqual([
       "25_principal-credential-access-algebra",
       "26_declarative-rule-reconciliation",
       "27_native-oauth-provider",
+      "28_service-principal-grants",
     ]);
   });
 
@@ -889,7 +895,7 @@ describe("declarative rule reconciliation migration", () => {
 
       let failureMessage = "";
       try {
-        await database.exec(await readFile(databaseMigrationDefinitions.at(-2)!.url, "utf8"));
+        await database.exec(await readFile(reconciliationMigration.url, "utf8"));
       } catch (cause) {
         failureMessage = cause instanceof Error ? cause.message : String(cause);
       }
@@ -947,7 +953,7 @@ describe("declarative rule reconciliation migration", () => {
     try {
       await prepareMigration25State(database);
       await insertValidPreflightRows(database);
-      await database.exec(await readFile(databaseMigrationDefinitions.at(-2)!.url, "utf8"));
+      await database.exec(await readFile(reconciliationMigration.url, "utf8"));
       const rows = await database.query<{ readonly ruleId: string }>(`
         SELECT rule_id AS "ruleId"
         FROM public.authz_rules

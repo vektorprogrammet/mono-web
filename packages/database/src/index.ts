@@ -9,3 +9,4 @@ export {
   type IdentitySnapshotService,
 } from "./auth-live.js";
 export * from "./oauth-config.js";
+export * from "./service-principal-grants-live.js";

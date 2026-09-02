@@ -165,8 +165,16 @@ const normalizedEndAt = (endAt: string | null): string | null =>
 const authoredSubjectKey = (subject: DisposableAuthzRuleSubjectAuthoring): string =>
   subject._tag === "Person" ? `Person:${subject.personId}` : `Tag:${subject.tagName}`;
 
-const canonicalSubjectKey = (subject: AuthzRuleSubject): string =>
-  subject._tag === "Person" ? `Person:${subject.personId}` : `Tag:${subject.tagId}`;
+const canonicalSubjectKey = (subject: AuthzRuleSubject): string => {
+  switch (subject._tag) {
+    case "Person":
+      return `Person:${subject.personId}`;
+    case "Tag":
+      return `Tag:${subject.tagId}`;
+    case "ServicePrincipal":
+      return `ServicePrincipal:${subject.servicePrincipalId}`;
+  }
+};
 
 const duplicate = (entity: DisposableAuthzBackfillDuplicate["entity"], identity: string) =>
   new DisposableAuthzBackfillDuplicate({ entity, identity });

@@ -25,7 +25,7 @@ import {
 } from "./schema.js";
 
 export type AuthzApplicabilityFacts<C = unknown> = {
-  readonly personId: PersonId;
+  readonly principal: Principal;
   readonly authorizationInstant: string;
   readonly context: CanonicalResourceContext<C>;
   readonly tagAssignments: ReadonlyArray<AuthzTagAssignment>;
@@ -47,18 +47,33 @@ export const isAuthzTagAssignmentActive = (
 
 export const authzRuleSubjectApplies = (
   rule: AuthzRule,
-  personId: PersonId,
+  principal: Principal,
   authorizationInstant: string,
   tagAssignments: ReadonlyArray<AuthzTagAssignment>,
 ): boolean => {
   const subject = rule.subject;
-  if (subject._tag === "Person") return subject.personId === personId;
-  const tagId = subject.tagId;
-  return tagAssignments.some(
-    (assignment) =>
-      assignment.tagId === tagId &&
-      isAuthzTagAssignmentActive(assignment, personId, authorizationInstant),
-  );
+  switch (subject._tag) {
+    case "Person":
+      return principal._tag === "Person" && subject.personId === principal.personId;
+    case "ServicePrincipal":
+      return (
+        principal._tag === "ServicePrincipal" &&
+        subject.servicePrincipalId === principal.servicePrincipalId
+      );
+    case "Tag":
+      return (
+        principal._tag === "Person" &&
+        tagAssignments.some(
+          (assignment) =>
+            assignment.tagId === subject.tagId &&
+            isAuthzTagAssignmentActive(
+              assignment,
+              principal.personId,
+              authorizationInstant,
+            ),
+        )
+      );
+  }
 };
 
 export const authzRuleScopeApplies = (
@@ -72,12 +87,23 @@ export const authzRuleScopeApplies = (
       return context.domainId === rule.scope.domainId;
     case "Department":
       return context.departmentId === rule.scope.departmentId;
+    case "Resource":
+      return (
+        context.resource !== null &&
+        context.resource.kind === rule.scope.resource.kind &&
+        context.resource.id === rule.scope.resource.id
+      );
   }
 };
 
 export const isAuthzRuleApplicable = (rule: AuthzRule, facts: AuthzApplicabilityFacts): boolean =>
   isAuthzIntervalActive(rule, facts.authorizationInstant) &&
-  authzRuleSubjectApplies(rule, facts.personId, facts.authorizationInstant, facts.tagAssignments) &&
+  authzRuleSubjectApplies(
+    rule,
+    facts.principal,
+    facts.authorizationInstant,
+    facts.tagAssignments,
+  ) &&
   authzRuleScopeApplies(rule, facts.context);
 
 export const applicableAuthzRules = (
@@ -208,6 +234,7 @@ export const composeCapabilityEvidence = (
   const requirementContributions: Array<RuleRequirementContribution> = [];
 
   for (const rule of applicableRules) {
+    if (rule.subject._tag === "ServicePrincipal" && rule.effectKind !== "requirement") continue;
     if (rule.effectKind === "requirement") {
       if (
         rule.capabilityId !== "approveReceipt" ||
@@ -227,7 +254,7 @@ export const composeCapabilityEvidence = (
       });
       continue;
     }
-    if (rule.effectKind !== "delegate") continue;
+    if (rule.effectKind !== "delegate" || requestFacts.principal._tag !== "Person") continue;
     if (
       rule.capabilityId === "approveReceipt" &&
       CAPABILITY_IDS.approveReceipt.receptiveEvidenceSlots.includes(rule.params.slot)
@@ -238,7 +265,7 @@ export const composeCapabilityEvidence = (
           ruleId: rule.ruleId,
           fact: {
             approvalGrantId: ReceiptApprovalGrantId.make(ruleFactId(rule.ruleId)),
-            personId: requestFacts.personId,
+            personId: requestFacts.principal.personId,
             scope: { _tag: "Department", departmentId: requestFacts.context.departmentId },
             startAt: rule.startAt,
             endAt: rule.endAt,
@@ -250,7 +277,7 @@ export const composeCapabilityEvidence = (
           ruleId: rule.ruleId,
           fact: {
             approvalGrantId: ReceiptApprovalGrantId.make(ruleFactId(rule.ruleId)),
-            personId: requestFacts.personId,
+            personId: requestFacts.principal.personId,
             scope: { _tag: "Global" },
             startAt: rule.startAt,
             endAt: rule.endAt,
@@ -270,7 +297,7 @@ export const composeCapabilityEvidence = (
         ruleId: rule.ruleId,
         fact: {
           paymentAuthorityId: ReceiptPaymentAuthorityId.make(ruleFactId(rule.ruleId)),
-          personId: requestFacts.personId,
+          personId: requestFacts.principal.personId,
           departmentId: requestFacts.context.departmentId,
           paymentAccountCiphertext: rule.params.paymentAccountCiphertext,
           startAt: rule.startAt,
@@ -305,7 +332,7 @@ export const composeCapabilityEvidence = (
   const requirements = evaluateCapabilityRequirements(
     capabilityId,
     requirementContributions,
-    { _tag: "Person", personId: requestFacts.personId },
+    requestFacts.principal,
     requestFacts.context,
   );
   const decision =

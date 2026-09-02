@@ -148,7 +148,7 @@ const composeExistingApprovalAuthority = (
     { approvalGrants: directAuthority.approvalGrants },
     rules,
     {
-      personId,
+      principal: { _tag: "Person", personId },
       authorizationInstant,
       context: makeReceiptApprovalContext(receipt, organizationAuthority, directAuthority, rules),
       tagAssignments: [],

@@ -118,6 +118,10 @@ const nativeOAuthProviderMigrationUrl = new URL(
   "../migrations/0027-native-oauth-provider.sql",
   import.meta.url,
 );
+const servicePrincipalGrantsMigrationUrl = new URL(
+  "../migrations/0028-service-principal-grants.sql",
+  import.meta.url,
+);
 export type ExecuteMigration = (
   source: string,
 ) => Effect.Effect<void, unknown, SqlClient.SqlClient>;
@@ -255,6 +259,11 @@ export const databaseMigrationDefinitions = [
     name: "native-oauth-provider",
     url: nativeOAuthProviderMigrationUrl,
   },
+  {
+    id: "28_service-principal-grants",
+    name: "service-principal-grants",
+    url: servicePrincipalGrantsMigrationUrl,
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>
@@ -263,7 +272,7 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       databaseMigrationDefinitions.map(({ id, name, url }) => [id, migration(name, url, execute)]),
     ),
   );
-export const databaseSchemaRevision = "27_native_oauth_provider";
+export const databaseSchemaRevision = "28_service_principal_grants";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),

@@ -169,7 +169,7 @@ const traceReceipt = (sql: DatabaseShape, receiptId: string) =>
     const unresolvedContext = makeReceiptApprovalContext(before, organization, direct, []);
     const applicable = yield* readApplicableAuthorizationRules(
       sql,
-      principalId,
+      { _tag: "Person", personId: principalId },
       "approveReceipt",
       authorizationInstant,
       unresolvedContext,
@@ -181,7 +181,7 @@ const traceReceipt = (sql: DatabaseShape, receiptId: string) =>
       { approvalGrants: direct.approvalGrants },
       applicable.rules,
       {
-        personId: principalId,
+        principal: { _tag: "Person", personId: principalId },
         authorizationInstant,
         context,
         tagAssignments: applicable.tagAssignments,

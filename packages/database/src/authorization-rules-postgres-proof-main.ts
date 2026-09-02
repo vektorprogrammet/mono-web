@@ -216,6 +216,7 @@ const proofReceiptContext = (department: DepartmentId) => ({
     ownerPersonId: personId(ids.persons.direct),
     state: "Pending",
     approverPersonIds: [personId(ids.persons.ruleApprove)],
+    approverServicePrincipalIds: [],
     internalEvidenceEnabled: false,
   },
   authorityVersion: AuthorityVersion.make("authz-0056-proof-context-v1"),
@@ -1166,7 +1167,7 @@ const submissionCompositionFacts = (
     );
     const context = proofReceiptContext(departmentScope);
     const applicable = yield* loadApplicableAuthorizationRules(
-      subject,
+      { _tag: "Person", personId: subject },
       "submitReceipt",
       authorizationInstant,
       context,
@@ -1176,7 +1177,7 @@ const submissionCompositionFacts = (
       { paymentAuthorities: direct.paymentAuthorities },
       applicable.rules,
       {
-        personId: subject,
+        principal: { _tag: "Person", personId: subject },
         authorizationInstant,
         context,
         tagAssignments: applicable.tagAssignments,
@@ -1230,7 +1231,7 @@ const approvalCompositionFacts = (
     );
     const context = proofReceiptContext(departmentScope);
     const applicable = yield* loadApplicableAuthorizationRules(
-      subject,
+      { _tag: "Person", personId: subject },
       "approveReceipt",
       authorizationInstant,
       context,
@@ -1240,7 +1241,7 @@ const approvalCompositionFacts = (
       { approvalGrants: direct.approvalGrants },
       applicable.rules,
       {
-        personId: subject,
+        principal: { _tag: "Person", personId: subject },
         authorizationInstant,
         context,
         tagAssignments: applicable.tagAssignments,
@@ -2211,13 +2212,13 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
   Effect.gen(function* () {
     const sql = yield* Database;
     const endedRuleBefore = yield* loadApplicableAuthorizationRules(
-      personId(ids.persons.endedRule),
+      { _tag: "Person", personId: personId(ids.persons.endedRule) },
       "approveReceipt",
       justBeforeExactEnd,
       proofReceiptContext(departmentId(ids.departments.alpha)),
     );
     const endedRuleExact = yield* loadApplicableAuthorizationRules(
-      personId(ids.persons.endedRule),
+      { _tag: "Person", personId: personId(ids.persons.endedRule) },
       "approveReceipt",
       exactEnd,
       proofReceiptContext(departmentId(ids.departments.alpha)),
@@ -2255,13 +2256,13 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
     const endedDirectDurable = yield* readDurableCommandFacts(sql, ids.commands.endedDirectSubmit);
 
     const crossRuleMatchingScope = yield* loadApplicableAuthorizationRules(
-      personId(ids.persons.crossDepartment),
+      { _tag: "Person", personId: personId(ids.persons.crossDepartment) },
       "submitReceipt",
       exactEnd,
       proofReceiptContext(departmentId(ids.departments.alpha)),
     );
     const crossRuleOtherScope = yield* loadApplicableAuthorizationRules(
-      personId(ids.persons.crossDepartment),
+      { _tag: "Person", personId: personId(ids.persons.crossDepartment) },
       "submitReceipt",
       exactEnd,
       proofReceiptContext(departmentId(ids.departments.beta)),
@@ -3649,13 +3650,13 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
         const after = yield* Effect.gen(function* () {
           const sql = yield* Database;
           const beforeExact = yield* loadApplicableAuthorizationRules(
-            personId(ids.persons.expiryCommandFirst),
+            { _tag: "Person", personId: personId(ids.persons.expiryCommandFirst) },
             "submitReceipt",
             justBeforeExactEnd,
             proofReceiptContext(departmentId(ids.departments.alpha)),
           );
           const atExact = yield* loadApplicableAuthorizationRules(
-            personId(ids.persons.expiryCommandFirst),
+            { _tag: "Person", personId: personId(ids.persons.expiryCommandFirst) },
             "submitReceipt",
             exactEnd,
             proofReceiptContext(departmentId(ids.departments.alpha)),
@@ -3876,13 +3877,13 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
         const after = yield* Effect.gen(function* () {
           const sql = yield* Database;
           const beforeExact = yield* loadApplicableAuthorizationRules(
-            personId(ids.persons.expiryWriterFirst),
+            { _tag: "Person", personId: personId(ids.persons.expiryWriterFirst) },
             "submitReceipt",
             justBeforeExactEnd,
             proofReceiptContext(departmentId(ids.departments.alpha)),
           );
           const atExact = yield* loadApplicableAuthorizationRules(
-            personId(ids.persons.expiryWriterFirst),
+            { _tag: "Person", personId: personId(ids.persons.expiryWriterFirst) },
             "submitReceipt",
             exactEnd,
             proofReceiptContext(departmentId(ids.departments.alpha)),
@@ -4125,13 +4126,13 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
       const after = yield* Effect.gen(function* () {
         const sql = yield* Database;
         const beforeInstant = yield* loadApplicableAuthorizationRules(
-          personId(ids.persons.tagApprove),
+          { _tag: "Person", personId: personId(ids.persons.tagApprove) },
           "approveReceipt",
           justBeforeExactEnd,
           proofReceiptContext(departmentId(ids.departments.alpha)),
         );
         const exactInstant = yield* loadApplicableAuthorizationRules(
-          personId(ids.persons.tagApprove),
+          { _tag: "Person", personId: personId(ids.persons.tagApprove) },
           "approveReceipt",
           exactEnd,
           proofReceiptContext(departmentId(ids.departments.alpha)),
@@ -4182,7 +4183,7 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
           revision: 0,
         });
         const applicable = yield* loadApplicableAuthorizationRules(
-          personId(ids.persons.tagApprove),
+          { _tag: "Person", personId: personId(ids.persons.tagApprove) },
           "approveReceipt",
           exactEnd,
           proofReceiptContext(departmentId(ids.departments.alpha)),

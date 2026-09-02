@@ -65,6 +65,7 @@ const receiptContext = (
     ownerPersonId,
     state: "Pending",
     approverPersonIds: [personId],
+    approverServicePrincipalIds: [],
     internalEvidenceEnabled: true,
   },
   authorityVersion: AuthorityVersion.make("receipt:1"),

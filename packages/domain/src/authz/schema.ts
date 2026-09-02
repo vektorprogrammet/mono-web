@@ -1,5 +1,9 @@
 import { Data, Effect, Schema } from "effect";
-import { DomainId } from "./access.js";
+import {
+  DomainId,
+  ResourceRefSchema,
+  ServicePrincipalId,
+} from "./access.js";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
 
@@ -79,6 +83,7 @@ export type ReceiptApproverRelationshipRequirementParams =
 export const AuthzRuleSubjectSchema = Schema.TaggedUnion({
   Person: { personId: PersonId },
   Tag: { tagId: AuthzTagId },
+  ServicePrincipal: { servicePrincipalId: ServicePrincipalId },
 });
 export type AuthzRuleSubject = typeof AuthzRuleSubjectSchema.Type;
 
@@ -86,6 +91,7 @@ export const AuthzRuleScopeSchema = Schema.TaggedUnion({
   Global: {},
   Domain: { domainId: DomainId },
   Department: { departmentId: DepartmentId },
+  Resource: { resource: ResourceRefSchema },
 });
 export type AuthzRuleScope = typeof AuthzRuleScopeSchema.Type;
 
@@ -173,6 +179,25 @@ export const AuthzRuleSchema = Schema.Union([
 ]).pipe(
   Schema.check(
     Schema.makeFilter(
+      (rule) => {
+        if (rule.subject._tag !== "ServicePrincipal") {
+          return rule.scope._tag !== "Resource";
+        }
+        return (
+          rule.capabilityId === "approveReceipt" &&
+          rule.effectKind === "requirement" &&
+          rule.scope._tag === "Resource" &&
+          rule.scope.resource.kind === "receipt" &&
+          (rule.params.requirementId === "receipts.pending" ||
+            rule.params.requirementId === "receipts.approver-relationship")
+        );
+      },
+      {
+        message:
+          "service-principal rules are resource-scoped receipt requirements and never delegates",
+      },
+    ),
+    Schema.makeFilter(
       (rule) => rule.endAt === null || compareRfc3339Instants(rule.startAt, rule.endAt) < 0,
       { message: "an authorization rule interval must be half-open and ordered" },
     ),
@@ -242,7 +267,7 @@ export type AuthzValidationEntity =
   | "AuthzRuleId"
   | "AuthzTagId"
   | "AuthzTagAssignmentId"
-  | "PersonId"
+  | "Principal"
   | "AuthzCapabilityId"
   | "AuthzRequestScope"
   | "AuthzLockMode"

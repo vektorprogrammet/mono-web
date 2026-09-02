@@ -475,6 +475,7 @@ const receiptLifecycleEvidence = async (
               ownerPersonId: PersonId.make(row.ownerPersonId),
               state: row.status,
               approverPersonIds: [],
+              approverServicePrincipalIds: [],
               internalEvidenceEnabled: options.config.e2eTestMode === true,
             } satisfies ReceiptAccessFacts,
             authorityVersion: AuthorityVersion.make(`receipt:${row.revision}`),

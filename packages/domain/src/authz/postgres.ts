@@ -2,7 +2,15 @@ import { Data, Effect, Schema } from "effect";
 import { Database, type DatabaseShape } from "../database/service.js";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { Rfc3339InstantSchema } from "../time.js";
-import { DomainId, type CanonicalResourceContext } from "./access.js";
+import {
+  DomainId,
+  PrincipalSchema,
+  ResourceId,
+  ResourceKind,
+  ServicePrincipalId,
+  type CanonicalResourceContext,
+  type Principal,
+} from "./access.js";
 import { applicableAuthzRules } from "./rules.js";
 import {
   AuthzCapabilityIdSchema,
@@ -66,7 +74,11 @@ export type AuthzPersistenceFailure =
  */
 export const AUTHZ_LOCK_PROTOCOL = {
   advisoryKey: "vektorprogrammet:authz-rules:v1",
-  rowOrder: ["public.authz_tag_assignments", "public.authz_rules"],
+  rowOrder: [
+    "public.authz_tag_assignments",
+    "public.service_principal_grants",
+    "public.authz_rules",
+  ],
 } as const;
 
 const persistenceError = (operation: string, cause: unknown) =>
@@ -101,12 +113,15 @@ const AuthzRuleDatabaseRowSchema = Schema.Struct({
   ruleId: AuthzRuleId,
   capabilityId: AuthzCapabilityIdSchema,
   effectKind: AuthzRuleEffectKindSchema,
-  subjectKind: Schema.Literals(["Person", "Tag"]),
+  subjectKind: Schema.Literals(["Person", "Tag", "ServicePrincipal"]),
   subjectPersonId: Schema.NullOr(PersonId),
   subjectTagId: Schema.NullOr(AuthzTagId),
-  scope: Schema.Literals(["Global", "Domain", "Department"]),
+  subjectServicePrincipalId: Schema.NullOr(ServicePrincipalId),
+  scope: Schema.Literals(["Global", "Domain", "Department", "Resource"]),
   domainId: Schema.NullOr(DomainId),
   departmentId: Schema.NullOr(DepartmentId),
+  resourceKind: Schema.NullOr(ResourceKind),
+  resourceId: Schema.NullOr(ResourceId),
   params: Schema.Unknown,
   startAt: Rfc3339InstantSchema,
   endAt: Schema.NullOr(Rfc3339InstantSchema),
@@ -118,23 +133,74 @@ const decodeRuleDatabaseRow = (
   row: AuthzRuleDatabaseRow,
 ): Effect.Effect<AuthzRule, AuthzValidationError> => {
   const subject = (() => {
-    if (row.subjectKind === "Person" && row.subjectPersonId !== null && row.subjectTagId === null) {
+    if (
+      row.subjectKind === "Person" &&
+      row.subjectPersonId !== null &&
+      row.subjectTagId === null &&
+      row.subjectServicePrincipalId === null
+    ) {
       return { _tag: "Person" as const, personId: row.subjectPersonId };
     }
-    if (row.subjectKind === "Tag" && row.subjectPersonId === null && row.subjectTagId !== null) {
+    if (
+      row.subjectKind === "Tag" &&
+      row.subjectPersonId === null &&
+      row.subjectTagId !== null &&
+      row.subjectServicePrincipalId === null
+    ) {
       return { _tag: "Tag" as const, tagId: row.subjectTagId };
+    }
+    if (
+      row.subjectKind === "ServicePrincipal" &&
+      row.subjectPersonId === null &&
+      row.subjectTagId === null &&
+      row.subjectServicePrincipalId !== null
+    ) {
+      return {
+        _tag: "ServicePrincipal" as const,
+        servicePrincipalId: row.subjectServicePrincipalId,
+      };
     }
     return undefined;
   })();
   const scope = (() => {
-    if (row.scope === "Global" && row.domainId === null && row.departmentId === null) {
+    if (
+      row.scope === "Global" &&
+      row.domainId === null &&
+      row.departmentId === null &&
+      row.resourceKind === null &&
+      row.resourceId === null
+    ) {
       return { _tag: "Global" as const };
     }
-    if (row.scope === "Domain" && row.domainId !== null && row.departmentId === null) {
+    if (
+      row.scope === "Domain" &&
+      row.domainId !== null &&
+      row.departmentId === null &&
+      row.resourceKind === null &&
+      row.resourceId === null
+    ) {
       return { _tag: "Domain" as const, domainId: row.domainId };
     }
-    if (row.scope === "Department" && row.domainId === null && row.departmentId !== null) {
+    if (
+      row.scope === "Department" &&
+      row.domainId === null &&
+      row.departmentId !== null &&
+      row.resourceKind === null &&
+      row.resourceId === null
+    ) {
       return { _tag: "Department" as const, departmentId: row.departmentId };
+    }
+    if (
+      row.scope === "Resource" &&
+      row.domainId === null &&
+      row.departmentId === null &&
+      row.resourceKind !== null &&
+      row.resourceId !== null
+    ) {
+      return {
+        _tag: "Resource" as const,
+        resource: { kind: row.resourceKind, id: row.resourceId },
+      };
     }
     return undefined;
   })();
@@ -169,9 +235,12 @@ const selectAuthzRule = (
         subject_kind AS "subjectKind",
         subject_person_id AS "subjectPersonId",
         subject_tag_id AS "subjectTagId",
+        subject_service_principal_id AS "subjectServicePrincipalId",
         scope,
         domain_id AS "domainId",
         department_id AS "departmentId",
+        resource_kind AS "resourceKind",
+        resource_id AS "resourceId",
         params,
         to_char(
           start_at AT TIME ZONE 'UTC',
@@ -279,16 +348,19 @@ export type ApplicableAuthorizationRules = {
  */
 export const readApplicableAuthorizationRules = (
   sql: DatabaseShape,
-  personIdInput: PersonId,
+  principalInput: Principal,
   capabilityIdInput: AuthzCapabilityId,
   authorizationInstantInput: string,
   context: CanonicalResourceContext,
   lockModeInput: AuthzLockMode,
 ): Effect.Effect<ApplicableAuthorizationRules, AuthzValidationError | AuthzPersistenceError> =>
   Effect.gen(function* () {
-    const personId = yield* Schema.decodeUnknownEffect(PersonId)(personIdInput, {
+    const principal = yield* Schema.decodeUnknownEffect(PrincipalSchema)(principalInput, {
       onExcessProperty: "error",
-    }).pipe(Effect.mapError((cause) => validationError("PersonId", cause)));
+    }).pipe(Effect.mapError((cause) => validationError("Principal", cause)));
+    const personId = principal._tag === "Person" ? principal.personId : null;
+    const servicePrincipalId =
+      principal._tag === "ServicePrincipal" ? principal.servicePrincipalId : null;
     const capabilityId = yield* Schema.decodeUnknownEffect(AuthzCapabilityIdSchema)(
       capabilityIdInput,
       { onExcessProperty: "error" },
@@ -321,7 +393,8 @@ export const readApplicableAuthorizationRules = (
         END AS "endAt",
         revision
       FROM public.authz_tag_assignments
-      WHERE person_id = ${personId}
+      WHERE ${personId}::text IS NOT NULL
+        AND person_id = ${personId}
         AND start_at <= ${authorizationInstant}::timestamptz
         AND (end_at IS NULL OR ${authorizationInstant}::timestamptz < end_at)
       ORDER BY tag_id ASC, assignment_id ASC
@@ -347,9 +420,12 @@ export const readApplicableAuthorizationRules = (
         rule.subject_kind AS "subjectKind",
         rule.subject_person_id AS "subjectPersonId",
         rule.subject_tag_id AS "subjectTagId",
+        rule.subject_service_principal_id AS "subjectServicePrincipalId",
         rule.scope,
         rule.domain_id AS "domainId",
         rule.department_id AS "departmentId",
+        rule.resource_kind AS "resourceKind",
+        rule.resource_id AS "resourceId",
         rule.params,
         to_char(
           rule.start_at AT TIME ZONE 'UTC',
@@ -377,6 +453,11 @@ export const readApplicableAuthorizationRules = (
             rule.scope = 'Department'
             AND rule.department_id = ${requestedDepartmentId}
           )
+          OR (
+            rule.scope = 'Resource'
+            AND rule.resource_kind = ${context.resource?.kind ?? null}
+            AND rule.resource_id = ${context.resource?.id ?? null}
+          )
         )
         AND (
           (rule.subject_kind = 'Person' AND rule.subject_person_id = ${personId})
@@ -394,6 +475,10 @@ export const readApplicableAuthorizationRules = (
                 )
             )
           )
+          OR (
+            rule.subject_kind = 'ServicePrincipal'
+            AND rule.subject_service_principal_id = ${servicePrincipalId}
+          )
         )
       ORDER BY rule.rule_id ASC
       ${ruleLock}
@@ -409,7 +494,7 @@ export const readApplicableAuthorizationRules = (
     const decodedRules: Array<AuthzRule> = [];
     for (const row of ruleRows) decodedRules.push(yield* decodeRuleDatabaseRow(row));
     const rules = applicableAuthzRules(decodedRules, {
-      personId,
+      principal,
       authorizationInstant,
       context,
       tagAssignments,
@@ -429,7 +514,7 @@ export const readApplicableAuthorizationRules = (
  * transaction-bound SQL and the explicit `ForShare` mode.
  */
 export const loadApplicableAuthorizationRules = (
-  personId: PersonId,
+  principal: Principal,
   capabilityId: AuthzCapabilityId,
   authorizationInstant: string,
   context: CanonicalResourceContext,
@@ -442,7 +527,7 @@ export const loadApplicableAuthorizationRules = (
     const sql = yield* Database;
     return yield* readApplicableAuthorizationRules(
       sql,
-      personId,
+      principal,
       capabilityId,
       authorizationInstant,
       context,
@@ -462,8 +547,12 @@ export const createAuthzRule = (
           yield* acquireAuthorizationLock(sql, "Exclusive");
           const subjectPersonId = rule.subject._tag === "Person" ? rule.subject.personId : null;
           const subjectTagId = rule.subject._tag === "Tag" ? rule.subject.tagId : null;
+          const subjectServicePrincipalId =
+            rule.subject._tag === "ServicePrincipal" ? rule.subject.servicePrincipalId : null;
           const domainId = rule.scope._tag === "Domain" ? rule.scope.domainId : null;
           const departmentId = rule.scope._tag === "Department" ? rule.scope.departmentId : null;
+          const resourceKind = rule.scope._tag === "Resource" ? rule.scope.resource.kind : null;
+          const resourceId = rule.scope._tag === "Resource" ? rule.scope.resource.id : null;
           yield* sql`
             INSERT INTO public.authz_rules (
               rule_id,
@@ -472,9 +561,12 @@ export const createAuthzRule = (
               subject_kind,
               subject_person_id,
               subject_tag_id,
+              subject_service_principal_id,
               scope,
               domain_id,
               department_id,
+              resource_kind,
+              resource_id,
               params,
               start_at,
               end_at,
@@ -486,9 +578,12 @@ export const createAuthzRule = (
               ${rule.subject._tag},
               ${subjectPersonId},
               ${subjectTagId},
+              ${subjectServicePrincipalId},
               ${rule.scope._tag},
               ${domainId},
               ${departmentId},
+              ${resourceKind},
+              ${resourceId},
               ${sql.json(rule.params)},
               ${rule.startAt},
               ${rule.endAt},

@@ -118,13 +118,20 @@ export const RECEIPT_OWNER_REQUIREMENT = RequirementId.make("receipts.owner");
 export const RECEIPT_PENDING_REQUIREMENT = RequirementId.make("receipts.pending");
 export const RECEIPT_APPROVER_REQUIREMENT = RequirementId.make("receipts.approver-relationship");
 
-export const SCOPE_RESOLVER_IDS = ["receipts.by-id", "system.public"] as const;
+export const SCOPE_RESOLVER_IDS = [
+  "receipts.by-id",
+  "receipts.approval-queue",
+  "system.public",
+] as const;
 export const ScopeResolverId = Schema.Literals(SCOPE_RESOLVER_IDS).pipe(
   Schema.brand("ScopeResolverId"),
 );
 const scopeResolverRegistryKey = (id: ScopeResolverId): (typeof SCOPE_RESOLVER_IDS)[number] => id;
 export type ScopeResolverId = typeof ScopeResolverId.Type;
 export const RECEIPT_BY_ID_SCOPE_RESOLVER = ScopeResolverId.make("receipts.by-id");
+export const RECEIPT_APPROVAL_QUEUE_SCOPE_RESOLVER = ScopeResolverId.make(
+  "receipts.approval-queue",
+);
 export const SYSTEM_PUBLIC_SCOPE_RESOLVER = ScopeResolverId.make("system.public");
 
 export const PrincipalSchema = Schema.TaggedUnion({
@@ -260,6 +267,7 @@ export const ReceiptAccessFactsSchema = Schema.Struct({
   ownerPersonId: PersonId,
   state: Schema.String,
   approverPersonIds: Schema.Array(PersonId),
+  approverServicePrincipalIds: Schema.Array(ServicePrincipalId),
   internalEvidenceEnabled: Schema.Boolean,
 });
 export type ReceiptAccessFacts = typeof ReceiptAccessFactsSchema.Type;
@@ -345,15 +353,24 @@ const requirementEvaluators = [
     principal: Principal,
     context: typeof ReceiptRequirementContextSchema.Type,
   ): RegisteredRequirementEvaluation =>
-    principal._tag === "Person" && context.facts.approverPersonIds.includes(principal.personId)
+    (principal._tag === "Person" &&
+      context.facts.approverPersonIds.includes(principal.personId)) ||
+    (principal._tag === "ServicePrincipal" &&
+      context.facts.approverServicePrincipalIds.includes(principal.servicePrincipalId))
       ? { _tag: "Satisfied" }
       : { _tag: "Failed", reason: "NotApprover" },
 ] as const satisfies ReadonlyArray<RequirementEvaluator>;
+const requirementResolverIds = [
+  [RECEIPT_BY_ID_SCOPE_RESOLVER],
+  [RECEIPT_BY_ID_SCOPE_RESOLVER],
+  [RECEIPT_BY_ID_SCOPE_RESOLVER, RECEIPT_APPROVAL_QUEUE_SCOPE_RESOLVER],
+  [RECEIPT_BY_ID_SCOPE_RESOLVER, RECEIPT_APPROVAL_QUEUE_SCOPE_RESOLVER],
+] as const satisfies ReadonlyArray<ReadonlyArray<ScopeResolverId>>;
 export const REQUIREMENT_TYPES = Object.fromEntries(
   REQUIREMENT_IDS.map((id, index) => [
     id,
     {
-      resolverIds: [RECEIPT_BY_ID_SCOPE_RESOLVER],
+      resolverIds: requirementResolverIds[index]!,
       parameterSchema: EmptyRequirementParametersSchema,
       contextSchema: ReceiptRequirementContextSchema,
       evaluate: requirementEvaluators[index]!,
@@ -361,7 +378,7 @@ export const REQUIREMENT_TYPES = Object.fromEntries(
   ]),
 ) as unknown as {
   readonly [Id in (typeof REQUIREMENT_IDS)[number]]: {
-    readonly resolverIds: readonly [ScopeResolverId];
+    readonly resolverIds: ReadonlyArray<ScopeResolverId>;
     readonly parameterSchema: typeof EmptyRequirementParametersSchema;
     readonly contextSchema: typeof ReceiptRequirementContextSchema;
     readonly evaluate: RequirementEvaluator;
@@ -372,6 +389,11 @@ const scopeResolverRegistrations = [
   {
     selection: "ExactlyOne",
     requirements: REQUIREMENT_IDS,
+    contextSchema: ReceiptRequirementContextSchema,
+  },
+  {
+    selection: "AllMatching",
+    requirements: [RECEIPT_PENDING_REQUIREMENT, RECEIPT_APPROVER_REQUIREMENT],
     contextSchema: ReceiptRequirementContextSchema,
   },
   {
@@ -537,6 +559,8 @@ export const scopeResolverDeclaration = (resolverId: ScopeResolverId) => {
   switch (resolverId) {
     case "receipts.by-id":
       return SCOPE_RESOLVERS["receipts.by-id"];
+    case "receipts.approval-queue":
+      return SCOPE_RESOLVERS["receipts.approval-queue"];
     case "system.public":
       return SCOPE_RESOLVERS["system.public"];
   }
@@ -976,6 +1000,27 @@ export const PUBLIC_SYSTEM_ACCESS = makeAccessSpec({
   capabilities: { _tag: "None" },
   requirements: [],
   canonicalScopeResolver: SYSTEM_PUBLIC_SCOPE_RESOLVER,
+  concealment: { _tag: "Reveal" },
+  decisionTime: "SnapshotRead",
+});
+
+export const RECEIPT_APPROVAL_QUEUE_ACCESS = makeAccessSpec({
+  exposure: "External",
+  acceptedCredentials: [
+    { _tag: "BetterAuthCookie" },
+    { _tag: "OAuthUserBearer" },
+    { _tag: "OAuthServiceBearer" },
+  ],
+  principalKinds: ["Person", "ServicePrincipal"],
+  capabilities: {
+    _tag: "One",
+    capability: { type: APPROVE_RECEIPT_CAPABILITY },
+  },
+  requirements: [
+    { id: RECEIPT_PENDING_REQUIREMENT, parameters: {} },
+    { id: RECEIPT_APPROVER_REQUIREMENT, parameters: {} },
+  ],
+  canonicalScopeResolver: RECEIPT_APPROVAL_QUEUE_SCOPE_RESOLVER,
   concealment: { _tag: "Reveal" },
   decisionTime: "SnapshotRead",
 });

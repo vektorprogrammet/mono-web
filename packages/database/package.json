@@ -19,6 +19,7 @@
     "proof:identity-postgres": "bun run runtime/identity-postgres-proof-main.ts",
     "proof:schema-boundary-postgres": "bun run runtime/schema-boundary-postgres-proof-main.ts",
     "trace:oauth-postgres": "bun run runtime/oauth-postgres-tracer-main.ts",
+    "trace:service-principal-grants-postgres": "bun run runtime/service-principal-grants-postgres-tracer-main.ts",
     "fixture:oauth-dashboard-postgres": "bun run runtime/oauth-dashboard-fixture-main.ts",
     "proof:profile-postgres": "bun run runtime/profile-postgres-proof-main.ts",
     "identity:seed": "bun run runtime/identity-seed-main.ts",

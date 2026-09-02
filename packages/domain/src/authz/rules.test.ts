@@ -125,6 +125,7 @@ const receiptContext = (
     ownerPersonId: otherPerson,
     state: "Pending",
     approverPersonIds: [person],
+    approverServicePrincipalIds: [],
     internalEvidenceEnabled: false,
   },
   authorityVersion: AuthorityVersion.make("authz-context:1"),
@@ -134,7 +135,7 @@ const receiptContext = (
 const applicabilityFacts = (
   overrides: Partial<AuthzApplicabilityFacts<ReceiptAccessFacts>> = {},
 ): AuthzApplicabilityFacts<ReceiptAccessFacts> => ({
-  personId: person,
+  principal: { _tag: "Person", personId: person },
   authorizationInstant,
   context: receiptContext(),
   tagAssignments: [],

@@ -169,12 +169,12 @@ const tracked = await pool.query<{ readonly count: string }>(
   [service.clientId],
 );
 assert.equal(tracked.rows[0]?.count, "2");
-const forbiddenServiceGrant = await pool.query(
+const serviceRuleSubjectColumn = await pool.query(
   `SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'authz_rules'
       AND column_name = 'subject_service_principal_id'`,
 );
-assert.equal(forbiddenServiceGrant.rowCount, 0);
+assert.equal(serviceRuleSubjectColumn.rowCount, 1);
 
 const introspection = makeOAuthInternalIntrospectionHandler(engine, pool);
 const introspectionRequest = (token: string): Request =>

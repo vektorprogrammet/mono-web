@@ -451,7 +451,7 @@ export const listReceiptsForApproval = (
           const applicable = yield* Effect.forEach(candidates, (candidate) =>
             readApplicableAuthorizationRules(
               sql,
-              personId,
+              { _tag: "Person", personId },
               "approveReceipt",
               authorizationInstant,
               makeReceiptApprovalContext(candidate, organization, directAuthority, []),
@@ -656,6 +656,7 @@ export const executeReceiptCommand = (
                 ownerPersonId: principal.personId,
                 state: "Pending",
                 approverPersonIds: [],
+                approverServicePrincipalIds: [],
                 internalEvidenceEnabled: false,
               },
               authorityVersion: AuthorityVersion.make(
@@ -664,7 +665,7 @@ export const executeReceiptCommand = (
             };
             const applicable = yield* readApplicableAuthorizationRules(
               sql,
-              principal.personId,
+              { _tag: "Person", personId: principal.personId },
               "submitReceipt",
               principal.authorizationInstant,
               context,
@@ -683,7 +684,7 @@ export const executeReceiptCommand = (
               { paymentAuthorities: directAuthority.paymentAuthorities },
               applicable.rules,
               {
-                personId: principal.personId,
+                principal: { _tag: "Person", personId: principal.personId },
                 authorizationInstant: principal.authorizationInstant,
                 context,
                 tagAssignments: applicable.tagAssignments,
@@ -756,7 +757,7 @@ export const executeReceiptCommand = (
             );
             const applicable = yield* readApplicableAuthorizationRules(
               sql,
-              principal.personId,
+              { _tag: "Person", personId: principal.personId },
               "approveReceipt",
               principal.authorizationInstant,
               unresolvedContext,
@@ -781,7 +782,7 @@ export const executeReceiptCommand = (
               { approvalGrants: directAuthority.approvalGrants },
               applicable.rules,
               {
-                personId: principal.personId,
+                principal: { _tag: "Person", personId: principal.personId },
                 authorizationInstant: principal.authorizationInstant,
                 context,
                 tagAssignments: applicable.tagAssignments,

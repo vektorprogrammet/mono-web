@@ -79,6 +79,7 @@ export const makeReceiptApprovalContext = (
     approverPersonIds: isCanonicalApproverRelationship(organization, receipt.departmentId)
       ? [directAuthority.personId]
       : [],
+    approverServicePrincipalIds: [],
     internalEvidenceEnabled: false,
   },
   authorityVersion: receiptAuthorityVersion(receipt, organization, directAuthority, rules),
@@ -109,7 +110,7 @@ export const selectAuthorizedReceiptApprovals = (
   for (const receipt of candidates) {
     const context = makeReceiptApprovalContext(receipt, organization, directAuthority, rules);
     const composition = composeCapabilityEvidence("approveReceipt", directEvidence, rules, {
-      personId: directAuthority.personId,
+      principal: { _tag: "Person", personId: directAuthority.personId },
       authorizationInstant: directAuthority.evaluatedAt,
       context,
       tagAssignments,
