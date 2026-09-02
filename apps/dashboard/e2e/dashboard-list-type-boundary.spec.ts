@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { expect, test } from "@playwright/test";
+import { dashboardMount } from "../dashboard-base";
 
 const FIXTURE_PORT = 8791;
 const FIXTURE_URL = `http://127.0.0.1:${FIXTURE_PORT}`;
@@ -126,14 +127,12 @@ test.describe("dashboard unavailable native projections", () => {
       },
     ]);
 
-    await page.goto("/dashboard");
+    await page.goto(dashboardMount({}));
     await expect(
       page.getByRole("heading", { name: "Oversiktsdata er ikke tilgjengelig" }),
     ).toBeVisible();
     await expect(
-      page.getByText(
-        "Assistent-, søknads- og intervjuoversikten er midlertidig utilgjengelig.",
-      ),
+      page.getByText("Assistent-, søknads- og intervjuoversikten er midlertidig utilgjengelig."),
     ).toBeVisible();
 
     for (const unavailable of unavailablePages) {
