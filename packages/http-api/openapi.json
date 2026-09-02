@@ -3360,6 +3360,7 @@
                 },
                 "applicationId": "app-0080",
                 "departmentId": "1",
+                "etag": "\"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"",
                 "interviewer": {
                   "displayName": "Kari Leder",
                   "email": "kari.leder@example.org",
@@ -3392,245 +3393,7 @@
           },
           "interviews": {
             "items": {
-              "anyOf": [
-                {
-                  "additionalProperties": false,
-                  "properties": {
-                    "applicant": {
-                      "$ref": "#/components/schemas/Objects_5"
-                    },
-                    "applicationId": {
-                      "type": "string"
-                    },
-                    "departmentId": {
-                      "type": "string"
-                    },
-                    "interviewer": {
-                      "$ref": "#/components/schemas/Objects_4"
-                    },
-                    "interviewId": {
-                      "type": "string"
-                    },
-                    "notificationState": {
-                      "$ref": "#/components/schemas/Union_9"
-                    },
-                    "responseMessage": {
-                      "type": "null"
-                    },
-                    "responseState": {
-                      "type": "null"
-                    },
-                    "revision": {
-                      "allOf": [
-                        {
-                          "minimum": 0
-                        }
-                      ],
-                      "type": "integer"
-                    },
-                    "schedule": {
-                      "$ref": "#/components/schemas/Union_8"
-                    }
-                  },
-                  "required": [
-                    "interviewId",
-                    "applicationId",
-                    "departmentId",
-                    "interviewer",
-                    "applicant",
-                    "revision",
-                    "schedule",
-                    "notificationState",
-                    "responseState",
-                    "responseMessage"
-                  ],
-                  "type": "object"
-                },
-                {
-                  "additionalProperties": false,
-                  "properties": {
-                    "applicant": {
-                      "$ref": "#/components/schemas/Objects_5"
-                    },
-                    "applicationId": {
-                      "type": "string"
-                    },
-                    "departmentId": {
-                      "type": "string"
-                    },
-                    "interviewer": {
-                      "$ref": "#/components/schemas/Objects_4"
-                    },
-                    "interviewId": {
-                      "type": "string"
-                    },
-                    "notificationState": {
-                      "$ref": "#/components/schemas/Union_9"
-                    },
-                    "responseMessage": {
-                      "type": "null"
-                    },
-                    "responseState": {
-                      "enum": [
-                        "Pending",
-                        "Accepted"
-                      ],
-                      "type": "string"
-                    },
-                    "revision": {
-                      "allOf": [
-                        {
-                          "minimum": 0
-                        }
-                      ],
-                      "type": "integer"
-                    },
-                    "schedule": {
-                      "$ref": "#/components/schemas/Union_8"
-                    }
-                  },
-                  "required": [
-                    "interviewId",
-                    "applicationId",
-                    "departmentId",
-                    "interviewer",
-                    "applicant",
-                    "revision",
-                    "schedule",
-                    "notificationState",
-                    "responseState",
-                    "responseMessage"
-                  ],
-                  "type": "object"
-                },
-                {
-                  "additionalProperties": false,
-                  "properties": {
-                    "applicant": {
-                      "$ref": "#/components/schemas/Objects_5"
-                    },
-                    "applicationId": {
-                      "type": "string"
-                    },
-                    "departmentId": {
-                      "type": "string"
-                    },
-                    "interviewer": {
-                      "$ref": "#/components/schemas/Objects_4"
-                    },
-                    "interviewId": {
-                      "type": "string"
-                    },
-                    "notificationState": {
-                      "$ref": "#/components/schemas/Union_9"
-                    },
-                    "responseMessage": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "responseState": {
-                      "anyOf": [
-                        {
-                          "enum": [
-                            "Rejected"
-                          ],
-                          "type": "string"
-                        }
-                      ]
-                    },
-                    "revision": {
-                      "allOf": [
-                        {
-                          "minimum": 0
-                        }
-                      ],
-                      "type": "integer"
-                    },
-                    "schedule": {
-                      "$ref": "#/components/schemas/Union_8"
-                    }
-                  },
-                  "required": [
-                    "interviewId",
-                    "applicationId",
-                    "departmentId",
-                    "interviewer",
-                    "applicant",
-                    "revision",
-                    "schedule",
-                    "notificationState",
-                    "responseState",
-                    "responseMessage"
-                  ],
-                  "type": "object"
-                },
-                {
-                  "additionalProperties": false,
-                  "properties": {
-                    "applicant": {
-                      "$ref": "#/components/schemas/Objects_5"
-                    },
-                    "applicationId": {
-                      "type": "string"
-                    },
-                    "departmentId": {
-                      "type": "string"
-                    },
-                    "interviewer": {
-                      "$ref": "#/components/schemas/Objects_4"
-                    },
-                    "interviewId": {
-                      "type": "string"
-                    },
-                    "notificationState": {
-                      "$ref": "#/components/schemas/Union_9"
-                    },
-                    "responseMessage": {
-                      "type": "string"
-                    },
-                    "responseState": {
-                      "anyOf": [
-                        {
-                          "enum": [
-                            "RequestedNewTime"
-                          ],
-                          "type": "string"
-                        }
-                      ]
-                    },
-                    "revision": {
-                      "allOf": [
-                        {
-                          "minimum": 0
-                        }
-                      ],
-                      "type": "integer"
-                    },
-                    "schedule": {
-                      "$ref": "#/components/schemas/Union_8"
-                    }
-                  },
-                  "required": [
-                    "interviewId",
-                    "applicationId",
-                    "departmentId",
-                    "interviewer",
-                    "applicant",
-                    "revision",
-                    "schedule",
-                    "notificationState",
-                    "responseState",
-                    "responseMessage"
-                  ],
-                  "type": "object"
-                }
-              ]
+              "$ref": "#/components/schemas/SchedulingInterview"
             },
             "type": "array"
           }
@@ -3640,6 +3403,264 @@
           "interviews"
         ],
         "type": "object"
+      },
+      "SchedulingInterview": {
+        "anyOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "applicant": {
+                "$ref": "#/components/schemas/Objects_5"
+              },
+              "applicationId": {
+                "type": "string"
+              },
+              "departmentId": {
+                "type": "string"
+              },
+              "etag": {
+                "type": "string"
+              },
+              "interviewer": {
+                "$ref": "#/components/schemas/Objects_4"
+              },
+              "interviewId": {
+                "type": "string"
+              },
+              "notificationState": {
+                "$ref": "#/components/schemas/Union_9"
+              },
+              "responseMessage": {
+                "type": "null"
+              },
+              "responseState": {
+                "type": "null"
+              },
+              "revision": {
+                "allOf": [
+                  {
+                    "minimum": 0
+                  }
+                ],
+                "type": "integer"
+              },
+              "schedule": {
+                "$ref": "#/components/schemas/Union_8"
+              }
+            },
+            "required": [
+              "interviewId",
+              "applicationId",
+              "departmentId",
+              "interviewer",
+              "applicant",
+              "revision",
+              "schedule",
+              "notificationState",
+              "responseState",
+              "responseMessage",
+              "etag"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "applicant": {
+                "$ref": "#/components/schemas/Objects_5"
+              },
+              "applicationId": {
+                "type": "string"
+              },
+              "departmentId": {
+                "type": "string"
+              },
+              "etag": {
+                "type": "string"
+              },
+              "interviewer": {
+                "$ref": "#/components/schemas/Objects_4"
+              },
+              "interviewId": {
+                "type": "string"
+              },
+              "notificationState": {
+                "$ref": "#/components/schemas/Union_9"
+              },
+              "responseMessage": {
+                "type": "null"
+              },
+              "responseState": {
+                "enum": [
+                  "Pending",
+                  "Accepted"
+                ],
+                "type": "string"
+              },
+              "revision": {
+                "allOf": [
+                  {
+                    "minimum": 0
+                  }
+                ],
+                "type": "integer"
+              },
+              "schedule": {
+                "$ref": "#/components/schemas/Union_8"
+              }
+            },
+            "required": [
+              "interviewId",
+              "applicationId",
+              "departmentId",
+              "interviewer",
+              "applicant",
+              "revision",
+              "schedule",
+              "notificationState",
+              "responseState",
+              "responseMessage",
+              "etag"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "applicant": {
+                "$ref": "#/components/schemas/Objects_5"
+              },
+              "applicationId": {
+                "type": "string"
+              },
+              "departmentId": {
+                "type": "string"
+              },
+              "etag": {
+                "type": "string"
+              },
+              "interviewer": {
+                "$ref": "#/components/schemas/Objects_4"
+              },
+              "interviewId": {
+                "type": "string"
+              },
+              "notificationState": {
+                "$ref": "#/components/schemas/Union_9"
+              },
+              "responseMessage": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "responseState": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "Rejected"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "revision": {
+                "allOf": [
+                  {
+                    "minimum": 0
+                  }
+                ],
+                "type": "integer"
+              },
+              "schedule": {
+                "$ref": "#/components/schemas/Union_8"
+              }
+            },
+            "required": [
+              "interviewId",
+              "applicationId",
+              "departmentId",
+              "interviewer",
+              "applicant",
+              "revision",
+              "schedule",
+              "notificationState",
+              "responseState",
+              "responseMessage",
+              "etag"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "applicant": {
+                "$ref": "#/components/schemas/Objects_5"
+              },
+              "applicationId": {
+                "type": "string"
+              },
+              "departmentId": {
+                "type": "string"
+              },
+              "etag": {
+                "type": "string"
+              },
+              "interviewer": {
+                "$ref": "#/components/schemas/Objects_4"
+              },
+              "interviewId": {
+                "type": "string"
+              },
+              "notificationState": {
+                "$ref": "#/components/schemas/Union_9"
+              },
+              "responseMessage": {
+                "type": "string"
+              },
+              "responseState": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "RequestedNewTime"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "revision": {
+                "allOf": [
+                  {
+                    "minimum": 0
+                  }
+                ],
+                "type": "integer"
+              },
+              "schedule": {
+                "$ref": "#/components/schemas/Union_8"
+              }
+            },
+            "required": [
+              "interviewId",
+              "applicationId",
+              "departmentId",
+              "interviewer",
+              "applicant",
+              "revision",
+              "schedule",
+              "notificationState",
+              "responseState",
+              "responseMessage",
+              "etag"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "One interview with the strong validator for its mutation."
       },
       "SchoolDirectory": {
         "additionalProperties": false,

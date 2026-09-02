@@ -44,6 +44,7 @@ Since v0.1.0
   - [RequestNewInvitationTimeEndpoint](#requestnewinvitationtimeendpoint)
   - [ScheduleInterviewEndpoint](#scheduleinterviewendpoint)
   - [SchedulingBoard](#schedulingboard)
+  - [SchedulingInterview](#schedulinginterview)
 
 ---
 
@@ -59,7 +60,7 @@ Recruitment assignment, scheduling, conduct, and invitation API.
 declare class RecruitmentApi
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L534)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L550)
 
 Since v0.1.0
 
@@ -75,7 +76,7 @@ Exact empty JSON object required when accepting an invitation.
 declare const ConfirmInvitationPayload: Schema.Codec<{}, {}, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L192)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L195)
 
 Since v0.1.0
 
@@ -131,7 +132,7 @@ declare const AssignApplicantEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L387)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L403)
 
 Since v0.1.0 @category Endpoints
 
@@ -189,7 +190,7 @@ declare const AssignmentBoard: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L223)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L226)
 
 ### CancelInterviewEndpoint
 
@@ -234,7 +235,7 @@ declare const CancelInterviewEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L501)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L517)
 
 Since v0.1.0 @category Endpoints
 
@@ -277,7 +278,7 @@ declare const ConductObservation: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L235)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L251)
 
 ### ConfirmInvitationEndpoint
 
@@ -314,7 +315,7 @@ declare const ConfirmInvitationEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L261)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L277)
 
 Since v0.1.0 @category Endpoints
 
@@ -375,7 +376,7 @@ declare const FinalizeInterviewEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L473)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L489)
 
 Since v0.1.0 @category Endpoints
 
@@ -392,7 +393,7 @@ declare const InvitationRejectInput: Schema.Codec<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L200)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L203)
 
 ### InvitationRequestNewTimeInput
 
@@ -407,7 +408,7 @@ declare const InvitationRequestNewTimeInput: Schema.Codec<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L208)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L211)
 
 ### InvitationResponseObservation
 
@@ -443,7 +444,7 @@ declare const InvitationResponseObservation: Schema.Union<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L216)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L219)
 
 ### ReadAssignmentBoardEndpoint
 
@@ -525,7 +526,7 @@ declare const ReadAssignmentBoardEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L330)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L346)
 
 Since v0.1.0 @category Endpoints
 
@@ -608,7 +609,7 @@ declare const ReadInterviewConductEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L443)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L459)
 
 Since v0.1.0 @category Endpoints
 
@@ -684,7 +685,7 @@ declare const ReadInvitationResponseEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L242)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L258)
 
 Since v0.1.0 @category Endpoints
 
@@ -707,127 +708,131 @@ declare const ReadSchedulingBoardEndpoint: HttpApiEndpoint.HttpApiEndpoint<
         readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
         readonly interviews: Schema.$Array<
           Schema.Union<
-            readonly [
-              Schema.Struct<{
-                readonly responseState: Schema.Null;
-                readonly responseMessage: Schema.Null;
-                readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
-                readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-                readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-                readonly interviewer: Schema.Struct<{
-                  readonly personId: Schema.brand<Schema.String, "PersonId">;
-                  readonly displayName: Schema.String;
-                  readonly email: Schema.String;
-                  readonly phone: Schema.String;
-                }>;
-                readonly applicant: Schema.Struct<{
+            ReadonlyArray<
+              | Schema.Struct<{
+                  readonly etag: Schema.brand<Schema.String, "StrongETag">;
+                  readonly responseState: Schema.Null;
+                  readonly responseMessage: Schema.Null;
+                  readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
                   readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-                  readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
-                  readonly firstName: Schema.String;
-                  readonly lastName: Schema.String;
-                  readonly email: Schema.String;
-                  readonly phone: Schema.String;
-                }>;
-                readonly revision: Schema.Int;
-                readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
-                readonly notificationState: Schema.NullOr<
-                  Schema.Literals<
-                    readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]
-                  >
-                >;
-              }>,
-              Schema.Struct<{
-                readonly responseState: Schema.Literals<readonly ["Pending", "Accepted"]>;
-                readonly responseMessage: Schema.Null;
-                readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
-                readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-                readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-                readonly interviewer: Schema.Struct<{
-                  readonly personId: Schema.brand<Schema.String, "PersonId">;
-                  readonly displayName: Schema.String;
-                  readonly email: Schema.String;
-                  readonly phone: Schema.String;
-                }>;
-                readonly applicant: Schema.Struct<{
+                  readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+                  readonly interviewer: Schema.Struct<{
+                    readonly personId: Schema.brand<Schema.String, "PersonId">;
+                    readonly displayName: Schema.String;
+                    readonly email: Schema.String;
+                    readonly phone: Schema.String;
+                  }>;
+                  readonly applicant: Schema.Struct<{
+                    readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+                    readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
+                    readonly firstName: Schema.String;
+                    readonly lastName: Schema.String;
+                    readonly email: Schema.String;
+                    readonly phone: Schema.String;
+                  }>;
+                  readonly revision: Schema.Int;
+                  readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
+                  readonly notificationState: Schema.NullOr<
+                    Schema.Literals<
+                      readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]
+                    >
+                  >;
+                }>
+              | Schema.Struct<{
+                  readonly etag: Schema.brand<Schema.String, "StrongETag">;
+                  readonly responseState: Schema.Literals<readonly ["Pending", "Accepted"]>;
+                  readonly responseMessage: Schema.Null;
+                  readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
                   readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-                  readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
-                  readonly firstName: Schema.String;
-                  readonly lastName: Schema.String;
-                  readonly email: Schema.String;
-                  readonly phone: Schema.String;
-                }>;
-                readonly revision: Schema.Int;
-                readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
-                readonly notificationState: Schema.NullOr<
-                  Schema.Literals<
-                    readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]
-                  >
-                >;
-              }>,
-              Schema.Struct<{
-                readonly responseState: Schema.Literals<readonly ["Rejected"]>;
-                readonly responseMessage: Schema.NullOr<
-                  Schema.decodeTo<Schema.String, Schema.String, never, never>
-                >;
-                readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
-                readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-                readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-                readonly interviewer: Schema.Struct<{
-                  readonly personId: Schema.brand<Schema.String, "PersonId">;
-                  readonly displayName: Schema.String;
-                  readonly email: Schema.String;
-                  readonly phone: Schema.String;
-                }>;
-                readonly applicant: Schema.Struct<{
+                  readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+                  readonly interviewer: Schema.Struct<{
+                    readonly personId: Schema.brand<Schema.String, "PersonId">;
+                    readonly displayName: Schema.String;
+                    readonly email: Schema.String;
+                    readonly phone: Schema.String;
+                  }>;
+                  readonly applicant: Schema.Struct<{
+                    readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+                    readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
+                    readonly firstName: Schema.String;
+                    readonly lastName: Schema.String;
+                    readonly email: Schema.String;
+                    readonly phone: Schema.String;
+                  }>;
+                  readonly revision: Schema.Int;
+                  readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
+                  readonly notificationState: Schema.NullOr<
+                    Schema.Literals<
+                      readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]
+                    >
+                  >;
+                }>
+              | Schema.Struct<{
+                  readonly etag: Schema.brand<Schema.String, "StrongETag">;
+                  readonly responseState: Schema.Literals<readonly ["Rejected"]>;
+                  readonly responseMessage: Schema.NullOr<
+                    Schema.decodeTo<Schema.String, Schema.String, never, never>
+                  >;
+                  readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
                   readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-                  readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
-                  readonly firstName: Schema.String;
-                  readonly lastName: Schema.String;
-                  readonly email: Schema.String;
-                  readonly phone: Schema.String;
-                }>;
-                readonly revision: Schema.Int;
-                readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
-                readonly notificationState: Schema.NullOr<
-                  Schema.Literals<
-                    readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]
-                  >
-                >;
-              }>,
-              Schema.Struct<{
-                readonly responseState: Schema.Literals<readonly ["RequestedNewTime"]>;
-                readonly responseMessage: Schema.decodeTo<
-                  Schema.String,
-                  Schema.String,
-                  never,
-                  never
-                >;
-                readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
-                readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-                readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-                readonly interviewer: Schema.Struct<{
-                  readonly personId: Schema.brand<Schema.String, "PersonId">;
-                  readonly displayName: Schema.String;
-                  readonly email: Schema.String;
-                  readonly phone: Schema.String;
-                }>;
-                readonly applicant: Schema.Struct<{
+                  readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+                  readonly interviewer: Schema.Struct<{
+                    readonly personId: Schema.brand<Schema.String, "PersonId">;
+                    readonly displayName: Schema.String;
+                    readonly email: Schema.String;
+                    readonly phone: Schema.String;
+                  }>;
+                  readonly applicant: Schema.Struct<{
+                    readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+                    readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
+                    readonly firstName: Schema.String;
+                    readonly lastName: Schema.String;
+                    readonly email: Schema.String;
+                    readonly phone: Schema.String;
+                  }>;
+                  readonly revision: Schema.Int;
+                  readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
+                  readonly notificationState: Schema.NullOr<
+                    Schema.Literals<
+                      readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]
+                    >
+                  >;
+                }>
+              | Schema.Struct<{
+                  readonly etag: Schema.brand<Schema.String, "StrongETag">;
+                  readonly responseState: Schema.Literals<readonly ["RequestedNewTime"]>;
+                  readonly responseMessage: Schema.decodeTo<
+                    Schema.String,
+                    Schema.String,
+                    never,
+                    never
+                  >;
+                  readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
                   readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-                  readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
-                  readonly firstName: Schema.String;
-                  readonly lastName: Schema.String;
-                  readonly email: Schema.String;
-                  readonly phone: Schema.String;
-                }>;
-                readonly revision: Schema.Int;
-                readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
-                readonly notificationState: Schema.NullOr<
-                  Schema.Literals<
-                    readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]
-                  >
-                >;
-              }>,
-            ]
+                  readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+                  readonly interviewer: Schema.Struct<{
+                    readonly personId: Schema.brand<Schema.String, "PersonId">;
+                    readonly displayName: Schema.String;
+                    readonly email: Schema.String;
+                    readonly phone: Schema.String;
+                  }>;
+                  readonly applicant: Schema.Struct<{
+                    readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+                    readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
+                    readonly firstName: Schema.String;
+                    readonly lastName: Schema.String;
+                    readonly email: Schema.String;
+                    readonly phone: Schema.String;
+                  }>;
+                  readonly revision: Schema.Int;
+                  readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
+                  readonly notificationState: Schema.NullOr<
+                    Schema.Literals<
+                      readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]
+                    >
+                  >;
+                }>
+            >
           >
         >;
       }>
@@ -845,7 +850,7 @@ declare const ReadSchedulingBoardEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L359)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L375)
 
 Since v0.1.0 @category Endpoints
 
@@ -891,7 +896,7 @@ declare const RejectInvitationEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L283)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L299)
 
 Since v0.1.0 @category Endpoints
 
@@ -932,7 +937,7 @@ declare const RequestNewInvitationTimeEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L305)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L321)
 
 Since v0.1.0 @category Endpoints
 
@@ -991,7 +996,7 @@ declare const ScheduleInterviewEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L415)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L431)
 
 Since v0.1.0 @category Endpoints
 
@@ -1004,125 +1009,252 @@ declare const SchedulingBoard: Schema.Struct<{
   readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
   readonly interviews: Schema.$Array<
     Schema.Union<
-      readonly [
-        Schema.Struct<{
-          readonly responseState: Schema.Null;
-          readonly responseMessage: Schema.Null;
-          readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
-          readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-          readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-          readonly interviewer: Schema.Struct<{
-            readonly personId: Schema.brand<Schema.String, "PersonId">;
-            readonly displayName: Schema.String;
-            readonly email: Schema.String;
-            readonly phone: Schema.String;
-          }>;
-          readonly applicant: Schema.Struct<{
+      ReadonlyArray<
+        | Schema.Struct<{
+            readonly etag: Schema.brand<Schema.String, "StrongETag">;
+            readonly responseState: Schema.Null;
+            readonly responseMessage: Schema.Null;
+            readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
             readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-            readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
-            readonly firstName: Schema.String;
-            readonly lastName: Schema.String;
-            readonly email: Schema.String;
-            readonly phone: Schema.String;
-          }>;
-          readonly revision: Schema.Int;
-          readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
-          readonly notificationState: Schema.NullOr<
-            Schema.Literals<
-              readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]
-            >
-          >;
-        }>,
-        Schema.Struct<{
-          readonly responseState: Schema.Literals<readonly ["Pending", "Accepted"]>;
-          readonly responseMessage: Schema.Null;
-          readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
-          readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-          readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-          readonly interviewer: Schema.Struct<{
-            readonly personId: Schema.brand<Schema.String, "PersonId">;
-            readonly displayName: Schema.String;
-            readonly email: Schema.String;
-            readonly phone: Schema.String;
-          }>;
-          readonly applicant: Schema.Struct<{
+            readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+            readonly interviewer: Schema.Struct<{
+              readonly personId: Schema.brand<Schema.String, "PersonId">;
+              readonly displayName: Schema.String;
+              readonly email: Schema.String;
+              readonly phone: Schema.String;
+            }>;
+            readonly applicant: Schema.Struct<{
+              readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+              readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
+              readonly firstName: Schema.String;
+              readonly lastName: Schema.String;
+              readonly email: Schema.String;
+              readonly phone: Schema.String;
+            }>;
+            readonly revision: Schema.Int;
+            readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
+            readonly notificationState: Schema.NullOr<
+              Schema.Literals<
+                readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]
+              >
+            >;
+          }>
+        | Schema.Struct<{
+            readonly etag: Schema.brand<Schema.String, "StrongETag">;
+            readonly responseState: Schema.Literals<readonly ["Pending", "Accepted"]>;
+            readonly responseMessage: Schema.Null;
+            readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
             readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-            readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
-            readonly firstName: Schema.String;
-            readonly lastName: Schema.String;
-            readonly email: Schema.String;
-            readonly phone: Schema.String;
-          }>;
-          readonly revision: Schema.Int;
-          readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
-          readonly notificationState: Schema.NullOr<
-            Schema.Literals<
-              readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]
-            >
-          >;
-        }>,
-        Schema.Struct<{
-          readonly responseState: Schema.Literals<readonly ["Rejected"]>;
-          readonly responseMessage: Schema.NullOr<
-            Schema.decodeTo<Schema.String, Schema.String, never, never>
-          >;
-          readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
-          readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-          readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-          readonly interviewer: Schema.Struct<{
-            readonly personId: Schema.brand<Schema.String, "PersonId">;
-            readonly displayName: Schema.String;
-            readonly email: Schema.String;
-            readonly phone: Schema.String;
-          }>;
-          readonly applicant: Schema.Struct<{
+            readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+            readonly interviewer: Schema.Struct<{
+              readonly personId: Schema.brand<Schema.String, "PersonId">;
+              readonly displayName: Schema.String;
+              readonly email: Schema.String;
+              readonly phone: Schema.String;
+            }>;
+            readonly applicant: Schema.Struct<{
+              readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+              readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
+              readonly firstName: Schema.String;
+              readonly lastName: Schema.String;
+              readonly email: Schema.String;
+              readonly phone: Schema.String;
+            }>;
+            readonly revision: Schema.Int;
+            readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
+            readonly notificationState: Schema.NullOr<
+              Schema.Literals<
+                readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]
+              >
+            >;
+          }>
+        | Schema.Struct<{
+            readonly etag: Schema.brand<Schema.String, "StrongETag">;
+            readonly responseState: Schema.Literals<readonly ["Rejected"]>;
+            readonly responseMessage: Schema.NullOr<
+              Schema.decodeTo<Schema.String, Schema.String, never, never>
+            >;
+            readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
             readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-            readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
-            readonly firstName: Schema.String;
-            readonly lastName: Schema.String;
-            readonly email: Schema.String;
-            readonly phone: Schema.String;
-          }>;
-          readonly revision: Schema.Int;
-          readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
-          readonly notificationState: Schema.NullOr<
-            Schema.Literals<
-              readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]
-            >
-          >;
-        }>,
-        Schema.Struct<{
-          readonly responseState: Schema.Literals<readonly ["RequestedNewTime"]>;
-          readonly responseMessage: Schema.decodeTo<Schema.String, Schema.String, never, never>;
-          readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
-          readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-          readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-          readonly interviewer: Schema.Struct<{
-            readonly personId: Schema.brand<Schema.String, "PersonId">;
-            readonly displayName: Schema.String;
-            readonly email: Schema.String;
-            readonly phone: Schema.String;
-          }>;
-          readonly applicant: Schema.Struct<{
+            readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+            readonly interviewer: Schema.Struct<{
+              readonly personId: Schema.brand<Schema.String, "PersonId">;
+              readonly displayName: Schema.String;
+              readonly email: Schema.String;
+              readonly phone: Schema.String;
+            }>;
+            readonly applicant: Schema.Struct<{
+              readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+              readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
+              readonly firstName: Schema.String;
+              readonly lastName: Schema.String;
+              readonly email: Schema.String;
+              readonly phone: Schema.String;
+            }>;
+            readonly revision: Schema.Int;
+            readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
+            readonly notificationState: Schema.NullOr<
+              Schema.Literals<
+                readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]
+              >
+            >;
+          }>
+        | Schema.Struct<{
+            readonly etag: Schema.brand<Schema.String, "StrongETag">;
+            readonly responseState: Schema.Literals<readonly ["RequestedNewTime"]>;
+            readonly responseMessage: Schema.decodeTo<Schema.String, Schema.String, never, never>;
+            readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
             readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-            readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
-            readonly firstName: Schema.String;
-            readonly lastName: Schema.String;
-            readonly email: Schema.String;
-            readonly phone: Schema.String;
-          }>;
-          readonly revision: Schema.Int;
-          readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
-          readonly notificationState: Schema.NullOr<
-            Schema.Literals<
-              readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]
-            >
-          >;
-        }>,
-      ]
+            readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+            readonly interviewer: Schema.Struct<{
+              readonly personId: Schema.brand<Schema.String, "PersonId">;
+              readonly displayName: Schema.String;
+              readonly email: Schema.String;
+              readonly phone: Schema.String;
+            }>;
+            readonly applicant: Schema.Struct<{
+              readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+              readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
+              readonly firstName: Schema.String;
+              readonly lastName: Schema.String;
+              readonly email: Schema.String;
+              readonly phone: Schema.String;
+            }>;
+            readonly revision: Schema.Int;
+            readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
+            readonly notificationState: Schema.NullOr<
+              Schema.Literals<
+                readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]
+              >
+            >;
+          }>
+      >
     >
   >;
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L229)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L242)
+
+### SchedulingInterview
+
+**Signature**
+
+```ts
+declare const SchedulingInterview: Schema.Union<
+  ReadonlyArray<
+    | Schema.Struct<{
+        readonly etag: Schema.brand<Schema.String, "StrongETag">;
+        readonly responseState: Schema.Null;
+        readonly responseMessage: Schema.Null;
+        readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
+        readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+        readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+        readonly interviewer: Schema.Struct<{
+          readonly personId: Schema.brand<Schema.String, "PersonId">;
+          readonly displayName: Schema.String;
+          readonly email: Schema.String;
+          readonly phone: Schema.String;
+        }>;
+        readonly applicant: Schema.Struct<{
+          readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+          readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
+          readonly firstName: Schema.String;
+          readonly lastName: Schema.String;
+          readonly email: Schema.String;
+          readonly phone: Schema.String;
+        }>;
+        readonly revision: Schema.Int;
+        readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
+        readonly notificationState: Schema.NullOr<
+          Schema.Literals<readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]>
+        >;
+      }>
+    | Schema.Struct<{
+        readonly etag: Schema.brand<Schema.String, "StrongETag">;
+        readonly responseState: Schema.Literals<readonly ["Pending", "Accepted"]>;
+        readonly responseMessage: Schema.Null;
+        readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
+        readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+        readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+        readonly interviewer: Schema.Struct<{
+          readonly personId: Schema.brand<Schema.String, "PersonId">;
+          readonly displayName: Schema.String;
+          readonly email: Schema.String;
+          readonly phone: Schema.String;
+        }>;
+        readonly applicant: Schema.Struct<{
+          readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+          readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
+          readonly firstName: Schema.String;
+          readonly lastName: Schema.String;
+          readonly email: Schema.String;
+          readonly phone: Schema.String;
+        }>;
+        readonly revision: Schema.Int;
+        readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
+        readonly notificationState: Schema.NullOr<
+          Schema.Literals<readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]>
+        >;
+      }>
+    | Schema.Struct<{
+        readonly etag: Schema.brand<Schema.String, "StrongETag">;
+        readonly responseState: Schema.Literals<readonly ["Rejected"]>;
+        readonly responseMessage: Schema.NullOr<
+          Schema.decodeTo<Schema.String, Schema.String, never, never>
+        >;
+        readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
+        readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+        readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+        readonly interviewer: Schema.Struct<{
+          readonly personId: Schema.brand<Schema.String, "PersonId">;
+          readonly displayName: Schema.String;
+          readonly email: Schema.String;
+          readonly phone: Schema.String;
+        }>;
+        readonly applicant: Schema.Struct<{
+          readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+          readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
+          readonly firstName: Schema.String;
+          readonly lastName: Schema.String;
+          readonly email: Schema.String;
+          readonly phone: Schema.String;
+        }>;
+        readonly revision: Schema.Int;
+        readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
+        readonly notificationState: Schema.NullOr<
+          Schema.Literals<readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]>
+        >;
+      }>
+    | Schema.Struct<{
+        readonly etag: Schema.brand<Schema.String, "StrongETag">;
+        readonly responseState: Schema.Literals<readonly ["RequestedNewTime"]>;
+        readonly responseMessage: Schema.decodeTo<Schema.String, Schema.String, never, never>;
+        readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
+        readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+        readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+        readonly interviewer: Schema.Struct<{
+          readonly personId: Schema.brand<Schema.String, "PersonId">;
+          readonly displayName: Schema.String;
+          readonly email: Schema.String;
+          readonly phone: Schema.String;
+        }>;
+        readonly applicant: Schema.Struct<{
+          readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+          readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
+          readonly firstName: Schema.String;
+          readonly lastName: Schema.String;
+          readonly email: Schema.String;
+          readonly phone: Schema.String;
+        }>;
+        readonly revision: Schema.Int;
+        readonly schedule: Schema.NullOr<typeof RecruitmentInterviewSchedule>;
+        readonly notificationState: Schema.NullOr<
+          Schema.Literals<readonly ["Pending", "Processing", "Delivered", "Failed", "Quarantined"]>
+        >;
+      }>
+  >
+>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L232)
