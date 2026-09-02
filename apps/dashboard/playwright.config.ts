@@ -26,15 +26,17 @@ export const resolveReceiptOwnerDashboardTopology = (
 
 const genericDashboardOrigin = "http://127.0.0.1:5174";
 const realNativeIdentityMode = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
+const realNativeOAuthMode = process.env.REAL_NATIVE_OAUTH_E2E === "1";
 const configuredDashboardOrigin = process.env.DASHBOARD_ORIGIN;
-const externalDashboardOrigin = realNativeIdentityMode
-  ? (() => {
-      if (configuredDashboardOrigin === undefined || configuredDashboardOrigin.length === 0) {
-        throw new Error("DASHBOARD_ORIGIN is required for REAL_NATIVE_IDENTITY_E2E");
-      }
-      return configuredDashboardOrigin;
-    })()
-  : (configuredDashboardOrigin ?? genericDashboardOrigin);
+const externalDashboardOrigin =
+  realNativeIdentityMode || realNativeOAuthMode
+    ? (() => {
+        if (configuredDashboardOrigin === undefined || configuredDashboardOrigin.length === 0) {
+          throw new Error("DASHBOARD_ORIGIN is required for REAL_NATIVE_IDENTITY_E2E");
+        }
+        return configuredDashboardOrigin;
+      })()
+    : (configuredDashboardOrigin ?? genericDashboardOrigin);
 const realSymfonyCoreOrigin = process.env.API_URL ?? "http://127.0.0.1:8000";
 const realSymfonyCoreMode = process.env.REAL_SYMFONY_CORE_E2E === "1";
 const realSymfonyRecruitmentMode = process.env.REAL_SYMFONY_RECRUITMENT_E2E === "1";
@@ -62,6 +64,7 @@ const externalTopologyMode =
   realSymfonyMode ||
   realReceiptOwnerMode ||
   realNativeIdentityMode ||
+  realNativeOAuthMode ||
   realAdmissionPeriodMode ||
   realNativeSchedulingMode ||
   realNativeInvitationResponseMode ||
@@ -104,7 +107,7 @@ export default defineConfig({
       receiptOwnerDashboardTopology?.baseURL ??
       (realAdmissionPeriodMode ||
       realNativeIdentityMode ||
-      realNativeInvitationResponseMode ||
+      realNativeOAuthMode ||
       realNativeOrganizationMode ||
       realNativeConductMode ||
       realNativeProfileMode
@@ -142,7 +145,7 @@ export default defineConfig({
             },
           },
         ]
-      : realNativeIdentityMode
+      : realNativeIdentityMode || realNativeOAuthMode
         ? [
             {
               name: "chromium",

@@ -14,8 +14,13 @@ type SessionInspection =
   | { readonly _tag: "Invalid" };
 
 export type SignInResult =
-  | { readonly _tag: "Authenticated"; readonly headers: Headers }
+  | {
+      readonly _tag: "Authenticated";
+      readonly headers: Headers;
+      readonly continuation?: string;
+    }
   | { readonly _tag: "InvalidCredentials" }
+  | { readonly _tag: "InvalidOAuthRequest" }
   | { readonly _tag: "RateLimited" }
   | { readonly _tag: "Unavailable" };
 
@@ -110,6 +115,7 @@ export async function signInWithEmail(
   request: Request,
   email: string,
   password: string,
+  oauthQuery?: string,
 ): Promise<SignInResult> {
   const headers = backendRequestHeaders(request, false);
   headers.set("Content-Type", "application/json");
@@ -119,7 +125,11 @@ export async function signInWithEmail(
     response = await fetch(serverApiEndpoint("/api/auth/sign-in/email"), {
       method: "POST",
       headers,
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({
+        email,
+        password,
+        ...(oauthQuery === undefined ? {} : { oauth_query: oauthQuery }),
+      }),
       signal: request.signal,
       redirect: "manual",
     });
@@ -128,15 +138,32 @@ export async function signInWithEmail(
   }
   if (response.status === 429) return { _tag: "RateLimited" };
   if (response.status === 401) return { _tag: "InvalidCredentials" };
+  if (oauthQuery !== undefined && response.status === 400) return { _tag: "InvalidOAuthRequest" };
   if (!response.ok) return { _tag: "Unavailable" };
 
   const responseHeaders = forwardSetCookieHeaders(response.headers);
   const sessionIssued = responseHeaders
     .getSetCookie()
     .some((value) => SESSION_COOKIE_NAMES.some((name) => value.startsWith(`${name}=`)));
-  return sessionIssued
-    ? { _tag: "Authenticated", headers: responseHeaders }
-    : { _tag: "Unavailable" };
+  if (!sessionIssued) return { _tag: "Unavailable" };
+  if (oauthQuery === undefined) return { _tag: "Authenticated", headers: responseHeaders };
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return { _tag: "Unavailable" };
+  }
+  if (
+    body === null ||
+    typeof body !== "object" ||
+    !("redirect" in body) ||
+    body.redirect !== true ||
+    !("url" in body) ||
+    typeof body.url !== "string"
+  ) {
+    return { _tag: "Unavailable" };
+  }
+  return { _tag: "Authenticated", headers: responseHeaders, continuation: body.url };
 }
 
 function expiredSessionCookieHeaders(request: Request): Headers {
@@ -171,11 +198,24 @@ export async function hasAuthenticatedSession(request: Request): Promise<boolean
   return (await inspectSession(request))._tag === "Authenticated";
 }
 
-export async function requireAuth(request: Request): Promise<string> {
+export async function requireAuth(
+  request: Request,
+  oauthLoginDestination?: string,
+): Promise<string> {
   const session = await inspectSession(request);
   if (session._tag === "Authenticated") return session.cookie;
-  if (session._tag === "Missing") throw redirect("/login");
-  throw await expiredSessionRedirect(request);
+  if (oauthLoginDestination === undefined) {
+    if (session._tag === "Missing") throw redirect("/login");
+    throw await expiredSessionRedirect(request);
+  }
+  if (session._tag === "Missing") {
+    throw redirect(oauthLoginDestination, {
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+  const headers = await signOut(request).catch(() => new Headers());
+  headers.set("Cache-Control", "no-store");
+  throw redirect(oauthLoginDestination, { headers });
 }
 
 export function safeRedirect(destination: FormDataEntryValue | null, fallback = "/"): string {

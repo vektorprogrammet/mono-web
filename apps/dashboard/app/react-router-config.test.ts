@@ -59,4 +59,23 @@ describe("dashboard router topology", () => {
     expect(config.basename).toBe(dashboardMount({ REAL_NATIVE_CONDUCT_E2E: "1" }));
     expect(matchedIds("/login", config.basename ?? "/")).toEqual(["login"]);
   });
+
+  it("allows only an explicit canonical dashboard origin for forwarded actions", () => {
+    expect(
+      makeReactRouterConfig({
+        DASHBOARD_ORIGIN: "http://127.0.0.1:5175",
+      }).allowedActionOrigins,
+    ).toEqual(["http://127.0.0.1:5175"]);
+    expect(
+      makeReactRouterConfig({
+        DASHBOARD_ORIGIN: "https://dashboard.example.invalid",
+        PREVIEW_HOST: "preview.example.invalid",
+      }).allowedActionOrigins,
+    ).toEqual(["https://preview.example.invalid", "https://dashboard.example.invalid"]);
+    expect(
+      makeReactRouterConfig({
+        DASHBOARD_ORIGIN: "http://untrusted.example.invalid",
+      }).allowedActionOrigins,
+    ).toBeUndefined();
+  });
 });

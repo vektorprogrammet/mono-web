@@ -37,6 +37,7 @@
     "e2e:real-profile": "node e2e/run-real-native-profile-self-edit.mjs",
     "e2e:real-content-ops": "bun e2e/run-real-content-ops.mjs",
     "e2e:real-identity": "node e2e/run-real-native-identity-browser.mjs",
+    "e2e:real-oauth": "node ./node_modules/@playwright/test/cli.js test e2e/native-oauth-consent.spec.ts --project=chromium --workers=1 --retries=0",
     "e2e:merge-runtime-evidence": "bun e2e/merge-runtime-evidence.mjs"
   },
   "dependencies": {

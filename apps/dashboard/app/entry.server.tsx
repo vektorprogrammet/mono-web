@@ -12,6 +12,12 @@ export default async function handleRequest(
   routerContext: EntryContext,
   _loadContext: RouterContextProvider,
 ): Promise<Response> {
+  const pathname = new URL(request.url).pathname;
+  if (pathname === "/dashboard/login" || pathname === "/dashboard/oauth/consent") {
+    responseHeaders.set("Cache-Control", "no-store");
+    responseHeaders.set("Pragma", "no-cache");
+    responseHeaders.set("Referrer-Policy", "no-referrer");
+  }
   if (request.method.toUpperCase() === "HEAD") {
     return new Response(null, {
       status: responseStatusCode,

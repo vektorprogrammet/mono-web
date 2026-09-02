@@ -1697,6 +1697,44 @@ const handleConsentWithdrawal = async (
   if (!response.ok) throw new Error("provider consent cleanup failed after owned revocation");
   return response;
 };
+const handlePublicClient = async (
+  engine: OAuthEngineBoundary,
+  pool: Pool,
+  request: Request,
+): Promise<Response> => {
+  const clientId = new URL(request.url).searchParams.get("client_id");
+  if (clientId === null) return invalidOAuthResponse(400, "invalid_request");
+  const client = await readClientAuthority(pool, clientId);
+  if (
+    client === undefined ||
+    (client.client_kind !== "DelegatedPublic" && client.client_kind !== "DelegatedConfidential")
+  ) {
+    return invalidOAuthResponse(404, "invalid_request");
+  }
+  const buffered = await boundedProviderResponse(await engine.handler(request));
+  if (!buffered.response.ok) return buffered.response;
+  const provider = decodeUnknownRecordJson(buffered.body);
+  if (
+    provider.client_id !== clientId ||
+    typeof provider.client_name !== "string" ||
+    provider.client_name.length === 0 ||
+    provider.client_name.length > 160
+  ) {
+    throw new Error("provider returned a malformed public client");
+  }
+  const headers = new Headers(buffered.response.headers);
+  headers.set("cache-control", "no-store");
+  headers.set("pragma", "no-cache");
+  headers.set("content-type", "application/json; charset=utf-8");
+  return Response.json(
+    {
+      client_id: clientId,
+      client_name: provider.client_name,
+      client_kind: client.client_kind,
+    },
+    { status: buffered.response.status, headers },
+  );
+};
 
 export const makeOAuthReleaseBarrier =
   (
@@ -1707,6 +1745,9 @@ export const makeOAuthReleaseBarrier =
   async (request, context) => {
     const pathname = new URL(request.url).pathname;
     try {
+      if (request.method === "GET" && pathname === "/api/auth/oauth2/public-client") {
+        return await handlePublicClient(engine, pool, request);
+      }
       if (request.method === "POST" && pathname === "/api/auth/oauth2/token") {
         return await handleToken(engine, pool, request, context, config);
       }

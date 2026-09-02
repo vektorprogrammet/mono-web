@@ -189,6 +189,77 @@ describe("native dashboard authentication", () => {
     });
   });
 
+  it("forwards the opaque OAuth query in the credential request and returns the provider continuation", async () => {
+    const query = "client_id=client&sig=opaque%2Bbytes";
+    const cookies = ["better-auth.session_token=session-value; Path=/; HttpOnly; SameSite=Lax"];
+    const fetchMock = vi.fn().mockResolvedValue(
+      responseWithCookies(
+        200,
+        cookies,
+        JSON.stringify({
+          redirect: true,
+          url: "https://dashboard.example/dashboard/oauth/consent?next=signed",
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const request = new Request("https://dashboard.example/dashboard/login", {
+      method: "POST",
+      headers: { Origin: "https://dashboard.example" },
+    });
+
+    const result = await signInWithEmail(request, "ada@example.com", "correct horse", query);
+
+    expect(result._tag).toBe("Authenticated");
+    if (result._tag !== "Authenticated") throw new Error("expected authenticated result");
+    expect(result.continuation).toBe(
+      "https://dashboard.example/dashboard/oauth/consent?next=signed",
+    );
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({
+      email: "ada@example.com",
+      password: "correct horse",
+      oauth_query: query,
+    });
+  });
+
+  it("maps a provider signature rejection without exposing its body", async () => {
+    const response = responseWithCookies(
+      400,
+      [],
+      "sig=credential-engine-state-that-must-not-be-returned",
+    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+    const request = new Request("https://dashboard.example/dashboard/login", {
+      method: "POST",
+      headers: { Origin: "https://dashboard.example" },
+    });
+
+    await expect(
+      signInWithEmail(request, "ada@example.com", "correct horse", "sig=tampered"),
+    ).resolves.toEqual({ _tag: "InvalidOAuthRequest" });
+    expect(response.bodyUsed).toBe(false);
+  });
+
+  it("preserves the exact OAuth login destination for a missing session", async () => {
+    const destination = "/login?client_id=client&sig=opaque%2Bbytes";
+    let failure: unknown;
+    try {
+      await requireAuth(
+        new Request("https://dashboard.example/dashboard/oauth/consent"),
+        destination,
+      );
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(Response);
+    const response = failure as Response;
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe(destination);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+
   it.each([
     [401, "InvalidCredentials"],
     [429, "RateLimited"],
