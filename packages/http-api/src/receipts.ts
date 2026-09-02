@@ -16,7 +16,12 @@ import { Schema } from "effect";
 import { Multipart } from "effect/unstable/http";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, personNativeAccess } from "./access.js";
-import { operationAnnotations, PersonSecurity, receiptErrorBody } from "./common.js";
+import {
+  operationAnnotations,
+  PersonSecurity,
+  receiptErrorBody,
+  SessionSecurity,
+} from "./common.js";
 import { StrongETag } from "./http-semantics.js";
 
 const MultipartText = Schema.String;
@@ -471,7 +476,7 @@ export const ReadReceiptEvidenceEndpoint = annotateAccessSpec(
     success: ReceiptLifecycleEvidenceResponse,
     error: ReceiptErrors,
   })
-    .middleware(PersonSecurity)
+    .middleware(SessionSecurity)
     .annotateMerge(
       operationAnnotations("Read receipt evidence", "Reads E2E-only receipt lifecycle evidence."),
     ),
