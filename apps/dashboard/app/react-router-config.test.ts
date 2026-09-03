@@ -11,6 +11,11 @@ import {
 const dashboardRouteConfig = [
   { id: "login", path: "login", file: "routes/login.tsx" },
   {
+    id: "recruitment-bridge",
+    path: "recruitment",
+    file: "routes/__foldkit.recruitment.ts",
+  },
+  {
     id: "dashboard",
     path: "dashboard",
     file: "routes/dashboard.tsx",
@@ -19,6 +24,11 @@ const dashboardRouteConfig = [
         id: "owned-receipts",
         path: "mine-utlegg",
         file: "routes/dashboard.mine-utlegg._index.tsx",
+      },
+      {
+        id: "profile",
+        path: "profile",
+        file: "routes/dashboard.profile._index.tsx",
       },
     ],
   },
@@ -64,11 +74,17 @@ describe("dashboard router topology", () => {
 
     expect(config.basename).toBe("/");
     expect(matchedIds("/login", apexEnvironment)).toEqual(["login"]);
+    expect(matchedIds("/recruitment", apexEnvironment)).toEqual(["recruitment-bridge"]);
     expect(matchedIds("/dashboard", apexEnvironment)).toEqual(["dashboard"]);
+    expect(matchedIds("/dashboard/profile", apexEnvironment)).toEqual(["dashboard", "profile"]);
     expect(matchedIds("/dashboard/mine-utlegg", apexEnvironment)).toEqual([
       "dashboard",
       "owned-receipts",
     ]);
+  });
+
+  it("leaves an unknown dashboard descendant unmatched at the root-mounted dashboard", () => {
+    expect(matchedIds("/dashboard/recruitment", { DASHBOARD_MOUNT: "/" })).toEqual([]);
   });
 
   it("does not infer the root mount from a preview hostname", () => {

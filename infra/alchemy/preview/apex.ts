@@ -4,6 +4,18 @@ import * as Effect from "effect/Effect";
 import { APEX_IDENTITY } from "./identity.ts";
 import { ApexWorker } from "./apex-worker-resource.ts";
 
+export const APEX_VITE_RESOURCE_MEMOS = (() => {
+  const memo = Object.freeze({
+    workspaces: [
+      Object.freeze({ cwd: "../../packages/domain" }),
+      Object.freeze({ cwd: "../../packages/http-api" }),
+      Object.freeze({ cwd: "../../packages/sdk" }),
+    ],
+  });
+  Object.freeze(memo.workspaces);
+  return Object.freeze({ homepage: memo, dashboard: memo });
+})();
+
 /**
  * Apex preview stack: stage dev-main, hostname vektor.phibkro.org.
  *
@@ -42,6 +54,7 @@ export const apexStack = Effect.gen(function* () {
   const homepage = yield* Cloudflare.Website.Vite(`${APEX_IDENTITY.resourcePrefix}-homepage`, {
     rootDir: "../../apps/homepage",
     main: "workers/app.ts",
+    memo: APEX_VITE_RESOURCE_MEMOS.homepage,
     env: { API_URL: APEX_IDENTITY.backendOrigin },
     compatibility: {
       flags: ["nodejs_compat", "nodejs_compat_populate_process_env"],
@@ -54,6 +67,7 @@ export const apexStack = Effect.gen(function* () {
   const dashboard = yield* Cloudflare.Website.Vite(`${APEX_IDENTITY.resourcePrefix}-dashboard`, {
     rootDir: "../../apps/dashboard",
     main: "workers/app.ts",
+    memo: APEX_VITE_RESOURCE_MEMOS.dashboard,
     // API_URL is server-only and reaches the tunnel origin directly.
     // VITE_API_URL is inlined into browser bundles and must stay same-origin.
     env: {

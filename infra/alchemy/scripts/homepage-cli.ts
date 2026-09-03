@@ -329,6 +329,9 @@ function runAlchemy(parsed: ParsedCloudCommand, options: HomepageCliOptions): nu
   const childEnvironment = {
     ...(options.env ?? process.env),
     ALCHEMY_TELEMETRY_DISABLED: "1",
+    ...(parsed.stage === APEX_IDENTITY.stage
+      ? { DASHBOARD_MOUNT: APEX_IDENTITY.dashboardMount }
+      : {}),
   };
   const spawn = options.spawn ?? nodeSpawnSync;
   if (parsed.command === "deploy") {

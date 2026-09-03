@@ -27,6 +27,13 @@ describe("apexSurface", () => {
     expect(apexSurface(path)).toBe("dashboard");
   });
 
+  it.each(["/dashboard/profile", "/dashboard/not-a-route", "/dashboard/recruitment"])(
+    "keeps dashboard descendant %s on the dashboard worker",
+    (path) => {
+      expect(apexSurface(path)).toBe("dashboard");
+    },
+  );
+
   it.each(["/", "/nyheter", "/team", "/interview-guidelines", "/profiles"])(
     "keeps public path %s on homepage",
     (path) => {

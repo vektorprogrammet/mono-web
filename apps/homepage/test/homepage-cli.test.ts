@@ -200,45 +200,55 @@ describe("homepage provider wrapper", () => {
 
   it.each([
     {
-      argv: ["plan", "--stage", "p001", "--profile", "alice"],
-      expected: ["plan", "alchemy.run.ts", "--stage", "p001", "--profile", "alice"],
+      argv: ["plan", "--stage", "p20", "--profile", "alice"],
+      expected: ["plan", "alchemy.run.ts", "--stage", "p20", "--profile", "alice"],
+      expectedDashboardMount: undefined,
     },
     {
       argv: ["deploy", "--stage", "dev-main", "--profile", "alice", "--yes"],
       expected: ["deploy", "alchemy.run.ts", "--stage", "dev-main", "--profile", "alice", "--yes"],
+      expectedDashboardMount: "/",
     },
     {
       argv: ["destroy", "--stage", "p999", "--profile", "alice", "--dry-run"],
       expected: ["destroy", "alchemy.run.ts", "--stage", "p999", "--profile", "alice", "--dry-run"],
+      expectedDashboardMount: undefined,
     },
-  ])("passes only explicit argv and telemetry-disabled env to Alchemy", ({ argv, expected }) => {
-    const { spawn, calls } = captureSpawn();
-    expect(
-      executeHomepageCli(argv, {
-        env: validEnvironment,
-        spawn,
-        standaloneDirectory,
-      }),
-    ).toBe(0);
-    expect(calls).toHaveLength(argv[0] === "deploy" ? 2 : 1);
-    if (argv[0] === "deploy") {
-      expect(calls[0]).toMatchObject({
-        file: process.execPath,
-        args: ["run", "--cwd", resolve(standaloneDirectory, "../..", "packages/sdk"), "build"],
+  ])(
+    "passes only stage-specific build inputs, explicit argv, and telemetry-disabled env to Alchemy",
+    ({ argv, expected, expectedDashboardMount }) => {
+      const { spawn, calls } = captureSpawn();
+      expect(
+        executeHomepageCli(argv, {
+          env: validEnvironment,
+          spawn,
+          standaloneDirectory,
+        }),
+      ).toBe(0);
+      expect(calls).toHaveLength(argv[0] === "deploy" ? 2 : 1);
+      if (argv[0] === "deploy") {
+        expect(calls[0]).toMatchObject({
+          file: process.execPath,
+          args: ["run", "--cwd", resolve(standaloneDirectory, "../..", "packages/sdk"), "build"],
+          cwd: standaloneDirectory,
+        });
+      }
+      const alchemyCall = calls.at(-1);
+      expect(alchemyCall).toMatchObject({
+        args: expected,
         cwd: standaloneDirectory,
+        env: {
+          ...validEnvironment,
+          ALCHEMY_TELEMETRY_DISABLED: "1",
+          ...(expectedDashboardMount === undefined
+            ? {}
+            : { DASHBOARD_MOUNT: expectedDashboardMount }),
+        },
       });
-    }
-    const alchemyCall = calls.at(-1);
-    expect(alchemyCall).toMatchObject({
-      args: expected,
-      cwd: standaloneDirectory,
-      env: {
-        ...validEnvironment,
-        ALCHEMY_TELEMETRY_DISABLED: "1",
-      },
-    });
-    expect(alchemyCall?.file).toBe(`${standaloneDirectory}/node_modules/.bin/alchemy`);
-  });
+      expect(alchemyCall?.env.DASHBOARD_MOUNT).toBe(expectedDashboardMount);
+      expect(alchemyCall?.file).toBe(`${standaloneDirectory}/node_modules/.bin/alchemy`);
+    },
+  );
 
   it("forwards Cloudflare credentials without treating them as target selectors", () => {
     const { spawn, calls } = captureSpawn();
