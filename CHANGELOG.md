@@ -384,6 +384,7 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 * **database:** keep AuthEngine pool alive for layer lifetime ([0142a8e](https://github.com/vektorprogrammet/mono-web/commit/0142a8e9050474848b93558375a02f8c7adfecb2))
 * **database:** make response migration replay-safe ([4f504a4](https://github.com/vektorprogrammet/mono-web/commit/4f504a4c7279536c223a6e34e02bf9891301e2ac))
 * **database:** model browser path authority ([6fbd012](https://github.com/vektorprogrammet/mono-web/commit/6fbd0121c0d76246edb356db682c7dbcca94e76c))
+* **database:** place HTTP authorities in public schema ([b55d3ee](https://github.com/vektorprogrammet/mono-web/commit/b55d3ee7332b2e7920842688432dbd8ce3e5610b))
 * **database:** preflight dashboard session capability ([2595b11](https://github.com/vektorprogrammet/mono-web/commit/2595b11e07b6f23d2a03e5c5b95dea731d8eb3fb))
 * **database:** preserve authorization proof failures ([5b30088](https://github.com/vektorprogrammet/mono-web/commit/5b30088df47dfcd323181f2d629df7247408411e))
 * **database:** remove duplicate auth engine layer ([be708de](https://github.com/vektorprogrammet/mono-web/commit/be708de5fe6d217b50462be4828d3f58e55a8589))
