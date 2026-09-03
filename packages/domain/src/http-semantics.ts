@@ -127,7 +127,7 @@ const capsuleFromRow = (row: NativeHttpReceiptRow): NativeHttpResponseCapsule =>
 
 const redactIdentityIfExpired = (sql: DatabaseShape, identitySha256: string) =>
   sql`
-    UPDATE native_http_idempotency_receipts
+    UPDATE public.native_http_idempotency_receipts
     SET
       state = 'Tombstone',
       status = NULL,
@@ -150,7 +150,7 @@ const readReceipt = (sql: DatabaseShape, identitySha256: string) =>
       media_type AS "mediaType",
       body_bytes AS "bodyBytes",
       headers_json AS headers
-    FROM native_http_idempotency_receipts
+    FROM public.native_http_idempotency_receipts
     WHERE identity_sha256 = ${identitySha256}
   `.pipe(Effect.map((rows) => rows[0]));
 
@@ -160,7 +160,7 @@ const writeCompleteReceipt = (
   capsule: NativeHttpResponseCapsule,
 ) =>
   sql`
-    INSERT INTO native_http_idempotency_receipts (
+    INSERT INTO public.native_http_idempotency_receipts (
       identity_sha256,
       request_sha256,
       operation_id,
@@ -264,7 +264,7 @@ export const redactExpiredNativeHttpReceipts = Database.use((sql) =>
     .withTransaction(
       sql<RedactionCountRow>`
       WITH redacted AS (
-        UPDATE native_http_idempotency_receipts
+        UPDATE public.native_http_idempotency_receipts
         SET
           state = 'Tombstone',
           status = NULL,
@@ -305,7 +305,7 @@ export const writeInvitationResponseCommandReceiptWithSql = (
     return Effect.fail(new NativeHttpReceiptInvalid({ reason: "invalid invitation receipt" }));
   }
   return sql`
-    INSERT INTO recruitment_invitation_response_command_receipts (
+    INSERT INTO public.recruitment_invitation_response_command_receipts (
       command_id,
       command_sha256,
       invitation_id,

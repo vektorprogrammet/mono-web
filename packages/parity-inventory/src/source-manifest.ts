@@ -660,7 +660,7 @@ const approvedSqlSourceDigests = new Map<string, string>([
   ],
   [
     "packages/database/migrations/0029-native-http-semantics.sql",
-    "sha256:3e98d690077966cb7b6787bfff9775bd76ac1e79ca16118a224cb5b2493006ce",
+    "sha256:42038dac2a5bf15ad1579b4c44e96d257d80057a6cc87abb36765073fb0139f5",
   ],
   [
     "packages/domain/src/application/migrations/0004-public-applicant-delivered-payload-cleanup.sql",

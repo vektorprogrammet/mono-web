@@ -339,14 +339,14 @@ const harness = (options: HarnessOptions = {}) => {
       if (statement.includes("SELECT pg_try_advisory_xact_lock")) {
         return Effect.succeed([{ acquired: true }]);
       }
-      if (statement.includes("UPDATE native_http_idempotency_receipts")) {
+      if (statement.includes("UPDATE public.native_http_idempotency_receipts")) {
         return Effect.succeed([]);
       }
-      if (statement.includes("FROM native_http_idempotency_receipts")) {
+      if (statement.includes("FROM public.native_http_idempotency_receipts")) {
         const stored = nativeReceipts.get(String(values[0]));
         return Effect.succeed(stored === undefined ? [] : [stored]);
       }
-      if (statement.includes("INSERT INTO native_http_idempotency_receipts")) {
+      if (statement.includes("INSERT INTO public.native_http_idempotency_receipts")) {
         nativeReceipts.set(String(values[0]), {
           requestSha256: String(values[1]),
           operationId: String(values[2]),

@@ -75,7 +75,7 @@ it.effect(
       const source = yield* readOwnProfileHttpSourcePostgres(personId).pipe(
         Effect.provideService(Database, sql),
       );
-      expect(statement).toContain("profile_http_versions");
+      expect(statement).toContain("INNER JOIN public.profile_http_versions");
 
       expect(source.representationRevision).toBe(9);
       expect(source.profile).toEqual({

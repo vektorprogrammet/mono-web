@@ -231,10 +231,10 @@ const readOwnProfileHttpSourceWith = (
       contact.email,
       contact.phone,
       contact.revision AS "contactRevision"
-    FROM person_profiles AS profile
-    INNER JOIN profile_http_versions AS http_version
+    FROM public.person_profiles AS profile
+    INNER JOIN public.profile_http_versions AS http_version
       ON http_version.person_id = profile.person_id
-    LEFT JOIN person_contact_profiles AS contact
+    LEFT JOIN public.person_contact_profiles AS contact
       ON contact.person_id = profile.person_id
     WHERE profile.person_id = ${personId}
   `.pipe(

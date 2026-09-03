@@ -82,7 +82,7 @@ const makeSql = () => {
         active.domainRevision += 1;
         return [];
       }
-      if (statement.startsWith("UPDATE native_http_idempotency_receipts")) {
+      if (statement.startsWith("UPDATE public.native_http_idempotency_receipts")) {
         const key = values[0] as string;
         const row = active.receipts.get(key);
         if (row?.state === "Complete" && row.status === -1) {
@@ -99,12 +99,12 @@ const makeSql = () => {
       }
       if (
         statement.startsWith("SELECT") &&
-        statement.includes("FROM native_http_idempotency_receipts")
+        statement.includes("FROM public.native_http_idempotency_receipts")
       ) {
         const row = active.receipts.get(values[0] as string);
         return row === undefined ? [] : [row];
       }
-      if (statement.startsWith("INSERT INTO native_http_idempotency_receipts")) {
+      if (statement.startsWith("INSERT INTO public.native_http_idempotency_receipts")) {
         receiptWriteAttempts += 1;
         active.receipts.set(values[0] as string, {
           identitySha256: values[0] as string,

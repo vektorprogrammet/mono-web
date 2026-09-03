@@ -201,6 +201,260 @@ describe("native domain schema boundary", () => {
   });
 });
 
+describe("native HTTP semantics schema boundary", () => {
+  const nativeHttpMigrationIndex = databaseMigrationDefinitions.findIndex(
+    ({ id }) => id === "29_native-http-semantics",
+  );
+  const nativeHttpMigration = databaseMigrationDefinitions[nativeHttpMigrationIndex]!;
+
+  it("places HTTP authorities in public with an auth-first search path", async () => {
+    const database = new PGlite({ extensions: { btree_gist } });
+    try {
+      await applyMigrationsThrough(database, "28_service-principal-grants");
+      await database.exec("SET search_path TO auth, public");
+      await database.exec(await readFile(nativeHttpMigration.url, "utf8"));
+
+      const relations = await database.query<{
+        readonly schemaName: string;
+        readonly tableName: string;
+      }>(`
+        SELECT
+          namespace.nspname AS "schemaName",
+          relation.relname AS "tableName"
+        FROM pg_catalog.pg_class AS relation
+        INNER JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = relation.relnamespace
+        WHERE namespace.nspname IN ('auth', 'public')
+          AND relation.relname IN (
+            'native_http_idempotency_receipts',
+            'profile_http_versions',
+            'recruitment_invitation_response_command_receipts'
+          )
+          AND relation.relkind IN ('r', 'p', 'f')
+        ORDER BY relation.relname, namespace.nspname
+      `);
+      expect(relations.rows).toEqual([
+        { schemaName: "public", tableName: "native_http_idempotency_receipts" },
+        { schemaName: "public", tableName: "profile_http_versions" },
+        {
+          schemaName: "public",
+          tableName: "recruitment_invitation_response_command_receipts",
+        },
+      ]);
+
+      const functions = await database.query<{
+        readonly functionName: string;
+        readonly schemaName: string;
+      }>(`
+        SELECT
+          procedure.proname AS "functionName",
+          namespace.nspname AS "schemaName"
+        FROM pg_catalog.pg_proc AS procedure
+        INNER JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = procedure.pronamespace
+        WHERE namespace.nspname IN ('auth', 'public')
+          AND procedure.proname IN (
+            'ensure_profile_http_version',
+            'increment_profile_http_authority_version',
+            'increment_native_http_revision',
+            'increment_content_article_department_revision'
+          )
+          AND procedure.pronargs = 0
+        ORDER BY procedure.proname, namespace.nspname
+      `);
+      expect(functions.rows).toEqual([
+        { functionName: "ensure_profile_http_version", schemaName: "public" },
+        {
+          functionName: "increment_content_article_department_revision",
+          schemaName: "public",
+        },
+        { functionName: "increment_native_http_revision", schemaName: "public" },
+        {
+          functionName: "increment_profile_http_authority_version",
+          schemaName: "public",
+        },
+      ]);
+
+      const triggers = await database.query<{
+        readonly functionName: string;
+        readonly functionSchema: string;
+        readonly tableName: string;
+        readonly tableSchema: string;
+        readonly triggerName: string;
+      }>(`
+        SELECT
+          trigger.tgname AS "triggerName",
+          table_namespace.nspname AS "tableSchema",
+          relation.relname AS "tableName",
+          function_namespace.nspname AS "functionSchema",
+          procedure.proname AS "functionName"
+        FROM pg_catalog.pg_trigger AS trigger
+        INNER JOIN pg_catalog.pg_class AS relation
+          ON relation.oid = trigger.tgrelid
+        INNER JOIN pg_catalog.pg_namespace AS table_namespace
+          ON table_namespace.oid = relation.relnamespace
+        INNER JOIN pg_catalog.pg_proc AS procedure
+          ON procedure.oid = trigger.tgfoid
+        INNER JOIN pg_catalog.pg_namespace AS function_namespace
+          ON function_namespace.oid = procedure.pronamespace
+        WHERE NOT trigger.tgisinternal
+          AND trigger.tgname IN (
+            'person_profiles_http_version_insert',
+            'organization_global_administrator_grants_profile_http_version',
+            'organization_memberships_profile_http_version',
+            'admission_period_departments_http_revision',
+            'admission_period_semesters_http_revision',
+            'admission_period_fields_of_study_http_revision',
+            'content_article_departments_http_revision'
+          )
+        ORDER BY trigger.tgname
+      `);
+      expect(triggers.rows).toEqual([
+        {
+          functionName: "increment_native_http_revision",
+          functionSchema: "public",
+          tableName: "admission_period_departments",
+          tableSchema: "public",
+          triggerName: "admission_period_departments_http_revision",
+        },
+        {
+          functionName: "increment_native_http_revision",
+          functionSchema: "public",
+          tableName: "admission_period_fields_of_study",
+          tableSchema: "public",
+          triggerName: "admission_period_fields_of_study_http_revision",
+        },
+        {
+          functionName: "increment_native_http_revision",
+          functionSchema: "public",
+          tableName: "admission_period_semesters",
+          tableSchema: "public",
+          triggerName: "admission_period_semesters_http_revision",
+        },
+        {
+          functionName: "increment_content_article_department_revision",
+          functionSchema: "public",
+          tableName: "content_article_departments",
+          tableSchema: "public",
+          triggerName: "content_article_departments_http_revision",
+        },
+        {
+          functionName: "increment_profile_http_authority_version",
+          functionSchema: "public",
+          tableName: "organization_global_administrator_grants",
+          tableSchema: "public",
+          triggerName: "organization_global_administrator_grants_profile_http_version",
+        },
+        {
+          functionName: "increment_profile_http_authority_version",
+          functionSchema: "public",
+          tableName: "organization_memberships",
+          tableSchema: "public",
+          triggerName: "organization_memberships_profile_http_version",
+        },
+        {
+          functionName: "ensure_profile_http_version",
+          functionSchema: "public",
+          tableName: "person_profiles",
+          tableSchema: "public",
+          triggerName: "person_profiles_http_version_insert",
+        },
+      ]);
+
+      const exerciseAuthorities = async (
+        searchPath: "auth, public" | "public",
+        personId: string,
+        identitySha256: string,
+      ) => {
+        await database.exec(`SET search_path TO ${searchPath}`);
+        await database.query(
+          `
+            INSERT INTO public.person_profiles (person_id, first_name, last_name)
+            VALUES ($1, 'HTTP', 'Authority')
+          `,
+          [personId],
+        );
+        await database.query(
+          `
+            INSERT INTO public.native_http_idempotency_receipts (
+              identity_sha256,
+              request_sha256,
+              operation_id,
+              state,
+              status,
+              media_type,
+              body_bytes,
+              headers_json,
+              committed_at,
+              full_expires_at,
+              tombstoned_at
+            ) VALUES (
+              $1,
+              $2,
+              $3,
+              'Complete',
+              204,
+              NULL,
+              NULL,
+              '{}'::jsonb,
+              transaction_timestamp(),
+              transaction_timestamp() + interval '24 hours',
+              NULL
+            )
+          `,
+          [identitySha256, "f".repeat(64), `profile.updateOwnProfile:${personId}`],
+        );
+        return database.query<{
+          readonly invitationReceiptCount: number;
+          readonly profileRevision: number;
+          readonly receiptStatus: number;
+        }>(
+          `
+            SELECT
+              (
+                SELECT representation_revision
+                FROM public.profile_http_versions
+                WHERE person_id = $1
+              ) AS "profileRevision",
+              (
+                SELECT status
+                FROM public.native_http_idempotency_receipts
+                WHERE identity_sha256 = $2
+              ) AS "receiptStatus",
+              (
+                SELECT count(*)::integer
+                FROM public.recruitment_invitation_response_command_receipts
+              ) AS "invitationReceiptCount"
+          `,
+          [personId, identitySha256],
+        );
+      };
+
+      const authFirst = await exerciseAuthorities(
+        "auth, public",
+        "http-authority-auth-first",
+        "a".repeat(64),
+      );
+      const publicOnly = await exerciseAuthorities(
+        "public",
+        "http-authority-public-only",
+        "b".repeat(64),
+      );
+      const expectedObservation = [
+        {
+          invitationReceiptCount: 0,
+          profileRevision: 0,
+          receiptStatus: 204,
+        },
+      ];
+      expect(authFirst.rows).toEqual(expectedObservation);
+      expect(publicOnly.rows).toEqual(expectedObservation);
+    } finally {
+      await database.close();
+    }
+  }, 15_000);
+});
+
 describe("identity security audit migration in PGlite", () => {
   it("enforces the closed bounded append-only event contract", async () => {
     const evidence = await runtime.runPromise(
