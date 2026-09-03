@@ -392,6 +392,7 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 * **database:** stabilize organization rehearsal browser ([699fdbb](https://github.com/vektorprogrammet/mono-web/commit/699fdbba0e21f50cba1d61f9db2daab18049241e))
 * **database:** stabilize organization rehearsal browser ([e8a93e6](https://github.com/vektorprogrammet/mono-web/commit/e8a93e6b79aacb3d0fc461e11a8e753eb0791782))
 * **database:** use canonical migration metadata in invitation proof ([04dec54](https://github.com/vektorprogrammet/mono-web/commit/04dec54d676bea78b97feab32b84664f18431575))
+* **deploy:** pass apex build-time inputs ([6ba1ee0](https://github.com/vektorprogrammet/mono-web/commit/6ba1ee0a62230b80bf49643f282536fba6abfaa9))
 * **docs:** canonicalize generated API landing ([0fbd1f6](https://github.com/vektorprogrammet/mono-web/commit/0fbd1f6f66afeafc831d05d70870c2a4a16b3998))
 * **docs:** configure Vocs favicon ([d54ac14](https://github.com/vektorprogrammet/mono-web/commit/d54ac14c9926b0a029f5806b18c9152e7d5805ca))
 * **docs:** finalize corrected hostname ([35a0235](https://github.com/vektorprogrammet/mono-web/commit/35a02357316bcf396241f08b6678ce57d6b6e885))
