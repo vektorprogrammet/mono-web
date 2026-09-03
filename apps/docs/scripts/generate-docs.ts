@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, copyFile, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { access, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,7 +9,9 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const docsRoot = resolve(scriptDirectory, "..");
 const formatterConfig = resolve(docsRoot, "../..", ".oxfmtrc.json");
 const checkMode = process.argv.includes("--check");
+const faviconSource = resolve(docsRoot, "../homepage/public/images/vektor-logo-circle.svg");
 const generatedFiles = [
+  "public/favicon.svg",
   "public/migration-state.json",
   "public/migration-state.schema.json",
   "src/pages/reference/design-spec-evidence-index.mdx",
@@ -99,6 +101,8 @@ const generate = async (root: string): Promise<void> => {
     ...process.env,
     DOCS_GENERATED_ROOT: root,
   };
+  await mkdir(join(root, "public"), { recursive: true });
+  await copyFile(faviconSource, join(root, "public/favicon.svg"));
   for (const script of generatorScripts) {
     await run("bun", [script], environment);
   }
@@ -133,11 +137,12 @@ const compareGeneratedFiles = async (candidateRoot: string): Promise<GeneratedCo
       differences.push(`missing ${path}`);
       continue;
     }
-    const [candidate, current] = await Promise.all([
+    const [candidate, current, currentStat] = await Promise.all([
       readFile(join(candidateRoot, path)),
       readFile(join(docsRoot, path)),
+      lstat(join(docsRoot, path)),
     ]);
-    if (!candidate.equals(current)) differences.push(`changed ${path}`);
+    if (!currentStat.isFile() || !candidate.equals(current)) differences.push(`changed ${path}`);
   }
 
   for (const path of actual) {
@@ -173,6 +178,7 @@ const replaceGeneratedFiles = async (candidateRoot: string): Promise<void> => {
   for (const path of expected) {
     const destination = join(docsRoot, path);
     await mkdir(dirname(destination), { recursive: true });
+    await rm(destination, { force: true });
     await copyFile(join(candidateRoot, path), destination);
   }
   process.stdout.write(`updated generated docs (${expected.length} files)\n`);
