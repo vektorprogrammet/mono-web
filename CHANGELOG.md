@@ -395,6 +395,7 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 * **docs:** canonicalize generated API landing ([0fbd1f6](https://github.com/vektorprogrammet/mono-web/commit/0fbd1f6f66afeafc831d05d70870c2a4a16b3998))
 * **docs:** configure Vocs favicon ([d54ac14](https://github.com/vektorprogrammet/mono-web/commit/d54ac14c9926b0a029f5806b18c9152e7d5805ca))
 * **docs:** finalize corrected hostname ([35a0235](https://github.com/vektorprogrammet/mono-web/commit/35a02357316bcf396241f08b6678ce57d6b6e885))
+* **docs:** generate favicon from brand source ([d64b732](https://github.com/vektorprogrammet/mono-web/commit/d64b7325458d60dea12125217e52b0316f22701a))
 * **docs:** hash generator inputs ([515cacc](https://github.com/vektorprogrammet/mono-web/commit/515cacc0a2a8f2dd9e8b5d9dea52e17b5128edd3))
 * **docs:** include 0078 spec in generated evidence index ([29d9735](https://github.com/vektorprogrammet/mono-web/commit/29d973519cdfb72b58ce989326eb689af2a716d3))
 * **docs:** keep generation checks nonmutating ([86217c5](https://github.com/vektorprogrammet/mono-web/commit/86217c50b1a2da13c66b73e041a01961198d68fa))
