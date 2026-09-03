@@ -6,6 +6,7 @@ export default defineConfig({
   title: "Vektorprogrammet migration",
   description: "Source-linked guidance for the Vektorprogrammet legacy-to-native migration.",
   baseUrl: "https://vector-docs.phibkro.org",
+  iconUrl: "/favicon.svg",
   renderStrategy: "full-static",
   checkDeadlinks: true,
   mcp: { enabled: false },
