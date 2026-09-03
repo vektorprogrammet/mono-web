@@ -453,6 +453,7 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 * **homepage:** model outbox proof failures ([5e090b5](https://github.com/vektorprogrammet/mono-web/commit/5e090b57750ad1c655d3bd74c32e2117af374ca0))
 * **homepage:** target modern JavaScript ([9766a11](https://github.com/vektorprogrammet/mono-web/commit/9766a1195f458fc2703e18bed8c68a3b38a46b1b))
 * **host:** pass seed persons and admin grant through bootstrap ([093e0a2](https://github.com/vektorprogrammet/mono-web/commit/093e0a267c7f877236537e07d9bac580bdeaabaf))
+* **host:** use native identity origin policy ([cadf43d](https://github.com/vektorprogrammet/mono-web/commit/cadf43dc87232e8b7b9ca16fcfe80a8d3d16995f))
 * **http-api:** describe qualified operation provenance ([4ed1e79](https://github.com/vektorprogrammet/mono-web/commit/4ed1e79290a7f498482c3c325a47c8f7572db03d))
 * **identity:** add expiry check to password reset token validation [A9] ([c60f516](https://github.com/vektorprogrammet/mono-web/commit/c60f51632f6f4d3461f9e8c117eb47f8a6523e5b))
 * **identity:** classify revoked replay sign-outs ([0628631](https://github.com/vektorprogrammet/mono-web/commit/06286313b66a29dc81d68a48e4bc583ef2dd218e))
