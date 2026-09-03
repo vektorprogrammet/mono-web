@@ -359,6 +359,21 @@ describe("native HTTP semantics", () => {
       }),
     ).toThrow("frozen dev-main or p20 origin");
 
+    for (const [name, value] of [
+      ["BETTER_AUTH_URL", "https://vektor.phibkro.org"],
+      ["BETTER_AUTH_URL", ""],
+      ["BETTER_AUTH_TRUSTED_ORIGINS", "https://vektor.phibkro.org"],
+      ["BETTER_AUTH_TRUSTED_ORIGINS", ""],
+    ] as const) {
+      expect(() =>
+        makeNativeSessionBoundaryPolicy({
+          NATIVE_IDENTITY_DEPLOYMENT: "preview",
+          NATIVE_IDENTITY_TRUSTED_ORIGINS: '["https://vektor.phibkro.org"]',
+          [name]: value,
+        }),
+      ).toThrow("unsupported");
+    }
+
     const request = new Request("https://api.example.invalid/api/profile", {
       method: "OPTIONS",
       headers: {

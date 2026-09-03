@@ -762,12 +762,15 @@ describe("unified backend router", () => {
         NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["https://p999.vektor.phibkro.org"]),
       }),
     ).toThrow("frozen dev-main or p20 origin");
-    expect(() =>
-      makeBackendConfig({
-        ...environment,
-        BETTER_AUTH_URL: "http://127.0.0.1:5174",
-      }),
-    ).toThrow("unsupported");
+  });
+
+  it.each([
+    ["BETTER_AUTH_URL", "http://127.0.0.1:5174"],
+    ["BETTER_AUTH_URL", ""],
+    ["BETTER_AUTH_TRUSTED_ORIGINS", "http://127.0.0.1:5174"],
+    ["BETTER_AUTH_TRUSTED_ORIGINS", ""],
+  ] as const)("rejects unsupported %s even when its value is %j", (name, value) => {
+    expect(() => makeBackendConfig({ ...environment, [name]: value })).toThrow("unsupported");
   });
 
   it("forwards an evidence-only clock to protected authority resolution", async () => {

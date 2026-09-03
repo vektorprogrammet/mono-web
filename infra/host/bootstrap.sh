@@ -11,6 +11,7 @@
 #   4. apply all schema migrations through the repo's own runner
 #   5. seed demo persons and rotate their credentials from an operator-only file
 set -euo pipefail
+unset BETTER_AUTH_URL BETTER_AUTH_TRUSTED_ORIGINS
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 STATE_DIR="${VEKTOR_PREVIEW_STATE_DIR:-$HOME/.local/state/vektor-preview}"
@@ -93,7 +94,11 @@ DATABASE_URL="postgresql://postgres@127.0.0.1:$PG_PORT/$DB_NAME"
 
 # --- migrations + seed via the repo's own runtime ---------------------------
 export DATABASE_URL BETTER_AUTH_SECRET="$(cat "$SECRET_FILE")"
-BETTER_AUTH_URL="https://vektor.phibkro.org"
+export NATIVE_IDENTITY_DEPLOYMENT=preview
+export NATIVE_IDENTITY_TRUSTED_ORIGINS='["https://vektor.phibkro.org"]'
+export OAUTH_CANONICAL_ORIGIN=https://vektor.phibkro.org
+export OAUTH_DASHBOARD_ORIGIN=https://vektor.phibkro.org
+export OAUTH_NATIVE_API_RESOURCE=urn:vektorprogrammet:native-api
 
 # Persons are seeded through the repo's identity runner. Password values are
 # read from the protected credential file and are never embedded in source.
@@ -108,7 +113,6 @@ if [[ ! -f "$STATE_DIR/.seeded" ]]; then
   log "applying migrations and seeding demo data (first run)"
   SEED_OUT="$(cd "$REPO_ROOT/packages/database" && \
     IDENTITY_SEED_PG_URL="$DATABASE_URL" \
-    BETTER_AUTH_URL="$BETTER_AUTH_URL" \
     IDENTITY_SEED_PERSONS="$IDENTITY_SEED_PERSONS" \
     bun run identity:seed)" || {
     log "identity seed failed"; exit 1;
@@ -136,7 +140,6 @@ if [[ "$INITIAL_SEED" == 1 ]] || [[ ! -f "$CREDENTIAL_MARKER" ]] || [[ "$(cat "$
   log "rotating synthetic preview credentials and invalidating prior sessions"
   PREVIEW_CREDENTIAL_FILE="$CREDENTIAL_FILE" \
     BACKEND_PG_URL="$DATABASE_URL" \
-    BETTER_AUTH_URL="$BETTER_AUTH_URL" \
     bun run "$REPO_ROOT/infra/host/rotate-preview-credentials.ts"
   printf '%s\n' "$CREDENTIAL_DIGEST" >"$CREDENTIAL_MARKER"
   chmod 600 "$CREDENTIAL_MARKER"

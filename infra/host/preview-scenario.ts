@@ -39,6 +39,22 @@ import { OrganizationLive } from "../../packages/domain/src/organization/postgre
 import { Organization } from "../../packages/domain/src/organization/service.js";
 
 const repositoryRoot = new URL("../../", import.meta.url).pathname;
+export const devMainNativeIdentityEnvironment = {
+  NATIVE_IDENTITY_DEPLOYMENT: "preview",
+  NATIVE_IDENTITY_TRUSTED_ORIGINS: '["https://vektor.phibkro.org"]',
+  OAUTH_CANONICAL_ORIGIN: "https://vektor.phibkro.org",
+  OAUTH_DASHBOARD_ORIGIN: "https://vektor.phibkro.org",
+  OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
+} as const;
+
+export const makePreviewScenarioEnvironment = (
+  environment: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv => {
+  const sanitized = { ...environment };
+  delete sanitized.BETTER_AUTH_URL;
+  delete sanitized.BETTER_AUTH_TRUSTED_ORIGINS;
+  return { ...sanitized, ...devMainNativeIdentityEnvironment };
+};
 
 const sleep = (ms: number): Promise<void> => {
   const { promise, resolve } = Promise.withResolvers<void>();
@@ -408,7 +424,7 @@ const ensurePreviewScenarioCohort = async (
   const seed = spawnSync("bun", ["run", "identity:seed"], {
     cwd: join(repositoryRoot, "packages", "database"),
     env: {
-      ...process.env,
+      ...makePreviewScenarioEnvironment(),
       IDENTITY_SEED_PG_URL: postgresUrl,
       IDENTITY_SEED_PERSONS: JSON.stringify(Object.values(persons)),
     },
@@ -589,12 +605,11 @@ export const runPreviewScenarioApplication = async (
     // 3) Compose the real backend (real Layers + real better-auth AuthLive)
     evidence.tableCountsBefore = await countTables(pool);
     const backendEnv: NodeJS.ProcessEnv = {
-      ...process.env,
+      ...makePreviewScenarioEnvironment(),
       BACKEND_HOST: "127.0.0.1",
       BACKEND_PORT: String(backendPort),
       BACKEND_PG_URL: postgresUrl,
       BETTER_AUTH_SECRET: "preview-0072-better-auth-secret-0123456789abcdef",
-      BETTER_AUTH_URL: backendOrigin,
       ADMISSION_AUTH_TOKENS: "{}",
       RECEIPT_AUTH_TOKENS: "{}",
       ORGANIZATION_AUTH_TOKENS: "{}",

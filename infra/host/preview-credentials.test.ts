@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { validatePreviewCredentials } from "./preview-credentials";
+import { readPreviewCredentialRotationConfig } from "./rotate-preview-credentials";
 
 const validAdmin = {
   personId: "apex-preview-administrator",
@@ -54,5 +55,35 @@ describe("preview credential validation", () => {
     expect(() =>
       validatePreviewCredentials([validAdmin, { ...validMember, label: "unexpected" }]),
     ).toThrow("invalid shape");
+  });
+});
+
+describe("preview credential rotation configuration", () => {
+  it("uses the exact native dev-main identity policy", () => {
+    const config = readPreviewCredentialRotationConfig({
+      PREVIEW_CREDENTIAL_FILE: "/tmp/preview-credentials.json",
+      BACKEND_PG_URL: "postgresql://postgres@127.0.0.1:5434/vektor_preview",
+      BETTER_AUTH_SECRET: "test-secret-with-at-least-32-characters",
+      NATIVE_IDENTITY_DEPLOYMENT: "preview",
+      NATIVE_IDENTITY_TRUSTED_ORIGINS: '["https://vektor.phibkro.org"]',
+      OAUTH_CANONICAL_ORIGIN: "https://vektor.phibkro.org",
+      OAUTH_DASHBOARD_ORIGIN: "https://vektor.phibkro.org",
+      OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
+    });
+
+    expect(config).toEqual({
+      credentialFile: "/tmp/preview-credentials.json",
+      auth: {
+        postgresUrl: "postgresql://postgres@127.0.0.1:5434/vektor_preview",
+        secret: "test-secret-with-at-least-32-characters",
+        oauth: {
+          canonicalOrigin: "https://vektor.phibkro.org",
+          dashboardOrigin: "https://vektor.phibkro.org",
+          nativeApiResource: "urn:vektorprogrammet:native-api",
+        },
+        trustedOrigins: ["https://vektor.phibkro.org"],
+        secureCookies: true,
+      },
+    });
   });
 });
