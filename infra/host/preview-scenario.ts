@@ -955,6 +955,17 @@ export const runPreviewScenarioApplication = async (
     };
     let publicationPrecondition: StrongETag;
     if (savedPrecondition === undefined) {
+      const priorPublications = await pool.query(
+        `SELECT body_bytes FROM public.native_http_idempotency_receipts
+         WHERE operation_id = 'content.publishArticle' AND state = 'Complete'`,
+      );
+      assert.ok(
+        priorPublications.rows.every(
+          (row: { body_bytes: Buffer }) =>
+            JSON.parse(row.body_bytes.toString()).articleId !== articleId,
+        ),
+        "publication replay lost its original request precondition",
+      );
       const selected = await leader.content.readArticle({ params: { articleId }, headers: {} });
       assert.equal(
         selected.body?.status,
