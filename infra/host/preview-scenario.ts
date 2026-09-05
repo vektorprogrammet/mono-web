@@ -105,10 +105,13 @@ const waitForHttp = async (url: string, child: ChildProcess) => {
 const signIn = async (backendOrigin: string, email: string, password: string) => {
   const response = await fetch(`${backendOrigin}/api/auth/sign-in/email`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      origin: devMainNativeIdentityEnvironment.OAUTH_CANONICAL_ORIGIN,
+    },
     body: JSON.stringify({ email, password }),
   });
-  if (!response.ok) return null;
+  assert.ok(response.ok, `scenario sign-in failed: HTTP ${response.status}`);
   const setCookie = response.headers.get("set-cookie");
   if (setCookie === null) return null;
   return setCookie.split(";")[0] ?? null;
