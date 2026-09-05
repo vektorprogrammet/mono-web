@@ -189,7 +189,7 @@ try {
       assets: {
         directory: join(homepage, "build/client"),
         binding: "ASSETS",
-        routerConfig: { invoke_user_worker_ahead_of_assets: true },
+        routerConfig: { has_user_worker: true, invoke_user_worker_ahead_of_assets: true },
       },
       bindings: {
         API_URL: backendOrigin,
@@ -202,7 +202,10 @@ try {
   const workerHealth = await mf.dispatchFetch("http://p000.vektor.phibkro.org/health", {
     headers: { host: "p000.vektor.phibkro.org" },
   });
-  assert.equal(workerHealth.status, 200);
+  if (workerHealth.status !== 200)
+    throw new Error(
+      `Built Worker health returned ${workerHealth.status}: ${safe(await workerHealth.text())}`,
+    );
   const provenance = await workerHealth.json();
   assert.equal(provenance.commit, revision, "built Worker must match selected committed revision");
   assert.match(provenance.routeDigest, /^sha256:[a-f0-9]{64}$/);
