@@ -18,7 +18,7 @@ const domainRequire = createRequire(join(root, "packages/domain/package.json"));
 const databaseRequire = createRequire(join(root, "packages/database/package.json"));
 const { Address4, Address6 } = domainRequire("ip-address");
 const wranglerRequire = createRequire(require.resolve("wrangler/package.json"));
-const { Miniflare } = wranglerRequire("miniflare");
+const { Miniflare, convertV4MiniflareOptions } = wranglerRequire("miniflare");
 const { Pool } = databaseRequire("pg");
 const revision = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
 assert.equal(
@@ -172,26 +172,28 @@ try {
     ('contact-bergen','Vektorprogrammet Bergen','Bergen','bergen@example.org','Bergen',true),
     ('contact-inactive','Inaktiv','Inaktiv','inactive@example.org','Ås',false),
     ('contact-invalid-email','Uten e-post','Uten e-post','invalid-address','Ås',true)`);
-  mf = new Miniflare({
-    host: "127.0.0.1",
-    port: workerPort,
-    modules: true,
-    scriptPath: join(homepage, "build/server/index.js"),
-    modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
-    compatibilityDate: "2026-08-08",
-    compatibilityFlags: ["nodejs_compat"],
-    cf: false,
-    assets: {
-      directory: join(homepage, "build/client"),
-      binding: "ASSETS",
-      routerConfig: { invoke_user_worker_ahead_of_assets: true },
-    },
-    bindings: {
-      API_URL: backendOrigin,
-      CONTACT_INGRESS_TOKEN: tokens.ingress,
-      CONTACT_BACKEND_TOKEN: tokens.backend,
-    },
-  });
+  mf = new Miniflare(
+    convertV4MiniflareOptions({
+      host: "127.0.0.1",
+      port: workerPort,
+      modules: true,
+      scriptPath: join(homepage, "build/server/index.js"),
+      modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
+      compatibilityDate: "2026-08-08",
+      compatibilityFlags: ["nodejs_compat"],
+      cf: false,
+      assets: {
+        directory: join(homepage, "build/client"),
+        binding: "ASSETS",
+        routerConfig: { invoke_user_worker_ahead_of_assets: true },
+      },
+      bindings: {
+        API_URL: backendOrigin,
+        CONTACT_INGRESS_TOKEN: tokens.ingress,
+        CONTACT_BACKEND_TOKEN: tokens.backend,
+      },
+    }),
+  );
   await mf.ready;
   const workerHealth = await mf.dispatchFetch("http://p000.vektor.phibkro.org/health", {
     headers: { host: "p000.vektor.phibkro.org" },
@@ -465,7 +467,7 @@ try {
   };
 } catch (error) {
   await writeFile(join(artifacts, "failure.txt"), safe(error.stack));
-  throw error;
+  throw new Error(safe(error.stack));
 } finally {
   await browser?.close();
   await mf?.dispose();
