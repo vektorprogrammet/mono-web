@@ -49,6 +49,7 @@ import type { ReceiptImportResult, ReceiptQuarantineReason } from "./import.js";
 import { listApproverReceipts, type ReceiptListItem } from "./projections.js";
 import {
   Receipt,
+  ReceiptFileSchema,
   ReceiptCommandPrincipalSchema,
   ReceiptCommandRequestSchema,
   ReceiptObservationSchema,
@@ -261,7 +262,8 @@ export const storeReceiptImportResult = (
       existing.target_semantic_identity === targetSemanticIdentity &&
       existing.destination_identity === provenance.destinationIdentity &&
       existing.result === importResult &&
-      existing.reconciliation_result === reconciliationResult &&
+      (existing.reconciliation_result === reconciliationResult ||
+        (importResult === "Accepted" && existing.reconciliation_result === "Reconciled")) &&
       canonicalJson(existing.reasons_json) === canonicalJson(reasons);
 
     yield* sql
@@ -404,6 +406,66 @@ export const storeReceiptImportResult = (
       .pipe(
         Effect.catchTag("SqlError", (cause) =>
           Effect.fail(persistenceError("receipt import transaction", cause)),
+        ),
+      );
+  });
+
+/**
+ * Reconcile the exact imported occurrence against a locked fresh fact and an
+ * external byte/projection observation. The marker is a last observation, never
+ * authority to skip subsequent reads. A failed observation durably returns it
+ * to Pending. Filesystem and SQL do not form a distributed transaction.
+ */
+export const reconcileReceiptImport = (
+  expected: Extract<ReceiptImportResult, { readonly _tag: "AcceptedReceiptImport" }>,
+  observe: (receipt: Receipt) => Effect.Effect<boolean, ReceiptPersistenceError>,
+): Effect.Effect<boolean, ReceiptPersistenceError, Database> =>
+  Effect.gen(function* () {
+    const sql = yield* Database;
+    const p = expected.provenance;
+    return yield* sql
+      .withTransaction(
+        Effect.gen(function* () {
+          const ledger = yield* sql<{ readonly source_digest: string; readonly result: string }>`
+        SELECT source_digest, result FROM economy_receipt_import_ledger
+        WHERE source_repository = ${p.sourceRepository} AND source_revision = ${p.sourceRevision}
+          AND snapshot_id = ${p.snapshotId} AND source_primary_key = ${expected.sourcePrimaryKey}
+          AND source_occurrence = ${expected.sourceOccurrence}
+          AND transformation_revision = ${p.transformationRevision}
+          AND source_watermark = ${p.sourceWatermark}
+          AND destination_identity = ${p.destinationIdentity}
+          AND target_semantic_identity = ${expected.targetSemanticIdentity}
+        FOR UPDATE
+      `;
+          if (
+            ledger.length !== 1 ||
+            ledger[0]?.source_digest !== p.sourceDigest ||
+            ledger[0]?.result !== "Accepted"
+          ) {
+            return yield* Effect.fail(
+              persistenceError("reconcile receipt import", "exact accepted occurrence required"),
+            );
+          }
+          const actual = yield* findReceipt(sql, expected.receipt.receiptId);
+          const matches =
+            actual !== undefined && canonicalJson(actual) === canonicalJson(expected.receipt);
+          const observed =
+            matches && actual !== undefined
+              ? yield* observe(actual).pipe(Effect.catch(() => Effect.succeed(false)))
+              : false;
+          yield* sql`
+        UPDATE economy_receipt_import_ledger SET reconciliation_result = ${observed ? "Reconciled" : "Pending"}
+        WHERE source_repository = ${p.sourceRepository} AND source_revision = ${p.sourceRevision}
+          AND snapshot_id = ${p.snapshotId} AND source_primary_key = ${expected.sourcePrimaryKey}
+          AND source_occurrence = ${expected.sourceOccurrence}
+          AND transformation_revision = ${p.transformationRevision}
+      `;
+          return observed;
+        }),
+      )
+      .pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("reconcile receipt import", cause)),
         ),
       );
   });
@@ -1001,3 +1063,23 @@ export const executeReceiptCommand = (
         ),
       );
   });
+
+/** Owner-only metadata selection precedes all private-file IO. */
+export const readOwnedReceiptFile = (receiptId: string, personId: string) =>
+  Effect.gen(function* () {
+    const sql = yield* Database;
+    const rows = yield* sql`
+      SELECT department_id AS "departmentId", revision, file_ref AS "fileRef", file_object_key AS "objectKey",
+        file_content_type AS "contentType", file_byte_length::integer AS "byteLength",
+        file_sha256 AS "sha256"
+      FROM economy_receipts
+      WHERE receipt_id = ${receiptId} AND owner_person_id = ${personId} AND status <> 'Withdrawn'
+    `;
+    if (rows[0] === undefined) return undefined;
+    const { departmentId, revision, ...file } = rows[0];
+    return {
+      file: yield* Schema.decodeUnknownEffect(ReceiptFileSchema)(file),
+      departmentId: String(departmentId),
+      revision: Number(revision),
+    };
+  }).pipe(Effect.mapError((cause) => persistenceError("read owned receipt file", cause)));

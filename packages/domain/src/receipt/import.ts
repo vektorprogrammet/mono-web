@@ -10,6 +10,9 @@ import {
 } from "./schema.js";
 
 export type ReceiptQuarantineReason =
+  | "UnsafeFilePath"
+  | "FileDigestMismatch"
+  | "SourceDigestMismatch"
   | "UnresolvedOwner"
   | "UnresolvedDepartment"
   | "MissingVisualId"

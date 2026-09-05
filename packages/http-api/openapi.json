@@ -35350,6 +35350,684 @@
         }
       }
     },
+    "/api/receipts/{receiptId}/file": {
+      "get": {
+        "description": "Downloads verified private bytes for the canonical owner.",
+        "operationId": "receipts.readReceiptFile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "receiptId",
+            "required": true,
+            "schema": {
+              "allOf": [
+                {
+                  "minLength": 1
+                }
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_4"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.malformed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request is malformed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Malformed request"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:request.malformed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "header.malformed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "A request header is malformed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Malformed header"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:header.malformed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "credential.missing"
+                              ],
+                              "type": "string"
+                            },
+                            "detail": {
+                              "enum": [
+                                "A credential is required for this operation."
+                              ],
+                              "type": "string"
+                            },
+                            "instance": {
+                              "$ref": "#/components/schemas/Union_"
+                            },
+                            "status": {
+                              "enum": [
+                                401
+                              ],
+                              "type": "number"
+                            },
+                            "title": {
+                              "enum": [
+                                "Credential required"
+                              ],
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "urn:vektorprogrammet:problem:v0.2:credential.missing"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "detail"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "credential.invalid"
+                              ],
+                              "type": "string"
+                            },
+                            "detail": {
+                              "enum": [
+                                "The supplied credential is invalid."
+                              ],
+                              "type": "string"
+                            },
+                            "instance": {
+                              "$ref": "#/components/schemas/Union_"
+                            },
+                            "status": {
+                              "enum": [
+                                401
+                              ],
+                              "type": "number"
+                            },
+                            "title": {
+                              "enum": [
+                                "Invalid credential"
+                              ],
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "urn:vektorprogrammet:problem:v0.2:credential.invalid"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "detail"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionUnauthorizedProblem"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Closed RFC 9457 error union for SessionUnauthorizedProblem.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_3"
+                }
+              },
+              "www-authenticate": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "authority.denied"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The authenticated principal is not permitted to perform this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            403
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Authority denied"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:authority.denied"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "origin.denied"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The browser origin is not trusted for this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            403
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Origin denied"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:origin.denied"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "resource.not-found"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The requested resource was not found."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            404
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Resource not found"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:resource.not-found"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "internal.error"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The server encountered an unexpected error."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            500
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Internal error"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:internal.error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "receipts.unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The receipt service is temporarily unavailable."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            503
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Receipts unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:receipts.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              },
+              "retry-after": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "5"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieHeader": []
+          },
+          {
+            "oauthUserBearer": []
+          }
+        ],
+        "summary": "Read owned receipt file",
+        "tags": [
+          "Receipts"
+        ],
+        "x-vektor-access": {
+          "acceptedCredentials": [
+            "BetterAuthCookie",
+            "OAuthUserBearer"
+          ],
+          "canonicalScopeResolver": "receipts.by-id",
+          "capabilities": {
+            "one": "receipts.read-owned"
+          },
+          "concealment": {
+            "mode": "Reveal",
+            "stages": []
+          },
+          "decisionTime": "SnapshotRead",
+          "exposure": "External",
+          "principalKinds": [
+            "Person"
+          ],
+          "requirements": [
+            {
+              "id": "receipts.owner"
+            }
+          ]
+        },
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      }
+    },
     "/api/recruitment/application-assignments": {
       "get": {
         "description": "Returns applicants and interviewers in leader scope.",

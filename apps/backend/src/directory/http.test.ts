@@ -1,3 +1,4 @@
+import type { ReceiptAuxiliaryEffects } from "@vektorprogrammet/domain/receipt";
 import type { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
 import type { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
@@ -294,6 +295,7 @@ const successfulRun: BackendRun = <A, E>(
     | Database
     | Admissions
     | Economy
+    | ReceiptAuxiliaryEffects
     | Organization
     | Profile
     | Recruitment

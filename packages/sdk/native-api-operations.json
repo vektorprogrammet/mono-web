@@ -182,6 +182,12 @@
     },
     {
       "group": "receipts",
+      "method": "GET",
+      "operationId": "receipts.readReceiptFile",
+      "path": "/api/receipts/{receiptId}/file"
+    },
+    {
+      "group": "receipts",
       "method": "POST",
       "operationId": "receipts.refundReceipt",
       "path": "/api/receipts/{receiptId}:refund"

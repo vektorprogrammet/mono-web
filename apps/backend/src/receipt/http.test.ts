@@ -107,6 +107,9 @@ const fileService = {
   apply: () => Effect.void,
 };
 const fileStore: ReceiptFileStore = {
+  readCommitted: async () => {
+    throw new Error("unexpected file read");
+  },
   service: fileService,
   layer: Layer.succeed(ReceiptFileService, fileService),
   stageBytes: async () => ({

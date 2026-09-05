@@ -1011,3 +1011,16 @@ export const InternalReadReceiptEvidenceProblem = problemUnion(
     ["receipts.unavailable", 503],
   ],
 );
+
+/** Problems for `receipts.readReceiptFile`. */
+export const ReceiptsReadReceiptFileProblem = problemUnion("ReceiptsReadReceiptFileProblem", [
+  ["request.malformed", 400],
+  ["header.malformed", 400],
+  ["credential.missing", 401],
+  ["credential.invalid", 401],
+  ["authority.denied", 403],
+  ["origin.denied", 403],
+  ["resource.not-found", 404],
+  ["internal.error", 500],
+  ["receipts.unavailable", 503],
+]);

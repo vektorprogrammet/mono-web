@@ -1,6 +1,9 @@
+import { reflectAccessSpec } from "../../../../packages/http-api/src/access.js";
+import { readOwnedReceiptFile } from "../../../../packages/domain/src/receipt/postgres.js";
 import { randomUUID } from "node:crypto";
 
 import {
+  CapabilityTypeId,
   AuthorityRef,
   AuthorityVersion,
   AuthorizationInstant,
@@ -27,10 +30,9 @@ import {
   type NativeHttpResponseCapsule,
 } from "@vektorprogrammet/domain/http-semantics";
 import { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import {
   Economy,
-  ReceiptAuxiliaryEffectConflict,
   ReceiptAuxiliaryEffects,
   ReceiptDecodeError,
   ReceiptFileService,
@@ -51,6 +53,7 @@ import {
 } from "@vektorprogrammet/domain/receipt";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
+  ReadReceiptFileEndpoint,
   ExternalNativeApi,
   InternalNativeApi,
   type ReceiptResource,
@@ -117,6 +120,7 @@ export interface ReceiptApiHttpOptions {
       | Database
       | Economy
       | IdentitySnapshot
+      | ReceiptAuxiliaryEffects
       | OAuthCredentialAuthority
       | ServicePrincipalGrantAuthority
     >,
@@ -474,21 +478,6 @@ const runDatabase = <A>(
   run: ReceiptApiHttpOptions["run"],
 ): Promise<A> => run(effect);
 
-const auxiliaryEffects = (() => {
-  const applied = new Map<string, string>();
-  return ReceiptAuxiliaryEffects.of({
-    apply: (request) =>
-      Effect.gen(function* () {
-        const digest = JSON.stringify(request);
-        const previous = applied.get(request.effectId);
-        if (previous !== undefined && previous !== digest) {
-          return yield* new ReceiptAuxiliaryEffectConflict({ effectId: request.effectId });
-        }
-        yield* Effect.sync(() => void applied.set(request.effectId, digest));
-      }),
-  });
-})();
-
 const DEFAULT_OUTBOX_CLAIM_ID = `backend-${process.pid}`;
 const STALE_OUTBOX_CLAIM_AGE_MS = 60_000;
 
@@ -502,10 +491,7 @@ const deliverOutbox = (
   options.run(
     Economy.use(({ deliverNextOutboxEffect }) =>
       deliverNextOutboxEffect(claimId, claimedAt, receiptId),
-    ).pipe(
-      Effect.provideService(ReceiptFileService, fileStore.service),
-      Effect.provideService(ReceiptAuxiliaryEffects, auxiliaryEffects),
-    ),
+    ).pipe(Effect.provideService(ReceiptFileService, fileStore.service)),
   );
 
 const staleOutboxCutoff = (now: string): string => {
@@ -1311,6 +1297,105 @@ export const ReceiptApiHandlers = (input: ReceiptApiHttpOptions) => {
   return HttpApiBuilder.group(ExternalNativeApi, "receipts", (handlers) =>
     Effect.succeed(
       handlers
+        .handleRaw("readReceiptFile", ({ request, params }) =>
+          toHttpApiResponse(
+            request,
+            async (webRequest) => {
+              const file = await input.run(
+                Effect.gen(function* () {
+                  const sql = yield* Database;
+                  return yield* sql.withTransaction(
+                    Effect.gen(function* () {
+                      yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`;
+                      const context = yield* Effect.context<
+                        Database | IdentitySnapshot | OAuthCredentialAuthority
+                      >();
+                      const authenticated = yield* Effect.tryPromise({
+                        try: () =>
+                          resolveRequestCredentialInTransaction(webRequest, "OAuthUserBearer", {
+                            run: Effect.runPromiseWith(context),
+                            now: input.now,
+                          }),
+                        catch: (cause) => cause,
+                      });
+                      const principal = authenticated.credential.principal;
+                      if (principal._tag !== "Person")
+                        return yield* Effect.fail(
+                          new HttpSemanticFailure("credential.invalid", 401),
+                        );
+                      const owned = yield* readOwnedReceiptFile(
+                        params.receiptId,
+                        principal.personId,
+                      );
+                      if (owned === undefined)
+                        return yield* Effect.fail(
+                          new HttpSemanticFailure("resource.not-found", 404),
+                        );
+                      const resource = {
+                        kind: RECEIPT_RESOURCE_KIND,
+                        id: ResourceId.make(params.receiptId),
+                      };
+                      const evaluation = evaluateAccess({
+                        spec: Option.getOrThrow(reflectAccessSpec(ReadReceiptFileEndpoint)),
+                        credential: authenticated.credential,
+                        resolution: {
+                          selection: "ExactlyOne",
+                          contexts: [
+                            {
+                              domainId: RECEIPT_DOMAIN_ID,
+                              departmentId: DepartmentId.make(owned.departmentId),
+                              resource,
+                              facts: {
+                                ownerPersonId: principal.personId,
+                                approverPersonIds: [],
+                                approverServicePrincipalIds: [],
+                                internalEvidenceEnabled: false,
+                              },
+                              authorityVersion: AuthorityVersion.make(`receipt:${owned.revision}`),
+                            },
+                          ],
+                        },
+                        grants: [
+                          makeGrant({
+                            grantId: GrantId.make(`receipt-owner:${params.receiptId}`),
+                            subject: principal,
+                            capability: { type: CapabilityTypeId.make("receipts.read-owned") },
+                            scope: { _tag: "Resource", resource },
+                            startAt: AuthorizationInstant.make("1970-01-01T00:00:00.000Z"),
+                            endAt: null,
+                            requirements: [],
+                            source: AuthorityRef.make("economy_receipts.owner_person_id"),
+                            revision: owned.revision,
+                          }),
+                        ],
+                        authorizationInstant: authenticated.authorizationInstant,
+                      });
+                      if (evaluation._tag !== "Allow")
+                        return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
+                      return owned.file;
+                    }),
+                  );
+                }),
+              );
+              let bytes: Uint8Array;
+              try {
+                bytes = await fileStore.readCommitted(file, input.config.maxFileBytes);
+              } catch {
+                throw new HttpSemanticFailure("receipts.unavailable", 503);
+              }
+              return new Response(bytes, {
+                headers: {
+                  "content-type": "application/octet-stream",
+                  "content-length": String(bytes.byteLength),
+                  "content-disposition": "attachment; filename=receipt",
+                  "x-content-type-options": "nosniff",
+                  "cache-control": "private, no-store",
+                },
+              });
+            },
+            publicReceiptErrorResponse,
+          ),
+        )
         .handleRaw("submitReceipt", ({ request }) =>
           toHttpApiResponse(
             request,

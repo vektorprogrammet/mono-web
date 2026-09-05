@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { copyFile, mkdir, open, rename, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { copyFile, mkdir, open, rename, unlink, realpath } from "node:fs/promises";
+import { dirname, join, relative, isAbsolute, sep } from "node:path";
 import { Effect, Layer } from "effect";
 import {
   ReceiptDecodeError,
@@ -109,6 +109,7 @@ const fileFailure = (effectId: string, fileRef: string): ReceiptFileNotStaged =>
 
 export interface ReceiptFileStore {
   readonly service: ReceiptFileServiceShape;
+  readonly readCommitted: (file: ReceiptFile, maxFileBytes: number) => Promise<Uint8Array>;
   readonly layer: Layer.Layer<ReceiptFileService>;
   readonly stageBytes: (
     file: File,
@@ -284,6 +285,29 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig): ReceiptFil
 
   return {
     service,
+    readCommitted: async (file, maxFileBytes) => {
+      if (file.byteLength > maxFileBytes) throw new Error("receipt file exceeds configured limit");
+      const root = await realpath(config.committedRoot);
+      const path = await realpath(pathFor(root, file.objectKey));
+      const inside = relative(root, path);
+      if (inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside))
+        throw new Error("unsafe receipt file identity");
+      const handle = await open(path, "r");
+      try {
+        const stat = await handle.stat();
+        if (!stat.isFile() || stat.size !== file.byteLength || stat.size > maxFileBytes)
+          throw new Error("receipt file mismatch");
+        const bytes = await handle.readFile();
+        if (
+          bytes.length !== file.byteLength ||
+          createHash("sha256").update(bytes).digest("hex") !== file.sha256
+        )
+          throw new Error("receipt file mismatch");
+        return bytes;
+      } finally {
+        await handle.close();
+      }
+    },
     layer: Layer.succeed(ReceiptFileService)(service),
     stageBytes,
     cleanupStage,

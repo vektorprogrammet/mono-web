@@ -27,7 +27,8 @@
     "rehearsal:organization-import": "bun run runtime/organization-import-rehearsal-main.ts",
     "check-types": "tsc --noEmit",
     "build": "tsc --noEmit",
-    "lint": "oxlint"
+    "lint": "oxlint",
+    "rehearsal:receipt-import": "bun run runtime/receipt-import-rehearsal.ts"
   },
   "dependencies": {
     "@better-auth/oauth-provider": "1.7.1",

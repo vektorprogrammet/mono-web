@@ -1,3 +1,4 @@
+import type { ReceiptAuxiliaryEffects } from "@vektorprogrammet/domain/receipt";
 import type { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
@@ -91,6 +92,7 @@ const makeRun = (
       | Database
       | Admissions
       | Economy
+      | ReceiptAuxiliaryEffects
       | Organization
       | Profile
       | Recruitment

@@ -2,21 +2,21 @@
   "artifacts": {
     "openapi": {
       "path": "packages/http-api/openapi.json",
-      "sha256": "4960a707bac29e8062468daa8ac7a62b0e753aafea8b272e6c0fb777352f0c8f"
+      "sha256": "1020ddea78e400617271fb503edc6e2e1505c761186ea5308aa7ee0e13c68911"
     },
     "sdkOperations": {
       "path": "packages/sdk/native-api-operations.json",
-      "sha256": "047c2356bc76a2c3d676c2d83db2459021d332b45342f9d988aa8afbf7361ecd"
+      "sha256": "4747146abc44ad7c0478625c6ced27b27703b2639bfb4102760624879286b70b"
     },
     "serverMetadata": {
       "path": "apps/backend/src/generated/native-api-metadata.json",
-      "sha256": "024175b03c3342c4698144855673e58ba8cca4ca670799a75ef6e9188406b47e"
+      "sha256": "07218065a7bb65b73a656b31ab3209c12fe80bfadb73f08ef0dde99c02b4c11e"
     }
   },
   "counts": {
-    "externalOperations": 53,
+    "externalOperations": 54,
     "internalOperations": 1,
-    "operations": 54
+    "operations": 55
   },
   "release": {
     "name": "@vektorprogrammet/native-api",

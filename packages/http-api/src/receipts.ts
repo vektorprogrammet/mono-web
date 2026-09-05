@@ -16,6 +16,7 @@ import {
   InternalReadReceiptEvidenceProblem,
   ReceiptsListReceiptsForApprovalProblem,
   ReceiptsListReceiptsProblem,
+  ReceiptsReadReceiptFileProblem,
   ReceiptsRefundReceiptProblem,
   ReceiptsRejectReceiptProblem,
   ReceiptsReviseReceiptProblem,
@@ -292,6 +293,35 @@ export const ListReceiptsEndpoint = HttpApiEndpoint.get("listReceipts", "/api/re
     operationAnnotations("List owned receipts", "Lists receipts owned by the current person."),
   );
 
+/** Owner-only, verified private bytes; storage identities are never public. */
+export const ReadReceiptFileEndpoint = HttpApiEndpoint.get(
+  "readReceiptFile",
+  "/api/receipts/:receiptId/file",
+  {
+    params: ReceiptParams,
+    success: privateReadResponse(Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array())),
+    error: endpointProblemResponses(ReceiptsReadReceiptFileProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "receipts.read-owned",
+        canonicalScopeResolver: "receipts.by-id",
+        requirements: ["receipts.owner"],
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
+  .annotateMerge(
+    operationAnnotations(
+      "Read owned receipt file",
+      "Downloads verified private bytes for the canonical owner.",
+    ),
+  );
+
 /** @since 0.1.0 @category Endpoints */
 export const ListReceiptsForApprovalEndpoint = HttpApiEndpoint.get(
   "listReceiptsForApproval",
@@ -371,6 +401,7 @@ export const RejectReceiptEndpoint = HttpApiEndpoint.post(
  */
 export class ReceiptsApi extends HttpApiGroup.make("receipts")
   .add(
+    ReadReceiptFileEndpoint,
     SubmitReceiptEndpoint,
     ReviseReceiptEndpoint,
     WithdrawReceiptEndpoint,

@@ -1,3 +1,4 @@
+import { makeReceiptAuxiliaryRecording } from "@vektorprogrammet/domain/receipt";
 import { randomUUID } from "node:crypto";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
@@ -81,6 +82,7 @@ const runtime = makeBackendRuntime(
   Layer.mergeAll(
     databaseLayer,
     capabilityLayers,
+    makeReceiptAuxiliaryRecording().layer,
     authLayers,
     httpPlatformLayer,
     httpRouterLayer,

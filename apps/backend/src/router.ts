@@ -1,3 +1,4 @@
+import type { ReceiptAuxiliaryEffects } from "@vektorprogrammet/domain/receipt";
 import { ContactApiHandlers } from "./contact/http.js";
 import { BlockList, isIP } from "node:net";
 import { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
@@ -63,6 +64,7 @@ export type BackendRun = <A, E>(
     | Database
     | Admissions
     | Economy
+    | ReceiptAuxiliaryEffects
     | Organization
     | Profile
     | Recruitment
