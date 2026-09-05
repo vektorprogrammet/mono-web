@@ -375,6 +375,18 @@ try {
       : route.abort();
   });
   const page = await context.newPage();
+  page.on("pageerror", (error) =>
+    console.log(JSON.stringify({ browserError: safe(error.message) })),
+  );
+  page.on("requestfailed", (request) =>
+    console.log(
+      JSON.stringify({ failedRequest: request.url(), reason: request.failure()?.errorText }),
+    ),
+  );
+  page.on("response", (response) => {
+    if (response.url().includes(".data") && response.request().method() === "POST")
+      console.log(JSON.stringify({ actionStatus: response.status() }));
+  });
   const pageResponse = await page.goto(`${browserOrigin}/kontakt`);
   assert.equal(pageResponse.status(), 200);
   await page
@@ -401,7 +413,23 @@ try {
   const beforeBrowser = records.length;
   const beforeCommands = backendCommands;
   await page.getByRole("button", { name: "Send melding", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Sender melding...", exact: true })).toBeDisabled();
+  try {
+    await expect(
+      page.getByRole("button", { name: "Sender melding...", exact: true }),
+    ).toBeDisabled();
+  } catch (error) {
+    console.log(
+      JSON.stringify({
+        browserUrl: page.url(),
+        alerts: await page.getByRole("alert").allTextContents(),
+        statuses: await page.getByRole("status").allTextContents(),
+        buttons: await page.getByRole("button").allTextContents(),
+        backendCommands,
+        acceptances: records.length,
+      }),
+    );
+    throw error;
+  }
   await page.locator('button[type="submit"]').evaluate((button) => button.click());
   await expect(page.getByRole("status")).toHaveText("Meldingen er sendt.");
   assert.equal(records.length, beforeBrowser + 1);
