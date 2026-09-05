@@ -20,27 +20,58 @@
       "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
     },
     "stateDocument": {
-      "type": "object",
-      "properties": {
-        "path": {
-          "type": "string",
-          "const": "STATE.md"
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "const": "STATE.md"
+            },
+            "present": {
+              "type": "boolean",
+              "const": false
+            },
+            "status": {
+              "type": "string",
+              "const": "unsupported"
+            },
+            "note": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["path", "present", "status", "note"],
+          "additionalProperties": false
         },
-        "present": {
-          "type": "boolean",
-          "const": false
-        },
-        "status": {
-          "type": "string",
-          "const": "unsupported"
-        },
-        "note": {
-          "type": "string",
-          "minLength": 1
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "const": "STATE.md"
+            },
+            "present": {
+              "type": "boolean",
+              "const": true
+            },
+            "status": {
+              "type": "string",
+              "const": "source-linked"
+            },
+            "sourceRevision": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            },
+            "note": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["path", "present", "status", "sourceRevision", "note"],
+          "additionalProperties": false
         }
-      },
-      "required": ["path", "present", "status", "note"],
-      "additionalProperties": false
+      ]
     },
     "rows": {
       "minItems": 1,
