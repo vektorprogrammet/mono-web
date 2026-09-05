@@ -709,7 +709,11 @@ const reviseArticle = async (
       const actor = await authorizedActorInTransaction(request, txRun);
       const [current, source, authority] = await txRun(
         Effect.all([
-          runContentArticleDetail(actor.personId, actor.authorizationInstant, articleId),
+          readArticleDetailInTransactionPostgres({
+            personId: actor.personId,
+            authorizationInstant: actor.authorizationInstant,
+            articleId,
+          }),
           readContentArticleHttpSourcePostgres(articleId),
           readContentAuthorityHttpSourcesPostgres(actor.personId),
         ]),
@@ -805,7 +809,11 @@ const lifecycleArticle = async (
       const actor = await authorizedActorInTransaction(request, txRun);
       const [current, source, authority] = await txRun(
         Effect.all([
-          runContentArticleDetail(actor.personId, actor.authorizationInstant, articleId),
+          readArticleDetailInTransactionPostgres({
+            personId: actor.personId,
+            authorizationInstant: actor.authorizationInstant,
+            articleId,
+          }),
           readContentArticleHttpSourcePostgres(articleId),
           readContentAuthorityHttpSourcesPostgres(actor.personId),
         ]),
