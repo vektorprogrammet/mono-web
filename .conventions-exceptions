@@ -1,0 +1,4 @@
+divergences:
+  - key: linter
+    value: oxlint.config.ts
+    reason: The existing typed Oxlint configuration composes the Effect plugin and is the single lint-policy source; adding a parallel .oxlintrc.json would duplicate that policy. Oxfmt uses .oxfmtrc.json.
