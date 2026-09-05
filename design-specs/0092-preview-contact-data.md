@@ -49,3 +49,20 @@ slug rejection stays intact.
 
 Real PostgreSQL/scenario execution requires the lead's heavy-job slot. No live
 preview data cleanup, provider calls, deployment or remote git changes are allowed.
+
+## Verification status and encountered dependency
+
+The complete scenario gate is BLOCKED: real disposable PostgreSQL execution at
+`001d6864` migrated to `29_native-http-semantics`, but the runner requires
+`23_declarative-authorization-rules` and stopped before department creation.
+Source inspection also finds obsolete `/api/admin/departments` and
+`/api/admin/teams` operations and old command payloads. Restoring the complete
+existing scenario requires a separate bounded contract; this amendment does not
+claim that the full scenario works.
+
+An additional component check, `infra/host/preview-contact-data-postgres.ts`,
+uses the actual migration/Organization layers with the same typed department and
+team fixtures as the runner. It requires an explicit fresh disposable database,
+checks current command replay and public slug uniqueness, and verifies previous
+scenario markers cause rejection before identity seeding. This is component
+verification, not a substitute for acceptance gate 1 or a browser journey.

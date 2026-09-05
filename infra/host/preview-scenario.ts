@@ -38,6 +38,12 @@ import { DatabaseLive } from "../../packages/database/src/layers.js";
 import { OrganizationLive } from "../../packages/domain/src/organization/postgres-layer.js";
 import { Organization } from "../../packages/domain/src/organization/service.js";
 import { contactDepartmentSlug } from "../../apps/homepage/src/lib/contact-message.js";
+import {
+  CreateDepartmentCommandSchema,
+  CreateTeamCommandSchema,
+  type CreateDepartmentCommand,
+  type CreateTeamCommand,
+} from "../../packages/domain/src/organization/administration-schema.js";
 
 const repositoryRoot = new URL("../../", import.meta.url).pathname;
 export const devMainNativeIdentityEnvironment = {
@@ -100,7 +106,7 @@ export const departmentEntityIdFor = (commandId: string): string => {
 const databaseRequire = createRequire(
   new URL("../../packages/database/package.json", import.meta.url),
 );
-const { Effect, Layer, Redacted } = databaseRequire("effect");
+const { Effect, Layer, Redacted, Schema } = databaseRequire("effect");
 const { Pool } = databaseRequire("pg");
 
 export const assertDisposablePostgresUrl = (value: string): void => {
@@ -196,6 +202,33 @@ export const nativePreviewDepartments = [
     city: "Ås",
   },
 ] as const;
+
+export const nativePreviewDepartmentCommands: ReadonlyArray<CreateDepartmentCommand> =
+  nativePreviewDepartments.map(({ id, ...department }) =>
+    Schema.decodeUnknownSync(CreateDepartmentCommandSchema)({
+      _tag: "CreateDepartment",
+      commandId: id,
+      ...department,
+      address: null,
+      latitude: null,
+      longitude: null,
+    }),
+  );
+
+export const nativePreviewTeamCommand: CreateTeamCommand = Schema.decodeUnknownSync(
+  CreateTeamCommandSchema,
+)({
+  _tag: "CreateTeam",
+  commandId: recruitmentTeamCommandId,
+  departmentId: departmentEntityIdFor(nativePreviewDepartments[0].id),
+  name: "Rekruttering",
+  email: "rekruttering@example.invalid",
+  description: "Rekruttering og intervju",
+  shortDescription: "Rekruttering",
+  acceptApplication: true,
+  deadline: null,
+  active: true,
+});
 
 /** Read-only: runs before even identity:seed (which applies migrations). */
 export const assertPreviewScenarioCompatibility = async (
@@ -703,21 +736,11 @@ export const runPreviewScenarioApplication = async (
     // 5) Distinct native administration demo; imported Trondheim owns authority.
     const departments = nativePreviewDepartments;
     let replayedDepartments = 0;
-    for (const department of departments) {
+    for (const department of nativePreviewDepartmentCommands) {
       const response = await fetch(`${backendOrigin}/api/admin/departments`, {
         method: "POST",
         headers: { "content-type": "application/json", cookie: adminCookie },
-        body: JSON.stringify({
-          _tag: "CreateDepartment",
-          commandId: department.id,
-          name: department.name,
-          shortName: department.shortName,
-          email: department.email,
-          address: null,
-          city: department.city,
-          latitude: null,
-          longitude: null,
-        }),
+        body: JSON.stringify(department),
       });
       assert.ok(
         response.status === 201 || response.status === 200,
@@ -748,18 +771,7 @@ export const runPreviewScenarioApplication = async (
     const teamResponse = await fetch(`${backendOrigin}/api/admin/teams`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie: adminCookie },
-      body: JSON.stringify({
-        _tag: "CreateTeam",
-        commandId: recruitmentTeamCommandId,
-        departmentId: departmentEntityIdFor(departments[0].id),
-        name: "Rekruttering",
-        email: "rekruttering@example.invalid",
-        description: "Rekruttering og intervju",
-        shortDescription: "Rekruttering",
-        acceptApplication: true,
-        deadline: null,
-        active: true,
-      }),
+      body: JSON.stringify(nativePreviewTeamCommand),
     });
     assert.ok(
       teamResponse.status === 201 || teamResponse.status === 200,
