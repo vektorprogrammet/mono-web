@@ -37,6 +37,7 @@ import { tmpdir } from "node:os";
 import { DatabaseLive } from "../../packages/database/src/layers.js";
 import { OrganizationLive } from "../../packages/domain/src/organization/postgres-layer.js";
 import { Organization } from "../../packages/domain/src/organization/service.js";
+import { contactDepartmentSlug } from "../../apps/homepage/src/lib/contact-message.js";
 
 const repositoryRoot = new URL("../../", import.meta.url).pathname;
 export const devMainNativeIdentityEnvironment = {
@@ -171,7 +172,73 @@ const departmentId = "1";
 const semesterId = "preview-0072-semester";
 const admissionPeriodCommandId = "preview-0072-period-command";
 const fieldOfStudyId = "preview-0072-fos-datateknologi";
-const recruitmentTeamCommandId = "preview-0072-team-rekruttering-command";
+const recruitmentTeamCommandId = "preview-0092-team-rekruttering-command";
+export const nativePreviewDepartments = [
+  {
+    id: "preview-0092-dept-synthetic-cmd",
+    name: "Syntetisk demoavdeling",
+    shortName: "Syntetisk demo",
+    email: "synthetic-demo@example.invalid",
+    city: "Trondheim",
+  },
+  {
+    id: "preview-0072-dept-uib-cmd",
+    name: "Bergen",
+    shortName: "Bergen",
+    email: "bergen@example.invalid",
+    city: "Bergen",
+  },
+  {
+    id: "preview-0072-dept-nmbu-cmd",
+    name: "Ås",
+    shortName: "Ås",
+    email: "ås@example.invalid",
+    city: "Ås",
+  },
+] as const;
+
+/** Read-only: runs before even identity:seed (which applies migrations). */
+export const assertPreviewScenarioCompatibility = async (
+  pool: InstanceType<typeof Pool>,
+): Promise<void> => {
+  const tables = await pool.query(`SELECT
+    to_regclass('public.organization_departments') IS NOT NULL AS departments,
+    to_regclass('public.organization_command_receipts') IS NOT NULL AS receipts`);
+  const previousDepartmentCommand = "preview-0072-dept-ntnu-cmd";
+  if (tables.rows[0].departments) {
+    const previous = await pool.query(
+      `SELECT department_id FROM public.organization_departments WHERE department_id = $1`,
+      [departmentEntityIdFor(previousDepartmentCommand)],
+    );
+    assert.equal(
+      previous.rowCount,
+      0,
+      "incompatible pre-0092 preview scenario; no mutation performed",
+    );
+  }
+  if (tables.rows[0].receipts) {
+    const previous = await pool.query(
+      `SELECT command_id FROM public.organization_command_receipts WHERE command_id = ANY($1::text[])`,
+      [[previousDepartmentCommand, "preview-0072-team-rekruttering-command"]],
+    );
+    assert.equal(
+      previous.rowCount,
+      0,
+      "incompatible pre-0092 preview scenario; no mutation performed",
+    );
+  }
+};
+
+export const assertUniqueContactDepartmentSlugs = (
+  departments: ReadonlyArray<{ readonly active: boolean; readonly shortName: string }>,
+): void => {
+  const slugs = departments.filter((department) => department.active).map(contactDepartmentSlug);
+  assert.ok(
+    slugs.every((slug) => slug.length > 0),
+    "empty active contact department slug",
+  );
+  assert.equal(new Set(slugs).size, slugs.length, "duplicate active contact department slug");
+};
 const applicantEmail = "sofie.soker.preview.0072@example.invalid";
 const applicationCommandId = "preview-0072-application-command";
 const assignmentCommandId = "preview-0072-assignment-command";
@@ -206,11 +273,7 @@ export const previewScenarioManifest = {
     draft: draftCommandId,
     publish: publishCommandId,
     recruitmentTeam: recruitmentTeamCommandId,
-    departments: [
-      "preview-0072-dept-ntnu-cmd",
-      "preview-0072-dept-uib-cmd",
-      "preview-0072-dept-nmbu-cmd",
-    ],
+    departments: nativePreviewDepartments.map((department) => department.id),
   },
 } as const;
 const receiptBytes = Buffer.from(
@@ -421,6 +484,7 @@ const ensurePreviewScenarioCohort = async (
   postgresUrl: string,
   evidence?: PreviewScenarioEvidence,
 ): Promise<PreviewScenarioCohortResult> => {
+  await assertPreviewScenarioCompatibility(pool);
   const seed = spawnSync("bun", ["run", "identity:seed"], {
     cwd: join(repositoryRoot, "packages", "database"),
     env: {
@@ -636,17 +700,8 @@ export const runPreviewScenarioApplication = async (
     );
     recordStep(evidence, "sign-in-admin", "ok", {});
 
-    // 5) Native departments (legacy-aligned: NTNU/UiB/NMBU)
-    const departments = [
-      {
-        id: "preview-0072-dept-ntnu-cmd",
-        name: "Trondheim",
-        shortName: "Trondheim",
-        city: "Trondheim",
-      },
-      { id: "preview-0072-dept-uib-cmd", name: "Bergen", shortName: "Bergen", city: "Bergen" },
-      { id: "preview-0072-dept-nmbu-cmd", name: "Ås", shortName: "Ås", city: "Ås" },
-    ];
+    // 5) Distinct native administration demo; imported Trondheim owns authority.
+    const departments = nativePreviewDepartments;
     let replayedDepartments = 0;
     for (const department of departments) {
       const response = await fetch(`${backendOrigin}/api/admin/departments`, {
@@ -657,7 +712,7 @@ export const runPreviewScenarioApplication = async (
           commandId: department.id,
           name: department.name,
           shortName: department.shortName,
-          email: `${department.shortName.toLowerCase()}@example.invalid`,
+          email: department.email,
           address: null,
           city: department.city,
           latitude: null,
@@ -674,17 +729,22 @@ export const runPreviewScenarioApplication = async (
       `SELECT COUNT(*)::int AS count FROM organization_departments WHERE department_id LIKE 'department-%'`,
     );
     assert.ok(departmentCount.rows[0].count >= 3, "native departments read-back failed");
+    const contactDepartments = await pool.query(
+      `SELECT short_name AS "shortName", active FROM public.organization_departments`,
+    );
+    assertUniqueContactDepartmentSlugs(contactDepartments.rows);
     recordStep(
       evidence,
       "native-departments",
       replayedDepartments === departments.length ? "replayed" : "ok",
       {
         count: 3,
-        legacy: "NTNU/UiB/NMBU",
+        departments: departments.map((department) => department.shortName),
+        activeContactSlugsUnique: true,
       },
     );
 
-    // 6) Native team (Styret/IT/Rekruttering style) under Trondheim
+    // 6) Native team under the synthetic administration demo department.
     const teamResponse = await fetch(`${backendOrigin}/api/admin/teams`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie: adminCookie },

@@ -9,6 +9,7 @@ import { createRequire } from "node:module";
 import {
   assertDisposablePostgresUrl,
   assertScenarioPrerequisites,
+  assertPreviewScenarioCompatibility,
   prepareDisposableScenarioTarget,
   previewScenarioManifest,
   runPreviewScenarioApplication,
@@ -215,6 +216,7 @@ export const preflightScenarioTarget = async (
   assertProviderDeliveryDisabled(environment);
   const pool = new Pool({ connectionString: target.databaseUrl, max: 2 });
   try {
+    await assertPreviewScenarioCompatibility(pool);
     const revision = await pool.query(
       `SELECT migration_id::text || '_' || name AS revision
        FROM public.vektorprogrammet_schema_migrations
