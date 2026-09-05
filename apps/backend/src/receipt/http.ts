@@ -50,7 +50,12 @@ import {
   type OwnedReceiptProjectionItem,
 } from "@vektorprogrammet/domain/receipt";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
-import { ExternalNativeApi, InternalNativeApi } from "@vektorprogrammet/http-api";
+import {
+  ExternalNativeApi,
+  InternalNativeApi,
+  type ReceiptResource,
+  type ReceiptListItem,
+} from "@vektorprogrammet/http-api";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
@@ -580,7 +585,7 @@ const receiptEtag = (receiptId: string, revision: number) =>
     version: revision,
   });
 
-const receiptResource = (receipt: Receipt) => {
+const receiptResource = (receipt: Receipt): typeof ReceiptResource.Type => {
   const amountOre = Number(receipt.amountOre);
   if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
     throw new ReceiptPersistenceError({
@@ -599,6 +604,7 @@ const receiptResource = (receipt: Receipt) => {
     receiptDate: receipt.receiptDate,
     status: receipt.status,
     submittedAt: receipt.submittedAt,
+    refundDate: receipt.refundDate,
     revision: receipt.revision,
     etag: receiptEtag(receipt.receiptId, receipt.revision),
   };
@@ -835,7 +841,7 @@ const executeV2ReceiptMutation = (
     ),
   );
 
-const ownedReceiptResource = (receipt: OwnedReceiptProjectionItem) => {
+const ownedReceiptResource = (receipt: OwnedReceiptProjectionItem): typeof ReceiptListItem.Type => {
   const amountOre = Number(receipt.amountOre);
   if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
     throw new ReceiptPersistenceError({
@@ -853,7 +859,6 @@ const ownedReceiptResource = (receipt: OwnedReceiptProjectionItem) => {
     currency: receipt.currency,
     receiptDate: receipt.receiptDate,
     status: receipt.status,
-    submittedAt: receipt.submittedAt,
     revision: receipt.revision,
     etag: receiptEtag(receipt.receiptId, receipt.revision),
   };

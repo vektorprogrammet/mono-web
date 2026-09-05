@@ -1,4 +1,5 @@
 import { IdentitySnapshot } from "@vektorprogrammet/database";
+import { ReceiptResource, ReceiptListItem } from "@vektorprogrammet/http-api";
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
 import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
 import {
@@ -22,7 +23,7 @@ import {
   type ReceiptStatus,
   type ReceiptSubmissionAllocation,
 } from "@vektorprogrammet/domain/receipt";
-import { DateTime, Effect, Layer } from "effect";
+import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { deriveHttpIdentity, deriveStrongETag } from "../http-semantics.js";
 import {
@@ -220,7 +221,7 @@ const harness = (options: HarnessOptions = {}) => {
         receiptDate: String(command.receiptDate ?? source.receiptDate),
         status,
         revision: nextRevision,
-        refundDate: status === "Refunded" ? "2026-08-24" : null,
+        refundDate: status === "Refunded" ? "2026-08-24T12:00:00.000Z" : null,
         paymentAccountCiphertext: "encrypted",
         file: {
           fileRef: "staging/file-one",
@@ -569,11 +570,11 @@ describe("receipt v0.2 HTTP contract", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(body).toEqual({
       items: [
-        {
+        Schema.decodeUnknownSync(ReceiptListItem)({
           ...pendingReceipt(),
           amountOre: 1200,
           etag: receiptEtag(receiptId, 0),
-        },
+        }),
       ],
       totalItems: 1,
     });
@@ -681,6 +682,7 @@ describe("receipt v0.2 HTTP contract", () => {
     const submitState = harness();
     const submitted = await submitRequest(submitState.http, "submit-http-replay-key-0001");
     const submittedBody = await readJson(submitted);
+    expect(Schema.decodeUnknownSync(ReceiptResource)(submittedBody).refundDate).toBeNull();
     const submitReplay = await submitRequest(submitState.http, "submit-http-replay-key-0001");
     expect(submitted.status).toBe(201);
     expect(submitReplay.status).toBe(201);
@@ -818,6 +820,9 @@ describe("receipt v0.2 HTTP contract", () => {
         `${action}-receipt-idempotency-key`,
       );
       expect(exact.status).toBe(200);
+      expect(Schema.decodeUnknownSync(ReceiptResource)(await exact.json()).refundDate).toBe(
+        action === "refund" ? "2026-08-24T12:00:00.000Z" : null,
+      );
       expect(state.commands).toHaveLength(1);
       expect(state.commands[0]).toMatchObject({
         _tag: commandTag,
