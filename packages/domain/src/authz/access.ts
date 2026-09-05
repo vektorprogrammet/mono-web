@@ -600,7 +600,6 @@ const collectionResolvers = new Set<string>([
   "organization.mailing-lists",
   "profile.people-directory",
   "schools.directory",
-  "substitutes.application-scope",
   "admissions.public-open-periods",
   "admissions.public-application-options",
   "admissions.management-periods",
