@@ -28,14 +28,14 @@ import assert from "node:assert/strict";
 import { isDeepStrictEqual } from "node:util";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseLive } from "../../packages/database/src/layers.js";
 import { databaseMigrationDefinitions } from "../../packages/database/src/migrations.js";
 import { createPromiseClient } from "../../packages/sdk/src/promise.js";
-import { IdempotencyKey } from "../../packages/http-api/src/http-semantics.js";
+import { IdempotencyKey, StrongETag } from "../../packages/http-api/src/http-semantics.js";
 import { DepartmentId, SemesterId } from "../../packages/domain/src/organization/schema.js";
 import { AdmissionFieldOfStudyId } from "../../packages/domain/src/admission-period/schema.js";
 import { InterviewSchemaId } from "../../packages/domain/src/recruitment/schema.js";
@@ -934,10 +934,39 @@ export const runPreviewScenarioApplication = async (
       }),
     );
     const articleId = draft.response.body.articleId;
+    // ETags include the reading caller's authority. Persist the leader's original
+    // observed precondition so replay submits the same request after publication.
+    const publicationPreconditionPath = join(
+      options.receiptStorageRoot,
+      `${publishCommandId}-${articleId}.etag`,
+    );
+    const savedPrecondition = await readFile(publicationPreconditionPath, "utf8").catch(
+      (cause: unknown) => {
+        if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+        throw cause;
+      },
+    );
+    let publicationPrecondition: StrongETag;
+    if (savedPrecondition === undefined) {
+      const selected = await leader.content.readArticle({ params: { articleId }, headers: {} });
+      assert.equal(
+        selected.body?.status,
+        "Draft",
+        "published scenario lost its original precondition",
+      );
+      publicationPrecondition = selected.headers.etag;
+      await mkdir(options.receiptStorageRoot, { recursive: true, mode: 0o700 });
+      await writeFile(publicationPreconditionPath, publicationPrecondition, {
+        flag: "wx",
+        mode: 0o600,
+      });
+    } else {
+      publicationPrecondition = Schema.decodeUnknownSync(StrongETag)(savedPrecondition);
+    }
     const publication = await observeMutation("content-publish", () =>
       leader.content.publishArticle({
         params: { articleId },
-        headers: { ...idempotency(publishCommandId), "if-match": draft.response.headers.etag },
+        headers: { ...idempotency(publishCommandId), "if-match": publicationPrecondition },
         payload: {},
       }),
     );
