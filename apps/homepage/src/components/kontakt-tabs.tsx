@@ -66,16 +66,6 @@ export function ContactTabs({
             <h2 className="font-bold text-2xl text-blue-800 dark:text-neutral-200">
               {`Kontakt ${department.shortName}`}
             </h2>
-            {actionData?.ok && (
-              <p className="mt-4 rounded-md bg-green-100 p-3 text-green-900" role="status">
-                Meldingen er sendt.
-              </p>
-            )}
-            {actionData && !actionData.ok && (
-              <p className="mt-4 rounded-md bg-red-100 p-3 text-red-900" role="alert">
-                {actionData.message}
-              </p>
-            )}
             <Form method="post" className="mt-5" key={draft.generation}>
               <div className="grid gap-5 sm:grid-cols-2">
                 <div>
@@ -122,6 +112,16 @@ export function ContactTabs({
               <Button className="mt-5" type="submit" disabled={submitting}>
                 {submitting ? "Sender melding..." : "Send melding"}
               </Button>
+              {!submitting && actionData?.ok && (
+                <p className="mt-4 rounded-md bg-green-100 p-3 text-green-900" role="status">
+                  Meldingen er sendt.
+                </p>
+              )}
+              {!submitting && actionData && !actionData.ok && (
+                <p className="mt-4 rounded-md bg-red-100 p-3 text-red-900" role="alert">
+                  {actionData.message}
+                </p>
+              )}
             </Form>
           </div>
         </section>

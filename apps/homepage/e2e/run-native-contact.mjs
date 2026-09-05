@@ -515,6 +515,11 @@ try {
       };
     });
   const scrolledRejection = await rejectionGeometry();
+  assert.ok(
+    scrolledRejection.alert.top >= scrolledRejection.header.bottom &&
+      scrolledRejection.alert.bottom <= scrolledRejection.viewportHeight,
+    "rejection feedback must be fully visible below the sticky header before test scrolling",
+  );
   await page.screenshot({ path: join(artifacts, "contact-rejected-viewport.png") });
   await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
