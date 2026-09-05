@@ -208,12 +208,12 @@ export const readRecruitmentTargetActorPostgres = (input: {
         SELECT
           EXISTS (
             SELECT 1
-            FROM public.organization_global_administrator_grants AS grant
-            WHERE grant.person_id = ${input.personId}
-              AND grant.start_at <= ${input.authorizationInstant}::timestamptz
+            FROM public.organization_global_administrator_grants AS administrator_grant
+            WHERE administrator_grant.person_id = ${input.personId}
+              AND administrator_grant.start_at <= ${input.authorizationInstant}::timestamptz
               AND (
-                grant.end_at IS NULL
-                OR ${input.authorizationInstant}::timestamptz < grant.end_at
+                administrator_grant.end_at IS NULL
+                OR ${input.authorizationInstant}::timestamptz < administrator_grant.end_at
               )
           ) AS "globalAdministrator",
           EXISTS (
