@@ -55,16 +55,22 @@ type RunRequirement<Run> =
  * runtime. The first argument is a type witness only. At execution, the nested
  * runner inherits the SQL transaction connection and the witness's services.
  */
-export const prepareNativeHttpCommand = <Run, E, R>(
+export const withNativeHttpRuntime = <Run, A, E = unknown>(
   _run: Run,
-  prepare: (run: Run) => Promise<NativeHttpCommandPlan<E, R>>,
-): Effect.Effect<NativeHttpCommandPlan<E, R>, E, RunRequirement<Run>> =>
+  execute: (run: Run) => Promise<A>,
+): Effect.Effect<A, E, RunRequirement<Run>> =>
   Effect.flatMap(Effect.context<RunRequirement<Run>>(), (context) =>
     Effect.tryPromise({
-      try: () => prepare(Effect.runPromiseWith(context) as unknown as Run),
+      try: () => execute(Effect.runPromiseWith(context) as unknown as Run),
       catch: (cause) => cause as E,
     }),
   );
+
+export const prepareNativeHttpCommand = <Run, E, R>(
+  run: Run,
+  prepare: (run: Run) => Promise<NativeHttpCommandPlan<E, R>>,
+): Effect.Effect<NativeHttpCommandPlan<E, R>, E, RunRequirement<Run>> =>
+  withNativeHttpRuntime<Run, NativeHttpCommandPlan<E, R>, E>(run, prepare);
 
 export const authorizeAnonymousNativeOperation = async (
   spec: AccessSpec,

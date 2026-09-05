@@ -1,0 +1,196 @@
+import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
+import { AdmissionPeriodId } from "@vektorprogrammet/domain/admission-period";
+import {
+  SubstituteEntryFields,
+  SubstitutePreferences,
+  SubstituteMutation,
+  SubstituteScope,
+  SubstituteScopes,
+} from "@vektorprogrammet/domain/substitutes";
+import { Schema } from "effect";
+import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { annotateAccessSpec, personNativeAccess } from "./access.js";
+import { operationAnnotations, PersonSecurity } from "./common.js";
+import {
+  ConditionalReadHeaders,
+  StrongETag,
+  IdempotencyIfMatchHeaders,
+  privateReadResponse,
+  privateConditionalResponses,
+  entityMutationResponse,
+  endpointProblemResponses,
+  problemUnion,
+} from "./http-semantics.js";
+
+export const SubstituteResource = Schema.Union([
+  Schema.Struct({
+    ...SubstituteEntryFields,
+    active: Schema.Literal(true),
+    preferences: SubstitutePreferences,
+    etag: StrongETag,
+  }),
+  Schema.Struct({
+    ...SubstituteEntryFields,
+    active: Schema.Literal(false),
+    preferences: Schema.NullOr(SubstitutePreferences),
+    etag: StrongETag,
+  }),
+]).annotate({ identifier: "SubstituteResource" });
+const BoardFields = {
+  ...SubstituteScope.fields,
+  admissionPeriodId: Schema.NullOr(AdmissionPeriodId),
+  entries: Schema.Array(SubstituteResource),
+};
+export const SubstituteBoard = Schema.Union([
+  Schema.Struct({ _tag: Schema.Literal("ReadOnly"), ...BoardFields }),
+  Schema.Struct({
+    _tag: Schema.Literal("Manage"),
+    ...BoardFields,
+    candidates: Schema.Array(SubstituteResource),
+  }),
+]).annotate({ identifier: "SubstituteBoard" });
+export const SubstituteProblem = problemUnion("SubstituteProblem", [
+  ["request.malformed", 400],
+  ["request.too-large", 413],
+  ["precondition.invalid", 400],
+  ["idempotency-key.invalid", 400],
+  ["header.malformed", 400],
+  ["validation.failed", 422],
+  ["scope.invalid", 422],
+  ["credential.invalid", 401],
+  ["authority.denied", 403],
+  ["resource.not-found", 404],
+  ["substitute.already-active", 400],
+  ["substitute.inactive", 400],
+  ["precondition.required", 428],
+  ["precondition.failed", 412],
+  ["idempotency.in-flight", 409],
+  ["idempotency.digest-conflict", 409],
+  ["idempotency.response-expired", 409],
+  ["transaction.conflict", 409],
+  ["internal.error", 500],
+  ["media-type.unsupported", 415],
+]);
+const access = (write: boolean) =>
+  personNativeAccess({
+    capability: write ? "substitutes.manage" : "substitutes.read",
+    canonicalScopeResolver: "substitutes.application-scope",
+    decisionTime: write ? "Transaction" : "SnapshotRead",
+  });
+export const ListSubstituteScopesEndpoint = HttpApiEndpoint.get(
+  "listScopes",
+  "/api/substitutes/scopes",
+  {
+    success: privateReadResponse(SubstituteScopes),
+    error: endpointProblemResponses(SubstituteProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((e) => annotateAccessSpec(e, access(false)))
+  .annotateMerge(
+    operationAnnotations(
+      "Select substitute scope",
+      "Authorized departments and canonical historical semesters.",
+    ),
+  );
+export const ReadSubstitutePoolEndpoint = HttpApiEndpoint.get("readPool", "/api/substitutes", {
+  query: SubstituteScope.fields,
+  success: privateReadResponse(SubstituteBoard),
+  error: endpointProblemResponses(SubstituteProblem),
+})
+  .middleware(PersonSecurity)
+  .pipe((e) => annotateAccessSpec(e, access(false)))
+  .annotateMerge(
+    operationAnnotations(
+      "Read substitute pool",
+      "Only leaders receive inactive candidate applications.",
+    ),
+  );
+export const ReadSubstituteEndpoint = HttpApiEndpoint.get(
+  "readEntry",
+  "/api/substitutes/:applicationId",
+  {
+    params: { applicationId: PublicApplicationIdSchema },
+    headers: ConditionalReadHeaders,
+    success: privateConditionalResponses(SubstituteResource),
+    error: endpointProblemResponses(SubstituteProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((e) => annotateAccessSpec(e, access(false)))
+  .annotateMerge(
+    operationAnnotations(
+      "Select substitute entry",
+      "Members can select only active entries; leaders can select candidates.",
+    ),
+  );
+export const ActivateSubstituteEndpoint = HttpApiEndpoint.post(
+  "activate",
+  "/api/substitutes/:applicationId([^:]+)::activate",
+  {
+    params: { applicationId: PublicApplicationIdSchema },
+    headers: IdempotencyIfMatchHeaders,
+    payload: SubstituteMutation,
+    success: entityMutationResponse(SubstituteResource),
+    error: endpointProblemResponses(SubstituteProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((e) => annotateAccessSpec(e, access(true)))
+  .annotateMerge(
+    operationAnnotations(
+      "Activate substitute",
+      "Explicit preferences are required. Fresh activation of an active entry rejects.",
+    ),
+  );
+export const EditSubstituteEndpoint = HttpApiEndpoint.post(
+  "edit",
+  "/api/substitutes/:applicationId([^:]+)::edit",
+  {
+    params: { applicationId: PublicApplicationIdSchema },
+    headers: IdempotencyIfMatchHeaders,
+    payload: SubstituteMutation,
+    success: entityMutationResponse(SubstituteResource),
+    error: endpointProblemResponses(SubstituteProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((e) => annotateAccessSpec(e, access(true)))
+  .annotateMerge(
+    operationAnnotations(
+      "Edit substitute",
+      "Updates declared preferences and the canonical application year of study.",
+    ),
+  );
+export const DeactivateSubstituteEndpoint = HttpApiEndpoint.post(
+  "deactivate",
+  "/api/substitutes/:applicationId([^:]+)::deactivate",
+  {
+    params: { applicationId: PublicApplicationIdSchema },
+    headers: IdempotencyIfMatchHeaders,
+    payload: Schema.Struct({}),
+    success: entityMutationResponse(SubstituteResource),
+    error: endpointProblemResponses(SubstituteProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((e) => annotateAccessSpec(e, access(true)))
+  .annotateMerge(
+    operationAnnotations(
+      "Deactivate substitute",
+      "Preserves application, recruitment history and preferences; fresh inactive deactivation rejects.",
+    ),
+  );
+export class SubstitutesApi extends HttpApiGroup.make("substitutes")
+  .add(ListSubstituteScopesEndpoint)
+  .add(ReadSubstitutePoolEndpoint)
+  .add(ReadSubstituteEndpoint)
+  .add(ActivateSubstituteEndpoint)
+  .add(EditSubstituteEndpoint)
+  .add(DeactivateSubstituteEndpoint)
+  .annotateMerge(
+    OpenApi.annotations({
+      title: "Substitute pool",
+      description: "Department and semester scoped substitute availability.",
+    }),
+  ) {}

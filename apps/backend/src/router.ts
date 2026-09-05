@@ -1,4 +1,5 @@
 import type { ReceiptAuxiliaryEffects } from "@vektorprogrammet/domain/receipt";
+import { SubstitutesApiHandlers } from "./substitutes/http.js";
 import { ContactApiHandlers } from "./contact/http.js";
 import { BlockList, isIP } from "node:net";
 import { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
@@ -164,6 +165,7 @@ export const makeExternalNativeApiRouterLayer = (
   };
 
   const handlers = Layer.mergeAll(
+    SubstitutesApiHandlers({ run, now: options.now }),
     ContactApiHandlers(run, config.contact),
     SystemApiHandlers(run, options),
     AdmissionsApiHandlers({

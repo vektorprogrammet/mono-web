@@ -278,6 +278,11 @@ export const databaseMigrationDefinitions = [
     name: "native-contact-quota",
     url: new URL("../migrations/0030-native-contact-quota.sql", import.meta.url),
   },
+  {
+    id: "31_native-substitute-pool",
+    name: "native-substitute-pool",
+    url: new URL("../migrations/0031-native-substitute-pool.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

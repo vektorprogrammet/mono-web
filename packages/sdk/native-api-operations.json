@@ -283,6 +283,42 @@
       "path": "/api/recruitment/interviews/{interviewId}:schedule"
     },
     {
+      "group": "substitutes",
+      "method": "POST",
+      "operationId": "substitutes.activate",
+      "path": "/api/substitutes/{applicationId}:activate"
+    },
+    {
+      "group": "substitutes",
+      "method": "POST",
+      "operationId": "substitutes.deactivate",
+      "path": "/api/substitutes/{applicationId}:deactivate"
+    },
+    {
+      "group": "substitutes",
+      "method": "POST",
+      "operationId": "substitutes.edit",
+      "path": "/api/substitutes/{applicationId}:edit"
+    },
+    {
+      "group": "substitutes",
+      "method": "GET",
+      "operationId": "substitutes.listScopes",
+      "path": "/api/substitutes/scopes"
+    },
+    {
+      "group": "substitutes",
+      "method": "GET",
+      "operationId": "substitutes.readEntry",
+      "path": "/api/substitutes/{applicationId}"
+    },
+    {
+      "group": "substitutes",
+      "method": "GET",
+      "operationId": "substitutes.readPool",
+      "path": "/api/substitutes"
+    },
+    {
       "group": "system",
       "method": "DELETE",
       "operationId": "system.deleteOwnedSession",

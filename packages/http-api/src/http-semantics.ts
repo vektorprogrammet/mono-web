@@ -249,6 +249,31 @@ interface FrozenProblemDefinition {
 
 /** Exhaustive public registry. No title or detail is derived from a code. */
 export const NativeProblemRegistry = {
+  "scope.invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:scope.invalid",
+    title: "Invalid substitute scope",
+    status: 422,
+    detail: "The selected semester does not exist.",
+  },
+  "substitute.already-active": {
+    type: "urn:vektorprogrammet:problem:v0.2:substitute.already-active",
+    title: "Substitute already active",
+    status: 400,
+    detail: "The application is already in the substitute pool.",
+  },
+  "substitute.inactive": {
+    type: "urn:vektorprogrammet:problem:v0.2:substitute.inactive",
+    title: "Substitute inactive",
+    status: 400,
+    detail: "The application is not in the substitute pool.",
+  },
+  "transaction.conflict": {
+    type: "urn:vektorprogrammet:problem:v0.2:transaction.conflict",
+    title: "Concurrent transaction conflict",
+    status: 409,
+    detail: "Another transaction changed the selected state. Refresh before retrying.",
+  },
+
   "admission-period.already-exists": {
     type: "urn:vektorprogrammet:problem:v0.2:admission-period.already-exists",
     title: "Admission period already exists",
