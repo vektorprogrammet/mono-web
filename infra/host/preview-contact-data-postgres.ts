@@ -37,7 +37,7 @@ try {
     _tag: "OrganizationAdministrator",
     personId: PersonId.make("component-0092"),
   } as const;
-  const run = (operation: Parameters<typeof Effect.runPromise>[0]) =>
+  const run = (operation: ReturnType<typeof Organization.use>) =>
     Effect.runPromise(operation.pipe(Effect.provide(organizationLayer)));
   const readDepartments = () =>
     run(Organization.use((organization) => organization.listDepartments));

@@ -376,38 +376,33 @@ export const readScenarioDatabaseFacts = async (
 
 export interface CommandReceiptFact {
   readonly kind: string;
-  readonly commandId: string;
+  readonly identitySha256: string;
   readonly present: boolean;
 }
 
 export const readCommandReceiptFacts = async (
   target: ValidatedScenarioTarget,
+  observed: ReadonlyArray<{ readonly kind: string; readonly identitySha256: string }>,
 ): Promise<ReadonlyArray<CommandReceiptFact>> => {
   const pool = new Pool({ connectionString: target.databaseUrl, max: 2 });
-  const commands = previewScenarioManifest.commandIds;
-  const definitions = [
-    ["organization-department", "organization_command_receipts", ...commands.departments],
-    ["organization-team", "organization_command_receipts", commands.recruitmentTeam],
-    ["admission-period", "admission_period_command_receipts", commands.admissionPeriod],
-    ["application", "admission_application_command_receipts", commands.application],
-    ["assignment", "recruitment_assignment_command_receipts", commands.assignment],
-    ["receipt", "economy_receipt_command_receipts", commands.receipt],
-    ["content-draft", "content_publication_command_receipts", commands.draft],
-    ["content-publish", "content_publication_command_receipts", commands.publish],
-  ] as const;
-  const facts: CommandReceiptFact[] = [];
   try {
-    for (const [kind, table, ...commandIds] of definitions) {
-      const result = await pool.query(
-        `SELECT command_id AS "commandId" FROM ${table} WHERE command_id = ANY($1::text[])`,
-        [commandIds],
-      );
-      const present = new Set(result.rows.map(({ commandId }: { commandId: string }) => commandId));
-      for (const commandId of commandIds) {
-        facts.push({ kind, commandId, present: present.has(commandId) });
-      }
-    }
-    return facts;
+    assert.equal(
+      observed.length,
+      Object.values(previewScenarioManifest.commandIds).flat().length,
+      "scenario must witness every native HTTP mutation",
+    );
+    const result = await pool.query(
+      `SELECT identity_sha256 FROM public.native_http_idempotency_receipts
+       WHERE identity_sha256 = ANY($1::text[]) AND state = 'Complete'`,
+      [observed.map(({ identitySha256 }) => identitySha256)],
+    );
+    const present = new Set(
+      result.rows.map((row: { identity_sha256: string }) => row.identity_sha256),
+    );
+    return observed.map((receipt) => ({
+      ...receipt,
+      present: present.has(receipt.identitySha256),
+    }));
   } finally {
     await pool.end().catch(() => undefined);
   }
@@ -505,6 +500,11 @@ export const runLivePreviewScenario = async (
   command: LivePreviewScenarioCommand,
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<{ readonly evidence: LivePreviewScenarioEvidence; readonly evidencePath: string }> => {
+  const receiptStorageRoot = environment.PREVIEW_SCENARIO_STORAGE_ROOT;
+  assert.ok(
+    receiptStorageRoot,
+    "PREVIEW_SCENARIO_STORAGE_ROOT is required and must persist for replay",
+  );
   const source = readSourceIdentity();
   if (command.mode === "live")
     assert.ok(source.clean, "live scenario requires a clean source tree");
@@ -524,12 +524,14 @@ export const runLivePreviewScenario = async (
     async () => {
       const first = await runPreviewScenarioApplication({
         postgresUrl: command.validatedTarget.databaseUrl,
+        receiptStorageRoot,
         emitEvidence: false,
       });
       const replay =
         command.mode === "rehearsal"
           ? await runPreviewScenarioApplication({
               postgresUrl: command.validatedTarget.databaseUrl,
+              receiptStorageRoot,
               emitEvidence: false,
             })
           : undefined;
@@ -538,7 +540,10 @@ export const runLivePreviewScenario = async (
   );
 
   const after = await readScenarioDatabaseFacts(command.validatedTarget);
-  const commandReceipts = await readCommandReceiptFacts(command.validatedTarget);
+  const commandReceipts = await readCommandReceiptFacts(
+    command.validatedTarget,
+    gated.application.first.evidence.commandReceipts,
+  );
   assert.ok(
     commandReceipts.every(({ present }) => present),
     "scenario command receipt is missing",

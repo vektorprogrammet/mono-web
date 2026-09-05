@@ -7,13 +7,9 @@
  * receipt wording). Everything enters through native boundaries:
  *
  *   - identity:seed (better-auth engine, caller-supplied PersonIds)
- *   - POST /api/admin/departments|teams      (native Organization administration)
- *   - Organization.importLegacyOrganization  (memberships — no native create command)
- *   - POST /api/admin/admission-periods      (CreateAdmissionPeriod)
- *   - POST /api/applications                 (public application submit)
- *   - POST /api/admin/recruitment/interviews/assign
- *   - POST /api/receipts/submit              (multipart, payment authority prerequisite)
- *   - POST /api/admin/content/articles + /{id}/publish
+ *   - generated native SDK operations for Organization, Admissions, Recruitment,
+ *     Receipts and Content (the canonical HTTP contract owns paths and payloads)
+ *   - Organization.importLegacyOrganization for the authority cohort
  *
  * Named prerequisites (recorded, never silent): admission authority rows,
  * global administrator and payment-authority grants, and the interview schema.
@@ -21,20 +17,32 @@
  *
  * Usage:
  *   PREVIEW_SCENARIO_PG_URL='postgres://postgres@127.0.0.1:5435/preview_scenario' \
+ *   PREVIEW_SCENARIO_STORAGE_ROOT=/tmp/owned-preview-receipt-storage \
  *     bun infra/host/preview-scenario.ts
  *
- * Idempotent: safe re-run, every command replay returns replayed:true and
+ * Idempotent: compatible re-runs preserve witnessed HTTP command receipts and
  * business-table counts stay stable. Loopback-only, disposable databases only.
  */
 
 import assert from "node:assert/strict";
+import { isDeepStrictEqual } from "node:util";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseLive } from "../../packages/database/src/layers.js";
+import { databaseMigrationDefinitions } from "../../packages/database/src/migrations.js";
+import { createPromiseClient } from "../../packages/sdk/src/promise.js";
+import { IdempotencyKey } from "../../packages/http-api/src/http-semantics.js";
+import {
+  DepartmentId,
+  SemesterId,
+  PersonId,
+} from "../../packages/domain/src/organization/schema.js";
+import { AdmissionFieldOfStudyId } from "../../packages/domain/src/admission-period/schema.js";
+import { InterviewSchemaId } from "../../packages/domain/src/recruitment/schema.js";
 import { OrganizationLive } from "../../packages/domain/src/organization/postgres-layer.js";
 import { Organization } from "../../packages/domain/src/organization/service.js";
 import { contactDepartmentSlug } from "../../apps/homepage/src/lib/contact-message.js";
@@ -174,10 +182,10 @@ const persons = {
   },
 } as const;
 
-const departmentId = "1";
-const semesterId = "preview-0072-semester";
+const departmentId = DepartmentId.make("1");
+const semesterId = SemesterId.make("preview-0072-semester");
 const admissionPeriodCommandId = "preview-0072-period-command";
-const fieldOfStudyId = "preview-0072-fos-datateknologi";
+const fieldOfStudyId = AdmissionFieldOfStudyId.make("preview-0072-fos-datateknologi");
 const recruitmentTeamCommandId = "preview-0092-team-rekruttering-command";
 export const nativePreviewDepartments = [
   {
@@ -275,7 +283,7 @@ export const assertUniqueContactDepartmentSlugs = (
 const applicantEmail = "sofie.soker.preview.0072@example.invalid";
 const applicationCommandId = "preview-0072-application-command";
 const assignmentCommandId = "preview-0072-assignment-command";
-const interviewSchemaId = "preview-0072-interview-schema";
+const interviewSchemaId = InterviewSchemaId.make("preview-0072-interview-schema");
 const receiptCommandId = "preview-0072-receipt-command";
 const draftCommandId = "preview-0072-draft-command";
 const publishCommandId = "preview-0072-publish-command";
@@ -291,7 +299,7 @@ const membershipStartAt = "2026-01-01T00:00:00.000Z";
 const receiptDate = "2026-08-20";
 
 export const previewScenarioManifest = {
-  schemaRevision: "23_declarative-authorization-rules",
+  schemaRevision: databaseMigrationDefinitions.at(-1)!.id,
   persons,
   departmentId,
   semesterId,
@@ -395,6 +403,7 @@ export interface PreviewScenarioEvidence {
   tableCountsAfter: Record<string, number>;
   replayCheck: Record<string, unknown> | null;
   readonly legacyAlignment: Record<string, string>;
+  readonly commandReceipts: Array<{ readonly kind: string; readonly identitySha256: string }>;
 }
 
 const makeEvidence = (): PreviewScenarioEvidence => ({
@@ -404,6 +413,7 @@ const makeEvidence = (): PreviewScenarioEvidence => ({
   tableCountsBefore: {},
   tableCountsAfter: {},
   replayCheck: null,
+  commandReceipts: [],
   legacyAlignment: {
     admissionPeriod: "/kontrollpanel/opptaksperiode",
     interviewAssignment: "/kontrollpanel/intervju/fordel/{id}",
@@ -632,6 +642,7 @@ export const prepareDisposableScenarioTarget = async (postgresUrl: string): Prom
 
 export interface PreviewScenarioApplicationOptions {
   readonly postgresUrl: string;
+  readonly receiptStorageRoot: string;
   readonly backendPort?: number;
   readonly evidencePath?: string;
   readonly emitEvidence?: boolean;
@@ -645,6 +656,10 @@ export interface PreviewScenarioApplicationResult {
 export const runPreviewScenarioApplication = async (
   options: PreviewScenarioApplicationOptions,
 ): Promise<PreviewScenarioApplicationResult> => {
+  assert.ok(
+    options.receiptStorageRoot.trim().length > 0,
+    "receiptStorageRoot is required and must persist for replay",
+  );
   const { postgresUrl } = options;
   const evidence = makeEvidence();
   const pool = new Pool({ connectionString: postgresUrl, max: 4 });
@@ -695,7 +710,7 @@ export const runPreviewScenarioApplication = async (
       },
       {
         surface: "schools_directory",
-        reason: "no native write command exists; rows are read-only via GET /api/admin/schools",
+        reason: "no native write command exists; rows are read-only via GET /api/schools",
       },
     );
 
@@ -712,8 +727,8 @@ export const runPreviewScenarioApplication = async (
       ORGANIZATION_AUTH_TOKENS: "{}",
       PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
       RECEIPT_E2E_TEST_MODE: "1",
-      RECEIPT_STAGING_ROOT: join(tempRoot, "receipt-staging"),
-      RECEIPT_COMMITTED_ROOT: join(tempRoot, "receipt-committed"),
+      RECEIPT_STAGING_ROOT: join(options.receiptStorageRoot, "receipt-staging"),
+      RECEIPT_COMMITTED_ROOT: join(options.receiptStorageRoot, "receipt-committed"),
     };
     backend = spawn("bun", ["run", "--cwd", "apps/backend", "start"], {
       cwd: repositoryRoot,
@@ -725,191 +740,125 @@ export const runPreviewScenarioApplication = async (
     backend.stderr?.on("data", (chunk: Buffer) => backendLogs.push(chunk.toString()));
     await waitForHttp(`${backendOrigin}/health`, backend);
 
-    // 4) Sign in as admin via the real better-auth endpoint
+    // Every SDK mutation is witnessed against the actual native HTTP receipt table.
+    // The runner owns this isolated scenario; no other writer may share the target.
+    const observeMutation = async <A extends { readonly body: unknown }>(
+      kind: string,
+      execute: () => Promise<A>,
+    ): Promise<{ readonly response: A; readonly replayed: boolean }> => {
+      const before = await pool.query(
+        `SELECT identity_sha256 FROM public.native_http_idempotency_receipts`,
+      );
+      const response = await execute();
+      const after = await pool.query(
+        `SELECT identity_sha256, body_bytes FROM public.native_http_idempotency_receipts WHERE state = 'Complete'`,
+      );
+      const body = JSON.parse(JSON.stringify(response.body));
+      const matching = after.rows.filter((row: { body_bytes: Buffer }) =>
+        isDeepStrictEqual(JSON.parse(row.body_bytes.toString()), body),
+      );
+      assert.equal(matching.length, 1, `${kind} response must identify one actual HTTP receipt`);
+      const identitySha256 = matching[0].identity_sha256 as string;
+      const replayed = before.rows.some(
+        (row: { identity_sha256: string }) => row.identity_sha256 === identitySha256,
+      );
+      evidence.commandReceipts.push({ kind, identitySha256 });
+      return { response, replayed };
+    };
+    const idempotency = (key: string) => ({ "idempotency-key": IdempotencyKey.make(key) });
+    const clientFor = (cookie?: string) =>
+      createPromiseClient(backendOrigin, {
+        ...(cookie === undefined ? {} : { cookie }),
+        origin: devMainNativeIdentityEnvironment.OAUTH_CANONICAL_ORIGIN,
+        fetch: (input, init) => fetch(input, { ...init, redirect: "error" }),
+      });
     const adminCookie = await signIn(backendOrigin, persons.admin.email, persons.admin.password);
-    assert.ok(
-      adminCookie !== null && adminCookie.includes("session_token"),
-      "admin sign-in returned no session cookie",
-    );
+    assert.ok(adminCookie, "admin sign-in returned no session cookie");
+    const admin = clientFor(adminCookie);
     recordStep(evidence, "sign-in-admin", "ok", {});
 
-    // 5) Distinct native administration demo; imported Trondheim owns authority.
-    const departments = nativePreviewDepartments;
     let replayedDepartments = 0;
-    for (const department of nativePreviewDepartmentCommands) {
-      const response = await fetch(`${backendOrigin}/api/admin/departments`, {
-        method: "POST",
-        headers: { "content-type": "application/json", cookie: adminCookie },
-        body: JSON.stringify(department),
-      });
-      assert.ok(
-        response.status === 201 || response.status === 200,
-        `create department ${department.name} failed: ${response.status}`,
+    let syntheticDepartmentId: DepartmentId | undefined;
+    for (const { commandId, _tag, ...payload } of nativePreviewDepartmentCommands) {
+      const created = await observeMutation("organization-department", () =>
+        admin.organization.createDepartment({ headers: idempotency(commandId), payload }),
       );
-      if (response.status === 200) replayedDepartments += 1;
+      if (created.replayed) replayedDepartments += 1;
+      if (commandId === nativePreviewDepartmentCommands[0]?.commandId)
+        syntheticDepartmentId = created.response.body.departmentId;
     }
-    const departmentCount = await pool.query(
-      `SELECT COUNT(*)::int AS count FROM organization_departments WHERE department_id LIKE 'department-%'`,
-    );
-    assert.ok(departmentCount.rows[0].count >= 3, "native departments read-back failed");
-    const contactDepartments = await pool.query(
-      `SELECT short_name AS "shortName", active FROM public.organization_departments`,
-    );
-    assertUniqueContactDepartmentSlugs(contactDepartments.rows);
+    assert.ok(syntheticDepartmentId, "native demo department response omitted identity");
+    const contactDepartments = await admin.organization.listDepartments({ headers: {} });
+    assert.ok(contactDepartments.body);
+    assertUniqueContactDepartmentSlugs(contactDepartments.body);
     recordStep(
       evidence,
       "native-departments",
-      replayedDepartments === departments.length ? "replayed" : "ok",
-      {
-        count: 3,
-        departments: departments.map((department) => department.shortName),
-        activeContactSlugsUnique: true,
-      },
+      replayedDepartments === nativePreviewDepartmentCommands.length ? "replayed" : "ok",
+      { count: nativePreviewDepartmentCommands.length, activeContactSlugsUnique: true },
     );
 
-    // 6) Native team under the synthetic administration demo department.
-    const teamResponse = await fetch(`${backendOrigin}/api/admin/teams`, {
-      method: "POST",
-      headers: { "content-type": "application/json", cookie: adminCookie },
-      body: JSON.stringify(nativePreviewTeamCommand),
-    });
-    assert.ok(
-      teamResponse.status === 201 || teamResponse.status === 200,
-      `create team failed: ${teamResponse.status}`,
-    );
-    recordStep(evidence, "native-team", teamResponse.status === 200 ? "replayed" : "ok", {
-      name: "Rekruttering",
-    });
-
-    // 8) Open admission period via native command (GlobalAdmin = admin)
-    const periodResponse = await fetch(`${backendOrigin}/api/admin/admission-periods`, {
-      method: "POST",
-      headers: { "content-type": "application/json", cookie: adminCookie },
-      body: JSON.stringify({
-        commandId: admissionPeriodCommandId,
-        semesterId,
-        startAt: periodStartAt,
-        endAt: periodEndAt,
-        departmentId,
+    const {
+      commandId: teamKey,
+      _tag: _teamTag,
+      departmentId: _priorDepartmentId,
+      ...teamFields
+    } = nativePreviewTeamCommand;
+    const team = await observeMutation("organization-team", () =>
+      admin.organization.createTeam({
+        headers: idempotency(teamKey),
+        payload: { ...teamFields, departmentId: syntheticDepartmentId },
       }),
-    });
-    assert.ok(
-      periodResponse.status === 201 || periodResponse.status === 200,
-      `create admission period failed: ${periodResponse.status}`,
     );
-    recordStep(evidence, "admission-period", periodResponse.status === 200 ? "replayed" : "ok", {
-      open: true,
+    recordStep(evidence, "native-team", team.replayed ? "replayed" : "ok", {
+      teamId: team.response.body.teamId,
     });
 
-    // 9) Public application submit (native public boundary)
-    const applicationResponse = await fetch(`${backendOrigin}/api/applications`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        commandId: applicationCommandId,
-        departmentId,
-        firstName: "Sofie",
-        lastName: "Søker",
-        phone: "+47 900 00 072",
-        email: applicantEmail,
-        gender: 1,
-        fieldOfStudyId,
-        yearOfStudy: 3,
+    const period = await observeMutation("admission-period", () =>
+      admin.admissions.createAdmissionPeriod({
+        headers: idempotency(admissionPeriodCommandId),
+        payload: { semesterId, startAt: periodStartAt, endAt: periodEndAt, departmentId },
       }),
-    });
-    const applicationResponseBody = await applicationResponse.clone().text();
-    assert.ok(
-      applicationResponse.status === 201 || applicationResponse.status === 200,
-      `application submit failed: ${applicationResponse.status} ${applicationResponseBody}`,
     );
-    const applicationObservation = JSON.parse(applicationResponseBody) as {
-      applicationId?: string;
-    };
-    assert.ok(applicationObservation.applicationId, "application response omitted applicationId");
-    recordStep(
-      evidence,
-      "public-application",
-      applicationResponse.status === 200 ? "replayed" : "ok",
-      {
-        applicant: applicantEmail,
-        applicationId: applicationObservation.applicationId,
-      },
-    );
-
-    // 10) Interview assignment (leader scope), or an exact receipt read-back on replay.
-    const assignmentReceipt = await pool.query(
-      `SELECT interview_id AS "interviewId"
-       FROM recruitment_assignment_command_receipts
-       WHERE command_id = $1`,
-      [assignmentCommandId],
-    );
-    const existingInterviewId = assignmentReceipt.rows[0]?.interviewId as string | undefined;
-    if (existingInterviewId !== undefined) {
-      recordStep(evidence, "interview-assignment", "replayed", {
-        interviewId: existingInterviewId,
-      });
-    } else {
-      const leaderCookie = await signIn(
-        backendOrigin,
-        persons.leader.email,
-        persons.leader.password,
-      );
-      assert.ok(leaderCookie, "leader sign-in returned no session cookie");
-      const boardResponse = await fetch(
-        `${backendOrigin}/api/admin/recruitment/assignment-board?status=new`,
-        { headers: { cookie: leaderCookie } },
-      );
-      const boardBody = await boardResponse.text();
-      assert.equal(boardResponse.status, 200, `assignment board failed: ${boardBody}`);
-      const board = JSON.parse(boardBody) as {
-        candidates?: Array<{ applicationId: string }>;
-        interviewers?: Array<{ personId: string }>;
-        interviewSchemas?: Array<{ interviewSchemaId: string }>;
-      };
-      const candidate = board.candidates?.find(
-        ({ applicationId }) => applicationId === applicationObservation.applicationId,
-      );
-      const interviewer = board.interviewers?.find(
-        ({ personId }) => personId === persons.interviewer.personId,
-      );
-      const schema = board.interviewSchemas?.find(
-        ({ interviewSchemaId: id }) => id === interviewSchemaId,
-      );
-      assert.ok(candidate, "assignment board omitted the scenario application");
-      assert.ok(interviewer, "assignment board omitted the scenario interviewer");
-      assert.ok(schema, "assignment board omitted the scenario interview schema");
-      const assignResponse = await fetch(
-        `${backendOrigin}/api/admin/recruitment/interviews/assign`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json", cookie: leaderCookie },
-          body: JSON.stringify({
-            commandId: assignmentCommandId,
-            applicationId: candidate.applicationId,
-            interviewerPersonId: interviewer.personId,
-            interviewSchemaId: schema.interviewSchemaId,
-          }),
+    recordStep(evidence, "admission-period", period.replayed ? "replayed" : "ok", { open: true });
+    const application = await observeMutation("application", () =>
+      clientFor().admissions.submitApplication({
+        headers: idempotency(applicationCommandId),
+        payload: {
+          departmentId,
+          firstName: "Sofie",
+          lastName: "Søker",
+          phone: "+47 900 00 072",
+          email: applicantEmail,
+          gender: 1,
+          fieldOfStudyId,
+          yearOfStudy: 3,
         },
-      );
-      const assignBody = await assignResponse.text();
-      assert.ok(
-        assignResponse.status === 201 || assignResponse.status === 200,
-        `interview assign failed: ${assignResponse.status} ${assignBody}`,
-      );
-      const assignmentResult = JSON.parse(assignBody) as {
-        observation?: { interview?: { interviewId?: string } };
-        replayed?: boolean;
-      };
-      assert.ok(
-        assignmentResult.observation?.interview?.interviewId,
-        `assignment response omitted interviewId: ${assignBody}`,
-      );
-      recordStep(evidence, "interview-assignment", assignmentResult.replayed ? "replayed" : "ok", {
-        interviewId: assignmentResult.observation.interview.interviewId,
-      });
-    }
+      }),
+    );
+    const applicationId = application.response.body.applicationId;
+    recordStep(evidence, "public-application", application.replayed ? "replayed" : "ok", {
+      applicationId,
+    });
 
-    // 11) Receipt submit (multipart, owner with payment authority prerequisite)
+    const leaderCookie = await signIn(backendOrigin, persons.leader.email, persons.leader.password);
+    assert.ok(leaderCookie, "leader sign-in returned no session cookie");
+    const leader = clientFor(leaderCookie);
+    // Current assignment command replays directly even once the applicant leaves the new board.
+    const assignment = await observeMutation("assignment", () =>
+      leader.recruitment.createApplicationInterview({
+        params: { applicationId },
+        headers: idempotency(assignmentCommandId),
+        payload: {
+          interviewerPersonId: PersonId.make(persons.interviewer.personId),
+          interviewSchemaId,
+        },
+      }),
+    );
+    recordStep(evidence, "interview-assignment", assignment.replayed ? "replayed" : "ok", {
+      interviewId: assignment.response.body.interviewId,
+    });
+
     const ownerCookie = await signIn(
       backendOrigin,
       persons.receiptOwner.email,
@@ -917,103 +866,63 @@ export const runPreviewScenarioApplication = async (
     );
     assert.ok(ownerCookie, "receipt owner sign-in returned no session cookie");
     const form = new FormData();
-    form.append("commandId", receiptCommandId);
-    form.append("description", "Kaffetraktere og grenuttak til stand");
-    form.append("amountOre", "1108");
-    form.append("receiptDate", receiptDate);
-    form.append("file", new File([receiptBytes], "receipt.png", { type: "image/png" }));
-    const receiptResponse = await fetch(`${backendOrigin}/api/receipts/submit`, {
-      method: "POST",
-      headers: { cookie: ownerCookie },
-      body: form,
-    });
-    const receiptBody = await receiptResponse.text();
-    assert.ok(
-      receiptResponse.status === 201 || receiptResponse.status === 200,
-      `receipt submit failed: ${receiptResponse.status} ${receiptBody}`,
-    );
-    const pendingReceipt = await pool.query(
-      `SELECT receipt.receipt_id AS "receiptId", receipt.status
-       FROM economy_receipt_command_receipts AS command
-       INNER JOIN economy_receipts AS receipt ON receipt.receipt_id = command.receipt_id
-       WHERE command.command_id = $1`,
-      [receiptCommandId],
-    );
-    assert.equal(pendingReceipt.rows[0]?.status, "Pending", "receipt is not pending");
-    recordStep(evidence, "receipt-submit", receiptResponse.status === 200 ? "replayed" : "ok", {
-      receiptId: pendingReceipt.rows[0]?.receiptId,
-      receiptStatus: "Pending",
-      description: "Kaffetraktere og grenuttak til stand",
-    });
-
-    // 12) Article draft + publish (member authors; team leader publishes)
-    const existingDraftReceipt = await pool.query(
-      `SELECT 1 FROM content_publication_command_receipts WHERE command_id = $1`,
-      [draftCommandId],
-    );
-    const authorCookie = await signIn(backendOrigin, persons.author.email, persons.author.password);
-    assert.ok(authorCookie, "article author sign-in returned no session cookie");
-    const draftResponse = await fetch(`${backendOrigin}/api/admin/content/articles`, {
-      method: "POST",
-      headers: { "content-type": "application/json", cookie: authorCookie },
-      body: JSON.stringify({
-        commandId: draftCommandId,
-        title: "Vektorprogrammet starter opptaket",
-        bodyHtml:
-          "<p>Opptaket for det nye studieåret er i gang. Alle interesserte kan " +
-          "sende inn søknad gjennom nettsiden. Vi gleder oss til å møte dere!</p>",
-        departmentIds: [departmentId],
-        sticky: false,
+    form.set("description", "Kaffetraktere og grenuttak til stand");
+    form.set("amountOre", "1108");
+    form.set("receiptDate", receiptDate);
+    form.set("file", new File([receiptBytes], "receipt.png", { type: "image/png" }));
+    const receipt = await observeMutation("receipt", () =>
+      clientFor(ownerCookie).receipts.submitReceipt({
+        query: {},
+        headers: idempotency(receiptCommandId),
+        payload: form,
       }),
-    });
-    const draftBody = await draftResponse.text();
-    assert.ok(
-      draftResponse.status === 201 || draftResponse.status === 200,
-      `article draft failed: ${draftResponse.status} ${draftBody}`,
     );
-    const draft = JSON.parse(draftBody) as { articleId?: number };
-    const articleId = draft.articleId;
-    assert.ok(articleId, "article draft returned no id");
-    const existingPublishReceipt = await pool.query(
-      `SELECT 1 FROM content_publication_command_receipts WHERE command_id = $1`,
-      [publishCommandId],
+    const receiptId = receipt.response.body.receiptId;
+    const storedReceipt = await pool.query(
+      `SELECT status, file_object_key AS "objectKey", file_sha256 AS sha256 FROM public.economy_receipts WHERE receipt_id = $1`,
+      [receiptId],
     );
-    const publisherCookie = await signIn(
-      backendOrigin,
-      persons.leader.email,
-      persons.leader.password,
-    );
-    assert.ok(publisherCookie, "article publisher sign-in returned no session cookie");
-    const publishResponse = await fetch(
-      `${backendOrigin}/api/admin/content/articles/${articleId}/publish`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json", cookie: publisherCookie },
-        body: JSON.stringify({ commandId: publishCommandId, articleId }),
-      },
-    );
-    const publishBody = await publishResponse.text();
-    assert.ok(
-      publishResponse.status === 200 || publishResponse.status === 201,
-      `article publish failed: ${publishResponse.status} ${publishBody}`,
-    );
-    const publishedArticle = await pool.query(
-      `SELECT current_version_number AS "versionNumber"
-       FROM content_articles
-       WHERE article_id = $1`,
-      [articleId],
+    assert.equal(storedReceipt.rows[0]?.status, "Pending");
+    const committedFile = await readFile(
+      join(options.receiptStorageRoot, "receipt-committed", storedReceipt.rows[0].objectKey),
     );
     assert.equal(
-      publishedArticle.rows[0]?.versionNumber,
-      1,
-      "article does not have a published version",
+      createHash("sha256").update(committedFile).digest("hex"),
+      storedReceipt.rows[0].sha256,
     );
+    recordStep(evidence, "receipt-submit", receipt.replayed ? "replayed" : "ok", {
+      receiptId,
+      receiptStatus: "Pending",
+      committedFileVerified: true,
+    });
+
+    const authorCookie = await signIn(backendOrigin, persons.author.email, persons.author.password);
+    assert.ok(authorCookie, "article author sign-in returned no session cookie");
+    const draft = await observeMutation("content-draft", () =>
+      clientFor(authorCookie).content.createArticle({
+        headers: idempotency(draftCommandId),
+        payload: {
+          title: "Vektorprogrammet starter opptaket",
+          bodyHtml:
+            "<p>Opptaket for det nye studieåret er i gang. Alle interesserte kan sende inn søknad gjennom nettsiden. Vi gleder oss til å møte dere!</p>",
+          departmentIds: [departmentId],
+          sticky: false,
+        },
+      }),
+    );
+    const articleId = draft.response.body.articleId;
+    const publication = await observeMutation("content-publish", () =>
+      leader.content.publishArticle({
+        params: { articleId },
+        headers: { ...idempotency(publishCommandId), "if-match": draft.response.headers.etag },
+        payload: {},
+      }),
+    );
+    assert.equal(publication.response.body.versionNumber, 1);
     recordStep(
       evidence,
       "content-publication",
-      existingDraftReceipt.rowCount === 1 && existingPublishReceipt.rowCount === 1
-        ? "replayed"
-        : "ok",
+      draft.replayed && publication.replayed ? "replayed" : "ok",
       { articleId, versionNumber: 1 },
     );
 
@@ -1059,8 +968,10 @@ const main = async (): Promise<void> => {
   const postgresUrl =
     process.env.PREVIEW_SCENARIO_PG_URL ?? "postgres://postgres@127.0.0.1:5435/preview_scenario";
   assertDisposablePostgresUrl(postgresUrl);
+  const receiptStorageRoot = process.env.PREVIEW_SCENARIO_STORAGE_ROOT;
+  assert.ok(receiptStorageRoot, "PREVIEW_SCENARIO_STORAGE_ROOT is required");
   await prepareDisposableScenarioTarget(postgresUrl);
-  await runPreviewScenarioApplication({ postgresUrl });
+  await runPreviewScenarioApplication({ postgresUrl, receiptStorageRoot });
 };
 
 if (import.meta.main) {
