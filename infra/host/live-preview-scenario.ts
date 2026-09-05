@@ -527,6 +527,7 @@ export const runLivePreviewScenario = async (
         receiptStorageRoot,
         emitEvidence: false,
       });
+      const afterFirstRun = await readScenarioDatabaseFacts(command.validatedTarget);
       const replay =
         command.mode === "rehearsal"
           ? await runPreviewScenarioApplication({
@@ -535,7 +536,7 @@ export const runLivePreviewScenario = async (
               emitEvidence: false,
             })
           : undefined;
-      return { first, ...(replay === undefined ? {} : { replay }) } as ScenarioApplicationRuns;
+      return { first, afterFirstRun, ...(replay === undefined ? {} : { replay }) };
     },
   );
 
@@ -549,17 +550,20 @@ export const runLivePreviewScenario = async (
     "scenario command receipt is missing",
   );
   const replaySteps = gated.application.replay?.evidence.steps ?? [];
-  const verificationFacts = await readScenarioDatabaseFacts(command.validatedTarget);
   const replayEvaluation = evaluateScenarioReplay(
     replaySteps,
+    gated.application.afterFirstRun,
     after,
-    verificationFacts,
     gated.application.replay?.evidence.replayCheck?.countsUnchanged === true,
   );
   const allCommandStepsReplayed =
     command.mode === "rehearsal" && replayEvaluation.allCommandStepsReplayed;
   const countsAndDigestsUnchanged =
     command.mode === "rehearsal" && replayEvaluation.countsAndDigestsUnchanged;
+  if (command.mode === "rehearsal") {
+    assert.ok(allCommandStepsReplayed, "scenario replay must replay every command step");
+    assert.ok(countsAndDigestsUnchanged, "scenario replay changed business rows");
+  }
 
   const applicationSteps = (
     gated.application.replay?.evidence.steps ?? gated.application.first.evidence.steps
