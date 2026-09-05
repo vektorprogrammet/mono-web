@@ -119,11 +119,7 @@ export function ContactTabs({
                   required
                 />
               </div>
-              <Button
-                className="mt-5 bg-vektor-darkblue hover:bg-vektor-blue"
-                type="submit"
-                disabled={submitting}
-              >
+              <Button className="mt-5" type="submit" disabled={submitting}>
                 {submitting ? "Sender melding..." : "Send melding"}
               </Button>
             </Form>
