@@ -36,11 +36,7 @@ import { DatabaseLive } from "../../packages/database/src/layers.js";
 import { databaseMigrationDefinitions } from "../../packages/database/src/migrations.js";
 import { createPromiseClient } from "../../packages/sdk/src/promise.js";
 import { IdempotencyKey } from "../../packages/http-api/src/http-semantics.js";
-import {
-  DepartmentId,
-  SemesterId,
-  PersonId,
-} from "../../packages/domain/src/organization/schema.js";
+import { DepartmentId, SemesterId } from "../../packages/domain/src/organization/schema.js";
 import { AdmissionFieldOfStudyId } from "../../packages/domain/src/admission-period/schema.js";
 import { InterviewSchemaId } from "../../packages/domain/src/recruitment/schema.js";
 import { OrganizationLive } from "../../packages/domain/src/organization/postgres-layer.js";
@@ -857,14 +853,25 @@ export const runPreviewScenarioApplication = async (
     const leaderCookie = await signIn(backendOrigin, persons.leader.email, persons.leader.password);
     assert.ok(leaderCookie, "leader sign-in returned no session cookie");
     const leader = clientFor(leaderCookie);
+    const board = await leader.recruitment.readAssignmentBoard({ query: { status: "all" } });
+    const candidate = board.body.candidates.find((item) => item.applicationId === applicationId);
+    const interviewer = board.body.interviewers.find(
+      (item) => item.personId === persons.interviewer.personId,
+    );
+    const schema = board.body.interviewSchemas.find(
+      (item) => item.interviewSchemaId === interviewSchemaId,
+    );
+    assert.ok(candidate, "assignment board omitted the scenario application");
+    assert.ok(interviewer, "assignment board omitted the scenario interviewer");
+    assert.ok(schema, "assignment board omitted the scenario interview schema");
     // Current assignment command replays directly even once the applicant leaves the new board.
     const assignment = await observeMutation("assignment", () =>
       leader.recruitment.createApplicationInterview({
         params: { applicationId },
         headers: idempotency(assignmentCommandId),
         payload: {
-          interviewerPersonId: PersonId.make(persons.interviewer.personId),
-          interviewSchemaId,
+          interviewerPersonId: interviewer.personId,
+          interviewSchemaId: schema.interviewSchemaId,
         },
       }),
     );
