@@ -503,7 +503,11 @@ try {
     "built Worker browser department select/send/pending/clear/draft retention and axe states",
   );
   redirectContact = true;
+  const redirectResult = page.waitForResponse(
+    (response) => response.request().method() === "POST" && response.url().includes("/kontakt/"),
+  );
   await page.getByRole("button", { name: "Send melding", exact: true }).click();
+  await (await redirectResult).finished();
   await expect(page.getByRole("button", { name: "Send melding", exact: true })).toBeEnabled();
   await expect(page.getByRole("alert")).toHaveText(
     "Meldingen kunne ikke sendes. Prøv igjen senere.",
