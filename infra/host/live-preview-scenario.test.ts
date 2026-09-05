@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   LIVE_ACKNOWLEDGMENT,
   REHEARSAL_ACKNOWLEDGMENT,
+  assertProviderDeliveryDisabled,
   evaluateScenarioReplay,
   parseLivePreviewScenarioCommand,
   runBackupGatedApplication,
@@ -90,6 +91,15 @@ describe("spec 0076 target validation", () => {
 });
 
 describe("spec 0076 mutation gates", () => {
+  it("rejects contact delivery configuration before application", () => {
+    expect(() =>
+      assertProviderDeliveryDisabled({ CONTACT_DELIVERY_URL: "http://127.0.0.1:9999" }),
+    ).toThrow("CONTACT_DELIVERY_URL must be absent");
+    expect(() => assertProviderDeliveryDisabled({ CONTACT_DELIVERY_TOKEN: "synthetic" })).toThrow(
+      "CONTACT_DELIVERY_TOKEN must be absent",
+    );
+  });
+
   it("runs zero application commands when backup fails", async () => {
     let applicationCalls = 0;
     await expect(
