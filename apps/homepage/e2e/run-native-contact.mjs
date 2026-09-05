@@ -88,6 +88,8 @@ const canonical = (ip) => {
 const records = [];
 const workerOutbound = [];
 let mode = "accept";
+let redirectContact = false;
+let redirectHits = 0;
 const message = {
   departmentId: "contact-aas",
   name: "Ola Kontakt",
@@ -115,6 +117,13 @@ const bounded = (promise, milliseconds, label) =>
     );
   });
 try {
+  const redirectPort = await listen(
+    createServer((_request, response) => {
+      redirectHits++;
+      response.writeHead(500).end();
+    }),
+  );
+  const redirectOrigin = `http://127.0.0.1:${redirectPort}`;
   const pgPort = await port();
   const backendPort = await port();
   const workerPort = await port();
@@ -211,7 +220,17 @@ try {
       cf: false,
       outboundService: async (request) => {
         const url = new URL(request.url);
+        if (url.origin === redirectOrigin) {
+          return fetch(url, {
+            method: request.method,
+            headers: request.headers,
+            redirect: "manual",
+          });
+        }
         if (url.origin !== backendOrigin) throw new Error("Local Worker outbound origin rejected");
+        if (redirectContact && request.method === "POST") {
+          return new Response(null, { status: 307, headers: { location: redirectOrigin } });
+        }
         const response = await fetch(url, {
           method: request.method,
           headers: request.headers,
@@ -464,6 +483,11 @@ try {
   });
   await expect(page.getByLabel("Melding", { exact: true })).toHaveValue("");
   await axe("accepted");
+  mode = "accept";
+  await fill();
+  await page.getByRole("button", { name: "Send melding", exact: true }).click();
+  await expect(page.getByLabel("Melding", { exact: true })).toHaveValue("");
+  assert.equal(records.length, beforeBrowser + 2, "consecutive success clears the second draft");
   mode = "reject";
   await fill();
   const beforeDraft = records.length;
@@ -478,6 +502,17 @@ try {
   checkpoint(
     "built Worker browser department select/send/pending/clear/draft retention and axe states",
   );
+  redirectContact = true;
+  await page.getByRole("button", { name: "Send melding", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Send melding", exact: true })).toBeEnabled();
+  await expect(page.getByRole("alert")).toHaveText(
+    "Meldingen kunne ikke sendes. Prøv igjen senere.",
+  );
+  await expect(page.getByLabel("Melding", { exact: true })).toHaveValue(message.message);
+  assert.equal(redirectHits, 0, "Worker must not forward scoped headers to a redirect receiver");
+  assert.equal(records.length, beforeDraft);
+  redirectContact = false;
+  checkpoint("actual Worker rejects injected307 without contacting second loopback receiver");
   mode = "accept";
   await clear();
   const rawForm = (localAddress) =>

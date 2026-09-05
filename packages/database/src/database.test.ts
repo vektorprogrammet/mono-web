@@ -65,7 +65,7 @@ import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
 import { storeReceiptImportResult } from "../../domain/src/receipt/postgres.js";
 import { Deferred, Effect, Fiber, Layer } from "effect";
 import { DatabaseTest } from "./layers.js";
-import { databaseMigrationDefinitions } from "./migrations.js";
+import { databaseMigrationDefinitions, databaseSchemaRevision } from "./migrations.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 
 const databaseLayer = DatabaseTest();
@@ -421,38 +421,11 @@ describe("DatabaseTest", () => {
       }),
     );
     expect(evidence).toEqual({
-      revision: "29_native_http_semantics",
-      migrations: [
-        { migration_id: 1, name: "receipt-authority" },
-        { migration_id: 2, name: "admission-period-authority" },
-        { migration_id: 3, name: "public-applicant-admission" },
-        { migration_id: 4, name: "receipt-authority-upgrade-replay" },
-        { migration_id: 5, name: "public-applicant-effect-lifecycle" },
-        { migration_id: 6, name: "public-applicant-delivered-payload-cleanup" },
-        { migration_id: 7, name: "public-applicant-activation-snapshot" },
-        { migration_id: 8, name: "organization-authority" },
-        { migration_id: 9, name: "import-occurrence-authority" },
-        { migration_id: 10, name: "native-recruitment-applicant-assignment" },
-        { migration_id: 11, name: "native-recruitment-interview-scheduling" },
-        { migration_id: 12, name: "native-recruitment-invitation-response" },
-        { migration_id: 13, name: "native-organization-administration" },
-        { migration_id: 14, name: "native-profile-self-edit" },
-        { migration_id: 15, name: "native-identity-better-auth" },
-        { migration_id: 16, name: "person-keyed-organization-authority" },
-        { migration_id: 17, name: "person-keyed-receipt-authority" },
-        { migration_id: 18, name: "organization-team-interest" },
-        { migration_id: 19, name: "schools-directory" },
-        { migration_id: 20, name: "content-publication" },
-        { migration_id: 21, name: "native-recruitment-interview-conduct" },
-        { migration_id: 22, name: "native-domain-schema-boundary" },
-        { migration_id: 23, name: "declarative-authorization-rules" },
-        { migration_id: 24, name: "identity-security-audit" },
-        { migration_id: 25, name: "principal-credential-access-algebra" },
-        { migration_id: 26, name: "declarative-rule-reconciliation" },
-        { migration_id: 27, name: "native-oauth-provider" },
-        { migration_id: 28, name: "service-principal-grants" },
-        { migration_id: 29, name: "native-http-semantics" },
-      ],
+      revision: databaseSchemaRevision,
+      migrations: databaseMigrationDefinitions.map(({ id, name }) => ({
+        migration_id: Number(id.split("_")[0]),
+        name,
+      })),
       tables: [
         "admission_applications",
         "admission_periods",
@@ -4430,7 +4403,7 @@ describe("DatabaseTest", () => {
       }),
     );
 
-    expect(evidence.schemaRevision).toBe("29_native_http_semantics");
+    expect(evidence.schemaRevision).toBe(databaseSchemaRevision);
     expect(evidence.denied._tag).toBe("OrganizationRoleDenied");
     expect(evidence.deniedRows).toBe(0);
     expect(evidence.departmentCreated.committed).toBe(true);

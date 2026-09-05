@@ -8,7 +8,7 @@ import {
   makeOAuthOptions,
   oauthIssuer,
 } from "./oauth-config.js";
-import { databaseMigrationDefinitions, databaseSchemaRevision } from "./migrations.js";
+import { databaseMigrationDefinitions } from "./migrations.js";
 
 const oauth = {
   canonicalOrigin: "http://127.0.0.1:4173",
@@ -95,7 +95,6 @@ describe("native OAuth migration", () => {
     )!;
     const sql = await readFile(migration.url, "utf8");
 
-    expect(databaseSchemaRevision).toBe("29_native_http_semantics");
     expect(migration.id).toBe("27_native-oauth-provider");
     for (const relation of [
       'auth."oauthClient"',

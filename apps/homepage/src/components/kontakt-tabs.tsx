@@ -1,5 +1,6 @@
 import { CONTACT_LIMITS } from "@vektorprogrammet/domain/contact";
 import type { DepartmentJson } from "@vektorprogrammet/domain/organization";
+import { useState } from "react";
 import { Mail, MapPin } from "lucide-react";
 import { Form, Link, useActionData, useNavigation } from "react-router";
 import { Button } from "~/components/ui/button";
@@ -16,6 +17,11 @@ export function ContactTabs({
   readonly departments: readonly DepartmentJson[];
 }) {
   const actionData = useActionData<ContactActionData>();
+  // Each action result is a new identity. Only acceptance replaces the uncontrolled draft.
+  const [draft, setDraft] = useState({ result: actionData, generation: 0 });
+  if (draft.result !== actionData) {
+    setDraft({ result: actionData, generation: draft.generation + (actionData?.ok ? 1 : 0) });
+  }
   const navigation = useNavigation();
   const submitting = navigation.state === "submitting";
 
@@ -70,11 +76,7 @@ export function ContactTabs({
                 {actionData.message}
               </p>
             )}
-            <Form
-              method="post"
-              className="mt-5"
-              key={actionData?.ok ? "contact-sent" : "contact-form"}
-            >
+            <Form method="post" className="mt-5" key={draft.generation}>
               <div className="grid gap-5 sm:grid-cols-2">
                 <div>
                   <Label htmlFor="contact-name">Ditt navn</Label>

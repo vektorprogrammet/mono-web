@@ -1132,8 +1132,8 @@ describe("declarative rule reconciliation migration", () => {
         );
     `);
 
-  it("orders immutable migrations 25 through the HTTP semantics schema head 29", () => {
-    expect(databaseMigrationDefinitions.slice(-5).map(({ id }) => id)).toEqual([
+  it("orders immutable migrations 25 through the HTTP semantics migration 29", () => {
+    expect(databaseMigrationDefinitions.slice(24, 29).map(({ id }) => id)).toEqual([
       "25_principal-credential-access-algebra",
       "26_declarative-rule-reconciliation",
       "27_native-oauth-provider",

@@ -1,3 +1,4 @@
+import { databaseSchemaRevision } from "./migrations.js";
 import { afterAll, describe, expect, it } from "vitest";
 import { Database } from "@vektorprogrammet/domain/database";
 import { ContentWorkspaceSchema } from "@vektorprogrammet/domain/content";
@@ -48,7 +49,7 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
       }),
     );
 
-    expect(evidence.revision).toBe("29_native_http_semantics");
+    expect(evidence.revision).toBe(databaseSchemaRevision);
     expect(evidence.migrationRows).toEqual([{ migrationId: 20, name: "content-publication" }]);
     expect(evidence.tableNames).toEqual([
       "content_article_departments",

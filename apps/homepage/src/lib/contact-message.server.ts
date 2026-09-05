@@ -105,7 +105,13 @@ export async function submitContactMessage(
       const url = new URL(input instanceof Request ? input.url : String(input));
       if (url.origin !== ingress.backendOrigin)
         throw new Error("Unsupported contact backend origin");
-      return fetch(input, { ...init, redirect: "error" });
+      // Workers supports manual redirects; never forward the scoped credential to a redirect target.
+      const response = await fetch(input, { ...init, redirect: "manual" });
+      if ((response.status >= 300 && response.status < 400) || response.type === "opaqueredirect") {
+        await response.body?.cancel();
+        throw new Error("Contact backend redirect rejected");
+      }
+      return response;
     },
   });
   return Effect.runPromise(
