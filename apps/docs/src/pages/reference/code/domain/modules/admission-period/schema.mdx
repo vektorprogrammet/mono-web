@@ -516,26 +516,9 @@ declare const Rfc3339InstantSchema: Schema.String;
 **Signature**
 
 ```ts
-declare const decodeAdmissionPeriodCommand: (input: unknown) => Effect<
-  | {
-      readonly semesterId: string & Brand<"SemesterId">;
-      readonly _tag: "CreateAdmissionPeriod";
-      readonly commandId: string & Brand<"AdmissionPeriodCommandId">;
-      readonly startAt: string;
-      readonly endAt: string;
-      readonly departmentId?: (string & Brand<"DepartmentId">) | undefined;
-    }
-  | {
-      readonly _tag: "ReviseAdmissionPeriod";
-      readonly commandId: string & Brand<"AdmissionPeriodCommandId">;
-      readonly admissionPeriodId: string & Brand<"AdmissionPeriodId">;
-      readonly expectedRevision: number;
-      readonly startAt: string;
-      readonly endAt: string;
-    },
-  Schema.SchemaError,
-  never
->;
+declare const decodeAdmissionPeriodCommand: (
+  input: unknown,
+) => Effect.Effect<AdmissionPeriodCommand, Schema.SchemaError>;
 ```
 
 [Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/admission-period/schema.ts#L229)
@@ -545,40 +528,24 @@ declare const decodeAdmissionPeriodCommand: (input: unknown) => Effect<
 **Signature**
 
 ```ts
-declare const decodeCreateAdmissionPeriodInput: (input: unknown) => Effect<
-  {
-    readonly semesterId: string & Brand<"SemesterId">;
-    readonly commandId: string & Brand<"AdmissionPeriodCommandId">;
-    readonly startAt: string;
-    readonly endAt: string;
-    readonly departmentId?: (string & Brand<"DepartmentId">) | undefined;
-  },
-  Schema.SchemaError,
-  never
->;
+declare const decodeCreateAdmissionPeriodInput: (
+  input: unknown,
+) => Effect.Effect<CreateAdmissionPeriodInput, Schema.SchemaError>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/admission-period/schema.ts#L234)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/admission-period/schema.ts#L236)
 
 ### decodeReviseAdmissionPeriodInput
 
 **Signature**
 
 ```ts
-declare const decodeReviseAdmissionPeriodInput: (input: unknown) => Effect<
-  {
-    readonly commandId: string & Brand<"AdmissionPeriodCommandId">;
-    readonly admissionPeriodId: string & Brand<"AdmissionPeriodId">;
-    readonly expectedRevision: number;
-    readonly startAt: string;
-    readonly endAt: string;
-  },
-  Schema.SchemaError,
-  never
->;
+declare const decodeReviseAdmissionPeriodInput: (
+  input: unknown,
+) => Effect.Effect<ReviseAdmissionPeriodInput, Schema.SchemaError>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/admission-period/schema.ts#L239)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/admission-period/schema.ts#L243)
 
 ### isRfc3339Instant
 

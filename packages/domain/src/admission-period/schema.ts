@@ -3,7 +3,7 @@
  *
  * @since 0.1.0
  */
-import { Schema } from "effect";
+import { type Effect, Schema } from "effect";
 import { Model } from "effect/unstable/schema";
 import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
 import { Rfc3339InstantSchema } from "../time.js";
@@ -226,17 +226,23 @@ export type AdmissionPeriodObservation = typeof AdmissionPeriodObservationSchema
 export const AdmissionPeriodListSchema = Schema.Array(AdmissionPeriodProjectionSchema);
 export type AdmissionPeriodList = typeof AdmissionPeriodListSchema.Type;
 
-export const decodeAdmissionPeriodCommand = (input: unknown) =>
+export const decodeAdmissionPeriodCommand = (
+  input: unknown,
+): Effect.Effect<AdmissionPeriodCommand, Schema.SchemaError> =>
   Schema.decodeUnknownEffect(AdmissionPeriodCommandSchema)(input, {
     onExcessProperty: "error",
   });
 
-export const decodeCreateAdmissionPeriodInput = (input: unknown) =>
+export const decodeCreateAdmissionPeriodInput = (
+  input: unknown,
+): Effect.Effect<CreateAdmissionPeriodInput, Schema.SchemaError> =>
   Schema.decodeUnknownEffect(CreateAdmissionPeriodInputSchema)(input, {
     onExcessProperty: "error",
   });
 
-export const decodeReviseAdmissionPeriodInput = (input: unknown) =>
+export const decodeReviseAdmissionPeriodInput = (
+  input: unknown,
+): Effect.Effect<ReviseAdmissionPeriodInput, Schema.SchemaError> =>
   Schema.decodeUnknownEffect(ReviseAdmissionPeriodInputSchema)(input, {
     onExcessProperty: "error",
   });
