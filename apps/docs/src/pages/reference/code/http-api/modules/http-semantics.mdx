@@ -238,6 +238,7 @@ declare const NativeMethodNotAllowedProblem: Schema.Struct<{
     | "urn:vektorprogrammet:problem:v0.2:recruitment.unavailable"
     | "urn:vektorprogrammet:problem:v0.2:request.malformed"
     | "urn:vektorprogrammet:problem:v0.2:request.too-large"
+    | "urn:vektorprogrammet:problem:v0.2:contact.unavailable"
     | "urn:vektorprogrammet:problem:v0.2:resource.not-found"
     | "urn:vektorprogrammet:problem:v0.2:schools.invalid-department"
     | "urn:vektorprogrammet:problem:v0.2:schools.unavailable"
@@ -309,6 +310,7 @@ declare const NativeMethodNotAllowedProblem: Schema.Struct<{
     | "Recruitment unavailable"
     | "Malformed request"
     | "Request too large"
+    | "Contact unavailable"
     | "Resource not found"
     | "Invalid school department"
     | "Schools unavailable"
@@ -384,6 +386,7 @@ declare const NativeMethodNotAllowedProblem: Schema.Struct<{
     | "The recruitment service is temporarily unavailable."
     | "The request is malformed."
     | "The request body exceeds the permitted size."
+    | "The contact message could not be accepted."
     | "The requested resource was not found."
     | "The selected department is not valid for the school directory."
     | "The school directory is temporarily unavailable."
@@ -395,7 +398,7 @@ declare const NativeMethodNotAllowedProblem: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L848)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L854)
 
 ### NativeProblem
 
@@ -407,7 +410,7 @@ The closed RFC 9457 core representation used by native API failures.
 declare const NativeProblem: Schema.Union<never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L689)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L695)
 
 ### NativeProblem (type alias)
 
@@ -417,7 +420,7 @@ declare const NativeProblem: Schema.Union<never>;
 type NativeProblem = typeof NativeProblem.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L692)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L698)
 
 ### NativeProblemCode (type alias)
 
@@ -427,7 +430,7 @@ type NativeProblem = typeof NativeProblem.Type;
 type NativeProblemCode = keyof typeof NativeProblemRegistry;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L668)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L674)
 
 ### NativeProblemRegistry
 
@@ -815,6 +818,12 @@ declare const NativeProblemRegistry: {
     readonly status: 413;
     readonly detail: "The request body exceeds the permitted size.";
   };
+  readonly "contact.unavailable": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:contact.unavailable";
+    readonly title: "Contact unavailable";
+    readonly status: 503;
+    readonly detail: "The contact message could not be accepted.";
+  };
   readonly "resource.not-found": {
     readonly type: "urn:vektorprogrammet:problem:v0.2:resource.not-found";
     readonly title: "Resource not found";
@@ -952,7 +961,7 @@ declare const NativeValidationMessage: {
 type ProblemDescriptor = readonly [code: NativeProblemCode, status: number];
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L727)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L733)
 
 ### Sha256Hex
 
@@ -1197,7 +1206,7 @@ declare const ValidationProblem: Schema.Union<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L720)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L726)
 
 ### ValidationProblem (type alias)
 
@@ -1207,7 +1216,7 @@ declare const ValidationProblem: Schema.Union<
 type ValidationProblem = typeof ValidationProblem.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L725)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L731)
 
 ### ValidationProblemCode (type alias)
 
@@ -1218,7 +1227,7 @@ type ValidationProblemCode =
   "validation.failed" | "validation.no-change" | "validation.field-not-deletable";
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L669)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L675)
 
 ### createdMutationResponse
 
@@ -1288,7 +1297,7 @@ declare const endpointProblemResponses: <S extends Schema.Top>(
 ) => ReadonlyArray<Schema.Codec<unknown, unknown>>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L777)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L783)
 
 ### entityMutationResponse
 
@@ -1715,6 +1724,12 @@ declare const makeNativeProblem: <Code extends NativeProblemCode>(
     readonly status: 413;
     readonly detail: "The request body exceeds the permitted size.";
   };
+  readonly "contact.unavailable": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:contact.unavailable";
+    readonly title: "Contact unavailable";
+    readonly status: 503;
+    readonly detail: "The contact message could not be accepted.";
+  };
   readonly "resource.not-found": {
     readonly type: "urn:vektorprogrammet:problem:v0.2:resource.not-found";
     readonly title: "Resource not found";
@@ -1754,7 +1769,7 @@ declare const makeNativeProblem: <Code extends NativeProblemCode>(
 }[Code] & { instance?: string | undefined; code: Code };
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L831)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L837)
 
 ### makeNativeValidationError
 
@@ -1783,7 +1798,7 @@ Standard credential accepted by a cookie-only native endpoint.
 declare const nativeCookieChallenge: 'VektorSession realm="native-api"';
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L857)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L863)
 
 ### nativeProblemSchema
 
@@ -1860,6 +1875,7 @@ declare const nativeProblemSchema: <Code extends NativeProblemCode>(
     | "urn:vektorprogrammet:problem:v0.2:recruitment.unavailable"
     | "urn:vektorprogrammet:problem:v0.2:request.malformed"
     | "urn:vektorprogrammet:problem:v0.2:request.too-large"
+    | "urn:vektorprogrammet:problem:v0.2:contact.unavailable"
     | "urn:vektorprogrammet:problem:v0.2:resource.not-found"
     | "urn:vektorprogrammet:problem:v0.2:schools.invalid-department"
     | "urn:vektorprogrammet:problem:v0.2:schools.unavailable"
@@ -1931,6 +1947,7 @@ declare const nativeProblemSchema: <Code extends NativeProblemCode>(
     | "Recruitment unavailable"
     | "Malformed request"
     | "Request too large"
+    | "Contact unavailable"
     | "Resource not found"
     | "Invalid school department"
     | "Schools unavailable"
@@ -2006,6 +2023,7 @@ declare const nativeProblemSchema: <Code extends NativeProblemCode>(
     | "The recruitment service is temporarily unavailable."
     | "The request is malformed."
     | "The request body exceeds the permitted size."
+    | "The contact message could not be accepted."
     | "The requested resource was not found."
     | "The selected department is not valid for the school directory."
     | "The school directory is temporarily unavailable."
@@ -2017,7 +2035,7 @@ declare const nativeProblemSchema: <Code extends NativeProblemCode>(
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L730)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L736)
 
 ### nativeUserChallenges
 
@@ -2029,7 +2047,7 @@ Standard credentials accepted by a native user endpoint.
 declare const nativeUserChallenges: (invalidBearer?: boolean) => string;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L853)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L859)
 
 ### noContentMutationResponse
 
@@ -2132,7 +2150,7 @@ declare const problemUnion: (
 ) => Schema.Codec<unknown, unknown>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L747)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L753)
 
 ### publicConditionalResponses
 
@@ -2238,4 +2256,4 @@ declare const validationProblemSchema: <Code extends ValidationProblemCode>(
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L706)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L712)

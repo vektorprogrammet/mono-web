@@ -167,8 +167,12 @@ const operationIds = [...externalOperations, ...internalOperations].map(
 );
 assert(new Set(operationIds).size === operationIds.length, "operationId values must be unique");
 assert(
-  externalOperations.length === 52,
-  `expected 52 external operations, received ${externalOperations.length}`,
+  externalOperations.length ===
+    Object.values(ExternalNativeApi.groups).reduce(
+      (count, group) => count + Object.keys(group.endpoints).length,
+      0,
+    ),
+  "OpenAPI operation count differs from its source contract",
 );
 assert(
   internalOperations.length === 1,

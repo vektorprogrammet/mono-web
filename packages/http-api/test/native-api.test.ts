@@ -130,6 +130,18 @@ const invitation = (
     decisionTime,
   });
 const expectedOperations: ReadonlyArray<ExpectedOperation> = [
+  [
+    "POST",
+    "/api/contact-messages",
+    "contact.submitContactMessage",
+    expectedAccess({
+      credentials: ["ObjectCapability"],
+      principals: ["CapabilityHolder"],
+      capability: "contact.submit",
+      resolver: "contact.department-recipient",
+      decisionTime: "SnapshotRead",
+    }),
+  ],
   ["GET", "/health", "system.health", anonymous("system.health")],
   [
     "GET",
@@ -630,15 +642,15 @@ const reflectedOperations = () => {
 };
 
 describe("native API reflection", () => {
-  it("equals the frozen 53-row matrix without a gap or legacy authority", () => {
+  it("equals the extended 54-row matrix without a gap or legacy authority", () => {
     const actual = reflectedOperations();
     const authorities = actual.map(([method, path]) => `${method} ${path}`);
     const operationIds = actual.map(([, , operationId]) => operationId);
 
     expect(actual).toEqual(expectedOperations);
-    expect(actual).toHaveLength(53);
-    expect(new Set(authorities).size).toBe(53);
-    expect(new Set(operationIds).size).toBe(53);
+    expect(actual).toHaveLength(54);
+    expect(new Set(authorities).size).toBe(54);
+    expect(new Set(operationIds).size).toBe(54);
     expect(authorities.some((authority) => /\/api\/admin(?:\/|$)/u.test(authority))).toBe(false);
     expect(
       authorities.some((authority) =>
@@ -649,13 +661,13 @@ describe("native API reflection", () => {
       authorities.some((authority) => /::|\/(?:revise|publish|unpublish)$/u.test(authority)),
     ).toBe(false);
   });
-  it("keeps 52 external authorities and one internal authority on separate roots", () => {
+  it("keeps 53 external authorities and one internal authority on separate roots", () => {
     const external = endpointInventory();
     const internal = internalEndpointInventory();
     const externalAuthorities = external.map(({ method, path }) => `${method} ${path}`);
 
-    expect(external).toHaveLength(52);
-    expect(new Set(externalAuthorities).size).toBe(52);
+    expect(external).toHaveLength(53);
+    expect(new Set(externalAuthorities).size).toBe(53);
     expect(external.map(({ group }) => group)).not.toContain("internal");
     expect(internal).toEqual([
       {
@@ -671,7 +683,7 @@ describe("native API reflection", () => {
     const operations = documentedOperations();
 
     expect(Context.get(InternalNativeApi.groups.internal.annotations, OpenApi.Exclude)).toBe(true);
-    expect(operations).toHaveLength(52);
+    expect(operations).toHaveLength(53);
     expect(operations.some(({ path }) => path.startsWith("/api/e2e"))).toBe(false);
     expect(operations.some(({ path }) => path.startsWith("/api/auth"))).toBe(false);
   });
@@ -797,6 +809,7 @@ describe("native API reflection", () => {
       operations.map(({ operation }) => [operation.operationId, operation] as const),
     );
     const categories = [
+      "contact.submitContactMessage",
       ...publicConditionalOperations,
       ...privateConditionalOperations,
       ...createdMutationOperations,
@@ -806,8 +819,8 @@ describe("native API reflection", () => {
       ...privateReadOperations,
       ...noStoreReadOperations,
     ];
-    expect(categories).toHaveLength(52);
-    expect(new Set(categories).size).toBe(52);
+    expect(categories).toHaveLength(53);
+    expect(new Set(categories).size).toBe(53);
     expect([...byId.keys()].sort()).toEqual([...categories].sort());
 
     const operation = (operationId: string) => {
@@ -847,7 +860,9 @@ describe("native API reflection", () => {
       assertSuccess(operationId, "200", ["cache-control", "vary"], true);
     }
 
+    assertSuccess("contact.submitContactMessage", "201", ["cache-control", "vary"], false);
     const tags = new Map<string, string>([
+      ["contact", "Public contact"],
       ["admissions", "Admissions"],
       ["content", "Content and news"],
       ["directory", "Directories"],
@@ -893,7 +908,9 @@ describe("native API reflection", () => {
         .filter((parameter) => "in" in parameter && parameter.in === "header")
         .map((parameter) => ("name" in parameter ? parameter.name.toLowerCase() : ""))
         .sort();
-      if (conditional.has(operationId)) {
+      if (operationId === "contact.submitContactMessage") {
+        expect(headerParameters).toEqual(["x-vektor-contact-ip"]);
+      } else if (conditional.has(operationId)) {
         expect(headerParameters).toEqual(["if-match", "if-none-match"]);
       } else if (mutations.has(operationId)) {
         expect(headerParameters).toEqual(

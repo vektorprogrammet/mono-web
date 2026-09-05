@@ -11,6 +11,8 @@ import {
   type NativeSessionBoundaryPolicy,
 } from "./session-security.js";
 
+import { contactConfig, type ContactConfig } from "./contact/config.js";
+
 export interface PublicApplicationEffectConfig {
   readonly endpoint: URL;
   readonly token: string;
@@ -29,6 +31,7 @@ export interface BackendAuthConfig {
 }
 
 export interface BackendConfig {
+  readonly contact?: ContactConfig;
   readonly host: string;
   readonly port: number;
   readonly postgresUrl: string;
@@ -215,6 +218,7 @@ export const makeBackendConfig = (
   }
   const oauth = decodeOAuthBackendConfig(env, sessionBoundary.trustedOrigins);
   return {
+    contact: contactConfig(env),
     host: loopbackHost(env.BACKEND_HOST),
     port: parsePort(env.BACKEND_PORT),
     postgresUrl,

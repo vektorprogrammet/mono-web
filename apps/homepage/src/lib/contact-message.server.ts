@@ -1,5 +1,12 @@
-import { DepartmentId, type DepartmentJson } from "@vektorprogrammet/domain/organization";
-import { Schema } from "effect";
+import { type DepartmentJson } from "@vektorprogrammet/domain/organization";
+import { Effect, Schema } from "effect";
+import {
+  ContactMessage,
+  CONTACT_BACKEND_HEADER,
+  CONTACT_IP_HEADER,
+} from "@vektorprogrammet/domain/contact";
+import { createEffectClient } from "@vektorprogrammet/sdk/effect";
+import type { ContactIngress } from "./contact-context.server";
 import { createHomepageApiClient } from "./api.server";
 import {
   type ContactActionData,
@@ -8,73 +15,9 @@ import {
   contactDepartmentSlug,
 } from "./contact-message";
 
-const contactText = (maximumLength: number) =>
-  Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(maximumLength)));
-
-const ContactMessageRequest = Schema.Struct({
-  name: contactText(100),
-  email: contactText(254),
-  subject: contactText(200),
-  message: contactText(10_000),
-  departmentId: DepartmentId,
-});
-
-const LegacyValidationResponse = Schema.Struct({
-  violations: Schema.Array(
-    Schema.Struct({
-      propertyPath: Schema.String,
-      message: Schema.String,
-    }),
-  ),
-});
-
-type ContactSubmission =
-  | { readonly _tag: "Submitted" }
-  | { readonly _tag: "Validation" }
-  | { readonly _tag: "RateLimited" }
-  | { readonly _tag: "Failure" };
-
-async function submitLegacyContactMessage(input: unknown): Promise<ContactSubmission> {
-  let payload: typeof ContactMessageRequest.Type;
+async function activeDepartments(backendOrigin?: string): Promise<readonly DepartmentJson[]> {
   try {
-    payload = Schema.decodeUnknownSync(ContactMessageRequest)(input, {
-      onExcessProperty: "error",
-    });
-  } catch {
-    return { _tag: "Validation" };
-  }
-
-  const apiUrl = process.env.API_URL;
-  if (apiUrl === undefined) return { _tag: "Failure" };
-
-  let response: Response;
-  try {
-    response = await fetch(new URL("/api/contact_messages", apiUrl).toString(), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  } catch {
-    return { _tag: "Failure" };
-  }
-
-  if (response.status === 201) return { _tag: "Submitted" };
-  if (response.status === 429) return { _tag: "RateLimited" };
-  if (response.status !== 422) return { _tag: "Failure" };
-
-  try {
-    Schema.decodeUnknownSync(LegacyValidationResponse)(await response.json(), {
-      onExcessProperty: "error",
-    });
-    return { _tag: "Validation" };
-  } catch {
-    return { _tag: "Failure" };
-  }
-}
-
-async function activeDepartments(): Promise<readonly DepartmentJson[]> {
-  try {
-    const result = await createHomepageApiClient().organization.listDepartments({
+    const result = await createHomepageApiClient(backendOrigin).organization.listDepartments({
       headers: {},
     });
     if (result.body === undefined) {
@@ -100,8 +43,11 @@ async function activeDepartments(): Promise<readonly DepartmentJson[]> {
   }
 }
 
-export async function loadContactPage(departmentSlug?: string): Promise<ContactPageData> {
-  const departments = await activeDepartments();
+export async function loadContactPage(
+  departmentSlug?: string,
+  backendOrigin?: string,
+): Promise<ContactPageData> {
+  const departments = await activeDepartments(backendOrigin);
   if (departments.length === 0) {
     throw new Response("Kontaktavdelingene er midlertidig utilgjengelige.", {
       status: 503,
@@ -126,8 +72,11 @@ const formValue = (formData: FormData, field: keyof ContactFormValues): string =
 export async function submitContactMessage(
   request: Request,
   departmentSlug?: string,
+  ingress?: ContactIngress,
 ): Promise<ContactActionData> {
-  const page = await loadContactPage(departmentSlug);
+  if (ingress === undefined)
+    return { ok: false, message: "Meldingen kunne ikke sendes. Prøv igjen senere." };
+  const page = await loadContactPage(departmentSlug, ingress.backendOrigin);
   let formData: FormData;
   try {
     formData = await request.formData();
@@ -141,28 +90,47 @@ export async function submitContactMessage(
     subject: formValue(formData, "subject"),
     message: formValue(formData, "message"),
   };
-  const result = await submitLegacyContactMessage({
-    ...values,
-    departmentId: page.selectedDepartment.departmentId,
-  });
-
-  switch (result._tag) {
-    case "Submitted":
-      return { ok: true };
-    case "RateLimited":
-      return {
-        ok: false,
-        message: "Du har sendt for mange meldinger. Prøv igjen senere.",
-      };
-    case "Validation":
-      return {
-        ok: false,
-        message: "Fyll ut alle feltene med gyldig informasjon.",
-      };
-    case "Failure":
-      return {
-        ok: false,
-        message: "Meldingen kunne ikke sendes. Prøv igjen senere.",
-      };
+  let payload: ContactMessage;
+  try {
+    payload = Schema.decodeUnknownSync(ContactMessage)(
+      { ...values, departmentId: page.selectedDepartment.departmentId },
+      { onExcessProperty: "error" },
+    );
+  } catch {
+    return { ok: false, message: "Fyll ut alle feltene med gyldig informasjon." };
   }
+  const client = createEffectClient(ingress.backendOrigin, {
+    headers: { [CONTACT_BACKEND_HEADER]: ingress.backendToken },
+    fetch: async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.origin !== ingress.backendOrigin)
+        throw new Error("Unsupported contact backend origin");
+      return fetch(input, { ...init, redirect: "error" });
+    },
+  });
+  return Effect.runPromise(
+    client.contact
+      .submitContactMessage({ payload, headers: { [CONTACT_IP_HEADER]: ingress.visitorIp } })
+      .pipe(
+        Effect.match({
+          onSuccess: (): ContactActionData => ({ ok: true }),
+          onFailure: (error): ContactActionData => ({
+            ok: false,
+            message:
+              typeof error === "object" &&
+              error !== null &&
+              "body" in error &&
+              typeof error.body === "object" &&
+              error.body !== null &&
+              "code" in error.body
+                ? error.body.code === "rate-limit.exceeded"
+                  ? "Du har sendt for mange meldinger. Prøv igjen senere."
+                  : error.body.code === "validation.failed"
+                    ? "Fyll ut alle feltene med gyldig informasjon."
+                    : "Meldingen kunne ikke sendes. Prøv igjen senere."
+                : "Meldingen kunne ikke sendes. Prøv igjen senere.",
+          }),
+        }),
+      ),
+  );
 }

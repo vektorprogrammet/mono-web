@@ -1,3 +1,4 @@
+import { CONTACT_LIMITS } from "@vektorprogrammet/domain/contact";
 import type { DepartmentJson } from "@vektorprogrammet/domain/organization";
 import { Mail, MapPin } from "lucide-react";
 import { Form, Link, useActionData, useNavigation } from "react-router";
@@ -77,13 +78,20 @@ export function ContactTabs({
               <div className="grid gap-5 sm:grid-cols-2">
                 <div>
                   <Label htmlFor="contact-name">Ditt navn</Label>
-                  <Input id="contact-name" name="name" autoComplete="name" required />
+                  <Input
+                    id="contact-name"
+                    name="name"
+                    maxLength={CONTACT_LIMITS.name}
+                    autoComplete="name"
+                    required
+                  />
                 </div>
                 <div>
                   <Label htmlFor="contact-email">Din e-post</Label>
                   <Input
                     id="contact-email"
                     name="email"
+                    maxLength={CONTACT_LIMITS.email}
                     type="email"
                     autoComplete="email"
                     required
@@ -92,11 +100,22 @@ export function ContactTabs({
               </div>
               <div className="mt-5">
                 <Label htmlFor="contact-subject">Emne</Label>
-                <Input id="contact-subject" name="subject" required />
+                <Input
+                  id="contact-subject"
+                  name="subject"
+                  maxLength={CONTACT_LIMITS.subject}
+                  required
+                />
               </div>
               <div className="mt-5">
                 <Label htmlFor="contact-message">Melding</Label>
-                <Textarea id="contact-message" name="message" rows={6} maxLength={5000} required />
+                <Textarea
+                  id="contact-message"
+                  name="message"
+                  rows={6}
+                  maxLength={CONTACT_LIMITS.message}
+                  required
+                />
               </div>
               <Button
                 className="mt-5 bg-vektor-darkblue hover:bg-vektor-blue"

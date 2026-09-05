@@ -273,6 +273,11 @@ export const databaseMigrationDefinitions = [
     name: "native-http-semantics",
     url: nativeHttpSemanticsMigrationUrl,
   },
+  {
+    id: "30_native-contact-quota",
+    name: "native-contact-quota",
+    url: new URL("../migrations/0030-native-contact-quota.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>
@@ -281,7 +286,7 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       databaseMigrationDefinitions.map(({ id, name, url }) => [id, migration(name, url, execute)]),
     ),
   );
-export const databaseSchemaRevision = "29_native_http_semantics";
+export const databaseSchemaRevision = databaseMigrationDefinitions.at(-1)!.id.replaceAll("-", "_");
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),

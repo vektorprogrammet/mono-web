@@ -1,3 +1,4 @@
+import { ContactApiHandlers } from "./contact/http.js";
 import { BlockList, isIP } from "node:net";
 import { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
@@ -161,6 +162,7 @@ export const makeExternalNativeApiRouterLayer = (
   };
 
   const handlers = Layer.mergeAll(
+    ContactApiHandlers(run, config.contact),
     SystemApiHandlers(run, options),
     AdmissionsApiHandlers({
       config: config.admission,

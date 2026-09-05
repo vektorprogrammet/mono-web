@@ -1,3 +1,8 @@
+import {
+  authenticateContactIngress,
+  contactIngressContext,
+  type ContactWorkerBindings,
+} from "../src/lib/contact-context.server";
 import { createRequestHandler, RouterContextProvider } from "react-router";
 
 import {
@@ -9,7 +14,7 @@ import { DEV_CONTENT_SOURCE } from "../src/lib/dev-content";
 import { resolveHomepageRequest } from "../src/lib/host";
 import type { HomepageRequest } from "../src/lib/host";
 
-type HomepageEnv = {
+type HomepageEnv = ContactWorkerBindings & {
   ASSETS: {
     fetch(request: Request): Promise<Response>;
   };
@@ -102,6 +107,7 @@ export default {
     }
 
     const routerContext = new RouterContextProvider();
+    routerContext.set(contactIngressContext, authenticateContactIngress(request, env));
     const response = await requestHandler(request, routerContext);
     return withProvenance(response, requestInfo.stage, requestInfo.host);
   },

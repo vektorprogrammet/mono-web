@@ -194,6 +194,7 @@ export const projectVektorAccess = (spec: AccessSpec): VektorAccessProjection =>
 type CapabilityTypeValue = (typeof CAPABILITY_TYPE_IDS)[number];
 const capabilityTypeValue = (id: CapabilityTypeId): CapabilityTypeValue => id;
 const objectCapabilitySecurityScheme: Partial<Record<CapabilityTypeValue, string>> = {
+  "contact.submit": "contactBackend",
   "recruitment.invitation-response": "invitationCapability",
 };
 export const assertAccessProjectionRegistryParity = (): void => {

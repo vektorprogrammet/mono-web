@@ -235,6 +235,7 @@
         "@effect/sql-d1": "catalog:effect-v4",
         "@noble/hashes": "2.3.0",
         "effect": "catalog:effect-v4",
+        "ip-address": "10.7.0",
         "parse5": "8.0.1",
       },
       "devDependencies": {

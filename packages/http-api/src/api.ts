@@ -4,6 +4,7 @@
  * @since 0.1.0
  */
 import { HttpApi, OpenApi } from "effect/unstable/httpapi";
+import { ContactApi } from "./contact.js";
 import { AdmissionsApi } from "./admissions.js";
 import { ContentApi } from "./content.js";
 import { DirectoryApi } from "./directory.js";
@@ -24,6 +25,7 @@ import { SystemApi } from "./system.js";
  * @category APIs
  */
 export class ExternalNativeApi extends HttpApi.make("external-native-api")
+  .add(ContactApi)
   .add(SystemApi)
   .add(ProfileApi)
   .add(OrganizationApi)

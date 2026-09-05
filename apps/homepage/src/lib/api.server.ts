@@ -1,6 +1,6 @@
 import { createPromiseClient } from "@vektorprogrammet/sdk";
 
-export function createHomepageApiClient() {
+export function createHomepageApiClient(explicitOrigin?: string) {
   const runtimeApiUrl = typeof process === "undefined" ? undefined : process.env.API_URL;
-  return createPromiseClient(runtimeApiUrl);
+  return createPromiseClient(explicitOrigin ?? runtimeApiUrl);
 }

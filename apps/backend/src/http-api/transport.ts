@@ -1,4 +1,5 @@
 import {
+  ContactSsrSecurity,
   InvitationCapabilitySecurity,
   PersonSecurity,
   RequestSchemaErrorMiddleware,
@@ -103,6 +104,10 @@ const RequestSchemaErrorLive = HttpApiMiddleware.layerSchemaErrorTransform(
 
 /** Contract middleware implementations shared by every native handler group. */
 export const NativeHttpApiMiddlewareLive = Layer.mergeAll(
+  Layer.succeed(
+    ContactSsrSecurity,
+    ContactSsrSecurity.of({ contactBackend: (httpEffect) => httpEffect }),
+  ),
   SessionSecurityLive,
   PersonSecurityLive,
   InvitationCapabilitySecurityLive,

@@ -43,6 +43,12 @@
       "path": "/api/applications"
     },
     {
+      "group": "contact",
+      "method": "POST",
+      "operationId": "contact.submitContactMessage",
+      "path": "/api/contact-messages"
+    },
+    {
       "group": "content",
       "method": "POST",
       "operationId": "content.createArticle",

@@ -518,11 +518,11 @@ declare const Rfc3339InstantSchema: Schema.String;
 ```ts
 declare const decodeAdmissionPeriodCommand: (input: unknown) => Effect<
   | {
-      readonly semesterId: string & Brand<"SemesterId">;
       readonly _tag: "CreateAdmissionPeriod";
       readonly commandId: string & Brand<"AdmissionPeriodCommandId">;
       readonly startAt: string;
       readonly endAt: string;
+      readonly semesterId: string & Brand<"SemesterId">;
       readonly departmentId?: (string & Brand<"DepartmentId">) | undefined;
     }
   | {
@@ -547,10 +547,10 @@ declare const decodeAdmissionPeriodCommand: (input: unknown) => Effect<
 ```ts
 declare const decodeCreateAdmissionPeriodInput: (input: unknown) => Effect<
   {
-    readonly semesterId: string & Brand<"SemesterId">;
     readonly commandId: string & Brand<"AdmissionPeriodCommandId">;
     readonly startAt: string;
     readonly endAt: string;
+    readonly semesterId: string & Brand<"SemesterId">;
     readonly departmentId?: (string & Brand<"DepartmentId">) | undefined;
   },
   Schema.SchemaError,

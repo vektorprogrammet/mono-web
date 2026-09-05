@@ -627,6 +627,12 @@ export const NativeProblemRegistry = {
     status: 413,
     detail: "The request body exceeds the permitted size.",
   },
+  "contact.unavailable": {
+    type: "urn:vektorprogrammet:problem:v0.2:contact.unavailable",
+    title: "Contact unavailable",
+    status: 503,
+    detail: "The contact message could not be accepted.",
+  },
   "resource.not-found": {
     type: "urn:vektorprogrammet:problem:v0.2:resource.not-found",
     title: "Resource not found",

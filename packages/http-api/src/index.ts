@@ -18,3 +18,4 @@ export * from "./release.js";
 export * from "./recruitment.js";
 export * from "./system.js";
 export * from "./v2-schemas.js";
+export * from "./contact.js";

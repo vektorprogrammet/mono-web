@@ -31,6 +31,7 @@ export const AuthorizationInstant = Rfc3339InstantSchema.pipe(Schema.brand("Auth
 export type AuthorizationInstant = typeof AuthorizationInstant.Type;
 
 export const CAPABILITY_TYPE_IDS = [
+  "contact.submit",
   "approveReceipt",
   "submitReceipt",
   "reviewApplicants",
@@ -69,7 +70,7 @@ export const CAPABILITY_TYPES = Object.fromEntries(
     id,
     {
       ruleTarget: ruleTargetCapabilityTypeIds.has(id),
-      objectCapability: id === "recruitment.invitation-response",
+      objectCapability: id === "recruitment.invitation-response" || id === "contact.submit",
     },
   ]),
 ) as {
@@ -176,6 +177,7 @@ export const RECEIPT_PENDING_REQUIREMENT = RequirementId.make("receipts.pending"
 export const RECEIPT_APPROVER_REQUIREMENT = RequirementId.make("receipts.approver-relationship");
 
 export const SCOPE_RESOLVER_IDS = [
+  "contact.department-recipient",
   "system.health",
   "identity.current-session",
   "identity.owned-sessions",

@@ -30,7 +30,8 @@
     "./notification": "./src/notification/index.ts",
     "./database": "./src/database/index.ts",
     "./evidence": "./src/tutor/evidence.ts",
-    "./receipt/proof": "./src/receipt/proof-index.ts"
+    "./receipt/proof": "./src/receipt/proof-index.ts",
+    "./contact": "./src/contact/index.ts"
   },
   "scripts": {
     "report": "bun run runtime/main.ts",
@@ -44,7 +45,8 @@
     "@effect/sql-d1": "catalog:effect-v4",
     "@noble/hashes": "2.3.0",
     "effect": "catalog:effect-v4",
-    "parse5": "8.0.1"
+    "parse5": "8.0.1",
+    "ip-address": "10.7.0"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:effect-v4",

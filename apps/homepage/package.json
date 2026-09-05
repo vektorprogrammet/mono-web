@@ -21,7 +21,8 @@
     "e2e:applicant:real": "node e2e/run-real-public-applicant-admission.mjs",
     "e2e:contact:real": "node e2e/run-real-public-contact-message.mjs",
     "lint": "oxlint",
-    "format": "oxfmt --write"
+    "format": "oxfmt --write",
+    "e2e:contact:native": "node e2e/run-native-contact.mjs"
   },
   "dependencies": {
     "@icons-pack/react-simple-icons": "^12.3.0",

@@ -110,11 +110,13 @@ const makeSureOperationsMatchRelease = (
   manifest: z.infer<typeof ReleaseManifestSchema>,
   serverMetadata: z.infer<typeof ServerMetadataSchema>,
 ): void => {
-  if (manifest.counts.externalOperations !== 52 || manifest.counts.internalOperations !== 1) {
-    throw new Error("The release manifest must contain 52 external and one internal operation.");
-  }
-  if (manifest.counts.operations !== 53) {
-    throw new Error("The release manifest must contain 53 total operations.");
+  if (
+    manifest.counts.operations !==
+    manifest.counts.externalOperations + manifest.counts.internalOperations
+  ) {
+    throw new Error(
+      "The release manifest total differs from its external and internal operation counts.",
+    );
   }
   if (operations.length !== manifest.counts.externalOperations) {
     throw new Error(

@@ -17,7 +17,19 @@ vi.mock("../src/lib/api.server", () => ({
 }));
 
 import { contactDepartmentSlug, type ContactFormValues } from "../src/lib/contact-message";
-import { loadContactPage, submitContactMessage } from "../src/lib/contact-message.server";
+import {
+  loadContactPage,
+  submitContactMessage as submitWithIngress,
+} from "../src/lib/contact-message.server";
+
+const submitContactMessage = (request: Request, slug?: string) =>
+  submitWithIngress(request, slug, {
+    backendOrigin: "http://api.test",
+    backendToken: "backend-test-00000000000000000000000",
+    visitorIp: ContactVisitorIp.make("127.0.0.1"),
+  });
+import { ContactVisitorIp } from "@vektorprogrammet/domain/contact";
+import { makeNativeProblem } from "@vektorprogrammet/http-api";
 
 const makeDepartment = (overrides: Record<string, unknown> = {}): DepartmentJson =>
   Schema.decodeUnknownSync(DepartmentJsonSchema)({
@@ -58,7 +70,14 @@ describe("homepage contact-message boundary", () => {
 
   it("submits the route-selected department without returning the draft", async () => {
     vi.stubEnv("API_URL", "http://api.test");
-    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(null, { status: 201 }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 201,
+          headers: { "cache-control": "no-store", vary: "Origin" },
+        }),
+      );
     vi.stubGlobal("fetch", fetchMock);
     const values = {
       name: "Ola Nordmann",
@@ -73,8 +92,8 @@ describe("homepage contact-message boundary", () => {
     expect(JSON.stringify(result)).not.toContain(values.email);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://api.test/api/contact_messages");
-    expect(JSON.parse(String(init.body))).toEqual({
+    expect(String(url)).toBe("http://api.test/api/contact-messages");
+    expect(await new Response(init.body).json()).toEqual({
       ...values,
       departmentId: department.departmentId,
     });
@@ -131,7 +150,7 @@ describe("homepage contact-message boundary", () => {
     expect(JSON.stringify(result)).not.toContain(privateCanary);
   });
 
-  it("classifies the exact legacy validation and rate-limit responses", async () => {
+  it("classifies the typed native validation and rate-limit responses", async () => {
     vi.stubEnv("API_URL", "http://api.test");
     const values = {
       name: "Ola Nordmann",
@@ -139,14 +158,24 @@ describe("homepage contact-message boundary", () => {
       subject: "Et spørsmål",
       message: "Når starter neste opptak?",
     } as const;
-    const validationFetch = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          violations: [{ propertyPath: "email", message: "private upstream detail" }],
-        }),
-        { status: 422, headers: { "content-type": "application/json" } },
-      ),
-    );
+    const validationFetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            ...makeNativeProblem("validation.failed", 422),
+            validation: { errors: [], truncated: false },
+          }),
+          {
+            status: 422,
+            headers: {
+              "content-type": "application/problem+json",
+              "cache-control": "no-store",
+              vary: "Origin",
+            },
+          },
+        ),
+      );
     vi.stubGlobal("fetch", validationFetch);
 
     await expect(submitContactMessage(formRequest(values), "aas")).resolves.toEqual({
@@ -154,7 +183,22 @@ describe("homepage contact-message boundary", () => {
       message: "Fyll ut alle feltene med gyldig informasjon.",
     });
 
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 429 })));
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify(makeNativeProblem("rate-limit.exceeded", 429)), {
+            status: 429,
+            headers: {
+              "content-type": "application/problem+json",
+              "cache-control": "no-store",
+              vary: "Origin",
+              "retry-after": "3600",
+            },
+          }),
+        ),
+    );
     await expect(submitContactMessage(formRequest(values), "aas")).resolves.toEqual({
       ok: false,
       message: "Du har sendt for mange meldinger. Prøv igjen senere.",

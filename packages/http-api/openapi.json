@@ -654,6 +654,67 @@
           {}
         ]
       },
+      "ContactMessage": {
+        "additionalProperties": false,
+        "description": "A transient public message. Recipient is resolved by Organization; no message is stored.",
+        "properties": {
+          "departmentId": {
+            "type": "string"
+          },
+          "email": {
+            "allOf": [
+              {
+                "minLength": 1
+              },
+              {
+                "maxLength": 254
+              }
+            ],
+            "type": "string"
+          },
+          "message": {
+            "allOf": [
+              {
+                "minLength": 1
+              },
+              {
+                "maxLength": 5000
+              }
+            ],
+            "type": "string"
+          },
+          "name": {
+            "allOf": [
+              {
+                "minLength": 1
+              },
+              {
+                "maxLength": 100
+              }
+            ],
+            "type": "string"
+          },
+          "subject": {
+            "allOf": [
+              {
+                "minLength": 1
+              },
+              {
+                "maxLength": 200
+              }
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "departmentId",
+          "name",
+          "email",
+          "subject",
+          "message"
+        ],
+        "type": "object"
+      },
       "CreateAdmissionPeriodRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1493,19 +1554,19 @@
       },
       "Literal_2": {
         "enum": [
-          "private, no-store"
+          "no-store"
         ],
         "type": "string"
       },
       "Literal_3": {
         "enum": [
-          "no-store"
+          "Origin"
         ],
         "type": "string"
       },
       "Literal_4": {
         "enum": [
-          "Origin"
+          "private, no-store"
         ],
         "type": "string"
       },
@@ -4355,6 +4416,12 @@
       }
     },
     "securitySchemes": {
+      "contactBackend": {
+        "description": "Server-only homepage-to-backend contact credential. Visitor needs no account; direct anonymous API requests are rejected.",
+        "in": "header",
+        "name": "x-vektor-contact-backend",
+        "type": "apiKey"
+      },
       "cookieHeader": {
         "description": "Cookie header resolved authoritatively by Identity.",
         "in": "header",
@@ -4417,7 +4484,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "etag": {
@@ -4440,7 +4507,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "etag": {
@@ -4733,13 +4800,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -5467,13 +5534,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -6727,13 +6794,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -9972,6 +10039,622 @@
         }
       }
     },
+    "/api/contact-messages": {
+      "post": {
+        "description": "Consumes one of five attempts per visitor fixed one-hour window and waits for delivery transport acceptance. No message is persisted; no automatic retry. HTTP 201 has no body and is not proof of inbox delivery.",
+        "operationId": "contact.submitContactMessage",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-vektor-contact-ip",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContactMessage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "<No Content>",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.malformed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request is malformed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Malformed request"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:request.malformed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "credential.invalid"
+                              ],
+                              "type": "string"
+                            },
+                            "detail": {
+                              "enum": [
+                                "The supplied credential is invalid."
+                              ],
+                              "type": "string"
+                            },
+                            "instance": {
+                              "$ref": "#/components/schemas/Union_"
+                            },
+                            "status": {
+                              "enum": [
+                                401
+                              ],
+                              "type": "number"
+                            },
+                            "title": {
+                              "enum": [
+                                "Invalid credential"
+                              ],
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "urn:vektorprogrammet:problem:v0.2:credential.invalid"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "detail"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionUnauthorizedProblem"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Closed RFC 9457 error union for SessionUnauthorizedProblem.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_3"
+                }
+              },
+              "www-authenticate": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.too-large"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request body exceeds the permitted size."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            413
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Request too large"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:request.too-large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "media-type.unsupported"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request media type is not supported for this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            415
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Unsupported media type"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:media-type.unsupported"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "validation.failed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request contains invalid semantic values."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            422
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Validation failed"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:validation.failed"
+                          ],
+                          "type": "string"
+                        },
+                        "validation": {
+                          "$ref": "#/components/schemas/Objects_"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail",
+                        "validation"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "rate-limit.exceeded"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request rate limit was exceeded."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            429
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Rate limit exceeded"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:rate-limit.exceeded"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              },
+              "retry-after": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "contact.unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The contact message could not be accepted."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            503
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Contact unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:contact.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              },
+              "retry-after": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "5"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "contactBackend": []
+          }
+        ],
+        "summary": "Send public contact message",
+        "tags": [
+          "Public contact"
+        ],
+        "x-vektor-access": {
+          "acceptedCredentials": [
+            "ObjectCapability"
+          ],
+          "canonicalScopeResolver": "contact.department-recipient",
+          "capabilities": {
+            "one": "contact.submit"
+          },
+          "concealment": {
+            "mode": "Reveal",
+            "stages": []
+          },
+          "decisionTime": "SnapshotRead",
+          "exposure": "External",
+          "principalKinds": [
+            "CapabilityHolder"
+          ],
+          "requirements": []
+        },
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      }
+    },
     "/api/content/articles": {
       "get": {
         "description": "Returns article drafts visible to the current staff actor.",
@@ -10077,7 +10760,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "vary": {
@@ -10318,13 +11001,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -11130,13 +11813,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -12087,7 +12770,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "etag": {
@@ -12110,7 +12793,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "etag": {
@@ -12403,13 +13086,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -13315,13 +13998,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -14941,13 +15624,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -16418,13 +17101,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -18470,13 +19153,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -20172,13 +20855,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -21059,7 +21742,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "vary": {
@@ -21300,13 +21983,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -23410,7 +24093,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "vary": {
@@ -23651,13 +24334,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -24086,7 +24769,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "etag": {
@@ -24109,7 +24792,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "etag": {
@@ -24402,13 +25085,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -25259,13 +25942,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -26335,7 +27018,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "vary": {
@@ -26576,13 +27259,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -26961,7 +27644,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "vary": {
@@ -27202,13 +27885,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -27877,13 +28560,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -29137,13 +29820,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -30717,13 +31400,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -32151,13 +32834,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -33585,13 +34268,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -34653,7 +35336,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "vary": {
@@ -34894,13 +35577,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -35642,13 +36325,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -36647,7 +37330,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "vary": {
@@ -36888,13 +37571,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -37264,7 +37947,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "etag": {
@@ -37287,7 +37970,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "etag": {
@@ -37580,13 +38263,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -38564,13 +39247,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -40036,13 +40719,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -41646,13 +42329,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -42761,7 +43444,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "etag": {
@@ -42784,7 +43467,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "etag": {
@@ -47014,7 +47697,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "vary": {
@@ -47255,13 +47938,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -47962,13 +48645,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -48528,7 +49211,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "vary": {
@@ -48652,13 +49335,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -48878,7 +49561,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "vary": {
@@ -49119,13 +49802,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -49638,13 +50321,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -50495,13 +51178,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -51360,13 +52043,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -52022,7 +52705,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "vary": {
@@ -52263,13 +52946,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -53595,13 +54278,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "www-authenticate": {
@@ -54631,6 +55314,10 @@
   "security": [],
   "servers": [],
   "tags": [
+    {
+      "description": "Public visitor contact via authenticated homepage SSR ingress.",
+      "name": "Public contact"
+    },
     {
       "description": "Native health and first-party session resources.",
       "name": "System"
