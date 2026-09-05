@@ -56,7 +56,7 @@ const config = makeBackendConfig(environment);
 const database = Object.assign(
   ((strings: TemplateStringsArray) => {
     const statement = strings.join(" ");
-    if (statement.includes("FROM person_profiles AS profile")) {
+    if (statement.includes("FROM public.person_profiles AS profile")) {
       return Effect.succeed([
         {
           personId: "member-1",
