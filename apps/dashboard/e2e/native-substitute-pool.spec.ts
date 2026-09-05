@@ -168,6 +168,36 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
       "two real browser versions conflict; draft retained; unchanged failed retry preserves its key; explicit version refresh and consecutive successful edits persist canonical year/language/weekdays",
     );
 
+    // A real concurrent removal moves the application out of the active list.
+    // The rejected editor must retain its input without claiming or restoring activity.
+    await concurrent.reload();
+    await card(page).getByLabel("Onsdag", { exact: true }).selectOption("true");
+    await card(concurrent).getByRole("button", { name: "Fjern fra vikaroversikten" }).click();
+    await expect(
+      concurrent.getByRole("status").filter({ hasText: "Søknaden og opplysningene er bevart." }),
+    ).toBeVisible();
+    await card(page).getByRole("button", { name: "Lagre endringer" }).click();
+    await expect(card(page).getByRole("alert")).toContainText("Søkeren er ikke lenger aktiv vikar");
+    await expect(card(page).getByLabel("Onsdag", { exact: true })).toHaveValue("true");
+    expect((await readEntry(page)).active).toBe(false);
+    await expect(card(page).getByRole("button", { name: "Lagre endringer" })).toHaveCount(0);
+    await card(page).getByRole("button", { name: "Hent siste versjon", exact: true }).click();
+    await card(page).getByRole("button", { name: "Bruk siste versjon med mitt utkast" }).click();
+    await card(page).getByRole("button", { name: "Legg til som vikar" }).click();
+    await expect(
+      page.getByRole("status").filter({ hasText: "Vikaren er lagt til." }),
+    ).toBeVisible();
+    expect((await readEntry(page)).preferences.wednesday).toBe(true);
+    await card(page).getByLabel("Onsdag", { exact: true }).selectOption("false");
+    await card(page).getByRole("button", { name: "Lagre endringer" }).click();
+    await expect.poll(async () => (await readEntry(page)).preferences.wednesday).toBe(false);
+    await expect(
+      page.getByRole("status").filter({ hasText: "Opplysningene er lagret." }),
+    ).toBeVisible();
+    gates.push(
+      "real concurrent deactivation preserves the rejected draft; explicit activation is required to return to the pool",
+    );
+
     await card(page).getByRole("button", { name: "Fjern fra vikaroversikten" }).click();
     await expect(
       page.getByRole("status").filter({ hasText: "Søknaden og opplysningene er bevart." }),
@@ -214,7 +244,7 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
     await expect(readOnly.getByLabel("Søker", { exact: true })).toHaveCount(0);
     const selected = await readEntry(readOnly);
     const denied = await readOnly.request.post(
-      `${manifest.backendOrigin}/api/substitutes/${manifest.applicationId}::deactivate`,
+      `${manifest.backendOrigin}/api/substitutes/${manifest.applicationId}:deactivate`,
       {
         headers: {
           Origin: manifest.dashboardOrigin,

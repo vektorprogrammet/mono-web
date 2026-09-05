@@ -72,6 +72,7 @@ export async function action({ request }: Route.ActionArgs) {
   } catch {
     return privateActionData(
       {
+        _tag: "InvalidForm" as const,
         success: false as const,
         message: "Fyll ut alle ukedager, undervisningsspråk og studieår (1–5).",
         conflict: false,
@@ -89,6 +90,7 @@ export async function action({ request }: Route.ActionArgs) {
     else if (command.intent === "activate") await client.substitutes.activate(command);
     else await client.substitutes.edit(command);
     return privateActionData({
+      _tag: "Completed" as const,
       success: true as const,
       applicationId: command.params.applicationId,
       commandId: command.headers["idempotency-key"],
@@ -102,9 +104,13 @@ export async function action({ request }: Route.ActionArgs) {
     });
   } catch (cause) {
     return privateActionData({
+      _tag: "Rejected" as const,
       success: false as const,
       applicationId: command.params.applicationId,
       commandId: command.headers["idempotency-key"],
+      etag: command.headers["if-match"],
+      intent: command.intent,
+      draft: command.intent === "deactivate" ? null : command.payload,
       ...substituteFailure(cause),
     });
   }
@@ -121,12 +127,19 @@ function revealCommandFeedback(element: HTMLElement | null): void {
 const selectClass =
   "h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring";
 type Entry = typeof SubstituteResource.Type;
-function EntryForm({ entry }: { entry: Entry }) {
+function EntryForm({ entry, onCommand }: { entry: Entry; onCommand: () => void }) {
   const fetcher = useFetcher<typeof action>({ key: "substitute-command" });
   const refresh = useFetcher<typeof loader>();
   const location = useLocation();
   const busy = fetcher.state !== "idle" || refresh.state !== "idle";
-  const [baseline, setBaseline] = useState(entry.etag);
+  const rejected =
+    fetcher.data &&
+    fetcher.data._tag === "Rejected" &&
+    fetcher.data.applicationId === entry.applicationId
+      ? fetcher.data
+      : undefined;
+  const retainedDraft = rejected?.draft;
+  const [baseline, setBaseline] = useState(rejected?.etag ?? entry.etag);
   const [commandId, setCommandId] = useState("");
   const [commandDraft, setCommandDraft] = useState("");
   const [lastResult, setLastResult] = useState(fetcher.data);
@@ -161,6 +174,7 @@ function EntryForm({ entry }: { entry: Entry }) {
           return;
         }
         event.currentTarget.dataset.pending = "true";
+        onCommand();
         const field = event.currentTarget.elements.namedItem("commandId");
         const submitter = (event.nativeEvent as SubmitEvent).submitter;
         const draft = new FormData(event.currentTarget);
@@ -189,7 +203,13 @@ function EntryForm({ entry }: { entry: Entry }) {
                 name={key}
                 className={selectClass}
                 required
-                defaultValue={entry.preferences === null ? "" : String(entry.preferences[key])}
+                defaultValue={
+                  retainedDraft
+                    ? String(retainedDraft[key])
+                    : entry.preferences === null
+                      ? ""
+                      : String(entry.preferences[key])
+                }
               >
                 <option value="" disabled>
                   Velg
@@ -208,7 +228,7 @@ function EntryForm({ entry }: { entry: Entry }) {
               name="language"
               className={selectClass}
               required
-              defaultValue={entry.preferences?.language ?? ""}
+              defaultValue={retainedDraft?.language ?? entry.preferences?.language ?? ""}
             >
               <option value="" disabled>
                 Velg språk
@@ -230,7 +250,7 @@ function EntryForm({ entry }: { entry: Entry }) {
               min={1}
               max={5}
               step={1}
-              defaultValue={entry.yearOfStudy}
+              defaultValue={retainedDraft?.yearOfStudy ?? entry.yearOfStudy}
             />
           </label>
         </div>
@@ -245,7 +265,7 @@ function EntryForm({ entry }: { entry: Entry }) {
           )}
         </div>
       </fieldset>
-      {feedback && !feedback.success && fetcher.state === "idle" && (
+      {feedback && feedback._tag === "Rejected" && fetcher.state === "idle" && (
         <div
           key={feedback.commandId}
           ref={revealCommandFeedback}
@@ -253,7 +273,9 @@ function EntryForm({ entry }: { entry: Entry }) {
           role="alert"
           className="rounded-md border bg-muted p-3 text-sm"
         >
-          {feedback.message}
+          {!entry.active && feedback.intent === "edit"
+            ? "Søkeren er ikke lenger aktiv vikar. Utkastet er beholdt. Å legge til igjen er en ny aktivering."
+            : feedback.message}
           {feedback.conflict && (
             <div className="mt-3 flex flex-wrap gap-3">
               <Button
@@ -300,7 +322,15 @@ function EntryForm({ entry }: { entry: Entry }) {
     </fetcher.Form>
   );
 }
-function EntryCard({ entry, manage }: { entry: Entry; manage: boolean }) {
+function EntryCard({
+  entry,
+  manage,
+  onCommand,
+}: {
+  entry: Entry;
+  manage: boolean;
+  onCommand: () => void;
+}) {
   return (
     <article
       aria-label={`${entry.firstName} ${entry.lastName}`}
@@ -313,7 +343,7 @@ function EntryCard({ entry, manage }: { entry: Entry; manage: boolean }) {
         {entry.email} · {entry.phone}
       </p>
       {manage ? (
-        <EntryForm entry={entry} />
+        <EntryForm entry={entry} onCommand={onCommand} />
       ) : (
         <>
           <p>
@@ -428,6 +458,7 @@ export default function Vikarer() {
                   key={entry.applicationId}
                   entry={entry}
                   manage={board._tag === "Manage"}
+                  onCommand={() => setSelected(entry.applicationId)}
                 />
               ))}
               {board._tag === "Manage" && (
@@ -456,7 +487,12 @@ export default function Vikarer() {
                         </select>
                       </label>
                       {candidate && (
-                        <EntryCard key={candidate.applicationId} entry={candidate} manage />
+                        <EntryCard
+                          key={candidate.applicationId}
+                          entry={candidate}
+                          manage
+                          onCommand={() => setSelected(candidate.applicationId)}
+                        />
                       )}
                     </>
                   )}
