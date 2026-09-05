@@ -998,11 +998,22 @@ export const runPreviewScenarioApplication = async (
       }),
     );
     assert.equal(publication.response.body.versionNumber, 1);
+    await assert.rejects(
+      leader.content.publishArticle({
+        params: { articleId },
+        headers: {
+          ...idempotency(`${publishCommandId}-stale-precondition-check`),
+          "if-match": publicationPrecondition,
+        },
+        payload: {},
+      }),
+      { body: { status: 412, code: "precondition.failed" } },
+    );
     recordStep(
       evidence,
       "content-publication",
       draft.replayed && publication.replayed ? "replayed" : "ok",
-      { articleId, versionNumber: 1 },
+      { articleId, versionNumber: 1, freshStalePreconditionRejected: true },
     );
 
     // 13) Per-invocation idempotency evidence. A replay keeps all business
