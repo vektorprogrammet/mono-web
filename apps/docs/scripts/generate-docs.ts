@@ -186,6 +186,7 @@ const replaceGeneratedFiles = async (candidateRoot: string): Promise<void> => {
 
 const main = async (): Promise<void> => {
   const candidateRoot = await mkdtemp(join(tmpdir(), "vektor-docs-generate-"));
+  let completed = false;
   try {
     await generate(candidateRoot);
     if (checkMode) {
@@ -193,8 +194,13 @@ const main = async (): Promise<void> => {
     } else {
       await replaceGeneratedFiles(candidateRoot);
     }
+    completed = true;
   } finally {
-    await rm(candidateRoot, { force: true, recursive: true });
+    if (completed) {
+      await rm(candidateRoot, { force: true, recursive: true });
+    } else {
+      process.stderr.write(`Failed generated-doc candidate retained at ${candidateRoot}\n`);
+    }
   }
 };
 
