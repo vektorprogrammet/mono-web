@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseSubstituteForm, substituteFailure, weekdays } from "./substitute-form";
+import {
+  parseSubstituteForm,
+  substituteFailure,
+  substituteSemesterLabel,
+  weekdays,
+} from "./substitute-form";
 const form = () => {
   const value = new FormData();
   for (const [key, item] of Object.entries({
@@ -52,4 +57,10 @@ describe("substitute coordinator declarations", () => {
     expect(substituteFailure({ code: "precondition.failed" }).conflict).toBe(true);
     expect(substituteFailure({ code: "internal.error" }).conflict).toBe(false);
   });
+});
+
+it("labels canonical semesters with Norwegian dates rather than storage identifiers", () => {
+  expect(
+    substituteSemesterLabel({ startAt: "2024-01-01T00:00:00Z", endAt: "2024-06-30T23:59:59Z" }),
+  ).toBe("1. jan. 2024 – 30. juni 2024");
 });

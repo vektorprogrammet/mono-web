@@ -11,6 +11,7 @@ import {
   languages,
   parseSubstituteForm,
   substituteFailure,
+  substituteSemesterLabel,
   weekdays,
 } from "../lib/substitute-form";
 import type { Route } from "./+types/dashboard.vikarer._index";
@@ -90,6 +91,7 @@ export async function action({ request }: Route.ActionArgs) {
     return privateActionData({
       success: true as const,
       applicationId: command.params.applicationId,
+      commandId: command.headers["idempotency-key"],
       message:
         command.intent === "deactivate"
           ? "Vikaren er fjernet fra oversikten. Søknaden og opplysningene er bevart."
@@ -102,10 +104,20 @@ export async function action({ request }: Route.ActionArgs) {
     return privateActionData({
       success: false as const,
       applicationId: command.params.applicationId,
+      commandId: command.headers["idempotency-key"],
       ...substituteFailure(cause),
     });
   }
 }
+// Callback ref runs only when a new command result is mounted, after its DOM exists.
+// Keep feedback in normal flow and bring it into the post-action viewport.
+function revealCommandFeedback(element: HTMLElement | null): void {
+  if (element !== null) {
+    element.focus({ preventScroll: true });
+    element.scrollIntoView({ block: "nearest" });
+  }
+}
+
 const selectClass =
   "h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring";
 type Entry = typeof SubstituteResource.Type;
@@ -232,8 +244,14 @@ function EntryForm({ entry }: { entry: Entry }) {
           )}
         </div>
       </fieldset>
-      {feedback && !feedback.success && (
-        <div role="alert" className="rounded-md border bg-muted p-3 text-sm">
+      {feedback && !feedback.success && fetcher.state === "idle" && (
+        <div
+          key={feedback.commandId}
+          ref={revealCommandFeedback}
+          tabIndex={-1}
+          role="alert"
+          className="rounded-md border bg-muted p-3 text-sm"
+        >
           {feedback.message}
           {feedback.conflict && (
             <div className="mt-3 flex flex-wrap gap-3">
@@ -375,7 +393,7 @@ export default function Vikarer() {
               </option>
               {scopes.semesters.map((item) => (
                 <option key={item.semesterId} value={item.semesterId}>
-                  {item.semesterId}
+                  {substituteSemesterLabel(item)}
                 </option>
               ))}
             </select>
@@ -448,12 +466,23 @@ export default function Vikarer() {
         </div>
       )}
       {command.data && !("applicationId" in command.data) && (
-        <p role="alert" className="sticky bottom-4 rounded-md border bg-background p-4 shadow-md">
+        <p
+          ref={revealCommandFeedback}
+          tabIndex={-1}
+          role="alert"
+          className="rounded-md border bg-background p-4"
+        >
           {command.data.message}
         </p>
       )}
-      {command.data?.success && (
-        <p role="status" className="sticky bottom-4 rounded-md border bg-background p-4 shadow-md">
+      {command.data?.success && command.state === "idle" && (
+        <p
+          key={command.data.commandId}
+          ref={revealCommandFeedback}
+          tabIndex={-1}
+          role="status"
+          className="rounded-md border bg-background p-4"
+        >
           {command.data.message}
         </p>
       )}

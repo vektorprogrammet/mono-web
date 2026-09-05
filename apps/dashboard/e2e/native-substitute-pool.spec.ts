@@ -91,6 +91,9 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
       page.getByRole("status").filter({ hasText: "Vikaren er lagt til." }),
     ).toBeVisible();
     expect(posts - beforePosts).toBe(1);
+    await expect(
+      page.getByRole("status").filter({ hasText: "Vikaren er lagt til." }),
+    ).toBeInViewport({ ratio: 1 });
     await page.reload();
     await expect(card(page).getByRole("button", { name: "Lagre endringer" })).toBeVisible();
     const activated = await readEntry(page);
@@ -119,12 +122,26 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
     await expect(
       concurrent.getByRole("status").filter({ hasText: "Opplysningene er lagret." }),
     ).toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
     await card(page).getByRole("button", { name: "Lagre endringer" }).click();
     await expect(card(page).getByRole("alert")).toContainText("Utkastet ditt er beholdt");
     await expect(card(page).getByLabel("Studieår")).toHaveValue("4");
     await expect(card(page).getByLabel("Undervisningsspråk")).toHaveValue("English");
     await expect(card(page).getByLabel("Tirsdag", { exact: true })).toHaveValue("true");
-    await axe(page, "stale rejected draft");
+    await expect(card(page).getByRole("alert")).toBeInViewport({ ratio: 1 });
+    await axe(page, "mobile stale rejected draft");
+    const rejectedKey = await card(page).locator('input[name="commandId"]').inputValue();
+    const retryResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname.endsWith("/vikarer.data"),
+    );
+    await card(page).getByRole("button", { name: "Lagre endringer" }).click();
+    await (await retryResponse).finished();
+    await expect(card(page).getByRole("button", { name: "Lagre endringer" })).toBeEnabled();
+    expect(await card(page).locator('input[name="commandId"]').inputValue()).toBe(rejectedKey);
+    expect((await readEntry(page)).yearOfStudy).toBe(5);
+    await expect(card(page).getByLabel("Studieår")).toHaveValue("4");
     await card(page).getByRole("button", { name: "Hent siste versjon", exact: true }).click();
     await expect(card(page).getByText(/Siste lagrede versjon: studieår 5/)).toBeVisible();
     await card(page).getByRole("button", { name: "Bruk siste versjon med mitt utkast" }).click();
@@ -135,8 +152,20 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
     await page.reload();
     await expect(card(page).getByLabel("Studieår")).toHaveValue("4");
     expect((await readEntry(page)).preferences.language).toBe("English");
+    // Consecutive successes on the same mounted form must use the latest ETag and a new command.
+    for (const available of ["true", "false"]) {
+      await card(page).getByLabel("Fredag", { exact: true }).selectOption(available);
+      await card(page).getByRole("button", { name: "Lagre endringer" }).click();
+      await expect
+        .poll(async () => (await readEntry(page)).preferences.friday)
+        .toBe(available === "true");
+      await expect(
+        page.getByRole("status").filter({ hasText: "Opplysningene er lagret." }),
+      ).toBeInViewport({ ratio: 1 });
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
     gates.push(
-      "two real browser versions conflict; draft retained; explicit version refresh and conditional retry persist canonical year/language/weekdays",
+      "two real browser versions conflict; draft retained; unchanged failed retry preserves its key; explicit version refresh and consecutive successful edits persist canonical year/language/weekdays",
     );
 
     await card(page).getByRole("button", { name: "Fjern fra vikaroversikten" }).click();

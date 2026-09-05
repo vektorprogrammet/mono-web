@@ -80,3 +80,13 @@ export function substituteFailure(error: unknown): { message: string; conflict: 
     conflict: false,
   };
 }
+
+export function substituteSemesterLabel(semester: { startAt: string; endAt: string }): string {
+  const format = new Intl.DateTimeFormat("nb-NO", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  return `${format.format(new Date(semester.startAt))} – ${format.format(new Date(semester.endAt))}`;
+}

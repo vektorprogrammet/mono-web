@@ -65,7 +65,8 @@ const run = (command, args, cwd) =>
     );
   });
 const stop = async (child) => {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  if (!child || child.pid === undefined || child.exitCode !== null || child.signalCode !== null)
+    return;
   const exited = new Promise((resolve) => child.once("exit", resolve));
   child.kill("SIGTERM");
   const timer = setTimeout(() => child.kill("SIGKILL"), 3000);
