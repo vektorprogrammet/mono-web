@@ -176,6 +176,7 @@ try {
     convertV4MiniflareOptions({
       host: "127.0.0.1",
       port: workerPort,
+      upstream: "http://p000.vektor.phibkro.org",
       modulesRoot: join(homepage, "build/server"),
       modules: [
         "index.js",
