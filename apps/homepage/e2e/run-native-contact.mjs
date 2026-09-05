@@ -56,10 +56,10 @@ const start = (cmd, args, env) => {
   children.push({ child, output: () => output });
   return child;
 };
-const listen = (server) =>
+const listen = (server, desiredPort = 0) =>
   new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
+    server.listen(desiredPort, "127.0.0.1", () => {
       servers.push(server);
       resolve(server.address().port);
     });
@@ -117,6 +117,8 @@ try {
   const pgPort = await port();
   const backendPort = await port();
   const workerPort = await port();
+  const ingressPort = await port();
+  const browserOrigin = `http://p000.vektor.phibkro.org:${ingressPort}`;
   const backendOrigin = `http://127.0.0.1:${backendPort}`;
   const pgDir = join(artifacts, "postgres");
   run("initdb", ["-D", pgDir, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"]);
@@ -195,7 +197,7 @@ try {
     convertV4MiniflareOptions({
       host: "127.0.0.1",
       port: workerPort,
-      upstream: "http://p000.vektor.phibkro.org",
+      upstream: browserOrigin,
       modulesRoot: join(homepage, "build/server"),
       modules: [
         "index.js",
@@ -275,7 +277,7 @@ try {
       res.writeHead(502).end("Local ingress failed");
     }
   });
-  const ingressPort = await listen(ingress);
+  await listen(ingress, ingressPort);
   const origin = `http://127.0.0.1:${ingressPort}`;
   const headers = (ip, token = tokens.backend) => ({
     "content-type": "application/json",
@@ -359,7 +361,11 @@ try {
   browser = await chromium.launch({
     executablePath:
       process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ?? "/etc/profiles/per-user/nori/bin/chromium",
-    args: ["--disable-background-networking"],
+    args: [
+      "--disable-background-networking",
+      "--no-proxy-server",
+      "--host-resolver-rules=MAP p000.vektor.phibkro.org 127.0.0.1",
+    ],
   });
   const context = await browser.newContext({ locale: "nb-NO" });
   await context.route("**/*", (route) => {
@@ -369,7 +375,7 @@ try {
       : route.abort();
   });
   const page = await context.newPage();
-  const pageResponse = await page.goto(`${origin}/kontakt`);
+  const pageResponse = await page.goto(`${browserOrigin}/kontakt`);
   assert.equal(pageResponse.status(), 200);
   await page
     .getByRole("navigation", { name: "Velg avdeling" })
