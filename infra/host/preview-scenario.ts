@@ -1007,7 +1007,12 @@ export const runPreviewScenarioApplication = async (
         },
         payload: {},
       }),
-      { body: { status: 412, code: "precondition.failed" } },
+      (cause: unknown) => {
+        const problem = (cause as { body: { status: number; code: string } }).body;
+        assert.equal(problem.status, 412);
+        assert.equal(problem.code, "precondition.failed");
+        return true;
+      },
     );
     recordStep(
       evidence,
