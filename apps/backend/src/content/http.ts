@@ -32,6 +32,7 @@ import {
   createDraftPostgres,
   publishPostgres,
   readContentArticleHttpSourcePostgres,
+  readArticleDetailInTransactionPostgres,
   readContentAuthorityHttpSourcesPostgres,
   readPublicNews,
   readPublishedNewsArticleHttpSourcePostgres,
@@ -609,11 +610,11 @@ const createArticle = async (
           }).pipe(
             Effect.flatMap((created) =>
               Effect.gen(function* () {
-                const detail = yield* runContentArticleDetail(
-                  actor.personId,
-                  actor.authorizationInstant,
-                  created.articleId,
-                );
+                const detail = yield* readArticleDetailInTransactionPostgres({
+                  personId: actor.personId,
+                  authorizationInstant: actor.authorizationInstant,
+                  articleId: created.articleId,
+                });
                 const source = yield* readContentArticleHttpSourcePostgres(created.articleId);
                 const authority = yield* readContentAuthorityHttpSourcesPostgres(actor.personId);
                 const etag = deriveStrongETag({
@@ -755,11 +756,11 @@ const reviseArticle = async (
               personId: actor.personId,
               authorizationInstant: actor.authorizationInstant,
             });
-            const detail = yield* runContentArticleDetail(
-              actor.personId,
-              actor.authorizationInstant,
-              revised.articleId,
-            );
+            const detail = yield* readArticleDetailInTransactionPostgres({
+              personId: actor.personId,
+              authorizationInstant: actor.authorizationInstant,
+              articleId: revised.articleId,
+            });
             const output = yield* Schema.decodeEffect(ContentArticleDetailSchema)(detail, {
               onExcessProperty: "error",
             }).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));

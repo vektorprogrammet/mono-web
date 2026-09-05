@@ -272,9 +272,10 @@ export const readWorkspacePostgres = (input: {
   });
 /**
  * Reads one editable working copy without widening the exact workspace summary.
+ * Caller owns the transaction; this reader never changes its isolation or mode.
  * The detail contains body/revision but never the private creator identifier.
  */
-export const readArticleDetailPostgres = (input: {
+export const readArticleDetailInTransactionPostgres = (input: {
   readonly articleId: ArticleId;
   readonly personId: PersonId;
   readonly authorizationInstant: OrganizationAuthorityInstant;
@@ -291,104 +292,108 @@ export const readArticleDetailPostgres = (input: {
     const organization = yield* Organization;
     const profile = yield* Profile;
 
+    const authority = yield* organization
+      .resolvePersonAuthorityForRead(input.personId, input.authorizationInstant)
+      .pipe(
+        Effect.mapError((cause) => persistenceError("resolve content detail authority", cause)),
+      );
+    if (authority.evaluatedAt !== input.authorizationInstant) {
+      return yield* decodeError(
+        "resolve content detail authority",
+        "Organization authority used a different authorization instant",
+      );
+    }
+    const decision = resolveContentActor(authority);
+    if (decision._tag === "Deny") {
+      return yield* decision.reason === "AuthorityInactive"
+        ? new ContentAuthorityInactive({})
+        : new ContentNotInScope({});
+    }
+    const rows = yield* database<DraftRow>`
+      SELECT
+        CAST(article.article_id AS integer) AS "articleId",
+        article.title,
+        article.slug,
+        article.body_html AS "bodyHtml",
+        article.sticky,
+        article.created_by_person_id AS "createdByPersonId",
+        to_char(article.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
+        to_char(article.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
+        article.current_version_number AS "currentVersionNumber",
+        article.revision
+      FROM public.content_articles AS article
+      WHERE article.article_id = ${articleId}
+    `.pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("read content article detail", cause)),
+      ),
+    );
+    const draft = yield* Effect.try({
+      try: () => decodeDraftRows(rows)[0],
+      catch: (cause) => decodeError("decode content article detail row", cause),
+    });
+    if (draft === undefined) return yield* new ContentArticleNotFound({});
+    const departmentIds =
+      (yield* departmentIdsForArticles(database, [draft.articleId])).get(draft.articleId) ?? [];
+    const canRevise = canReviseDraft(decision.value, {
+      createdByPersonId: draft.createdByPersonId,
+      currentVersionNumber: draft.currentVersionNumber,
+      departmentIds,
+    });
+    if (!canRevise) {
+      return yield* decision.value._tag === "ContentEditor"
+        ? new ContentDraftNotOwned({ articleId: draft.articleId })
+        : new ContentNotInScope({});
+    }
+    const profiles = yield* profile.readProfiles([draft.createdByPersonId]).pipe(
+      Effect.mapError((cause) =>
+        cause._tag === "ProfileContactNotFound" || cause._tag === "ProfileNotFound"
+          ? new ContentIntegrityError({
+              operation: "read content article detail author",
+              message: `missing profile for article author: ${String(cause)}`,
+            })
+          : persistenceError("read content article detail author", cause),
+      ),
+    );
+    const author = profiles[0];
+    if (author === undefined) {
+      return yield* new ContentIntegrityError({
+        operation: "read content article detail author",
+        message: "no profile resolved for article author",
+      });
+    }
+    return yield* Schema.decodeUnknownEffect(ContentArticleDetailSchema)(
+      {
+        articleId: draft.articleId,
+        title: draft.title,
+        slug: draft.slug,
+        status: draft.currentVersionNumber === null ? "Draft" : "Published",
+        bodyHtml: draft.bodyHtml,
+        sticky: draft.sticky,
+        createdAt: draft.createdAt,
+        updatedAt: draft.updatedAt,
+        currentVersionNumber: draft.currentVersionNumber,
+        revision: draft.revision,
+        departmentIds,
+        canRevise,
+        canPublish: canPublishContent(decision.value, departmentIds),
+        authorDisplayName: `${author.firstName} ${author.lastName}`,
+      },
+      { onExcessProperty: "error" },
+    ).pipe(Effect.mapError((cause) => decodeError("decode content article detail", cause)));
+  });
+
+/** Owns a repeatable-read read-only snapshot for standalone detail requests. */
+export const readArticleDetailPostgres = (
+  input: Parameters<typeof readArticleDetailInTransactionPostgres>[0],
+): ReturnType<typeof readArticleDetailInTransactionPostgres> =>
+  Effect.gen(function* () {
+    const database = yield* Database;
     return yield* database
       .withTransaction(
         Effect.gen(function* () {
-          yield* database`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`.pipe(
-            Effect.asVoid,
-          );
-          const authority = yield* organization
-            .resolvePersonAuthorityForRead(input.personId, input.authorizationInstant)
-            .pipe(
-              Effect.mapError((cause) =>
-                persistenceError("resolve content detail authority", cause),
-              ),
-            );
-          if (authority.evaluatedAt !== input.authorizationInstant) {
-            return yield* decodeError(
-              "resolve content detail authority",
-              "Organization authority used a different authorization instant",
-            );
-          }
-          const decision = resolveContentActor(authority);
-          if (decision._tag === "Deny") {
-            return yield* decision.reason === "AuthorityInactive"
-              ? new ContentAuthorityInactive({})
-              : new ContentNotInScope({});
-          }
-          const rows = yield* database<DraftRow>`
-            SELECT
-              CAST(article.article_id AS integer) AS "articleId",
-              article.title,
-              article.slug,
-              article.body_html AS "bodyHtml",
-              article.sticky,
-              article.created_by_person_id AS "createdByPersonId",
-              to_char(article.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
-              to_char(article.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
-              article.current_version_number AS "currentVersionNumber",
-              article.revision
-            FROM public.content_articles AS article
-            WHERE article.article_id = ${articleId}
-          `.pipe(
-            Effect.catchTag("SqlError", (cause) =>
-              Effect.fail(persistenceError("read content article detail", cause)),
-            ),
-          );
-          const draft = yield* Effect.try({
-            try: () => decodeDraftRows(rows)[0],
-            catch: (cause) => decodeError("decode content article detail row", cause),
-          });
-          if (draft === undefined) return yield* new ContentArticleNotFound({});
-          const departmentIds =
-            (yield* departmentIdsForArticles(database, [draft.articleId])).get(draft.articleId) ??
-            [];
-          const canRevise = canReviseDraft(decision.value, {
-            createdByPersonId: draft.createdByPersonId,
-            currentVersionNumber: draft.currentVersionNumber,
-            departmentIds,
-          });
-          if (!canRevise) {
-            return yield* decision.value._tag === "ContentEditor"
-              ? new ContentDraftNotOwned({ articleId: draft.articleId })
-              : new ContentNotInScope({});
-          }
-          const profiles = yield* profile.readProfiles([draft.createdByPersonId]).pipe(
-            Effect.mapError((cause) =>
-              cause._tag === "ProfileContactNotFound" || cause._tag === "ProfileNotFound"
-                ? new ContentIntegrityError({
-                    operation: "read content article detail author",
-                    message: `missing profile for article author: ${String(cause)}`,
-                  })
-                : persistenceError("read content article detail author", cause),
-            ),
-          );
-          const author = profiles[0];
-          if (author === undefined) {
-            return yield* new ContentIntegrityError({
-              operation: "read content article detail author",
-              message: "no profile resolved for article author",
-            });
-          }
-          return yield* Schema.decodeUnknownEffect(ContentArticleDetailSchema)(
-            {
-              articleId: draft.articleId,
-              title: draft.title,
-              slug: draft.slug,
-              status: draft.currentVersionNumber === null ? "Draft" : "Published",
-              bodyHtml: draft.bodyHtml,
-              sticky: draft.sticky,
-              createdAt: draft.createdAt,
-              updatedAt: draft.updatedAt,
-              currentVersionNumber: draft.currentVersionNumber,
-              revision: draft.revision,
-              departmentIds,
-              canRevise,
-              canPublish: canPublishContent(decision.value, departmentIds),
-              authorDisplayName: `${author.firstName} ${author.lastName}`,
-            },
-            { onExcessProperty: "error" },
-          ).pipe(Effect.mapError((cause) => decodeError("decode content article detail", cause)));
+          yield* database`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`;
+          return yield* readArticleDetailInTransactionPostgres(input);
         }),
       )
       .pipe(
