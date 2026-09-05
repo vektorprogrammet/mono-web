@@ -108,12 +108,11 @@ try {
     "SELECT * FROM public.person_profiles ORDER BY person_id",
   );
   const assertRejectedBeforeSeed = async (marker: "department row" | "command receipt") => {
-    await assert.rejects(
-      prepareDisposableScenarioTarget(url),
-      new RegExp(
+    await assert.rejects(prepareDisposableScenarioTarget(url), {
+      message: new RegExp(
         `^incompatible pre-0092 preview scenario: ${marker}; no mutation performed(?:\\n|$)`,
       ),
-    );
+    });
     const profilesAfter = await pool.query(
       "SELECT * FROM public.person_profiles ORDER BY person_id",
     );
