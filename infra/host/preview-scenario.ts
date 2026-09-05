@@ -77,6 +77,19 @@ const sleep = (ms: number): Promise<void> => {
   return promise;
 };
 
+/** Same TERM/KILL-and-observe pattern as the homepage contact acceptance runner. */
+export const stopPreviewScenarioBackend = async (child: ChildProcess): Promise<void> => {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+    child.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    child.kill("SIGTERM");
+  });
+};
+
 const waitForHttp = async (url: string, child: ChildProcess) => {
   for (let attempt = 0; attempt < 120; attempt++) {
     try {
@@ -730,7 +743,7 @@ export const runPreviewScenarioApplication = async (
       RECEIPT_STAGING_ROOT: join(options.receiptStorageRoot, "receipt-staging"),
       RECEIPT_COMMITTED_ROOT: join(options.receiptStorageRoot, "receipt-committed"),
     };
-    backend = spawn("bun", ["run", "--cwd", "apps/backend", "start"], {
+    backend = spawn("bun", ["apps/backend/src/main.ts"], {
       cwd: repositoryRoot,
       env: backendEnv,
       stdio: ["ignore", "pipe", "pipe"],
@@ -952,12 +965,7 @@ export const runPreviewScenarioApplication = async (
     }
     return { evidence, evidencePath };
   } finally {
-    if (backend?.exitCode === null) {
-      const { promise, resolve } = Promise.withResolvers<void>();
-      backend.once("exit", () => resolve());
-      backend.kill("SIGTERM");
-      await Promise.race([promise, sleep(5_000)]);
-    }
+    if (backend !== undefined) await stopPreviewScenarioBackend(backend);
     backend?.stdout?.destroy();
     backend?.stderr?.destroy();
     await pool.end().catch(() => undefined);

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { spawn } from "node:child_process";
 import {
   assertDisposablePostgresUrl,
   assertPreviewScenarioCompatibility,
@@ -7,9 +8,27 @@ import {
   makePreviewScenarioEnvironment,
   nativePreviewDepartments,
   previewScenarioManifest,
+  stopPreviewScenarioBackend,
 } from "./preview-scenario";
 
 describe("representative preview scenario", () => {
+  it("confirms owned backend exit even when graceful termination is ignored", async () => {
+    const child = spawn("bun", [
+      "-e",
+      'process.on("SIGTERM", () => {}); process.stdout.write("ready"); setInterval(() => {}, 1000);',
+    ]);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        child.once("error", reject);
+        child.stdout.once("data", () => resolve());
+      });
+      await stopPreviewScenarioBackend(child);
+      expect(child.signalCode).toBe("SIGKILL");
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    }
+  }, 10_000);
+
   it("keeps imported Trondheim contact identity distinct from native administration demo", () => {
     expect(() =>
       assertUniqueContactDepartmentSlugs([
