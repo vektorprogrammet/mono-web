@@ -498,6 +498,35 @@ try {
   await expect(page.getByLabel("Melding", { exact: true })).toHaveValue(message.message);
   assert.equal(records.length, beforeDraft);
   await axe("rejected");
+  // A full-page screenshot preserves a scrolled sticky header's viewport offset.
+  // Keep the actual scrolled observation separately before producing a top-of-page capture.
+  const rejectionGeometry = () =>
+    page.evaluate(() => {
+      const alert = document.querySelector('[role="alert"]');
+      const header = document.querySelector(".sticky.top-2.z-50");
+      if (!(alert instanceof HTMLElement) || !(header instanceof HTMLElement)) {
+        throw new Error("Contact feedback or shared sticky header not found");
+      }
+      return {
+        scrollY: window.scrollY,
+        viewportHeight: window.innerHeight,
+        header: header.getBoundingClientRect().toJSON(),
+        alert: alert.getBoundingClientRect().toJSON(),
+      };
+    });
+  const scrolledRejection = await rejectionGeometry();
+  await page.screenshot({ path: join(artifacts, "contact-rejected-viewport.png") });
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  const topRejection = await rejectionGeometry();
+  await writeFile(
+    join(artifacts, "contact-rejected-geometry.json"),
+    JSON.stringify({ scrolledRejection, topRejection }, null, 2),
+  );
+  assert.ok(
+    topRejection.header.bottom <= topRejection.alert.top,
+    "shared header must not overlap rejection feedback at the top of the page",
+  );
   await page.screenshot({ path: join(artifacts, "contact-rejected.png"), fullPage: true });
   checkpoint(
     "built Worker browser department select/send/pending/clear/draft retention and axe states",
