@@ -739,14 +739,18 @@ const reviseArticle = async (
           authority.map((item) => [item.kind, item.identity, item.revisions]),
         ],
       });
-      const precondition = evaluateMutationPrecondition(currentETag, ifMatch);
-      if (precondition._tag === "Failed") {
-        throw new HttpSemanticFailure(precondition.code, precondition.status);
-      }
       return {
         actor,
         execute: (commandId) =>
           Effect.gen(function* () {
+            // Exact replay is selected before execute; a fresh mutation still
+            // checks the selected representation inside the owning transaction.
+            const precondition = evaluateMutationPrecondition(currentETag, ifMatch);
+            if (precondition._tag === "Failed") {
+              return yield* Effect.fail(
+                new HttpSemanticFailure(precondition.code, precondition.status),
+              );
+            }
             const revised = yield* reviseDraftPostgres({
               command: {
                 commandId,
@@ -839,14 +843,18 @@ const lifecycleArticle = async (
           authority.map((item) => [item.kind, item.identity, item.revisions]),
         ],
       });
-      const precondition = evaluateMutationPrecondition(currentETag, ifMatch);
-      if (precondition._tag === "Failed") {
-        throw new HttpSemanticFailure(precondition.code, precondition.status);
-      }
       return {
         actor,
         execute: (commandId) =>
           Effect.gen(function* () {
+            // Exact replay is selected before execute; a fresh mutation still
+            // checks the selected representation inside the owning transaction.
+            const precondition = evaluateMutationPrecondition(currentETag, ifMatch);
+            if (precondition._tag === "Failed") {
+              return yield* Effect.fail(
+                new HttpSemanticFailure(precondition.code, precondition.status),
+              );
+            }
             if (operation === "Publish") {
               const published = yield* publishPostgres({
                 command: { commandId, articleId },
