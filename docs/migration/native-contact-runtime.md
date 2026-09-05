@@ -5,7 +5,7 @@ The command contract is [`SubmitContactMessageEndpoint`](../../packages/http-api
 ```text
 Visitor → controlled ingress (socket/edge IP, strips incoming contact forwarding headers)
   → Worker (authenticates ingress token, creates typed request context)
-    → SDK (exact backend origin, redirect:error, separate backend token)
+    → SDK (exact backend origin, rejects redirects, separate backend token)
       → native command (credential → schema → committed quota → Organization recipient → delivery ACK)
 ```
 
