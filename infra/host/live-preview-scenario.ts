@@ -152,6 +152,8 @@ const providerEnvironmentNames = [
   "RECEIPT_EFFECT_TOKEN",
   "RECEIPT_PROVIDER_ENDPOINT",
   "RECEIPT_PROVIDER_TOKEN",
+  "CONTACT_DELIVERY_URL",
+  "CONTACT_DELIVERY_TOKEN",
 ] as const;
 
 export const assertProviderDeliveryDisabled = (environment: NodeJS.ProcessEnv): void => {
