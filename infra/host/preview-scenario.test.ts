@@ -67,7 +67,9 @@ describe("representative preview scenario", () => {
             return { rowCount: marker === "department" || calls === 3 ? 1 : 0 };
           },
         }),
-      ).rejects.toThrow("incompatible pre-0092 preview scenario; no mutation performed");
+      ).rejects.toThrow(
+        `incompatible pre-0092 preview scenario: ${marker === "department" ? "department row" : "command receipt"}; no mutation performed`,
+      );
       expect(calls).toBe(marker === "department" ? 2 : 3);
     },
   );

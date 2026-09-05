@@ -246,7 +246,7 @@ export const assertPreviewScenarioCompatibility = async (
     assert.equal(
       previous.rowCount,
       0,
-      "incompatible pre-0092 preview scenario; no mutation performed",
+      "incompatible pre-0092 preview scenario: department row; no mutation performed",
     );
   }
   if (tables.rows[0].receipts) {
@@ -257,7 +257,7 @@ export const assertPreviewScenarioCompatibility = async (
     assert.equal(
       previous.rowCount,
       0,
-      "incompatible pre-0092 preview scenario; no mutation performed",
+      "incompatible pre-0092 preview scenario: command receipt; no mutation performed",
     );
   }
 };

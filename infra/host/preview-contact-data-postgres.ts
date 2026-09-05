@@ -107,10 +107,12 @@ try {
   const profilesBefore = await pool.query(
     "SELECT * FROM public.person_profiles ORDER BY person_id",
   );
-  const assertRejectedBeforeSeed = async () => {
+  const assertRejectedBeforeSeed = async (marker: "department row" | "command receipt") => {
     await assert.rejects(
       prepareDisposableScenarioTarget(url),
-      /incompatible pre-0092 preview scenario/,
+      new RegExp(
+        `^incompatible pre-0092 preview scenario: ${marker}; no mutation performed(?:\\n|$)`,
+      ),
     );
     const profilesAfter = await pool.query(
       "SELECT * FROM public.person_profiles ORDER BY person_id",
@@ -129,9 +131,9 @@ try {
       ),
     ),
   );
-  await assertRejectedBeforeSeed();
+  await assertRejectedBeforeSeed("command receipt");
   await run(Organization.use((organization) => organization.createDepartment(previous, actor)));
-  await assertRejectedBeforeSeed();
+  await assertRejectedBeforeSeed("department row");
   process.stdout.write(
     JSON.stringify({
       component: "0092",
