@@ -56,7 +56,7 @@ export class ExternalNativeApi extends HttpApi.make("external-native-api")
         "x-tagGroups": [
           { name: "Platform", tags: ["System", "Profile"] },
           { name: "Directories", tags: ["Organization", "Directories"] },
-          { name: "Admissions", tags: ["Admissions"] },
+          { name: "Admissions", tags: ["Admissions", "Substitute pool"] },
           { name: "Recruitment", tags: ["Recruitment"] },
           { name: "Economy", tags: ["Receipts"] },
           { name: "Content", tags: ["Content and news"] },

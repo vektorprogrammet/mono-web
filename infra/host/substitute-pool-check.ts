@@ -27,11 +27,11 @@ const start = (command: string, args: string[], env = process.env) => {
   child.stderr?.on("data", (chunk) => outputs.push(String(chunk)));
   return child;
 };
-const port = async (): Promise<number> => {
+const port = async (requested = 0): Promise<number> => {
   const server = createServer();
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
+    server.listen(requested, "127.0.0.1", resolve);
   });
   const address = server.address();
   assert.ok(address && typeof address !== "string");
@@ -45,7 +45,7 @@ let evidence: Record<string, unknown> | undefined;
 try {
   const pgPort = await port();
   const backendPort = await port();
-  const dashboardPort = await port();
+  const dashboardPort = await port(5174);
   const pgDir = join(artifacts, "postgres");
   run("initdb", ["-D", pgDir, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"]);
   start("postgres", ["-D", pgDir, "-p", String(pgPort), "-h", "127.0.0.1", "-k", artifacts]);
@@ -248,7 +248,7 @@ try {
   );
   assert.ok(concurrent.some((r) => [409, 412].includes(r.status)));
   await pool.query(
-    "UPDATE public.organization_memberships SET suspended=true WHERE person_id='journey-rec-leader-0049'",
+    "UPDATE public.organization_memberships SET is_suspended=true WHERE person_id='journey-rec-leader-0049'",
   );
   assert.equal(
     (await request(`${path}:activate`, leader, body, initial.etag, key)).status,
@@ -257,7 +257,7 @@ try {
   );
   assert.equal((await request(selectedPool, leader)).status, 403);
   await pool.query(
-    "UPDATE public.organization_memberships SET suspended=false WHERE person_id='journey-rec-leader-0049'",
+    "UPDATE public.organization_memberships SET is_suspended=false WHERE person_id='journey-rec-leader-0049'",
   );
   const empty = await request(
     `/api/substitutes?departmentId=${departmentId}&semesterId=${noPeriodSemesterId}`,
@@ -274,10 +274,12 @@ try {
     "SELECT year_of_study FROM public.admission_applications WHERE application_id='application-browser-0094'",
   );
   assert.equal(browserCandidate.rows[0].year_of_study, 3, "other semester unchanged");
+  const finalApi = await get();
+  assert.equal((await request(`${path}:deactivate`, leader, {}, finalApi.etag)).status, 200);
   const receiptCount = await pool.query(
     "SELECT count(*)::integer AS count FROM public.native_http_idempotency_receipts WHERE operation_id LIKE 'substitutes.%'",
   );
-  assert.equal(receiptCount.rows[0].count, 4, "only four executed writes, not retries/rejections");
+  assert.equal(receiptCount.rows[0].count, 5, "only five executed writes, not retries/rejections");
   const manifest = {
     revision,
     backendOrigin,
@@ -294,7 +296,7 @@ try {
   await writeFile(manifestPath, JSON.stringify(manifest), { mode: 0o600 });
   let browserEvidence: unknown = null;
   if (process.argv.includes("--browser")) {
-    run("bun", ["apps/dashboard/e2e/run-native-substitute-pool.mjs"], {
+    run("bun", ["apps/dashboard/e2e/run-real-native-substitute-pool.mjs"], {
       ...environment,
       SUBSTITUTE_JOURNEY_MANIFEST: manifestPath,
     });
@@ -316,7 +318,7 @@ try {
       "revoked authority replay",
       "empty no-period scope",
       "other semester unchanged",
-      "four executed receipts",
+      "five executed receipts",
     ],
     receiptCount: receiptCount.rows[0].count,
     scope: "owned loopback synthetic runtime; no production/provider effects",
