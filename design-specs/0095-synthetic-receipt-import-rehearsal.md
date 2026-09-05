@@ -12,8 +12,12 @@ This is an executable developer/operator migration capability, not a production 
 
 - Existing contract: `design-specs/0033-receipt-authority-capsule.md`, especially import, reconciliation and cutover boundaries. Existing receipt source is authoritative when older migration prose disagrees; do not rewrite its lifecycle rules in this rehearsal.
 - `packages/domain/src/receipt/import.ts` owns amount/status/file validation, occurrence identity and accepted/quarantined transformation. `storeReceiptImportResult` in `receipt/postgres.ts` owns transactional fact/ledger insertion and replay protection. Extend at these seams when needed; do not build a second receipt importer or ledger.
-- `apps/backend/src/receipt/filesystem.ts`, file services and actual authenticated HTTP file endpoints own private-byte interpretation. Reuse current SDK contracts, native login fixtures and disposable PostgreSQL lifecycle tooling. Recording file/effect Layers are not sufficient acceptance evidence.
+- `apps/backend/src/receipt/filesystem.ts` and file services already stage/promote/delete private bytes. Native login fixtures, SDK contracts and disposable PostgreSQL lifecycle tooling are reusable. Recording file/effect Layers are not sufficient acceptance evidence.
 - The prior consolidation proved a native receipt submission with a file and replay. It did not import legacy accounts/receipts/files, reconcile imports, deliver receipt notifications, fence legacy writes or restore production.
+
+### Explicit implementation amendment — missing private read boundary
+
+Source tracing after freeze established that the native Receipt API has no private-file download operation and the existing filesystem service has no committed-byte read operation. The original assumption that those endpoints could be reused was incorrect. To complete this same owner-read journey, add a narrow owner-only native receipt-file read operation and a verified committed-byte reader using the existing storage identity and receipt authorization models. The API/SDK/OpenAPI/access metadata must derive from the canonical endpoint. Authenticate and authorize the persisted receipt owner before storage access, reject missing or altered bytes, use private/no-store responses and safe attachment headers, and never expose the raw storage key. Verify owner, foreign-owner and anonymous requests against real HTTP and actual bytes. This amendment does not add approver downloads, a new receipt UI, storage signing infrastructure or production rollout.
 
 ## Contract and invariants
 
