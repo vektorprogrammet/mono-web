@@ -56,3 +56,9 @@ Required observations:
 One isolated engineer worktree owns implementation; root owns integration and independent acceptance. No edits to original `mono-web`, `mono-web-v02-runtime`, completed `mono-web-consolidation`, or other agents' files. No remote PR, push, deployment, credential change, live database mutation or merge is authorized by this local feature contract.
 
 Potential defects discovered on this journey are reported with reproduced evidence and fixed at their source within a bounded explicit amendment. Do not expand into applicant onboarding, school allocation, finance cutover, password recovery or an unrelated tooling rewrite. The original migration inventory remains a dated assessment.
+
+## Implementation amendment — canonical application revision (2026-09-06)
+
+Real PostgreSQL activation exposed an older submission-only constraint: `admission_applications.revision = 0`. The canonical `PublicApplication` Model already permits nonnegative revisions. The required application-owned year edit now exposes that field's update variant and migration 0031 widens only the application revision constraint to `revision >= 0`. Substitute commands advance it atomically with preferences. Submission audit and command receipts remain immutable; acceptance includes original submission replay after a year edit and rejection of negative application revisions. This introduces no applicant identity/account workflow.
+
+Fresh deactivation of an inactive entry returns 400, matching `AdminSubstituteDeactivateProcessor`; an authorized exact HTTP command retry replays its original accepted result.

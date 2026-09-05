@@ -149,8 +149,44 @@ try {
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-  const applicationId = "application-native-journey-0049",
+  const submissionKey = randomBytes(18).toString("base64url");
+  const submission = {
+    departmentId,
+    firstName: "Anne",
+    lastName: "API",
+    phone: "90000094",
+    email: "anne.api@example.invalid",
+    gender: 1,
+    fieldOfStudyId: "field-native-journey-0049",
+    yearOfStudy: 3,
+  };
+  const submitted = await request(
+    "/api/applications",
+    undefined,
+    submission,
+    undefined,
+    submissionKey,
+  );
+  assert.equal(submitted.status, 201, await submitted.clone().text());
+  const confirmation = await submitted.json();
+  const applicationId = confirmation.applicationId,
     path = `/api/substitutes/${applicationId}`;
+  assert.equal(typeof applicationId, "string");
+  const interview = await request(
+    `/api/recruitment/applications/${applicationId}/interviews`,
+    leader,
+    {
+      interviewerPersonId: "journey-rec-interviewer-a-0049",
+      interviewSchemaId: "interview-schema-native-journey-0049",
+    },
+  );
+  assert.equal(interview.status, 201, await interview.clone().text());
+  const recruitmentBefore = await pool.query(
+    "SELECT * FROM public.recruitment_interviews WHERE application_id=$1",
+    [applicationId],
+  );
+  assert.equal(recruitmentBefore.rows.length, 1);
+
   const body = {
     monday: true,
     tuesday: false,
@@ -222,10 +258,38 @@ try {
     `concurrent edit rejection ${edits.map((r) => r.status)}`,
   );
   const edited = await get();
+  const submissionReplay = await request(
+    "/api/applications",
+    undefined,
+    submission,
+    undefined,
+    submissionKey,
+  );
+  assert.equal(submissionReplay.status, 201);
+  assert.deepEqual(
+    await submissionReplay.json(),
+    confirmation,
+    "immutable original submission replay after year update",
+  );
+  await assert.rejects(
+    pool.query("UPDATE public.admission_applications SET revision=-1 WHERE application_id=$1", [
+      applicationId,
+    ]),
+    (error) => error.code === "23514",
+  );
   assert.ok([4, 5].includes(edited.yearOfStudy));
   const deactivated = await request(`${path}:deactivate`, leader, {}, edited.etag);
   assert.equal(deactivated.status, 200);
   const inactive = await deactivated.json();
+  const recruitmentAfter = await pool.query(
+    "SELECT * FROM public.recruitment_interviews WHERE application_id=$1",
+    [applicationId],
+  );
+  assert.deepEqual(
+    recruitmentAfter.rows,
+    recruitmentBefore.rows,
+    "deactivation preserves recruitment history",
+  );
   assert.equal(inactive.active, false);
   assert.deepEqual(inactive.preferences, {
     monday: true,
@@ -308,6 +372,9 @@ try {
     browserEvidence,
     apiGates: [
       "canonical identity/scope",
+      "immutable submission replay after canonical year edit",
+      "negative application revision rejected",
+      "recruitment history retained after deactivation",
       "explicit preferences and invalid inputs",
       "member candidate privacy",
       "wrong/inactive/anonymous authority",

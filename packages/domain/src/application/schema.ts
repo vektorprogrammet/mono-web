@@ -197,6 +197,7 @@ export class PublicApplication extends Model.Class<PublicApplication>("PublicApp
   yearOfStudy: Model.Field({
     select: PublicApplicationYearOfStudySchema,
     insert: PublicApplicationYearOfStudySchema,
+    update: PublicApplicationYearOfStudySchema,
     json: PublicApplicationYearOfStudySchema,
   }),
   submittedAt: Model.Field({
