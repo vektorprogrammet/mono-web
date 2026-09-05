@@ -32,12 +32,21 @@ const MigrationStateSchema = z.strictObject({
   recordType: z.literal("vektor.migration-state/v1"),
   sourceRevision: z.string().regex(/^[a-f0-9]{40}$/u),
   inspectedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
-  stateDocument: z.strictObject({
-    path: z.literal("STATE.md"),
-    present: z.literal(false),
-    status: z.literal("unsupported"),
-    note: z.string().min(1),
-  }),
+  stateDocument: z.discriminatedUnion("present", [
+    z.strictObject({
+      path: z.literal("STATE.md"),
+      present: z.literal(false),
+      status: z.literal("unsupported"),
+      note: z.string().min(1),
+    }),
+    z.strictObject({
+      path: z.literal("STATE.md"),
+      present: z.literal(true),
+      status: z.literal("source-linked"),
+      sourceRevision: z.string().regex(/^[a-f0-9]{40}$/u),
+      note: z.string().min(1),
+    }),
+  ]),
   rows: z
     .array(StateRowSchema)
     .min(1)
@@ -96,22 +105,29 @@ const makeSureReferencesExist = async (state: MigrationState): Promise<void> => 
     failures.sort();
     throw new Error(`migration state has missing references:\n${failures.join("\n")}`);
   }
+  let statePresent = false;
   try {
-    await stat(join(repositoryRoot, state.stateDocument.path));
-    throw new Error("STATE.md now exists; update the canonical migration state before build");
+    statePresent = (await stat(join(repositoryRoot, state.stateDocument.path))).isFile();
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith("STATE.md now exists")) throw error;
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
   }
+  if (statePresent !== state.stateDocument.present)
+    throw new Error(
+      "STATE.md presence differs from the canonical migration state; update its source reference before build",
+    );
 };
 
 const migrationStatePage = (state: MigrationState): string => {
+  const stateNote = state.stateDocument.present
+    ? `${state.stateDocument.note}\n\n[Recorded mission state](${fileLink(state.stateDocument.sourceRevision, state.stateDocument.path)}). Its revision is separate from the historical capability inspection below.`
+    : state.stateDocument.note;
   const rows = state.rows
     .map(
       (row) =>
         `## ${row.capability}\n\n**Journey:** ${row.journey}\n\n**Current production authority:** ${row.productionAuthority}\n\n**Warranted statuses:** ${row.statuses.map((status) => `\`${status}\``).join(", ")}\n\n${row.scope}\n\n### Sources\n\n${row.sourceRefs.map((reference) => `- ${fileLink(state.sourceRevision, reference)}`).join("\n")}\n\n### Design specs\n\n${row.designSpecRefs.length === 0 ? "No design spec reference is recorded." : row.designSpecRefs.map((reference) => `- ${fileLink(state.sourceRevision, reference)}`).join("\n")}\n\n### Evidence\n\n${row.evidenceRefs.length === 0 ? "No checked-in evidence artifact supports a stronger runtime claim." : row.evidenceRefs.map((reference) => `- ${fileLink(state.sourceRevision, reference)}`).join("\n")}`,
     )
     .join("\n\n");
-  return `---\ntitle: Migration state\ndescription: Source-linked capability and journey state at the frozen revision.\nshowAskAi: false\n---\n\n# Migration state\n\nThis human reference and its supporting public JSON are generated from \`apps/docs/data/migration-state.json\`. The build fails when a referenced source or evidence path is missing.\n\n**Inspected revision:** \`${state.sourceRevision}\`  \n**Inspection date:** ${state.inspectedOn}\n\n:::warning\n${state.stateDocument.note}\n:::\n\nThe statuses separate source, runtime, parity, and cutover claims. Read [Evidence limits](/explanation/evidence-limits) before you use a row as a gate.\n\n${rows}\n`;
+  return `---\ntitle: Migration state\ndescription: Source-linked capability and journey state at the frozen revision.\nshowAskAi: false\n---\n\n# Migration state\n\nThis human reference and its supporting public JSON are generated from \`apps/docs/data/migration-state.json\`. The build fails when a referenced source or evidence path is missing.\n\n**Inspected revision:** \`${state.sourceRevision}\`  \n**Inspection date:** ${state.inspectedOn}\n\n:::warning\n${stateNote}\n:::\n\nThe statuses separate source, runtime, parity, and cutover claims. Read [Evidence limits](/explanation/evidence-limits) before you use a row as a gate.\n\n${rows}\n`;
 };
 
 type SpecIndexRow = {
