@@ -28,7 +28,7 @@ import assert from "node:assert/strict";
 import { isDeepStrictEqual } from "node:util";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -938,7 +938,7 @@ export const runPreviewScenarioApplication = async (
     // observed precondition so replay submits the same request after publication.
     const publicationPreconditionPath = join(
       options.receiptStorageRoot,
-      `${publishCommandId}-${articleId}.etag`,
+      `${publishCommandId}-${articleId}.json`,
     );
     const savedPrecondition = await readFile(publicationPreconditionPath, "utf8").catch(
       (cause: unknown) => {
@@ -946,6 +946,13 @@ export const runPreviewScenarioApplication = async (
         throw cause;
       },
     );
+    const publicationRequestIdentity = {
+      scenario: "0072",
+      articleId,
+      personId: persons.leader.personId,
+      operation: "content.publishArticle",
+      idempotencyKey: publishCommandId,
+    };
     let publicationPrecondition: StrongETag;
     if (savedPrecondition === undefined) {
       const selected = await leader.content.readArticle({ params: { articleId }, headers: {} });
@@ -956,12 +963,21 @@ export const runPreviewScenarioApplication = async (
       );
       publicationPrecondition = selected.headers.etag;
       await mkdir(options.receiptStorageRoot, { recursive: true, mode: 0o700 });
-      await writeFile(publicationPreconditionPath, publicationPrecondition, {
-        flag: "wx",
-        mode: 0o600,
-      });
+      const pendingPreconditionPath = `${publicationPreconditionPath}.pending`;
+      await writeFile(
+        pendingPreconditionPath,
+        JSON.stringify({ ...publicationRequestIdentity, etag: publicationPrecondition }),
+        { mode: 0o600 },
+      );
+      await rename(pendingPreconditionPath, publicationPreconditionPath);
     } else {
-      publicationPrecondition = Schema.decodeUnknownSync(StrongETag)(savedPrecondition);
+      const { etag, ...savedIdentity } = JSON.parse(savedPrecondition);
+      assert.deepEqual(
+        savedIdentity,
+        publicationRequestIdentity,
+        "publication precondition belongs to another request",
+      );
+      publicationPrecondition = Schema.decodeUnknownSync(StrongETag)(etag);
     }
     const publication = await observeMutation("content-publish", () =>
       leader.content.publishArticle({
