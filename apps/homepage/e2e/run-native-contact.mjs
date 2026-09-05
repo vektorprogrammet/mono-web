@@ -371,7 +371,10 @@ try {
   const page = await context.newPage();
   const pageResponse = await page.goto(`${origin}/kontakt`);
   assert.equal(pageResponse.status(), 200);
-  await page.getByRole("link", { name: "Bergen", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Velg avdeling" })
+    .getByRole("link", { name: "Bergen", exact: true })
+    .click();
   await expect(page.getByRole("link", { name: "bergen@example.org", exact: true })).toBeVisible();
   const fill = async () => {
     await page.getByLabel("Ditt navn").fill(message.name);
