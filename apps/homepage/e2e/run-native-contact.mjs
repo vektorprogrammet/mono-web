@@ -95,6 +95,24 @@ const message = {
   message: "Når starter opptaket?",
 };
 const gates = [];
+const checkpoint = (message) => {
+  gates.push(message);
+  console.log(JSON.stringify({ phase: message }));
+};
+const bounded = (promise, milliseconds, label) =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out`)), milliseconds);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 try {
   const pgPort = await port();
   const backendPort = await port();
@@ -167,6 +185,7 @@ try {
   delete baseEnv.PUBLIC_APPLICATION_EFFECT_TOKEN;
   start("bun", ["run", "apps/backend/src/main.ts"], baseEnv);
   await ready(`${backendOrigin}/health`);
+  console.log(JSON.stringify({ phase: "native backend ready" }));
   await pool.query(`INSERT INTO public.organization_departments(department_id,name,short_name,email,city,active) VALUES
     ('contact-aas','Vektorprogrammet Ås','Ås','aas@example.org','Ås',true),
     ('contact-bergen','Vektorprogrammet Bergen','Bergen','bergen@example.org','Bergen',true),
@@ -199,7 +218,7 @@ try {
       },
     }),
   );
-  await mf.ready;
+  await bounded(mf.ready, 30_000, "built Worker startup");
   const workerHealth = await mf.dispatchFetch("http://p000.vektor.phibkro.org/health", {
     headers: { host: "p000.vektor.phibkro.org" },
   });
@@ -211,7 +230,7 @@ try {
   assert.equal(provenance.commit, revision, "built Worker must match selected committed revision");
   assert.match(provenance.routeDigest, /^sha256:[a-f0-9]{64}$/);
   assert.match(provenance.contentDigest, /^sha256:[a-f0-9]{64}$/);
-  gates.push("built Worker commit and route/content digests observed");
+  checkpoint("built Worker commit and route/content digests observed");
   let backendCommands = 0;
   const ingress = createServer(async (req, res) => {
     try {
@@ -280,11 +299,11 @@ try {
     assert.equal((await post(message, "192.0.2.1", token)).status, 401);
   }
   for (const ip of ["192.0.2.1/32", "::ffff:192.0.2.1", "192.0.2.1,192.0.2.2"]) {
-    assert.equal((await post(message, ip)).status, 401);
+    assert.equal((await post(message, ip)).status, 400);
   }
   assert.equal(await count(), 0);
   assert.equal(records.length, 0);
-  gates.push(
+  checkpoint(
     "wrong/missing/wrong-hop credential and noncanonical identity reject before quota/delivery",
   );
   assert.equal((await post({ ...message, email: "invalid" })).status, 422);
@@ -297,7 +316,7 @@ try {
   assert.equal(await count(), 3);
   assert.equal(records.length, 0);
   await clear();
-  gates.push("invalid input rejects; recipient rejection consumes decoded attempts");
+  checkpoint("invalid input rejects; recipient rejection consumes decoded attempts");
   await post();
   const initialExpiry = (await pool.query("SELECT expires_at FROM public.contact_rate_windows"))
     .rows[0].expires_at;
@@ -315,14 +334,14 @@ try {
   assert.equal(await count(), 1);
   await clear();
   records.length = 0;
-  gates.push("fixed expiry does not slide and expired window resets");
+  checkpoint("fixed expiry does not slide and expired window resets");
   const concurrent = await Promise.all(Array.from({ length: 12 }, () => post()));
   assert.equal(concurrent.filter((r) => r.status === 201).length, 5);
   assert.equal(concurrent.filter((r) => r.status === 429).length, 7);
   assert.equal(records.length, 5);
   assert.equal((await post(message, "192.0.2.2")).status, 201);
   await clear();
-  gates.push("atomic concurrency admits5/rejects7; separate visitor has quota");
+  checkpoint("atomic concurrency admits5/rejects7; separate visitor has quota");
   mode = "reject";
   const beforeReject = records.length;
   assert.equal((await post()).status, 503);
@@ -335,7 +354,7 @@ try {
   assert.equal(records.length, beforeTimeout + 1);
   assert.equal(await count(), 2);
   await clear();
-  gates.push("rejection/ambiguous timeout fail without retry and consume quota");
+  checkpoint("rejection/ambiguous timeout fail without retry and consume quota");
   mode = "accept";
   browser = await chromium.launch({
     executablePath:
@@ -398,7 +417,7 @@ try {
   assert.equal(records.length, beforeDraft);
   await axe("rejected");
   await page.screenshot({ path: join(artifacts, "contact-rejected.png"), fullPage: true });
-  gates.push(
+  checkpoint(
     "built Worker browser department select/send/pending/clear/draft retention and axe states",
   );
   mode = "accept";
@@ -437,7 +456,7 @@ try {
   for (let n = 0; n < 5; n++) assert.match((await rawForm("127.0.0.1")).text, /Meldingen er sendt/);
   assert.match((await rawForm("127.0.0.1")).text, /for mange meldinger/);
   assert.match((await rawForm("127.0.0.2")).text, /Meldingen er sendt/);
-  gates.push("socket-derived ingress ignores spoofed headers and preserves distinct visitors");
+  checkpoint("socket-derived ingress ignores spoofed headers and preserves distinct visitors");
   const direct = await mf.dispatchFetch("http://p000.vektor.phibkro.org/kontakt/bergen", {
     method: "POST",
     headers: {
@@ -449,19 +468,19 @@ try {
     body: new URLSearchParams(message).toString(),
   });
   assert.doesNotMatch(await direct.text(), /Meldingen er sendt/);
-  gates.push("wrong-hop Worker credential rejected");
+  checkpoint("wrong-hop Worker credential rejected");
   await clear();
   await new Promise((resolve) => sink.close(resolve));
   const beforeUnavailable = records.length;
   assert.equal((await post()).status, 503);
   assert.equal(records.length, beforeUnavailable);
   assert.equal(await count(), 1);
-  gates.push("unavailable real transport fails and consumes quota");
+  checkpoint("unavailable real transport fails and consumes quota");
   await pool.query(
     "UPDATE public.organization_departments SET short_name='Ås' WHERE department_id='contact-bergen'",
   );
   assert.equal((await fetch(`${origin}/kontakt`)).status, 503);
-  gates.push("duplicate live fixture slugs fail503 without fabricated fallback");
+  checkpoint("duplicate live fixture slugs fail503 without fabricated fallback");
   evidence = {
     revision,
     passed: true,

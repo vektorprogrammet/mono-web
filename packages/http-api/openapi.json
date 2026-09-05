@@ -10137,6 +10137,52 @@
                         "detail"
                       ],
                       "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "header.malformed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "A request header is malformed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Malformed header"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:header.malformed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
                     }
                   ]
                 }

@@ -36,6 +36,7 @@ export class ContactSsrSecurity extends HttpApiMiddleware.Service<ContactSsrSecu
 ) {}
 export const ContactProblem = problemUnion("ContactProblem", [
   ["request.malformed", 400],
+  ["header.malformed", 400],
   ["request.too-large", 413],
   ["validation.failed", 422],
   ["credential.invalid", 401],
