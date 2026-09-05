@@ -86,6 +86,7 @@ const canonical = (ip) => {
   return v6.isMapped4() ? v6.to4().correctForm() : v6.correctForm();
 };
 const records = [];
+const workerOutbound = [];
 let mode = "accept";
 const message = {
   departmentId: "contact-aas",
@@ -208,6 +209,24 @@ try {
       compatibilityDate: "2026-08-08",
       compatibilityFlags: ["nodejs_compat"],
       cf: false,
+      outboundService: async (request) => {
+        const url = new URL(request.url);
+        if (url.origin !== backendOrigin) throw new Error("Local Worker outbound origin rejected");
+        const response = await fetch(url, {
+          method: request.method,
+          headers: request.headers,
+          redirect: "manual",
+          ...(["GET", "HEAD"].includes(request.method)
+            ? {}
+            : { body: await request.arrayBuffer() }),
+        });
+        workerOutbound.push({
+          method: request.method,
+          path: url.pathname,
+          status: response.status,
+        });
+        return response;
+      },
       assets: {
         directory: join(homepage, "build/client"),
         binding: "ASSETS",
@@ -426,6 +445,8 @@ try {
         buttons: await page.getByRole("button").allTextContents(),
         backendCommands,
         acceptances: records.length,
+        quotaAttempts: await count(),
+        workerOutbound,
       }),
     );
     throw error;
