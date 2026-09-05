@@ -2,7 +2,7 @@ import { DepartmentId, SemesterId } from "@vektorprogrammet/domain/organization"
 import { type SubstituteBoard, type SubstituteResource } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
 import { useState } from "react";
-import { Form, data, useFetcher, useLoaderData, useNavigation } from "react-router";
+import { Form, data, useFetcher, useLoaderData, useLocation, useNavigation } from "react-router";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { createAuthenticatedClient } from "../lib/api.server";
@@ -124,6 +124,7 @@ type Entry = typeof SubstituteResource.Type;
 function EntryForm({ entry }: { entry: Entry }) {
   const fetcher = useFetcher<typeof action>({ key: "substitute-command" });
   const refresh = useFetcher<typeof loader>();
+  const location = useLocation();
   const busy = fetcher.state !== "idle" || refresh.state !== "idle";
   const [baseline, setBaseline] = useState(entry.etag);
   const [commandId, setCommandId] = useState("");
@@ -259,7 +260,7 @@ function EntryForm({ entry }: { entry: Entry }) {
                 type="button"
                 variant="outline"
                 disabled={busy}
-                onClick={() => refresh.load(`${window.location.pathname}${window.location.search}`)}
+                onClick={() => refresh.load(`${location.pathname}${location.search}`)}
               >
                 Hent siste versjon
               </Button>

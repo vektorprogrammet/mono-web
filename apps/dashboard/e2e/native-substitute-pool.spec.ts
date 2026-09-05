@@ -9,7 +9,7 @@ const scopePath = (semesterId: string) =>
   `/dashboard/vikarer?${new URLSearchParams({ departmentId: manifest.departmentId, semesterId })}`;
 const signIn = async (page: Page, person: { email: string; password: string }) => {
   await page.goto(
-    `${manifest.dashboardOrigin}/dashboard/login?redirectTo=${encodeURIComponent("/dashboard/vikarer")}`,
+    `${manifest.dashboardOrigin}/dashboard/login?redirectTo=${encodeURIComponent("/vikarer")}`,
   );
   await page.getByLabel("E-post").fill(person.email);
   await page.getByLabel("Passord", { exact: true }).fill(person.password);
