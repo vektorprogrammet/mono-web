@@ -3,7 +3,7 @@ import { Database } from "@vektorprogrammet/domain/database";
 import { Effect } from "effect";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 import { DatabaseTest } from "./layers.js";
-import { databaseMigrationDefinitions, databaseSchemaRevision } from "./migrations.js";
+import { databaseMigrationDefinitions } from "./migrations.js";
 
 const runtime = makeControlledTestRuntime(DatabaseTest());
 
