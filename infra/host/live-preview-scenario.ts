@@ -630,9 +630,19 @@ if (import.meta.main) {
     if (typeof cause === "object" && cause !== null) {
       const fields = Object.fromEntries(
         Object.entries(cause).filter(([key]) =>
-          ["_tag", "code", "status", "title", "message", "body", "error"].includes(key),
+          ["_tag", "code", "status", "title", "message"].includes(key),
         ),
       );
+      const body = (cause as { readonly body?: unknown }).body;
+      if (typeof body === "object" && body !== null) {
+        fields.body = Object.fromEntries(
+          Object.entries(body).filter(
+            ([key, value]) =>
+              ["type", "title", "status", "code", "detail"].includes(key) &&
+              (typeof value === "string" || typeof value === "number"),
+          ),
+        );
+      }
       process.stderr.write(`${JSON.stringify(fields)}\n`);
     }
     process.exitCode = 1;
