@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, writeFile, rm } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -176,9 +176,13 @@ try {
     convertV4MiniflareOptions({
       host: "127.0.0.1",
       port: workerPort,
-      modules: true,
-      scriptPath: join(homepage, "build/server/index.js"),
-      modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
+      modulesRoot: join(homepage, "build/server"),
+      modules: [
+        "index.js",
+        ...(await readdir(join(homepage, "build/server"), { recursive: true })).filter(
+          (path) => path.endsWith(".js") && path !== "index.js",
+        ),
+      ].map((path) => ({ type: "ESModule", path: join(homepage, "build/server", path) })),
       compatibilityDate: "2026-08-08",
       compatibilityFlags: ["nodejs_compat"],
       cf: false,
