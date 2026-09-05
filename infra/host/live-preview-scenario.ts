@@ -627,6 +627,14 @@ const main = async (): Promise<void> => {
 if (import.meta.main) {
   main().catch((cause: unknown) => {
     process.stderr.write(`${String(cause)}\n`);
+    if (typeof cause === "object" && cause !== null) {
+      const fields = Object.fromEntries(
+        Object.entries(cause).filter(([key]) =>
+          ["_tag", "code", "status", "title", "message"].includes(key),
+        ),
+      );
+      process.stderr.write(`${JSON.stringify(fields)}\n`);
+    }
     process.exitCode = 1;
   });
 }
