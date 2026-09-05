@@ -66,3 +66,19 @@ team fixtures as the runner. It requires an explicit fresh disposable database,
 checks current command replay and public slug uniqueness, and verifies previous
 scenario markers cause rejection before identity seeding. This is component
 verification, not a substitute for acceptance gate 1 or a browser journey.
+
+Component evidence at committed `c799bdb5`: PostgreSQL 17.11 passed all checks
+above with four active departments (`Trondheim`, `Syntetisk demo`, `Ås`,
+`Bergen`); all three department commands and the team command replayed; old
+row and old-team receipt rejection left identity profiles unchanged. The actual
+migrated receipt `command_id` column is `text`. Command:
+
+```sh
+bun infra/host/preview-contact-data-postgres.ts postgres://postgres@127.0.0.1:55492/preview_component_0092_committed
+```
+
+The private loopback cluster was stopped after the check. Exact-head lightweight
+scenario suites passed 27 tests; scoped Oxfmt and Oxlint passed. Dependencies were
+privately copied from the existing runtime installation; no fresh install was
+established. The Git hook reported missing Lefthook; explicit checks were run.
+The complete scenario acceptance gate remains BLOCKED as described above.
