@@ -32,6 +32,7 @@ const servers = [];
 let mf;
 let pool;
 let browser;
+let evidence;
 const tokens = {
   ingress: randomBytes(32).toString("hex"),
   backend: randomBytes(32).toString("hex"),
@@ -147,9 +148,9 @@ try {
     BACKEND_PG_URL: pgUrl,
     BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
     NATIVE_IDENTITY_DEPLOYMENT: "local",
-    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([backendOrigin]),
+    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["http://127.0.0.1:5174"]),
     OAUTH_CANONICAL_ORIGIN: backendOrigin,
-    OAUTH_DASHBOARD_ORIGIN: backendOrigin,
+    OAUTH_DASHBOARD_ORIGIN: "http://127.0.0.1:5174",
     OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     ADMISSION_AUTH_TOKENS: "{}",
@@ -170,7 +171,7 @@ try {
     ('contact-aas','Vektorprogrammet Ås','Ås','aas@example.org','Ås',true),
     ('contact-bergen','Vektorprogrammet Bergen','Bergen','bergen@example.org','Bergen',true),
     ('contact-inactive','Inaktiv','Inaktiv','inactive@example.org','Ås',false),
-    ('contact-invalid-email','Uten e-post','Uten e-post','invalid-address','Ås',false)`);
+    ('contact-invalid-email','Uten e-post','Uten e-post','invalid-address','Ås',true)`);
   mf = new Miniflare({
     host: "127.0.0.1",
     port: workerPort,
@@ -192,6 +193,15 @@ try {
     },
   });
   await mf.ready;
+  const workerHealth = await mf.dispatchFetch("http://p000.vektor.phibkro.org/health", {
+    headers: { host: "p000.vektor.phibkro.org" },
+  });
+  assert.equal(workerHealth.status, 200);
+  const provenance = await workerHealth.json();
+  assert.equal(provenance.commit, revision, "built Worker must match selected committed revision");
+  assert.match(provenance.routeDigest, /^sha256:[a-f0-9]{64}$/);
+  assert.match(provenance.contentDigest, /^sha256:[a-f0-9]{64}$/);
+  gates.push("built Worker commit and route/content digests observed");
   let backendCommands = 0;
   const ingress = createServer(async (req, res) => {
     try {
@@ -442,27 +452,17 @@ try {
   );
   assert.equal((await fetch(`${origin}/kontakt`)).status, 503);
   gates.push("duplicate live fixture slugs fail503 without fabricated fallback");
-  await writeFile(
-    join(artifacts, "evidence.json"),
-    JSON.stringify(
-      {
-        revision,
-        passed: true,
-        gates,
-        deliveryAcceptances: records.length,
-        endpointOrigins: { ingress: origin, backend: backendOrigin, delivery: deliveryUrl },
-        scope:
-          "isolated synthetic PostgreSQL fixtures; actual built Worker/browser/native HTTP/loopback delivery; no production or inbox claim",
-        antiAbuseParity: "reCAPTCHA and default geolocation gaps remain open",
-        cleanup: "processes and temporary database removed in finally; evidence retained",
-      },
-      null,
-      2,
-    ),
-  );
-  console.log(
-    JSON.stringify({ passed: true, revision, gates, evidence: join(artifacts, "evidence.json") }),
-  );
+  evidence = {
+    revision,
+    passed: true,
+    gates,
+    provenance,
+    deliveryAcceptances: records.length,
+    endpointOrigins: { ingress: origin, backend: backendOrigin, delivery: deliveryUrl },
+    scope:
+      "isolated synthetic PostgreSQL fixtures; actual built Worker/browser/native HTTP/loopback delivery; no production or inbox claim",
+    antiAbuseParity: "reCAPTCHA and default geolocation gaps remain open",
+  };
 } catch (error) {
   await writeFile(join(artifacts, "failure.txt"), safe(error.stack));
   throw error;
@@ -475,11 +475,37 @@ try {
     await new Promise((resolve) => server.close(() => resolve()));
   }
   for (const { child } of children.reverse()) {
-    if (child.exitCode === null) {
-      child.kill("SIGTERM");
-      await Promise.race([new Promise((resolve) => child.once("exit", resolve)), delay(5000)]);
-      if (child.exitCode === null) child.kill("SIGKILL");
+    if (child.exitCode === null && child.signalCode === null) {
+      await new Promise((resolve, reject) => {
+        const killTimer = setTimeout(() => child.kill("SIGKILL"), 5000);
+        const deadline = setTimeout(
+          () => reject(new Error("Owned child exit not confirmed; preserving database")),
+          15_000,
+        );
+        child.once("exit", () => {
+          clearTimeout(killTimer);
+          clearTimeout(deadline);
+          resolve();
+        });
+        child.kill("SIGTERM");
+      });
     }
   }
   await rm(join(artifacts, "postgres"), { recursive: true, force: true });
 }
+
+assert.ok(evidence, "success requires completed observations");
+await writeFile(
+  join(artifacts, "evidence.json"),
+  JSON.stringify(
+    {
+      ...evidence,
+      cleanup: "owned processes confirmed exited; disposable database removed; evidence retained",
+    },
+    null,
+    2,
+  ),
+);
+console.log(
+  JSON.stringify({ passed: true, revision, gates, evidence: join(artifacts, "evidence.json") }),
+);
