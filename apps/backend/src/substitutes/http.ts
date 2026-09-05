@@ -4,6 +4,7 @@ import {
   SubstituteFailure,
   SubstituteMutation,
   SubstituteScope,
+  SubstituteScopes,
   lockSubstituteApplication,
   mutateSubstitute,
   readSubstituteEntries,
@@ -15,6 +16,8 @@ import {
 } from "@vektorprogrammet/domain/substitutes";
 import {
   ExternalNativeApi,
+  SubstituteBoard,
+  SubstituteResource,
   ActivateSubstituteEndpoint,
   EditSubstituteEndpoint,
   DeactivateSubstituteEndpoint,
@@ -55,7 +58,7 @@ type BackendRequirements =
   Parameters<BackendRun>[0] extends Effect.Effect<unknown, unknown, infer R> ? R : never;
 const header = (request: Request, key: string) =>
   request.headers.has(key) ? [request.headers.get(key)!] : [];
-export const substituteResource = (entry: SubstituteEntry) => ({
+export const substituteResource = (entry: SubstituteEntry): typeof SubstituteResource.Type => ({
   ...entry,
   etag: deriveStrongETag({
     representationKind: "SubstituteResource",
@@ -82,6 +85,16 @@ const decode = <S extends Schema.ConstraintDecoder<unknown, never>>(
       Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)),
     ),
   );
+const output = <S extends Schema.ConstraintDecoder<unknown, never>>(
+  schema: S,
+  value: S["Type"],
+  run: BackendRun,
+): Promise<S["Type"]> =>
+  run(
+    Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+      Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)),
+    ),
+  );
 const noQuery = (request: Request) => {
   if (new URL(request.url).search) throw new HttpSemanticFailure("request.malformed", 400);
 };
@@ -99,8 +112,10 @@ const authorize = async (
   departmentId: SubstituteEntry["departmentId"],
   manage: boolean,
   now?: () => string,
+  captured?: Awaited<ReturnType<typeof resolveRequestPersonAuthorityInTransaction>>,
 ) => {
-  const auth = await resolveRequestPersonAuthorityInTransaction(request, { run, now });
+  const auth =
+    captured ?? (await resolveRequestPersonAuthorityInTransaction(request, { run, now }));
   const permission = substitutePermission(auth.authority, departmentId);
   if (permission === "Denied" || (manage && permission !== "Manage"))
     throw new HttpSemanticFailure("authority.denied", 403);
@@ -145,6 +160,7 @@ export const SubstitutesApiHandlers = (input: { run: BackendRun; now?: () => str
       Database.use((sql) =>
         sql.withTransaction(
           withNativeHttpRuntime(input.run, async (run) => {
+            await run(Database.use((sql) => sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`));
             // Snapshot reads use the same canonical credential snapshot and SQL connection.
             if (mode === "scopes") {
               noQuery(request);
@@ -153,15 +169,17 @@ export const SubstitutesApiHandlers = (input: { run: BackendRun; now?: () => str
                 now: input.now,
               });
               const scopes = await run(readSubstituteScopes(auth.authority));
-              await authorize(
-                request,
-                run,
-                ListSubstituteScopesEndpoint,
-                scopes.departments[0]!.departmentId,
-                false,
-                input.now,
-              );
-              return json(scopes);
+              for (const department of scopes.departments)
+                await authorize(
+                  request,
+                  run,
+                  ListSubstituteScopesEndpoint,
+                  department.departmentId,
+                  false,
+                  input.now,
+                  auth,
+                );
+              return json(await output(SubstituteScopes, scopes, run));
             }
             if (mode === "pool") {
               const url = new URL(request.url);
@@ -192,15 +210,19 @@ export const SubstitutesApiHandlers = (input: { run: BackendRun; now?: () => str
                 admissionPeriodId === null ? [] : await run(readSubstituteEntries(scope));
               const entries = rows.filter((row) => row.active).map(substituteResource);
               return json(
-                auth.permission === "Manage"
-                  ? {
-                      _tag: "Manage",
-                      ...scope,
-                      admissionPeriodId,
-                      entries,
-                      candidates: rows.filter((row) => !row.active).map(substituteResource),
-                    }
-                  : { _tag: "ReadOnly", ...scope, admissionPeriodId, entries },
+                await output(
+                  SubstituteBoard,
+                  auth.permission === "Manage"
+                    ? {
+                        _tag: "Manage",
+                        ...scope,
+                        admissionPeriodId,
+                        entries,
+                        candidates: rows.filter((row) => !row.active).map(substituteResource),
+                      }
+                    : { _tag: "ReadOnly", ...scope, admissionPeriodId, entries },
+                  run,
+                ),
               );
             }
             noQuery(request);
@@ -215,7 +237,7 @@ export const SubstitutesApiHandlers = (input: { run: BackendRun; now?: () => str
             );
             if (!entry.active && auth.permission !== "Manage")
               throw new HttpSemanticFailure("authority.denied", 403);
-            const resource = substituteResource(entry);
+            const resource = await output(SubstituteResource, substituteResource(entry), run);
             return conditionalJsonResponse(request, resource, resource.etag);
           }),
         ),
@@ -281,7 +303,10 @@ export const SubstitutesApiHandlers = (input: { run: BackendRun; now?: () => str
                   new HttpSemanticFailure(precondition.code, precondition.status),
                 );
               const changed = yield* mutateSubstitute(current, command);
-              const resource = substituteResource(changed);
+              const resource = yield* Schema.decodeUnknownEffect(SubstituteResource)(
+                substituteResource(changed),
+                { onExcessProperty: "error" },
+              ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
               return yield* Effect.promise(() => responseCapsule(json(resource, resource.etag)));
             }),
           };

@@ -1,3 +1,4 @@
+import { AdmissionPeriodId } from "../admission-period/schema.js";
 import { Data, Effect, Schema } from "effect";
 import { Database } from "../database/service.js";
 import {
@@ -104,7 +105,9 @@ export const readSubstitutePeriod = (scope: SubstituteScope) =>
         admissionPeriodId: string;
       }>`SELECT admission_period_id AS "admissionPeriodId"
     FROM public.admission_periods WHERE department_id = ${scope.departmentId} AND semester_id = ${scope.semesterId}`;
-      return periods[0]?.admissionPeriodId ?? null;
+      return periods[0] === undefined
+        ? null
+        : yield* Schema.decodeUnknownEffect(AdmissionPeriodId)(periods[0].admissionPeriodId);
     }),
   );
 
