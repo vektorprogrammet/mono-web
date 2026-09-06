@@ -80,3 +80,7 @@ Migration0036 is reserved. A separate credential-codec module is the sole hash
 bridge authority; the integration lead wires it into auth-engine configuration
 owned by0054.2. Keep imports/rehearsal separate from onboarding0035. One heavy
 runtime/browser/build job across lanes; acquire admission before starting.
+
+## Explicit compatibility amendment — 2026-09-06
+
+Initial source support is only PHP-produced `$2y$12$` bcrypt, not unverified historical `$2a$`/`$2b$` or other costs. Source UTF-8 bytes are truncated at72 before Bun verification, with no Unicode normalization. Actual PHP8.4.24/Bun1.3.13 samples showed direct Bun verification differs for long passwords, while truncated bytes preserve the source result. NUL-containing input for legacy bcrypt verification is explicitly rejected (native hashing/verification retains installed semantics): PHP accepts a correct password followed by a NUL suffix, whereas Bun does not; this is an intentional tightening, not an asserted equivalence. Native hashing retains the installed Better Auth scrypt representation and normalization. No automatic rehash on login is added.
