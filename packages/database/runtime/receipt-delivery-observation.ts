@@ -104,7 +104,7 @@ export const observeReceiptDelivery = async (options: {
     cookie: session,
     origin: "http://127.0.0.1:5174",
     "idempotency-key": identity(key),
-    ...(etag ? { "if-match": etag } : {}),
+    ...(etag ? { "if-match": etag, "content-type": "application/json" } : {}),
   });
   const submit = async (key: string) => {
     const form = new FormData();
@@ -184,6 +184,7 @@ export const observeReceiptDelivery = async (options: {
     const refund = await fetch(`${origin}/api/receipts/${failed.id}:refund`, {
       method: "POST",
       headers: headers(approverCookie, "receipt0097-refund", failed.etag),
+      body: "{}",
     });
     assert.equal(refund.status, 200, await refund.clone().text());
     assert.ok((await outbox(failed.id)).some((r) => r.status === "Failed"));
@@ -219,6 +220,7 @@ export const observeReceiptDelivery = async (options: {
     const rejected = await fetch(`${origin}/api/receipts/${concurrent.id}:reject`, {
       method: "POST",
       headers: headers(approverCookie, "receipt0097-reject", concurrent.etag),
+      body: "{}",
     });
     assert.equal(rejected.status, 200, await rejected.clone().text());
     assert.ok((await outbox(concurrent.id)).some((r) => r.status === "Failed"));
@@ -241,6 +243,7 @@ export const observeReceiptDelivery = async (options: {
     const denied = await fetch(`${origin}/api/receipts/${missing.id}:reject`, {
       method: "POST",
       headers: headers(approverCookie, "receipt0097-denied", missing.etag),
+      body: "{}",
     });
     assert.equal(denied.status, 403);
     assert.equal(
