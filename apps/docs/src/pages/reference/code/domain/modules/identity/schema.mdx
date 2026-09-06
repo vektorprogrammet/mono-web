@@ -78,7 +78,7 @@ Input to the owned append-only identity security audit adapter.
 declare class IdentitySecurityEvent
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L131)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L157)
 
 ### IdentitySecurityEventDetails (class)
 
@@ -90,7 +90,7 @@ Closed, bounded, non-secret detail shape persisted with every security event.
 declare class IdentitySecurityEventDetails
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L121)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L147)
 
 ### IdentitySecurityEventKind
 
@@ -100,6 +100,13 @@ declare class IdentitySecurityEventDetails
 declare const IdentitySecurityEventKind: Schema.Literals<
   readonly [
     "sign-in-success",
+    "password-reset-request-accepted",
+    "password-reset-request-rejected",
+    "password-reset-mail-enqueue-failed",
+    "password-reset-mail-delivered",
+    "password-reset-mail-failed",
+    "password-reset-success",
+    "password-reset-failure",
     "sign-in-failure",
     "sign-out",
     "session-revoked-one",
@@ -123,7 +130,7 @@ declare const IdentitySecurityEventKind: Schema.Literals<
 type IdentitySecurityEventKind = typeof IdentitySecurityEventKind.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L100)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L108)
 
 ### IdentitySecurityOutcomeCode
 
@@ -133,6 +140,23 @@ type IdentitySecurityEventKind = typeof IdentitySecurityEventKind.Type;
 declare const IdentitySecurityOutcomeCode: Schema.Literals<
   readonly [
     "credential-accepted",
+    "mail-enqueued",
+    "identity-undisclosed",
+    "input-invalid",
+    "redirect-not-allowed",
+    "rate-limited",
+    "outbox-unavailable",
+    "provider-acknowledged",
+    "provider-rejected",
+    "provider-unavailable",
+    "delivery-timeout",
+    "verification-invalid",
+    "verification-expired",
+    "authority-mismatch",
+    "password-updated-sessions-revoked",
+    "invalid-token",
+    "password-policy-rejected",
+    "engine-failure",
     "credential-rejected",
     "current-session-ended",
     "owned-session-revoked",
@@ -146,7 +170,7 @@ declare const IdentitySecurityOutcomeCode: Schema.Literals<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L102)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L110)
 
 ### IdentitySecurityOutcomeCode (type alias)
 
@@ -156,7 +180,7 @@ declare const IdentitySecurityOutcomeCode: Schema.Literals<
 type IdentitySecurityOutcomeCode = typeof IdentitySecurityOutcomeCode.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L114)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L140)
 
 ### IdentitySession (class)
 
@@ -201,7 +225,7 @@ export interface IdentitySessionMutationSuccess {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L155)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L181)
 
 ### IdentitySignInInput (interface)
 
@@ -214,7 +238,7 @@ export interface IdentitySignInInput {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L144)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L170)
 
 ### IdentitySignInSuccess (interface)
 
@@ -228,7 +252,7 @@ export interface IdentitySignInSuccess {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L149)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L175)
 
 ### SessionToken
 

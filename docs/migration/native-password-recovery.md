@@ -6,8 +6,9 @@ it does not establish production email delivery or authorize a real cohort cutov
 
 ## Compose one credential engine
 
-Set `PASSWORD_RECOVERY_ENGINE=native` for the native cohort. Unset means recovery
-is disabled. The native dashboard rejects `legacy-symfony` and unknown selections
+Set `PASSWORD_RECOVERY_ENGINE=native` for the native cohort. Unset disables the dashboard recovery journey. Native AuthLive still owns the
+backend recovery endpoints and their durable outbox; delivery requires the explicit
+operator adapter and drain command below. The native dashboard rejects `legacy-symfony` and unknown selections
 at startup and before native sign-in. The retained legacy adapter and dynamic code
 route remain source for a separately authorized cutover; do not use them to reset
 Better Auth credentials.
