@@ -1,7 +1,8 @@
 import { RecruitmentInvitationCapabilitySchema } from "@vektorprogrammet/domain/recruitment";
-import { IdempotencyKey, NativeProblem } from "@vektorprogrammet/http-api";
+import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { createConfiguredPromiseClient } from "@vektorprogrammet/sdk";
 import { Schema as S } from "effect";
+import { nativeProblemFrom } from "./native-problem";
 import {
   InvitationBridgeFailureSchema,
   decodeInvitationInteractionId,
@@ -207,21 +208,6 @@ const safeFailure = (
   tag: InvitationBridgeFailure["_tag"],
   message: string,
 ): InvitationBridgeFailure => ({ _tag: tag, message });
-const NativeProblemSummary = S.Struct({ status: S.Number, code: S.String });
-type NativeProblemSummary = S.Schema.Type<typeof NativeProblemSummary>;
-
-const nativeProblem = (error: unknown): NativeProblemSummary | undefined => {
-  const problem = S.is(NativeProblem)(error)
-    ? error
-    : typeof error === "object" &&
-        error !== null &&
-        "body" in error &&
-        S.is(NativeProblem)(error.body)
-      ? error.body
-      : undefined;
-  return problem === undefined ? undefined : S.decodeUnknownSync(NativeProblemSummary)(problem);
-};
-
 export const bridgeFailureFrom = (error: unknown): InvitationBridgeFailure => {
   if (S.is(InvitationBridgeFailureSchema)(error)) {
     switch (error._tag) {
@@ -235,7 +221,7 @@ export const bridgeFailureFrom = (error: unknown): InvitationBridgeFailure => {
         return safeFailure("InvitationUnavailable", "Invitation response unavailable");
     }
   }
-  const problem = nativeProblem(error);
+  const problem = nativeProblemFrom(error);
   if (problem === undefined) {
     return safeFailure("InvitationUnavailable", "Invitation response unavailable");
   }

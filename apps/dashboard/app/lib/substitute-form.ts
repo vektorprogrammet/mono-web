@@ -2,6 +2,7 @@ import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application"
 import { SubstituteMutation } from "@vektorprogrammet/domain/substitutes";
 import { IdempotencyKey, StrongETag } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
+import { nativeProblemFrom } from "./native-problem";
 
 export const weekdays = [
   ["monday", "Mandag"],
@@ -47,8 +48,7 @@ export function parseSubstituteForm(form: FormData) {
   return { intent, params, headers, payload } as const;
 }
 export function substituteFailure(error: unknown): { message: string; conflict: boolean } {
-  const code =
-    error !== null && typeof error === "object" && "code" in error ? error.code : undefined;
+  const code = nativeProblemFrom(error)?.code;
   if (code === "authority.denied")
     return {
       message: "Du har ikke tilgang til denne vikaroversikten eller endringen.",

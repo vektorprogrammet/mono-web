@@ -1,3 +1,5 @@
+import { makeNativeProblem } from "@vektorprogrammet/http-api";
+import { HttpApiSchema } from "effect/unstable/httpapi";
 import { describe, expect, it } from "vitest";
 import {
   parseSubstituteForm,
@@ -54,8 +56,8 @@ describe("substitute coordinator declarations", () => {
     expect(parseSubstituteForm(value)).not.toHaveProperty("payload");
   });
   it("distinguishes stale-version recovery from an unavailable service", () => {
-    expect(substituteFailure({ code: "precondition.failed" }).conflict).toBe(true);
-    expect(substituteFailure({ code: "internal.error" }).conflict).toBe(false);
+    expect(substituteFailure(makeNativeProblem("precondition.failed")).conflict).toBe(true);
+    expect(substituteFailure(makeNativeProblem("internal.error")).conflict).toBe(false);
   });
 });
 
@@ -63,4 +65,23 @@ it("labels canonical semesters with Norwegian dates rather than storage identifi
   expect(
     substituteSemesterLabel({ startAt: "2023-12-31T23:00:00Z", endAt: "2024-06-30T21:59:59Z" }),
   ).toBe("1. jan. 2024 – 30. juni 2024");
+});
+
+it("keeps explicit conflict recovery for the generated SDK's response-header envelope", () => {
+  const problem = makeNativeProblem("precondition.failed");
+  const wrapped = HttpApiSchema.withHeaders({
+    body: problem,
+    headers: { "cache-control": "no-store", vary: "Origin" },
+  });
+  expect(substituteFailure(wrapped)).toEqual(substituteFailure(problem));
+  expect(substituteFailure(wrapped).conflict).toBe(true);
+});
+it("does not manufacture conflict or authority decisions from malformed error objects", () => {
+  for (const error of [
+    { code: "precondition.failed" },
+    { body: { code: "precondition.failed" } },
+    { body: { ...makeNativeProblem("precondition.failed"), status: 500 } },
+  ]) {
+    expect(substituteFailure(error).conflict).toBe(false);
+  }
 });
