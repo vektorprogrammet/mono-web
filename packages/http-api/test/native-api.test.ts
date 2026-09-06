@@ -695,3 +695,382 @@ const reflectedOperations = () => {
 
 describe("native API reflection", () => {
   it("equals the explicit operation matrix without a gap or legacy authority", () => {
+    const actual = reflectedOperations();
+    const authorities = actual.map(([method, path]) => `${method} ${path}`);
+    const operationIds = actual.map(([, , operationId]) => operationId);
+
+    expect(actual).toEqual(expectedOperations);
+    expect(actual).toHaveLength(expectedOperations.length);
+    expect(new Set(authorities).size).toBe(expectedOperations.length);
+    expect(new Set(operationIds).size).toBe(expectedOperations.length);
+    expect(authorities.some((authority) => /\/api\/admin(?:\/|$)/u.test(authority))).toBe(false);
+    expect(
+      authorities.some((authority) =>
+        /\/api\/(?:me|field_of_studies|receipts\/submit|e2e)(?:\/|$)/u.test(authority),
+      ),
+    ).toBe(false);
+    expect(
+      authorities.some((authority) => /::|\/(?:revise|publish|unpublish)$/u.test(authority)),
+    ).toBe(false);
+  });
+  it("keeps external authorities and one internal authority on separate roots", () => {
+    const external = endpointInventory();
+    const internal = internalEndpointInventory();
+    const externalAuthorities = external.map(({ method, path }) => `${method} ${path}`);
+
+    expect(external).toHaveLength(expectedExternalCount);
+    expect(new Set(externalAuthorities).size).toBe(expectedExternalCount);
+    expect(external.map(({ group }) => group)).not.toContain("internal");
+    expect(internal).toEqual([
+      {
+        group: "internal",
+        identifier: "readReceiptEvidence",
+        method: "GET",
+        path: "/api/receipt-lifecycle-evidence-records/:receiptId",
+      },
+    ]);
+  });
+
+  it("generates public OpenAPI from only the external root", () => {
+    const operations = documentedOperations();
+
+    expect(Context.get(InternalNativeApi.groups.internal.annotations, OpenApi.Exclude)).toBe(true);
+    expect(operations).toHaveLength(expectedExternalCount);
+    expect(operations.some(({ path }) => path.startsWith("/api/e2e"))).toBe(false);
+    expect(operations.some(({ path }) => path.startsWith("/api/auth"))).toBe(false);
+  });
+
+  it("compiles escaped action paths once for OpenAPI and client URLs", () => {
+    const spec = OpenApi.fromApi(ExternalNativeApi);
+    const urls = HttpApiClient.urlBuilder(ExternalNativeApi);
+
+    expect(spec.paths["/api/sessions:revoke-others"]?.post).toBeDefined();
+    expect(spec.paths["/api/receipts/{receiptId}:withdraw"]?.post).toBeDefined();
+    expect(spec.paths["/api/content/articles/{articleId}:publish"]?.post).toBeDefined();
+    expect(
+      Object.keys(spec.paths).some((path) => path.includes("([^:]+)") || path.includes("::")),
+    ).toBe(false);
+    expect(urls.system.revokeOtherSessions()).toBe("/api/sessions:revoke-others");
+    expect(
+      urls.receipts.withdrawReceipt({
+        params: { receiptId: ReceiptId.make("receipt/with-colon:segment") },
+      }),
+    ).toBe("/api/receipts/receipt%2Fwith-colon%3Asegment:withdraw");
+  });
+
+  it("projects one declared AccessSpec without credential leakage or a second registry", () => {
+    const spec = OpenApi.fromApi(ExternalNativeApi);
+    const health = spec.paths["/health"]?.get as Record<string, unknown> | undefined;
+    const reflected = reflectAccessSpec(HealthEndpoint);
+
+    expect(health?.["x-vektor-access"]).toEqual({
+      exposure: "External",
+      acceptedCredentials: ["None"],
+      principalKinds: ["Anonymous"],
+      capabilities: { none: true },
+      requirements: [],
+      canonicalScopeResolver: "system.health",
+      concealment: { mode: "Reveal", stages: [] },
+      decisionTime: "SnapshotRead",
+    });
+    expect(health?.security).toEqual([]);
+    expect(reflected._tag).toBe("Some");
+    if (reflected._tag === "Some") {
+      expect(reflected.value).toEqual(PUBLIC_SYSTEM_ACCESS);
+    }
+    expect(() => annotateAccessSpec(HealthEndpoint, PUBLIC_SYSTEM_ACCESS)).toThrow(
+      /multiple AccessSpec annotations/u,
+    );
+  });
+
+  it("keeps access projection registries aligned with the domain roots", () => {
+    expect(() => assertAccessProjectionRegistryParity()).not.toThrow();
+  });
+
+  it("derives stable fully-qualified group.endpoint operation ids", () => {
+    const spec = OpenApi.fromApi(ExternalNativeApi);
+    const actual = documentedOperations()
+      .map(({ operation }) => operation.operationId)
+      .sort();
+    const expected = endpointInventory()
+      .map(({ group, identifier }) => `${group}.${identifier}`)
+      .sort();
+    const internal = internalEndpointInventory().map(
+      ({ group, identifier }) => `${group}.${identifier}`,
+    );
+
+    expect(actual).toEqual(expected);
+    expect(actual).toEqual(
+      expect.arrayContaining([
+        "system.health",
+        "organization.listDepartments",
+        "profile.readOwnProfile",
+        "organization.createDepartment",
+        "admissions.createAdmissionPeriod",
+        "recruitment.readSchedulingBoard",
+        "receipts.submitReceipt",
+        "content.listNews",
+      ]),
+    );
+    expect(internal).toEqual(["internal.readReceiptEvidence"]);
+    expect(actual).not.toContain(internal[0]);
+    expect(spec.paths["/api/departments"]?.get?.operationId).toBe("organization.listDepartments");
+  });
+
+  it("derives unique operation ids and representative request, response, and error schemas", () => {
+    const spec = OpenApi.fromApi(ExternalNativeApi);
+    const operations = documentedOperations();
+    const operationIds = operations.map(({ operation }) => operation.operationId);
+    const provenanceSpec = spec as typeof spec & {
+      readonly "x-vektorprogrammet-provenance"?: unknown;
+    };
+    const operationProvenance = operations.map(
+      ({ operation }) =>
+        (
+          operation as typeof operation & {
+            readonly "x-vektorprogrammet-provenance"?: unknown;
+          }
+        )["x-vektorprogrammet-provenance"],
+    );
+
+    expect(new Set(operationIds).size).toBe(operations.length);
+    expect(spec.openapi).toBe("3.1.0");
+    expect(spec.info.title).toBe("Vektorprogrammet native preview API");
+    expect(spec.servers ?? []).toEqual([]);
+    expect(provenanceSpec["x-vektorprogrammet-provenance"]).toBeDefined();
+    expect(operationProvenance.every((provenance) => provenance !== undefined)).toBe(true);
+    expect(operations.every(({ operation }) => operation.tags.length > 0)).toBe(true);
+    expect(spec.paths["/api/session"]?.get?.security[0]?.cookieHeader).toEqual([]);
+    expect(spec.paths["/api/departments"]?.get?.responses["200"]).toBeDefined();
+    expect(spec.paths["/api/session"]?.get?.responses["401"]).toBeDefined();
+    expect(spec.paths["/api/departments"]?.post?.responses["201"]).toBeDefined();
+    expect(
+      spec.paths["/api/receipts"]?.post?.requestBody?.content["multipart/form-data"],
+    ).toBeDefined();
+    expect(spec.paths["/api/receipts"]?.post?.responses["422"]).toBeDefined();
+    expect(
+      spec.paths["/api/recruitment/interviews/{interviewId}:finalize"]?.post?.responses["409"],
+    ).toBeDefined();
+    expect(spec.paths["/api/news/{slug}"]?.get?.responses["200"]).toBeDefined();
+  });
+
+  it("freezes endpoint metadata, schemas, headers, and access projections programmatically", () => {
+    const spec = OpenApi.fromApi(ExternalNativeApi);
+    const operations = documentedOperations();
+    const byId = new Map(
+      operations.map(({ operation }) => [operation.operationId, operation] as const),
+    );
+    const categories = [
+      "contact.submitContactMessage",
+      "receipts.readReceiptFile",
+      ...publicConditionalOperations,
+      ...privateConditionalOperations,
+      ...createdMutationOperations,
+      ...entityMutationOperations,
+      ...taggedNoContentMutationOperations,
+      ...plainNoContentMutationOperations,
+      ...privateReadOperations,
+      ...noStoreReadOperations,
+    ];
+    expect(categories).toHaveLength(expectedExternalCount);
+    expect(new Set(categories).size).toBe(expectedExternalCount);
+    expect([...byId.keys()].sort()).toEqual([...categories].sort());
+
+    const operation = (operationId: string) => {
+      const value = byId.get(operationId);
+      if (value === undefined) throw new TypeError(`missing ${operationId}`);
+      return value;
+    };
+    const assertSuccess = (
+      operationId: string,
+      status: "200" | "201" | "204" | "304",
+      headers: ReadonlyArray<string>,
+      body: boolean,
+    ) => {
+      const response = operation(operationId).responses[status];
+      if (response === undefined) throw new TypeError(`${operationId} has no ${status}`);
+      expect(Object.keys(response.headers ?? {}).sort()).toEqual([...headers].sort());
+      expect(Object.keys(response.content ?? {})).toEqual(body ? ["application/json"] : []);
+    };
+
+    for (const operationId of [...publicConditionalOperations, ...privateConditionalOperations]) {
+      assertSuccess(operationId, "200", ["cache-control", "etag", "vary"], true);
+      assertSuccess(operationId, "304", ["cache-control", "etag", "vary"], false);
+    }
+    for (const operationId of createdMutationOperations) {
+      assertSuccess(operationId, "201", ["cache-control", "etag", "location", "vary"], true);
+    }
+    for (const operationId of entityMutationOperations) {
+      assertSuccess(operationId, "200", ["cache-control", "etag", "vary"], true);
+    }
+    for (const operationId of taggedNoContentMutationOperations) {
+      assertSuccess(operationId, "204", ["cache-control", "etag", "vary"], false);
+    }
+    for (const operationId of plainNoContentMutationOperations) {
+      assertSuccess(operationId, "204", ["cache-control", "vary"], false);
+    }
+    for (const operationId of [...privateReadOperations, ...noStoreReadOperations]) {
+      assertSuccess(operationId, "200", ["cache-control", "vary"], true);
+    }
+
+    const binary = operation("receipts.readReceiptFile").responses["200"]!;
+    expect(Object.keys(binary.content ?? {})).toEqual(["application/octet-stream"]);
+    expect(Object.keys(binary.headers ?? {}).sort()).toEqual(["cache-control", "vary"]);
+    assertSuccess("contact.submitContactMessage", "201", ["cache-control", "vary"], false);
+    const tags = new Map<string, string>([
+      ["contact", "Public contact"],
+      ["substitutes", "Substitute pool"],
+      ["admissions", "Admissions"],
+      ["content", "Content and news"],
+      ["directory", "Directories"],
+      ["organization", "Organization"],
+      ["profile", "Profile"],
+      ["receipts", "Receipts"],
+      ["recruitment", "Recruitment"],
+      ["system", "System"],
+    ]);
+    for (const [operationId, documented] of byId) {
+      const group = operationId.slice(0, operationId.indexOf("."));
+      const tag = tags.get(group);
+      if (tag === undefined) throw new TypeError(`unknown group ${group}`);
+      expect(documented.tags).toEqual([tag]);
+      expect(documented.summary?.trim().length).toBeGreaterThan(0);
+      expect(documented.description?.trim().length).toBeGreaterThan(0);
+      for (const [status, response] of Object.entries(documented.responses)) {
+        if (Number(status) < 400) {
+          if (status !== "201") expect(response.headers).not.toHaveProperty("location");
+          continue;
+        }
+        expect(Object.keys(response.content ?? {})).toEqual(["application/problem+json"]);
+        const headers = Object.keys(response.headers ?? {});
+        expect(headers).toEqual(expect.arrayContaining(["cache-control", "vary"]));
+        if (status === "401") expect(headers).toContain("www-authenticate");
+        if (status === "429" || status === "503") expect(headers).toContain("retry-after");
+        if (status === "500") expect(headers).not.toContain("retry-after");
+      }
+    }
+
+    const conditional = new Set<string>([
+      ...publicConditionalOperations,
+      ...privateConditionalOperations,
+    ]);
+    const mutations = new Set<string>([
+      ...createdMutationOperations,
+      ...entityMutationOperations,
+      ...taggedNoContentMutationOperations,
+      ...plainNoContentMutationOperations,
+    ]);
+    for (const operationId of categories) {
+      const headerParameters = (operation(operationId).parameters ?? [])
+        .filter((parameter) => "in" in parameter && parameter.in === "header")
+        .map((parameter) => ("name" in parameter ? parameter.name.toLowerCase() : ""))
+        .sort();
+      if (operationId === "contact.submitContactMessage") {
+        expect(headerParameters).toEqual(["x-vektor-contact-ip"]);
+      } else if (conditional.has(operationId)) {
+        expect(headerParameters).toEqual(["if-match", "if-none-match"]);
+      } else if (mutations.has(operationId)) {
+        expect(headerParameters).toEqual(
+          existingResourceMutationOperations.has(operationId)
+            ? ["idempotency-key", "if-match"]
+            : ["idempotency-key"],
+        );
+      } else {
+        expect(headerParameters).toEqual([]);
+      }
+    }
+
+    for (const operationId of [
+      "profile.updateOwnProfile",
+      "admissions.reviseAdmissionPeriod",
+      "content.reviseArticle",
+    ]) {
+      expect(Object.keys(operation(operationId).requestBody?.content ?? {})).toEqual([
+        "application/merge-patch+json",
+      ]);
+    }
+    for (const operationId of ["receipts.submitReceipt", "receipts.reviseReceipt"]) {
+      const multipart = operation(operationId).requestBody?.content["multipart/form-data"];
+      if (multipart === undefined) throw new TypeError(`${operationId} has no multipart body`);
+      const requestSchema = multipart.schema;
+      if (
+        requestSchema === undefined ||
+        !("$ref" in requestSchema) ||
+        typeof requestSchema.$ref !== "string"
+      ) {
+        throw new TypeError(`${operationId} multipart schema is not a component reference`);
+      }
+      const componentName = requestSchema.$ref.slice(requestSchema.$ref.lastIndexOf("/") + 1);
+      expect(JSON.stringify(spec.components.schemas[componentName])).toContain('"format":"binary"');
+    }
+    expect(operation("receipts.listReceiptsForApproval").security).toEqual([
+      { cookieHeader: [] },
+      { oauthUserBearer: [] },
+      { oauthServiceBearer: [] },
+    ]);
+  });
+});
+
+describe("frozen v0.2 boundary schemas", () => {
+  const strict = { onExcessProperty: "error" } as const;
+
+  it("keeps merge-patch absence distinct from null and unknown fields", () => {
+    expect(Schema.decodeUnknownSync(ProfileMergePatch)({ firstName: "Ada" }, strict)).toEqual({
+      firstName: "Ada",
+    });
+    expect(Schema.decodeUnknownSync(ProfileMergePatch)({}, strict)).toEqual({});
+    expect(Schema.decodeUnknownSync(ProfileMergePatch)({ email: null }, strict)).toEqual({
+      email: null,
+    });
+    expect(() =>
+      Schema.decodeUnknownSync(ProfileMergePatch)({ personId: "person-1" }, strict),
+    ).toThrow();
+  });
+
+  it("cuts the directory response over to people names without an alias", () => {
+    const response = { activePeople: [], inactivePeople: [], nextCursor: null };
+    expect(Schema.decodeUnknownSync(PeopleDirectoryResponse)(response, strict)).toEqual(response);
+    expect(() =>
+      Schema.decodeUnknownSync(PeopleDirectoryResponse)(
+        { activeUsers: [], inactiveUsers: [], nextCursor: null },
+        strict,
+      ),
+    ).toThrow();
+  });
+
+  it("keeps endpoint problem variants correlated and validation extensions mandatory", () => {
+    const problem = {
+      ...NativeProblemRegistry["internal.error"],
+      code: "internal.error",
+    } as const;
+    expect(Schema.decodeUnknownSync(SystemHealthProblem)(problem, strict)).toEqual(problem);
+    expect(() =>
+      Schema.decodeUnknownSync(SystemHealthProblem)(
+        { ...problem, detail: "database password leaked" },
+        strict,
+      ),
+    ).toThrow();
+
+    const validationProblem = {
+      ...NativeProblemRegistry["validation.failed"],
+      code: "validation.failed",
+      validation: {
+        errors: [
+          {
+            pointer: "/firstName",
+            code: "invalid",
+            message: "The value is invalid.",
+          },
+        ],
+        truncated: false,
+      },
+    } as const;
+    expect(
+      Schema.decodeUnknownSync(ProfileUpdateOwnProfileProblem)(validationProblem, strict),
+    ).toEqual(validationProblem);
+    const { validation: _, ...validationCore } = validationProblem;
+    expect(() =>
+      Schema.decodeUnknownSync(ProfileUpdateOwnProfileProblem)(validationCore, strict),
+    ).toThrow();
+  });
+});

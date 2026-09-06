@@ -36650,7 +36650,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_4"
+                  "$ref": "#/components/schemas/Literal_"
                 }
               },
               "vary": {
@@ -36767,7 +36767,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
@@ -36891,13 +36891,13 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
+                  "$ref": "#/components/schemas/Literal_3"
                 }
               },
               "vary": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_3"
+                  "$ref": "#/components/schemas/Literal_4"
                 }
               },
               "www-authenticate": {
@@ -37014,7 +37014,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
@@ -37085,7 +37085,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
@@ -37156,7 +37156,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "vary": {
@@ -37227,7 +37227,7 @@
               "cache-control": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Literal_"
+                  "$ref": "#/components/schemas/Literal_2"
                 }
               },
               "retry-after": {

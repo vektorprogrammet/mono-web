@@ -1,8 +1,8 @@
 {
   "counts": {
-    "externalOperations": 54,
+    "externalOperations": 60,
     "internalOperations": 1,
-    "operations": 55
+    "operations": 61
   },
   "operations": [
     {
@@ -1968,6 +1968,259 @@
         "503"
       ],
       "summary": "Schedule interview",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "substitutes.application-scope",
+        "capabilities": {
+          "one": "substitutes.manage"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "substitutes",
+      "method": "POST",
+      "operationId": "substitutes.activate",
+      "path": "/api/substitutes/{applicationId}:activate",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500"
+      ],
+      "summary": "Activate substitute",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "substitutes.application-scope",
+        "capabilities": {
+          "one": "substitutes.manage"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "substitutes",
+      "method": "POST",
+      "operationId": "substitutes.deactivate",
+      "path": "/api/substitutes/{applicationId}:deactivate",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500"
+      ],
+      "summary": "Deactivate substitute",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "substitutes.application-scope",
+        "capabilities": {
+          "one": "substitutes.manage"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "substitutes",
+      "method": "POST",
+      "operationId": "substitutes.edit",
+      "path": "/api/substitutes/{applicationId}:edit",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500"
+      ],
+      "summary": "Edit substitute",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "substitutes.application-scope",
+        "capabilities": {
+          "one": "substitutes.read"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "substitutes",
+      "method": "GET",
+      "operationId": "substitutes.listScopes",
+      "path": "/api/substitutes/scopes",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500"
+      ],
+      "summary": "Select substitute scope",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "substitutes.application-scope",
+        "capabilities": {
+          "one": "substitutes.read"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "substitutes",
+      "method": "GET",
+      "operationId": "substitutes.readEntry",
+      "path": "/api/substitutes/{applicationId}",
+      "statuses": [
+        "200",
+        "304",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500"
+      ],
+      "summary": "Select substitute entry",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "substitutes.application-scope",
+        "capabilities": {
+          "one": "substitutes.read"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "substitutes",
+      "method": "GET",
+      "operationId": "substitutes.readPool",
+      "path": "/api/substitutes",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500"
+      ],
+      "summary": "Read substitute pool",
       "visibility": "external"
     },
     {
