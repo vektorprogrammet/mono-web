@@ -215,8 +215,15 @@ try {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   const expectStatus = async (response: Response, status: number) => {
-    assert.equal(response.status, status);
-    return response.json();
+    const body = await response.json();
+    assert.equal(
+      response.status,
+      status,
+      typeof body.code === "string" && /^[a-z.-]+$/.test(body.code)
+        ? body.code
+        : "Unexpected HTTP status",
+    );
+    return body;
   };
   const login = async (person: { email: string; password: string }) => {
     const response = await request("/api/auth/sign-in/email", undefined, person);
@@ -232,7 +239,6 @@ try {
   const submit = async (email: string, firstName: string) =>
     expectStatus(
       await request("/api/applications", undefined, {
-        commandId: crypto.randomUUID(),
         departmentId,
         firstName,
         lastName: "Applicant",
