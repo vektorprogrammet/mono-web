@@ -75,6 +75,7 @@ import {
   readRecruitmentPersonAuthorityHttpSourcesPostgres,
   readRecruitmentInvitationHttpSourcePostgres,
   readRecruitmentTargetActorPostgres,
+  readRecruitmentTargetAuthorityPostgres,
   scheduleInterviewPostgres,
   type RecruitmentActor,
   type RecruitmentInterviewHttpSource,
@@ -588,10 +589,11 @@ const applicationContext = (input: {
   authorityVersion: AuthorityVersion.make(input.version),
 });
 
-const interviewContext = (
+export const recruitmentInterviewAccessContext = (
   source: RecruitmentInterviewHttpSource,
   actor: RecruitmentActor,
   allowLeader: boolean,
+  activeMember: boolean,
 ) => ({
   domainId: DomainId.make("recruitment"),
   departmentId: source.departmentId,
@@ -600,7 +602,7 @@ const interviewContext = (
     id: ResourceId.make(source.interviewId),
   },
   facts: {
-    assignedInterviewerPersonIds: [source.interviewerPersonId],
+    assignedInterviewerPersonIds: activeMember ? [source.interviewerPersonId] : [],
     linkedApplicantPersonId: source.linkedApplicantPersonId,
     departmentLeaderPersonIds:
       allowLeader && actor._tag === "DepartmentLeader" && actor.departmentId === source.departmentId
@@ -1068,8 +1070,8 @@ const interviewAuthorization = async (
   const source = await input.run(
     readRecruitmentInterviewHttpSourcePostgres(interviewId, authorization.actor.personId),
   );
-  const actor = await input.run(
-    readRecruitmentTargetActorPostgres({
+  const { actor, activeMember } = await input.run(
+    readRecruitmentTargetAuthorityPostgres({
       personId: authorization.actor.personId,
       departmentId: source.departmentId,
       authorizationInstant: authorization.authorizationInstant,
@@ -1085,7 +1087,7 @@ const interviewAuthorization = async (
     actor,
     resolution: {
       selection: "ExactlyOne",
-      contexts: [interviewContext(source, actor, allowLeader)],
+      contexts: [recruitmentInterviewAccessContext(source, actor, allowLeader, activeMember)],
     },
     grantScopes: [{ _tag: "Resource", resource }],
     authorizationInstant: authorization.authorizationInstant,
@@ -1112,8 +1114,8 @@ const interviewAuthorizationInTransaction = async (
   const source = await txRun(
     readRecruitmentInterviewHttpSourcePostgres(interviewId, authorization.authority.personId),
   );
-  const actor = await txRun(
-    readRecruitmentTargetActorPostgres({
+  const { actor, activeMember } = await txRun(
+    readRecruitmentTargetAuthorityPostgres({
       personId: authorization.authority.personId,
       departmentId: source.departmentId,
       authorizationInstant: authorization.authorizationInstant,
@@ -1129,7 +1131,7 @@ const interviewAuthorizationInTransaction = async (
     personId: actor.personId,
     resolution: {
       selection: "ExactlyOne",
-      contexts: [interviewContext(source, actor, allowLeader)],
+      contexts: [recruitmentInterviewAccessContext(source, actor, allowLeader, activeMember)],
     },
     grantScopes: [{ _tag: "Resource", resource }],
     now: authorization.authorizationInstant,

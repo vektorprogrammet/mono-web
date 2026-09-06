@@ -195,12 +195,12 @@ const RecruitmentTargetActorSourceSchema = Schema.Struct({
  * Reconstructs the caller's current actor for one canonical target department.
  * This avoids selecting an unrelated first membership for item routes.
  */
-export const readRecruitmentTargetActorPostgres = (input: {
+export const readRecruitmentTargetAuthorityPostgres = (input: {
   readonly personId: PersonId;
   readonly departmentId: DepartmentId;
   readonly authorizationInstant: string;
 }): Effect.Effect<
-  RecruitmentActor,
+  { readonly actor: RecruitmentActor; readonly activeMember: boolean },
   RecruitmentDecodeError | RecruitmentPersistenceError,
   Database
 > =>
@@ -279,11 +279,16 @@ export const readRecruitmentTargetActorPostgres = (input: {
               departmentId: input.departmentId,
               active: source.activeMember,
             };
-      return yield* Schema.decodeEffect(RecruitmentActorSchema)(actor, {
+      const decodedActor = yield* Schema.decodeEffect(RecruitmentActorSchema)(actor, {
         onExcessProperty: "error",
       }).pipe(Effect.mapError((cause) => decodeError("decode recruitment target actor", cause)));
+      return { actor: decodedActor, activeMember: source.activeMember };
     }),
   );
+
+export const readRecruitmentTargetActorPostgres = (
+  input: Parameters<typeof readRecruitmentTargetAuthorityPostgres>[0],
+) => readRecruitmentTargetAuthorityPostgres(input).pipe(Effect.map(({ actor }) => actor));
 
 const readRecruitmentPersonAuthorityHttpSources = (
   database: DatabaseShape,

@@ -6,7 +6,8 @@ vektor-foldkit-dashboard {
   --fd-color-canvas: #fafdff;
   --fd-color-surface: #ffffff;
   --fd-color-text: #23282c;
-  --fd-color-muted: #73818f;
+  --fd-color-muted: oklch(0.521582 0.0227027 245.951);
+  --fd-color-breadcrumb-link: oklch(0.448066 0.0812887 227.955);
   --fd-color-border: #c8ced3;
   --fd-color-breadcrumb: #e9ecef;
   --fd-color-sidebar: #2f353a;
@@ -154,7 +155,7 @@ vektor-foldkit-dashboard {
 .fd-home-link {
   display: block;
   padding: var(--fd-space-2) var(--fd-space-4) var(--fd-space-3);
-  color: var(--fd-color-muted) !important;
+  color: var(--fd-color-sidebar-muted) !important;
   text-align: center;
 }
 
@@ -281,7 +282,7 @@ vektor-foldkit-dashboard {
 
 .fd-disclosure-chevron {
   display: inline-block;
-  color: var(--fd-color-muted);
+  color: var(--fd-color-sidebar-muted);
   font-size: var(--fd-font-size-lg);
   line-height: 1;
   transform: rotate(0deg);
@@ -313,7 +314,7 @@ vektor-foldkit-dashboard {
   display: grid;
   justify-items: center;
   gap: var(--fd-space-2);
-  color: var(--fd-color-muted) !important;
+  color: var(--fd-color-sidebar-muted) !important;
   text-align: center;
 }
 
@@ -358,6 +359,10 @@ vektor-foldkit-dashboard {
   background: var(--fd-color-breadcrumb);
   border-block-end: 0.0625rem solid var(--fd-color-border);
   list-style: none;
+}
+
+.fd-breadcrumb a {
+  color: var(--fd-color-breadcrumb-link);
 }
 
 .fd-breadcrumb__item {

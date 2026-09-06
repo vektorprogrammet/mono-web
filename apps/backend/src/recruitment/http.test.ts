@@ -1,3 +1,6 @@
+import { evaluateRequirement, RequirementId } from "@vektorprogrammet/domain/authz";
+import { PersonId, DepartmentId } from "@vektorprogrammet/domain/organization";
+import { RecruitmentInterviewId } from "@vektorprogrammet/domain/recruitment";
 import { SchedulingBoard } from "@vektorprogrammet/http-api";
 import { RecruitmentSchedulingBoardSchema } from "@vektorprogrammet/domain/recruitment";
 import { Schema } from "effect";
@@ -15,6 +18,7 @@ import {
   readRecruitmentRequestBody,
   recruitmentHttpErrorResponse,
   schedulingBoardWithETags,
+  recruitmentInterviewAccessContext,
 } from "./http.js";
 
 describe("native recruitment HTTP boundary", () => {
@@ -353,4 +357,58 @@ it("preserves the native conflict protocol for PostgreSQL snapshot and deadlock 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({ code: "transaction.conflict" });
   }
+});
+
+it("denies a suspended assigned member in the HTTP access context used before receipt replay", () => {
+  const personId = PersonId.make("suspended-assigned-person"),
+    departmentId = DepartmentId.make("department-assigned");
+  const source = {
+    interviewId: RecruitmentInterviewId.make("assigned-interview"),
+    departmentId,
+    interviewerPersonId: personId,
+    interviewRevision: 1,
+    linkedApplicantPersonId: null,
+    authority: [],
+  };
+  const requirement = {
+    id: RequirementId.make("recruitment.assigned-interviewer"),
+    parameters: {},
+  };
+  const principal = { _tag: "Person" as const, personId };
+  expect(
+    evaluateRequirement(
+      requirement,
+      principal,
+      recruitmentInterviewAccessContext(
+        source,
+        { _tag: "Member", personId, departmentId, active: false },
+        false,
+        false,
+      ),
+    )._tag,
+  ).toBe("Failed");
+  expect(
+    evaluateRequirement(
+      requirement,
+      principal,
+      recruitmentInterviewAccessContext(
+        source,
+        { _tag: "GlobalAdmin", personId, active: true },
+        false,
+        false,
+      ),
+    )._tag,
+  ).toBe("Failed");
+  expect(
+    evaluateRequirement(
+      requirement,
+      principal,
+      recruitmentInterviewAccessContext(
+        source,
+        { _tag: "Member", personId, departmentId, active: true },
+        false,
+        true,
+      ),
+    )._tag,
+  ).toBe("Satisfied");
 });

@@ -728,7 +728,10 @@ try {
   }
   console.log(JSON.stringify({ result: "Passed", revision, artifacts, gates }));
 } catch (error) {
-  let detail = error instanceof Error ? error.message : String(error);
+  let detail =
+    error instanceof Error
+      ? (error.stack?.split("\n").slice(0, 5).join("\n") ?? error.message)
+      : String(error);
   if (page)
     detail += ` Current page: ${await page
       .locator("body")

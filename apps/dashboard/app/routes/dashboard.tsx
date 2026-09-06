@@ -28,6 +28,7 @@ import {
   href,
   isRouteErrorResponse,
   useLoaderData,
+  useMatches,
   useLocation,
   useRouteError,
 } from "react-router";
@@ -462,6 +463,7 @@ export function ErrorBoundary() {
 }
 
 export function DashboardShellLayout() {
+  const matches = useMatches();
   const { user, isAdmin, hasOrganizationContext } = useLoaderData<typeof loader>();
   const shell = dashboardShellVisibility(user, hasOrganizationContext);
   // Preview-only rendering bridge (design spec 0074). The server loader stays
@@ -482,6 +484,16 @@ export function DashboardShellLayout() {
     };
   }, []);
   const effectiveIsAdmin = previewIsAdmin ?? isAdmin;
+  if (
+    matches.some(
+      ({ handle }) =>
+        typeof handle === "object" &&
+        handle !== null &&
+        "dashboardShell" in handle &&
+        handle.dashboardShell === "owned",
+    )
+  )
+    return <Outlet />;
   return (
     <SidebarProvider>
       <aside data-dashboard-shell>
