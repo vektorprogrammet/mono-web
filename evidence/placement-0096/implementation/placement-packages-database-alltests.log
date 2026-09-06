@@ -1,0 +1,61 @@
+
+ RUN  v4.1.0 /srv/share/projects/vektorprogrammet/mono-web-placement-0906/packages/database
+
+ ❯ src/test-support/disposable-person-authority-backfill.test.ts (7 tests | 2 failed) 10482ms
+     × writes stable administrator and Economy authority rows without retaining token keys 10017ms
+     × rejects conflicting facts for one person and department before writing 354ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/test-support/disposable-person-authority-backfill.test.ts > disposable person-authority token evidence backfill > writes stable administrator and Economy authority rows without retaining token keys
+Error: Hook timed out in 10000ms.
+If this is a long-running hook, pass a timeout value as the last argument or configure it globally with "hookTimeout".
+ ❯ src/test-support/disposable-person-authority-backfill.test.ts:178:1
+    176| });
+    177|
+    178| beforeEach(async () => {
+       | ^
+    179|   await runtime.runPromise(resetDisposableFixture);
+    180|   await runtime.runPromise(seedCanonicalOrganizationFixture);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/test-support/disposable-person-authority-backfill.test.ts > disposable person-authority token evidence backfill > rejects conflicting facts for one person and department before writing
+effect/sql/SqlError: Failed to execute statement
+ ❯ catch ../../node_modules/.bun/@effect+sql-pglite@4.0.0-rc.109+4b74214ac2ee4e93/node_modules/@effect/sql-pglite/src/PgliteClient.ts:282:26
+ ❯ ../../node_modules/.bun/effect@4.0.0-rc.109/node_modules/effect/src/internal/effect.ts:1074:39
+ ❯ ~effect/Utils/internal ../../node_modules/.bun/effect@4.0.0-rc.109/node_modules/effect/src/Utils.ts:208:13
+ ❯ failWithCatch ../../node_modules/.bun/effect@4.0.0-rc.109/node_modules/effect/src/internal/effect.ts:1074:20
+
+Caused by: effect/sql/SqlError/UniqueViolation: Failed to execute statement
+ ❯ classifyError ../../node_modules/.bun/@effect+sql-pglite@4.0.0-rc.109+4b74214ac2ee4e93/node_modules/@effect/sql-pglite/dist/PgliteClient.js:277:14
+ ❯ catch ../../node_modules/.bun/@effect+sql-pglite@4.0.0-rc.109+4b74214ac2ee4e93/node_modules/@effect/sql-pglite/dist/PgliteClient.js:141:17
+ ❯ ../../node_modules/.bun/effect@4.0.0-rc.109/node_modules/effect/dist/internal/effect.js:750:40
+ ❯ ~effect/Utils/internal ../../node_modules/.bun/effect@4.0.0-rc.109/node_modules/effect/dist/Utils.js:79:14
+ ❯ failWithCatch ../../node_modules/.bun/effect@4.0.0-rc.109/node_modules/effect/dist/internal/effect.js:750:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { _tag: 'UniqueViolation', operation: 'execute', constraint: 'person_profiles_pkey', '~effect/sql/SqlError/Reason': '~effect/sql/SqlError/Reason' }
+Caused by: error: duplicate key value violates unique constraint "person_profiles_pkey"
+ ❯ pe.Ue ../../node_modules/.bun/@electric-sql+pglite@0.5.6/node_modules/@electric-sql/pglite/dist/chunk-2BOC2OMW.js:1:17959
+ ❯ pe.tt ../../node_modules/.bun/@electric-sql+pglite@0.5.6/node_modules/@electric-sql/pglite/dist/chunk-2BOC2OMW.js:1:15347
+ ❯ pe.parse ../../node_modules/.bun/@electric-sql+pglite@0.5.6/node_modules/@electric-sql/pglite/dist/chunk-2BOC2OMW.js:1:14021
+ ❯ N.qe ../../node_modules/.bun/@electric-sql+pglite@0.5.6/node_modules/@electric-sql/pglite/dist/index.js:5:1762
+ ❯ ../../node_modules/.bun/@electric-sql+pglite@0.5.6/node_modules/@electric-sql/pglite/dist/index.js:5:1155
+ ❯ null.<anonymous> wasm:/wasm/0267b4ca:1:5921569
+ ❯ null.<anonymous> wasm:/wasm/0267b4ca:1:2616009
+ ❯ null.<anonymous> wasm:/wasm/0267b4ca:1:2648495
+ ❯ null.<anonymous> wasm:/wasm/0267b4ca:1:2649099
+ ❯ null.<anonymous> wasm:/wasm/0267b4ca:1:5569835
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { length: 231, severity: 'ERROR', code: '23505', detail: 'Key (person_id)=(authority-admin) already exists.', hint: undefined, position: undefined, internalPosition: undefined, internalQuery: undefined, where: undefined, schema: 'public', table: 'person_profiles', dataType: undefined, constraint: 'person_profiles_pkey', file: 'nbtinsert.c', routine: '_bt_check_unique', query: '\n    INSERT INTO person_profiles (person_id, first_name, last_name)\n    VALUES\n      (\'authority-admin\', \'Ada\', \'Admin\'),\n      (\'authority-leader\', \'Lise\', \'Leader\'),\n      (\'authority-member\', \'Mona\', \'Member\'),\n      (\'authority-global-approver\', \'Greta\', \'Approver\'),\n      (\'authority-missing-membership\', \'Mika\', \'Missing\')\n  ', params: [], queryOptions: undefined }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 14 passed (15)
+      Tests  2 failed | 100 passed | 4 skipped (106)
+   Start at  03:13:37
+   Duration  21.57s (transform 17.88s, setup 0ms, import 46.76s, tests 101.92s, environment 2ms)
+
+error: "vitest" exited with code 1

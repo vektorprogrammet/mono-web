@@ -1,0 +1,2 @@
+$ bun run scripts/generate-openapi.ts --check
+NativeApi 0.2.0: 65 external + 1 internal operations are current

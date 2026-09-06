@@ -1,0 +1,78 @@
+{
+  "sourceHead": "1256567281bf16cbd2e8cace5e8bde566cba42e0",
+  "sourceCleanBeforeEvidence": true,
+  "observations": {
+    "domain": {
+      "testsPassed": 235,
+      "source": "33d5ff67"
+    },
+    "backend": {
+      "testsPassed": 151,
+      "source": "33d5ff67"
+    },
+    "sdk": {
+      "testsPassed": 3,
+      "source": "33d5ff67"
+    },
+    "api": {
+      "testsPassed": 14,
+      "source": "ff0e5f7f expectation changes tested before commit"
+    },
+    "database": {
+      "testsPassed": 102,
+      "skipped": 4,
+      "source": "0578e6f2",
+      "skipReason": "Dedicated auth-live URL unavailable"
+    },
+    "placementPersistence": {
+      "testsPassed": 1,
+      "source": "ff0e5f7f source tested before commit",
+      "scope": "PGlite real SQL audited Create/Edit/Remove, separate blocks, canonical person retained, revoked affiliation rejection"
+    },
+    "dashboard": {
+      "testsPassed": 247,
+      "source": "12565672",
+      "typecheck": "passed"
+    },
+    "generated": {
+      "externalOperations": 65,
+      "internalOperations": 1,
+      "docsFiles": 96,
+      "catalog": "fresh; not semantic parity"
+    }
+  },
+  "earlierFailures": {
+    "dashboard": "Two existing hydration tests timed out in the concurrent fullsuite run; maxWorkers2 sequential rerun passed. No direct saturation measurement.",
+    "database": "Hook timeout followed by duplicatefixture error from unfinished hook in concurrent fullsuite run; maxWorkers2 sequential rerun passed."
+  },
+  "unsupported": [
+    "Production deployment or data migration",
+    "Actual PostgreSQL/API/browser journey: separate acceptance worker owns pending verification",
+    "Actual notification effects: none introduced",
+    "Full semantic legacy parity"
+  ],
+  "sha256": {
+    "placement-domain-tests.log": "b2a41be9729e8413c8599470e69bc97cdea634ebb96f465a1c794964c1289d4d",
+    "placement-shell-tests.log": "8d8716b0ccee8fc8b48322e31e2ee9f16650fe02905098fbc3d4ff1e9a71f4b5",
+    "placement-packages-domain-alltests.log": "83fae9acfea95a260dd7ae75c61030f8e0dd2a15e0433f3d5f7f18a4dd07e4c4",
+    "placement-apps-backend-alltests.log": "5e914149eab3ad55353a870858fee956d8df16c3457d5334b7a964bbb7617b90",
+    "placement-apps-dashboard-alltests.log": "2efb8edd9c9c2ff9ed34170aad5243e486ae2d295e978052eaebb8ddbb9900b8",
+    "placement-packages-database-alltests.log": "e1bb198f9ee5e546e74d2425aa110b6870ef297902e38a19c7cd03cca3f06b92",
+    "placement-dashboard-limited.log": "01e89fba96f6508fa37069a6c8630d8f66b184591d904ba0b34d689daaccd2ad",
+    "placement-database-limited.log": "3aea725f9b8abbcfdeddce58ab844882395c297e82c3a5e0aca8b6358eada125",
+    "placement-persistence-test.log": "bcd65d37241979ea4ad197c51a77b20248852e288fc6924d05b41a9e56eb9d72",
+    "placement-api-tests.log": "c6ffd99a65e46e2ca3aa42149813ce9a0c8b9cc8f12580017016331551c605bd",
+    "placement-sdk-tests.log": "410cc66bfd7b42bec85a79be4fd36b62a83bbc4489898b45d7c05f98bfa2eabd",
+    "placement-backend-types.log": "8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92",
+    "placement-database-types.log": "8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92",
+    "placement-dashboard-final-types.log": "59fa8bb0653fce0c25f163b7dd58483b5ce84cd0b28ff771b5fbc95e37129c50",
+    "placement-dashboard-final-tests.log": "a448a4a70457207e623bd3b5111d7d6b7c145a3ad41f778caed73d61dac335d1",
+    "placement-format-check.log": "c3dd032c96364dd45cc872060ace95078677f4028b395db43d113d14a2c49cd6",
+    "placement-final-form-format.log": "50703a2c8f86753742fd8da95ebd7e0693002295294a19dbe49aa68ca312ebe1",
+    "placement-lint-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "placement-api-check.log": "c09c9698d3238ee2e32a3e862924c2337d880b988cddc7d33d5f76c58f686d31",
+    "placement-docs-check.log": "9741ef16853a3e882aaae5667d5095e325ca806c2758ef9bf096eaacc45b310f",
+    "placement-capability-check.log": "b625c469a3cbf9a448521090d78f5a2734a04047f91d40883e583a3cfdaf918a",
+    "placement-frozen.log": "72358cf2e01bf87f458f2fbe995e27975998df3cf12e0941caa18de01c652b0b"
+  }
+}

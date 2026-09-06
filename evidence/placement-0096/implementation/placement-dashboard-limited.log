@@ -1,0 +1,9 @@
+
+ RUN  v4.1.0 /srv/share/projects/vektorprogrammet/mono-web-placement-0906/apps/dashboard
+
+
+ Test Files  47 passed (47)
+      Tests  247 passed (247)
+   Start at  03:14:53
+   Duration  12.08s (transform 1.64s, setup 0ms, import 15.74s, tests 2.60s, environment 543ms)
+

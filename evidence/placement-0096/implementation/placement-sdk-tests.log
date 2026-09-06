@@ -1,0 +1,9 @@
+
+ RUN  v4.1.0 /srv/share/projects/vektorprogrammet/mono-web-placement-0906/packages/sdk
+
+
+ Test Files  2 passed (2)
+      Tests  3 passed (3)
+   Start at  03:13:53
+   Duration  1.50s (transform 1.25s, setup 0ms, import 2.57s, tests 150ms, environment 0ms)
+

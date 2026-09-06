@@ -1,0 +1,43 @@
+
+ RUN  v4.1.0 /srv/share/projects/vektorprogrammet/mono-web-placement-0906/apps/dashboard
+
+ ❯ app/foldkit/organization/elements.test.ts (1 test | 1 failed) 5030ms
+     × waits for the hydration owner, then owns one Team runtime while connected 5027ms
+ ❯ app/foldkit/content/route-module.test.ts (1 test | 1 failed) 5013ms
+     × mounts the article workspace under its parent without owning a loader or request path 5011ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  app/foldkit/content/route-module.test.ts > Content child route > mounts the article workspace under its parent without owning a loader or request path
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ app/foldkit/content/route-module.test.ts:14:3
+     12|   });
+     13|
+     14|   it("mounts the article workspace under its parent without owning a l…
+       |   ^
+     15|     const request = vi.fn();
+     16|     vi.stubGlobal("fetch", request);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  app/foldkit/organization/elements.test.ts > Organization catalog custom element > waits for the hydration owner, then owns one Team runtime while connected
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ app/foldkit/organization/elements.test.ts:66:3
+     64|   });
+     65|
+     66|   it("waits for the hydration owner, then owns one Team runtime while …
+       |   ^
+     67|     // The dynamic import intentionally proves module evaluation does …
+     68|     const {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed | 45 passed (47)
+      Tests  2 failed | 245 passed (247)
+   Start at  03:13:37
+   Duration  13.73s (transform 150.56s, setup 0ms, import 311.03s, tests 23.29s, environment 2.89s)
+
+error: "vitest" exited with code 1
