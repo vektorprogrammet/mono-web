@@ -29,6 +29,7 @@ const fixtureKeys = {
 } as const;
 for (const key of Object.values(fixtureKeys)) Schema.decodeUnknownSync(IdempotencyKey)(key);
 if (process.argv.includes("--validate-fixture")) {
+  // oxlint-effect-plugin allow(no-ambient-console): dev only: local fixture validation result.
   console.log("All recommendation fixture idempotency keys satisfy the canonical schema");
   process.exit(0);
 }
@@ -78,6 +79,7 @@ let pool: any, browser: any, page: any, heldIdentityClient: any;
 const gates: string[] = [];
 const recordGate = (...observations: string[]) => {
   gates.push(...observations);
+  // oxlint-effect-plugin allow(no-ambient-console): dev only: bounded synthetic rehearsal milestones.
   console.log(JSON.stringify({ observed: observations }));
 };
 const secrets: string[] = [];
@@ -284,7 +286,10 @@ try {
   await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "editable-desktop.png") });
   await auditPage(page, "editable-desktop");
   await page.setViewportSize({ width: 390, height: 844 });
-  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+  assert.ok(
+    (await page.locator("html").evaluate((element: HTMLElement) => element.scrollWidth)) <=
+      page.viewportSize().width,
+  );
   await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "editable-mobile.png") });
   await auditPage(page, "editable-mobile");
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -322,7 +327,10 @@ try {
     .screenshot({ path: join(artifacts, "recommendation-desktop.png") });
   await auditPage(page, "finalized-desktop");
   await page.setViewportSize({ width: 390, height: 844 });
-  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+  assert.ok(
+    (await page.locator("html").evaluate((element: HTMLElement) => element.scrollWidth)) <=
+      page.viewportSize().width,
+  );
   await page
     .locator(".fs-conduct")
     .screenshot({ path: join(artifacts, "recommendation-mobile.png") });
@@ -771,6 +779,7 @@ try {
         assert.ok(!text.includes(secret), `retained artifact ${entry.name} contains a credential`);
     }
   }
+  // oxlint-effect-plugin allow(no-ambient-console): dev only: sanitized local acceptance artifact location.
   console.log(JSON.stringify({ result: "Passed", revision, artifacts, gates }));
 } catch (error) {
   let detail =
@@ -784,6 +793,7 @@ try {
       .catch(() => "unavailable")}`;
 
   for (const secret of secrets) detail = detail.replaceAll(secret, "[redacted]");
+  // oxlint-effect-plugin allow(no-ambient-console): dev only: redacted local rehearsal failure evidence.
   console.error(
     JSON.stringify({
       result: "Failed",
