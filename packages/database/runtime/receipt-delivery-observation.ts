@@ -126,9 +126,12 @@ export const observeReceiptDelivery = async (options: {
     return { id: body.receiptId, etag: response.headers.get("etag")! };
   };
   try {
-    await pool.query(`INSERT INTO authz_rules(rule_id,capability_id,effect_kind,subject_kind,subject_person_id,scope,department_id,params,start_at,revision) VALUES
-      ('receipt0097-submit','submitReceipt','delegate','Person','receipt-owner-0095','Department','receipt-department-0095','{"slot":"EconomyPaymentAuthority","paymentAccountCiphertext":"synthetic:0097"}','2026-01-01',0),
-      ('receipt0097-approve','approveReceipt','delegate','Person','receipt-foreign-0095','Department','receipt-department-0095','{"slot":"EconomyDepartmentApprovalGrant"}','2026-01-01',0)`);
+    await pool.query(
+      `INSERT INTO economy_payment_authorities(payment_authority_id,person_id,department_id,payment_account_ciphertext,start_at,revision) VALUES ('receipt0097-submit','receipt-owner-0095','receipt-department-0095','synthetic:0097','2026-01-01',0)`,
+    );
+    await pool.query(
+      `INSERT INTO economy_receipt_approval_grants(approval_grant_id,person_id,scope,department_id,start_at,revision) VALUES ('receipt0097-approve','receipt-foreign-0095','Department','receipt-department-0095','2026-01-01',0)`,
+    );
     // First observe the unconfigured composition: successful business write cannot fake delivery.
     const missing = await submit("receipt0097-missing");
     assert.ok((await outbox(missing.id)).some((r) => r.status === "Failed"));
@@ -224,7 +227,7 @@ export const observeReceiptDelivery = async (options: {
       (await pool.query("SELECT count(*) FROM economy_receipt_command_receipts")).rows[0].count,
     );
     await pool.query(
-      "UPDATE authz_rules SET end_at=now(),revision=revision+1 WHERE rule_id='receipt0097-approve'",
+      "UPDATE economy_receipt_approval_grants SET end_at=now(),revision=revision+1 WHERE approval_grant_id='receipt0097-approve'",
     );
     const denied = await fetch(`${origin}/api/receipts/${missing.id}:reject`, {
       method: "POST",
