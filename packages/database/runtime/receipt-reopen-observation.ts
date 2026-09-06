@@ -330,7 +330,20 @@ export async function observeReceiptReopening(options: {
       });
       page.on("pageerror", () => errors.push("browser runtime error"));
       page.on("console", (message: any) => {
-        if (message.type() === "error") errors.push("browser console error");
+        if (message.type() === "error") {
+          const location = message.location();
+          const path = location.url ? new URL(location.url).pathname : "unknown";
+          const text = message.text();
+          errors.push(
+            JSON.stringify({
+              kind: "browser console error",
+              path,
+              // Project common network diagnostics without arbitrary browser text or URLs.
+              networkStatus: text.match(/server responded with a status of (\d+)/)?.[1] ?? null,
+              hydration: /hydrat/i.test(text),
+            }),
+          );
+        }
       });
       return page;
     };
