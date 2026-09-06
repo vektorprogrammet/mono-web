@@ -1,3 +1,4 @@
+import { runOnboardingExpirySweeper } from "./onboarding/delivery.js";
 import { makeReceiptDeliveryLayer, receiptDeliveryConfig } from "./receipt/delivery.js";
 import { randomUUID } from "node:crypto";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
@@ -138,6 +139,8 @@ try {
 
 if (process.exitCode !== 1) {
   const server = Bun.serve({ hostname: config.host, port: config.port, fetch: api.fetch });
+  const onboardingExpiryFiber =
+    ingress === "external" ? runtime.runFork(runOnboardingExpirySweeper) : undefined;
   const workerFiber =
     ingress === "internal" || config.publicApplicationEffects === undefined
       ? undefined
@@ -165,6 +168,13 @@ if (process.exitCode !== 1) {
       } catch {
         exitCode = 1;
       }
+      if (onboardingExpiryFiber !== undefined) {
+        try {
+          await runtime.runPromise(Fiber.interrupt(onboardingExpiryFiber));
+        } catch {
+          exitCode = 1;
+        }
+      }
       if (workerFiber !== undefined) {
         try {
           await runtime.runPromise(Fiber.interrupt(workerFiber));
@@ -181,6 +191,14 @@ if (process.exitCode !== 1) {
       process.exit(exitCode);
     })();
   };
+  if (onboardingExpiryFiber !== undefined) {
+    void runtime.runPromise(Fiber.await(onboardingExpiryFiber)).then((exit) => {
+      if (Exit.isFailure(exit) && shutdownPromise === undefined) {
+        process.stderr.write("onboarding expiry worker failed\n");
+        void shutdown();
+      }
+    });
+  }
   if (workerFiber !== undefined) {
     void runtime.runPromise(Fiber.await(workerFiber)).then((exit) => {
       if (Exit.isFailure(exit) && shutdownPromise === undefined) {

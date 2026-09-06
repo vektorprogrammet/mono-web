@@ -174,6 +174,10 @@ const mainLinks = [
         url: href("/assistenter"),
       },
       {
+        title: "Søkerkontoer",
+        url: href("/onboarding"),
+      },
+      {
         title: "Vikarer",
         url: href("/vikarer"),
       },

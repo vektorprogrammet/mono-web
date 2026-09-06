@@ -48,6 +48,8 @@ export const CAPABILITY_TYPE_IDS = [
   "substitutes.manage",
   "placements.self",
   "placements.manage",
+  "onboarding.manage",
+  "onboarding.claim",
   "admissions.read-periods",
   "admissions.create-period",
   "admissions.revise-period",
@@ -74,7 +76,10 @@ export const CAPABILITY_TYPES = Object.fromEntries(
     id,
     {
       ruleTarget: ruleTargetCapabilityTypeIds.has(id),
-      objectCapability: id === "recruitment.invitation-response" || id === "contact.submit",
+      objectCapability:
+        id === "recruitment.invitation-response" ||
+        id === "contact.submit" ||
+        id === "onboarding.claim",
     },
   ]),
 ) as {
@@ -199,6 +204,8 @@ export const SCOPE_RESOLVER_IDS = [
   "schools.directory",
   "substitutes.application-scope",
   "placements.explicit-department",
+  "onboarding.application-department",
+  "onboarding.claim",
   "admissions.public-open-periods",
   "admissions.public-application-options",
   "admissions.application-create",

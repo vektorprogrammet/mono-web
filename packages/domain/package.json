@@ -33,7 +33,8 @@
     "./receipt/proof": "./src/receipt/proof-index.ts",
     "./contact": "./src/contact/index.ts",
     "./substitutes": "./src/substitutes/index.ts",
-    "./placements": "./src/placements/index.ts"
+    "./placements": "./src/placements/index.ts",
+    "./onboarding": "./src/onboarding/index.ts"
   },
   "scripts": {
     "report": "bun run runtime/main.ts",

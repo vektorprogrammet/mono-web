@@ -299,6 +299,11 @@ export const databaseMigrationDefinitions = [
     url: new URL("../migrations/0034-password-recovery.sql", import.meta.url),
   },
   {
+    id: "35_applicant-account-onboarding",
+    name: "applicant-account-onboarding",
+    url: new URL("../migrations/0035-applicant-account-onboarding.sql", import.meta.url),
+  },
+  {
     id: "36_native-credential-cohort",
     name: "native-credential-cohort",
     url: new URL("../migrations/0036-native-credential-cohort.sql", import.meta.url),

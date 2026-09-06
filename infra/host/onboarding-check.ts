@@ -1,0 +1,431 @@
+import { createPromiseClient } from "../../packages/sdk/src/promise.js";
+import { createServer as httpServer } from "node:http";
+/** 0099 real local API + browser acceptance. Reuses native identity seed and owned process lifecycle. */
+import assert from "node:assert/strict";
+import { execFileSync, spawn } from "node:child_process";
+import { createServer } from "node:net";
+import { randomBytes, createHash } from "node:crypto";
+import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createRequire } from "node:module";
+import { stopPreviewScenarioBackend } from "./preview-scenario.js";
+const root = new URL("../../", import.meta.url).pathname;
+const requireDatabase = createRequire(
+  new URL("../../packages/database/package.json", import.meta.url),
+);
+const requireApi = createRequire(new URL("../../packages/http-api/package.json", import.meta.url));
+const { Schema } = await import(requireApi.resolve("effect"));
+const { Pool } = requireDatabase("pg");
+const run = (command: string, args: string[], env = process.env, timeout = 60_000) =>
+  execFileSync(command, args, { cwd: root, env, encoding: "utf8", timeout });
+const mode = process.argv[2];
+assert.ok(
+  process.argv.length === 3 && (mode === "--browser" || mode === "--api-only"),
+  "Usage: bun run infra/host/onboarding-check.ts --browser | --api-only",
+);
+const revision = run("git", ["rev-parse", "HEAD"]).trim();
+assert.equal(run("git", ["status", "--porcelain"]).trim(), "", "requires committed clean artifact");
+const artifacts = await mkdtemp(join(tmpdir(), "vektor-onboarding-0099-"));
+const children: ReturnType<typeof spawn>[] = [];
+const outputs: string[] = [];
+const start = (command: string, args: string[], env = process.env) => {
+  const child = spawn(command, args, { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
+  children.push(child);
+  child.stdout?.on("data", (chunk) => outputs.push(String(chunk)));
+  child.stderr?.on("data", (chunk) => outputs.push(String(chunk)));
+  return child;
+};
+const port = async (requested = 0): Promise<number> => {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(requested, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const value = address.port;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return value;
+};
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+let pool: InstanceType<typeof Pool> | undefined;
+let evidence: Record<string, unknown> | undefined;
+const mailboxToken = randomBytes(32).toString("hex");
+const mail = new Map<string, { deliveryId: string; text: string; to: string }>();
+let mailbox: ReturnType<typeof httpServer> | undefined;
+let attempts = 0;
+let rejectNext = false;
+
+try {
+  const pgPort = await port();
+  const backendPort = await port();
+  const dashboardPort = await port(5174);
+  const pgDir = join(artifacts, "postgres");
+  run("initdb", ["-D", pgDir, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"]);
+  start("postgres", ["-D", pgDir, "-p", String(pgPort), "-h", "127.0.0.1", "-k", artifacts]);
+  const postgresUrl = `postgres://postgres@127.0.0.1:${pgPort}/postgres`;
+  pool = new Pool({ connectionString: postgresUrl });
+  for (let n = 0; ; n++) {
+    try {
+      await pool.query("SELECT 1");
+      break;
+    } catch (e) {
+      if (n > 100) throw e;
+      await delay(100);
+    }
+  }
+  const backendOrigin = `http://127.0.0.1:${backendPort}`;
+  const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+  const mailboxPort = await port();
+  mailbox = httpServer(async (req, res) => {
+    if (req.headers.authorization !== `Bearer ${mailboxToken}`) {
+      res.writeHead(401).end();
+      return;
+    }
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    if (req.method === "POST") {
+      attempts++;
+      if (rejectNext) {
+        rejectNext = false;
+        res.writeHead(503).end();
+        return;
+      }
+      const parsed = JSON.parse(body);
+      const old = mail.get(parsed.deliveryId);
+      if (old && JSON.stringify(old) !== JSON.stringify(parsed)) {
+        res.writeHead(409).end();
+        return;
+      }
+      mail.set(parsed.deliveryId, parsed);
+      res.writeHead(204).end();
+      return;
+    }
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify([...mail.values()]));
+  });
+  await new Promise<void>((resolve) => mailbox!.listen(mailboxPort, "127.0.0.1", resolve));
+  const mailboxOrigin = `http://127.0.0.1:${mailboxPort}`;
+  const environment = {
+    ...process.env,
+    ONBOARDING_DELIVERY_URL: mailboxOrigin + "/mail",
+    ONBOARDING_DELIVERY_TOKEN: mailboxToken,
+    ONBOARDING_DELIVERY_TIMEOUT_MS: "1000",
+    ONBOARDING_DELIVERY_SENDER: "coordinator@example.invalid",
+    BACKEND_HOST: "127.0.0.1",
+    BACKEND_PORT: String(backendPort),
+    BACKEND_PG_URL: postgresUrl,
+    BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
+    NATIVE_IDENTITY_DEPLOYMENT: "local",
+    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
+    OAUTH_CANONICAL_ORIGIN: backendOrigin,
+    OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
+    OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
+    PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+    JOURNEY_SEED_PG_URL: postgresUrl,
+  };
+  for (const key of Object.keys(environment))
+    if (
+      key.startsWith("CONTACT_") ||
+      (key.startsWith("PUBLIC_APPLICATION_EFFECT_") && key !== "PUBLIC_APPLICATION_EFFECT_MODE")
+    )
+      delete environment[key as keyof typeof environment];
+  run("bun", ["apps/dashboard/e2e/native-recruitment-journey-seed.mjs"], environment);
+  const departmentId = "department-native-journey-0049";
+  const semesterId = "semester-native-journey-0049";
+  const leaderId = "journey-rec-leader-0049";
+  const persons = {
+    leader: { email: "lina.leader@example.invalid", password: "journey-secret-0123456789abcdef" },
+    existing: {
+      email: "irene.intervjuer@example.invalid",
+      password: "journey-secret-0123456789abcdef",
+    },
+    applicant: {
+      email: "onboarding-browser@example.invalid",
+      password: "onboarding-browser-password-0099",
+    },
+  };
+  await pool.query(
+    `DELETE FROM organization_global_administrator_grants;INSERT INTO schools_directory_schools(school_id,name,contact_person,email,phone,language,active,revision) OVERRIDING SYSTEM VALUE VALUES(995,'Onboarding school','Contact','school@example.invalid','12345678','Norwegian',true,0);INSERT INTO schools_directory_departments VALUES(995,'${departmentId}',0);`,
+  );
+  let backend = start("bun", ["run", "--cwd", "apps/backend", "start"], environment);
+  const ready = async () => {
+    for (let n = 0; ; n++) {
+      try {
+        if ((await fetch(backendOrigin + "/health")).ok) return;
+      } catch {}
+      if (n > 150) throw Error("backend startup failed");
+      await delay(200);
+    }
+  };
+  await ready();
+  const request = (
+    path: string,
+    cookie?: string,
+    body?: unknown,
+    etag?: string,
+    key = randomBytes(18).toString("hex"),
+  ) =>
+    fetch(backendOrigin + path, {
+      method: body === undefined ? "GET" : "POST",
+      headers: {
+        origin: dashboardOrigin,
+        ...(cookie ? { cookie } : {}),
+        ...(body === undefined
+          ? {}
+          : {
+              "content-type": "application/json",
+              "idempotency-key": key,
+              ...(etag ? { "if-match": etag } : {}),
+            }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  const expectStatus = async (response: Response, status: number) => {
+    assert.equal(response.status, status);
+    return response.json();
+  };
+  const login = async (person: { email: string; password: string }) => {
+    const response = await request("/api/auth/sign-in/email", undefined, person);
+    assert.equal(response.status, 200);
+    const cookie = response.headers.get("set-cookie")?.split(";")[0];
+    assert.ok(cookie);
+    return cookie;
+  };
+  const leader = await login(persons.leader);
+  const existing = await login(persons.existing);
+  const boardPath = "/api/onboarding?departmentId=" + departmentId;
+  const board = async () => expectStatus(await request(boardPath, leader), 200);
+  const submit = async (email: string, firstName: string) =>
+    expectStatus(
+      await request("/api/applications", undefined, {
+        commandId: crypto.randomUUID(),
+        departmentId,
+        firstName,
+        lastName: "Applicant",
+        phone: "12345678",
+        email,
+        gender: 0,
+        fieldOfStudyId: "field-native-journey-0049",
+        yearOfStudy: 2,
+      }),
+      201,
+    );
+  const browserApplication = await submit(persons.applicant.email, "Onboarding");
+  const issue = async (applicationId: string) => {
+    const before = await board();
+    const key = randomBytes(18).toString("hex");
+    const body = { applicationId, action: "Issue" };
+    const response = await request(boardPath, leader, body, before.etag, key);
+    await expectStatus(response, 200);
+    const count = mail.size;
+    await expectStatus(await request(boardPath, leader, body, before.etag, key), 200);
+    assert.equal(mail.size, count);
+    await expectStatus(
+      await request(boardPath, leader, { applicationId, action: "Revoke" }, before.etag, key),
+      409,
+    );
+    return [...mail.values()].at(-1)!;
+  };
+  await expectStatus(await request(boardPath, existing), 403);
+  await expectStatus(await request(boardPath), 401);
+  const existingApplication = await submit("onboarding-existing@example.invalid", "Existing");
+  const prior = (
+    await pool.query(
+      `SELECT jsonb_build_object('user',u,'account',a,'profile',p)::text AS value FROM auth."user" u JOIN auth."account" a ON a."userId"=u.id JOIN person_profiles p ON p.person_id=u.id WHERE u.id='journey-rec-interviewer-a-0049'`,
+    )
+  ).rows;
+  const invitation = await issue(existingApplication.applicationId);
+  const token = new URL(invitation.text.split(" ").at(-1)!).hash.slice(1);
+  await expectStatus(
+    await request("/api/onboarding/claim", undefined, { mode: "ExistingAccount", token }),
+    401,
+  );
+  await expectStatus(
+    await request("/api/onboarding/claim", existing, { mode: "ExistingAccount", token }),
+    200,
+  );
+  await expectStatus(
+    await request("/api/onboarding/claim", existing, { mode: "ExistingAccount", token }),
+    400,
+  );
+  assert.deepEqual(
+    (
+      await pool.query(
+        `SELECT jsonb_build_object('user',u,'account',a,'profile',p)::text AS value FROM auth."user" u JOIN auth."account" a ON a."userId"=u.id JOIN person_profiles p ON p.person_id=u.id WHERE u.id='journey-rec-interviewer-a-0049'`,
+      )
+    ).rows,
+    prior,
+  );
+  const collisionApplication = await submit(persons.existing.email, "Collision");
+  const collision = await issue(collisionApplication.applicationId);
+  const collisionToken = new URL(collision.text.split(" ").at(-1)!).hash.slice(1);
+  await expectStatus(
+    await request("/api/onboarding/claim", undefined, {
+      mode: "NewAccount",
+      token: collisionToken,
+      password: persons.applicant.password,
+    }),
+    409,
+  );
+  const concurrentApplication = await submit("onboarding-concurrent@example.invalid", "Concurrent");
+  const concurrent = await issue(concurrentApplication.applicationId);
+  const concurrentToken = new URL(concurrent.text.split(" ").at(-1)!).hash.slice(1);
+  const claims = await Promise.all([
+    request("/api/onboarding/claim", undefined, {
+      mode: "NewAccount",
+      token: concurrentToken,
+      password: persons.applicant.password,
+    }),
+    request("/api/onboarding/claim", undefined, {
+      mode: "NewAccount",
+      token: concurrentToken,
+      password: persons.applicant.password,
+    }),
+  ]);
+  assert.deepEqual(claims.map((r) => r.status).sort(), [200, 400]);
+  const retryApplication = await submit("onboarding-retry@example.invalid", "Retry");
+  rejectNext = true;
+  const pre = await board();
+  await expectStatus(
+    await request(
+      boardPath,
+      leader,
+      { applicationId: retryApplication.applicationId, action: "Issue" },
+      pre.etag,
+    ),
+    200,
+  );
+  assert.equal(
+    (await board()).items.find(
+      (item: { applicationId: string }) => item.applicationId === retryApplication.applicationId,
+    ).delivery,
+    "Pending",
+  );
+  await stopPreviewScenarioBackend(backend);
+  backend = start("bun", ["run", "--cwd", "apps/backend", "start"], environment);
+  await ready();
+  const retryPre = await board();
+  await expectStatus(
+    await request(
+      boardPath,
+      leader,
+      { applicationId: retryApplication.applicationId, action: "RetryDelivery" },
+      retryPre.etag,
+    ),
+    200,
+  );
+  assert.equal(
+    (await board()).items.find(
+      (item: { applicationId: string }) => item.applicationId === retryApplication.applicationId,
+    ).delivery,
+    "Delivered",
+  );
+  const revokePre = await board();
+  await expectStatus(
+    await request(
+      boardPath,
+      leader,
+      { applicationId: retryApplication.applicationId, action: "Revoke" },
+      revokePre.etag,
+    ),
+    200,
+  );
+  const revoked = [...mail.values()].find(
+    (item) => item.to === "onboarding-retry@example.invalid",
+  )!;
+  await expectStatus(
+    await request("/api/onboarding/claim", undefined, {
+      mode: "NewAccount",
+      token: new URL(revoked.text.split(" ").at(-1)!).hash.slice(1),
+      password: persons.applicant.password,
+    }),
+    400,
+  );
+  const manifest = {
+    revision,
+    backendOrigin,
+    dashboardOrigin,
+    artifacts,
+    departmentId,
+    semesterId,
+    schoolId: 995,
+    persons,
+    applicationId: browserApplication.applicationId,
+    mailboxOrigin,
+    mailboxToken,
+  };
+  const manifestPath = join(artifacts, "manifest.json");
+  await writeFile(manifestPath, JSON.stringify(manifest), { mode: 0o600 });
+  let browserEvidence: unknown = null;
+  if (mode === "--browser") {
+    run(
+      "bun",
+      ["apps/dashboard/e2e/run-real-native-onboarding.mjs"],
+      { ...environment, ONBOARDING_JOURNEY_MANIFEST: manifestPath },
+      300000,
+    );
+    browserEvidence = JSON.parse(await readFile(join(artifacts, "browser-evidence.json"), "utf8"));
+    const observed = (
+      await pool.query(
+        `SELECT l.person_id FROM applicant_account_links l JOIN admission_applicants a USING(applicant_id) WHERE a.email=$1`,
+        [persons.applicant.email],
+      )
+    ).rows;
+    assert.equal(observed.length, 1);
+    assert.equal(
+      (
+        await pool.query(
+          `SELECT count(*)::int AS count FROM assistant_placements WHERE person_id=$1 AND active`,
+          [observed[0].person_id],
+        )
+      ).rows[0].count,
+      1,
+    );
+  }
+  assert.equal(
+    (
+      await pool.query(
+        `SELECT count(*)::int AS count FROM applicant_account_delivery WHERE state IN ('Delivered','Cancelled') AND (secret IS NOT NULL OR envelope IS NOT NULL)`,
+      )
+    ).rows[0].count,
+    0,
+  );
+  evidence = {
+    revision,
+    passed: true,
+    mode,
+    browserEvidence,
+    mailAttempts: attempts,
+    acceptedDeliveries: mail.size,
+    gates: [
+      "public application native authority",
+      "scoped coordinator invitation and idempotency conflict",
+      "existing claim preserves profile/credentials",
+      "email collision rejected",
+      "concurrent claim one account",
+      "failed delivery restart retry",
+      "revoked and consumed token rejected",
+      "terminal secret cleanup",
+    ],
+    scope: "synthetic loopback only",
+  };
+} finally {
+  if (pool) await pool.end();
+  for (const child of children.reverse()) await stopPreviewScenarioBackend(child);
+  if (mailbox) await new Promise<void>((resolve) => mailbox!.close(() => resolve()));
+  await rm(join(artifacts, "postgres"), { recursive: true, force: true });
+  await rm(join(artifacts, "manifest.json"), { force: true });
+  if (evidence) {
+    await writeFile(
+      join(artifacts, "evidence.json"),
+      JSON.stringify(
+        { ...evidence, cleanup: "owned processes and credential manifest removed" },
+        null,
+        2,
+      ),
+    );
+    process.stdout.write(join(artifacts, "evidence.json") + "\n");
+  }
+}

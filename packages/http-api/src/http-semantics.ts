@@ -261,6 +261,24 @@ export const NativeProblemRegistry = {
     status: 422,
     detail: "An active volunteer affiliation is required to create or edit a placement.",
   },
+  "onboarding.claim-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:onboarding.claim-invalid",
+    title: "Invitation cannot be claimed",
+    detail: "The invitation is invalid, expired or already used.",
+    status: 400,
+  },
+  "onboarding.sign-in-required": {
+    type: "urn:vektorprogrammet:problem:v0.2:onboarding.sign-in-required",
+    title: "Sign in to the existing account",
+    detail: "Authenticate the existing account before linking this applicant.",
+    status: 409,
+  },
+  "onboarding.already-linked": {
+    type: "urn:vektorprogrammet:problem:v0.2:onboarding.already-linked",
+    title: "Applicant already linked",
+    detail: "This applicant already has an immutable account association.",
+    status: 409,
+  },
   "placement.overlap": {
     type: "urn:vektorprogrammet:problem:v0.2:placement.overlap",
     title: "Duplicate placement",

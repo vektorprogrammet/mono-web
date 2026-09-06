@@ -1,3 +1,4 @@
+import { OnboardingApi } from "./onboarding.js";
 import { PlacementsApi } from "./placements.js";
 /**
  * Composition of all Vektor-owned native HTTP groups.
@@ -29,6 +30,7 @@ import { SystemApi } from "./system.js";
 export class ExternalNativeApi extends HttpApi.make("external-native-api")
   .add(SubstitutesApi)
   .add(PlacementsApi)
+  .add(OnboardingApi)
   .add(ContactApi)
   .add(SystemApi)
   .add(ProfileApi)

@@ -15,3 +15,5 @@ export {
   type OAuthExpectedMechanism,
 } from "./oauth-live.js";
 export * from "./service-principal-grants-live.js";
+
+export * from "./onboarding-account.js";

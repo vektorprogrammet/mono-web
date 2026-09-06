@@ -1,3 +1,4 @@
+import { OnboardingApiHandlers } from "./onboarding/http.js";
 import { PlacementsApiHandlers } from "./placements/http.js";
 import type { ReceiptAuxiliaryEffects } from "@vektorprogrammet/domain/receipt";
 import { SubstitutesApiHandlers } from "./substitutes/http.js";
@@ -168,6 +169,7 @@ export const makeExternalNativeApiRouterLayer = (
   const handlers = Layer.mergeAll(
     SubstitutesApiHandlers({ run, now: options.now }),
     PlacementsApiHandlers({ run, now: options.now }),
+    OnboardingApiHandlers({ run, now: options.now, delivery: config.onboarding }),
     ContactApiHandlers(run, config.contact),
     SystemApiHandlers(run, options),
     AdmissionsApiHandlers({

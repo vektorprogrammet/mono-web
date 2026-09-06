@@ -89,3 +89,13 @@ Onboarding worker owns this journey in an isolated worktree. Migration 0035 is
 reserved; 0034 and password recovery/auth-engine configuration belong to 0054.2.
 Coordinate shared composition files through integration. No provider deployment,
 production recipient, real account conversion or remote mutation is authorized.
+
+## Explicit retention amendment — implementation evidence, 2026-09-06
+
+Invitation expiry denies claim and delivery immediately. The external backend owns
+one interruptible expiry sweeper which clears expired secret/envelope data at start
+and at most 60 seconds between completed sweeps while running. Database work or a
+stopped backend can delay physical deletion; startup resumes cleanup. This is a
+bounded operational retention mechanism, not a database wall-clock deletion promise.
+The claim URL derives from OAUTH_DASHBOARD_ORIGIN and the fixed root-mounted
+/konto-aktivering route; this rehearsal requires DASHBOARD_MOUNT=/.

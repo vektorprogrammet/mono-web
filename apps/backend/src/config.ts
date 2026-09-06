@@ -1,3 +1,4 @@
+import { onboardingDeliveryConfig, type OnboardingDeliveryConfig } from "./onboarding/delivery.js";
 import {
   OAUTH_NATIVE_API_RESOURCE,
   type OAuthProviderRuntimeConfig,
@@ -32,6 +33,7 @@ export interface BackendAuthConfig {
 
 export interface BackendConfig {
   readonly contact?: ContactConfig;
+  readonly onboarding?: OnboardingDeliveryConfig;
   readonly host: string;
   readonly port: number;
   readonly postgresUrl: string;
@@ -219,6 +221,7 @@ export const makeBackendConfig = (
   const oauth = decodeOAuthBackendConfig(env, sessionBoundary.trustedOrigins);
   return {
     contact: contactConfig(env),
+    onboarding: onboardingDeliveryConfig(env),
     host: loopbackHost(env.BACKEND_HOST),
     port: parsePort(env.BACKEND_PORT),
     postgresUrl,
