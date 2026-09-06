@@ -18,7 +18,14 @@ const signIn = async (page: Page, person: { email: string; password: string }) =
 };
 const axe = async (page: Page, state: string) => {
   const result = await new AxeBuilder({ page }).analyze();
-  expect(result.violations, `${state}: ${JSON.stringify(result.violations)}`).toEqual([]);
+  expect(
+    result.violations.map(({ id, impact, nodes }) => ({
+      id,
+      impact,
+      nodes: nodes.map(({ target, failureSummary }) => ({ target, failureSummary })),
+    })),
+    state,
+  ).toEqual([]);
 };
 const selectHistorical = async (page: Page) => {
   await page.getByLabel("Avdeling", { exact: true }).selectOption(manifest.departmentId);

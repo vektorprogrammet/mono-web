@@ -41,8 +41,10 @@ const environment = {
   REAL_NATIVE_IDENTITY_E2E: "1",
 };
 const children = new Set();
+let commandSequence = 0;
 const run = (command, args, cwd) =>
   new Promise((resolve, reject) => {
+    const logPath = join(manifest.artifacts, `dashboard-command-${++commandSequence}.log`);
     const child = spawn(command, args, {
       cwd,
       env: environment,
@@ -58,11 +60,19 @@ const run = (command, args, cwd) =>
     });
     child.once("error", reject);
     child.once("exit", () => children.delete(child));
-    child.once("exit", (code) =>
-      code === 0
-        ? resolve(output)
-        : reject(new Error(`${command} ${args.join(" ")} exited ${code}\n${output.slice(-12000)}`)),
-    );
+    child.once("exit", (code) => {
+      writeFile(logPath, output, { mode: 0o600 }).then(
+        () =>
+          code === 0
+            ? resolve(output)
+            : reject(
+                new Error(
+                  `${command} ${args.join(" ")} exited ${code}; complete log: ${logPath}\n${output.slice(-6000)}`,
+                ),
+              ),
+        reject,
+      );
+    });
   });
 const stop = async (child) => {
   if (!child || child.pid === undefined || child.exitCode !== null || child.signalCode !== null)

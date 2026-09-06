@@ -61,6 +61,6 @@ describe("substitute coordinator declarations", () => {
 
 it("labels canonical semesters with Norwegian dates rather than storage identifiers", () => {
   expect(
-    substituteSemesterLabel({ startAt: "2024-01-01T00:00:00Z", endAt: "2024-06-30T23:59:59Z" }),
+    substituteSemesterLabel({ startAt: "2023-12-31T23:00:00Z", endAt: "2024-06-30T21:59:59Z" }),
   ).toBe("1. jan. 2024 – 30. juni 2024");
 });

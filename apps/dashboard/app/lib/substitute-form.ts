@@ -86,7 +86,7 @@ export function substituteSemesterLabel(semester: { startAt: string; endAt: stri
     day: "numeric",
     month: "short",
     year: "numeric",
-    timeZone: "UTC",
+    timeZone: "Europe/Oslo",
   });
   return `${format.format(new Date(semester.startAt))} – ${format.format(new Date(semester.endAt))}`;
 }
