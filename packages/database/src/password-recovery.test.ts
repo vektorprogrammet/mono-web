@@ -13,7 +13,7 @@ const config: AuthEngineConfig = {
   },
   trustedOrigins: ["http://127.0.0.1:5174"],
   secureCookies: false,
-};
+} as const;
 const context = new IdentityRequestContext({
   requestCorrelation: "focused-recovery",
   sourceIp: null,

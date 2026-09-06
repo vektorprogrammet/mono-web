@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -42,15 +42,16 @@ export async function action({ request }: Route.ActionArgs) {
   }
   return redirect("/login?reset=true", { headers });
 }
+// React owns the server/client snapshot; submission needs its client handler for token-only-in-body transport.
+const subscribeHydration = () => () => {};
+const clientSnapshot = () => true;
+const serverSnapshot = () => false;
 export default function PasswordReset() {
   const { ready } = useLoaderData<typeof loader>();
   const resetToken = useRef(
     typeof window === "undefined" ? null : new URL(window.location.href).searchParams.get("token"),
   );
-  const [hydrated, setHydrated] = useState(false);
-  useEffect(() => {
-    setHydrated(true);
-  }, []);
+  const hydrated = useSyncExternalStore(subscribeHydration, clientSnapshot, serverSnapshot);
   const result = useActionData<typeof action>();
   const pending = useNavigation().state !== "idle";
   const state = result?.state ?? (ready ? "Ready" : "InvalidOrExpired");
