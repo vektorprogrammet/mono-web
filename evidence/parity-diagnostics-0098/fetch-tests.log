@@ -1,0 +1,11 @@
+bun test v1.3.13 (bf2e2cec)
+
+packages/parity-inventory/tests/c2.test.ts:
+(pass) provider-specific calls and literal HTTP integration anchors remain visible [40.00ms]
+(pass) fetch destination excludes Origin and body URLs while unsafe destinations remain rejected [30.00ms]
+
+ 2 pass
+ 42 filtered out
+ 0 fail
+ 21 expect() calls
+Ran 2 tests across 1 file. [580.00ms]

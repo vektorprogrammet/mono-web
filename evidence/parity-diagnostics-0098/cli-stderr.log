@@ -1,0 +1,3 @@
+$ bun run packages/parity-inventory/verify-cli.ts
+{"diagnostics":[{"category":"effect_failure","record_index":19,"sources":[{"line_start":451,"path":"packages/database/runtime/receipt-import-rehearsal.ts","source_index":8135}]},{"category":"effect_row","record_index":537,"sources":[{"line_start":451,"path":"packages/database/runtime/receipt-import-rehearsal.ts","source_index":8135}]}],"reason_code":"UNSAFE_SOURCE"}
+error: script "parity:verify" exited with code 6

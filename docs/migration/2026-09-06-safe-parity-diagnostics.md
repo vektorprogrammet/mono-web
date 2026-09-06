@@ -21,10 +21,21 @@ reproduced the rejection. The separate invalid-bearer request is not the reporte
 failing source location. No credential fixture was rewritten based on that earlier
 hypothesis.
 
-The next bounded correction is transport-aware destination extraction, with
-regressions that distinguish header Origin from destination and retain rejection
-of actual unsafe destination URLs. This change does **not** bypass or weaken the
-safety guard, and does not claim functional parity.
+## Corrected extraction
+
+Implementation commit `9742f472` fixes fetch destination extraction using the
+existing TypeScript parser: only the first argument's direct string literal or
+non-interpolated template establishes a destination. Header/body URLs cannot do
+so; fallback expressions and interpolated templates remain unknown. Other
+transport handling and safety predicates remain unchanged. Explicit spec0098
+amendment records this observed defect.
+
+Two focused C2 tests pass (21 assertions), including unrelated Origin/body URLs,
+real literal destination, unsafe credential-bearing destination rejection,
+dynamic fallback and interpolation. Package types pass. The full corrected CLI
+was stopped before completion to hand off the committed artifact for root
+integration/verification; **no corrected full-CLI success is claimed**. Root is
+independently running broader C2 tests; their result is not asserted here.
 
 ## Checks and limits
 
@@ -40,4 +51,4 @@ safety guard, and does not claim functional parity.
   predicate was modified. No capability equivalence claim follows from this fix.
 
 Evidence: `evidence/parity-diagnostics-0098/`. The CLI evidence pins the clean
-implementation commit above; this report/evidence commit adds documentation only.
+implementation commit above; the original CLI evidence pins c14703e9, before the parser correction.

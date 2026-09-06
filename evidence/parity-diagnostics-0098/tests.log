@@ -1,0 +1,17 @@
+bun test v1.3.13 (bf2e2cec)
+
+packages/parity-inventory/tests/falsifiers.test.ts:
+(pass) OpenAPI route keys remain structural while credential and schema values fail closed [1054.99ms]
+(pass) unsafe parsed scalars produce identical blocked receipts [1202.99ms]
+(pass) runtime abort receipts remain schema-valid and non-promotable [1571.99ms]
+
+packages/parity-inventory/tests/unsafe-diagnostics.test.ts:
+(pass) unsafe projection diagnostics identify a source without copying rejected metadata [1.00ms]
+(pass) unsafe paths remain redacted while record and source indices remain actionable
+(pass) failure records with unavailable source references still identify their category and index
+
+ 6 pass
+ 76 filtered out
+ 0 fail
+ 65 expect() calls
+Ran 6 tests across 2 files. [4.35s]
