@@ -61,8 +61,6 @@ let pool: Pool | undefined,
   server: ReturnType<typeof Bun.serve> | undefined;
 let sink: ReturnType<typeof createHttpServer> | undefined;
 const secrets: string[] = [];
-const safe = (value: string) =>
-  secrets.reduce((s, v) => (v ? s.replaceAll(v, "[redacted]") : s), value);
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const freePort = async () => {
@@ -418,14 +416,24 @@ try {
       res.writeHead(401).end();
       return;
     }
-    let body = "";
-    for await (const chunk of req) body += chunk;
-    const value = JSON.parse(body);
-    deliveryAttempts++;
-    assert.equal(value.recipientEmail, "cohort-accepted-0@example.invalid");
-    deliveredUrl = value.resetUrl;
-    secrets.push(deliveredUrl);
-    res.writeHead(202).end();
+    try {
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      const value = JSON.parse(body);
+      deliveryAttempts++;
+      if (
+        value.recipientEmail !== "cohort-accepted-0@example.invalid" ||
+        typeof value.resetUrl !== "string"
+      ) {
+        res.writeHead(422).end();
+        return;
+      }
+      deliveredUrl = value.resetUrl;
+      secrets.push(deliveredUrl);
+      res.writeHead(202).end();
+    } catch {
+      res.writeHead(400).end();
+    }
   });
   await new Promise<void>((r) => sink!.listen(0, "127.0.0.1", r));
   const sinkPort = (sink.address() as { port: number }).port;
@@ -536,7 +544,17 @@ try {
   await writeFile(
     join(artifacts, "failure.json"),
     JSON.stringify(
-      { revision, error: safe(cause instanceof Error ? cause.message : String(cause)) },
+      {
+        revision,
+        error: cause instanceof IdentityCohortFailure ? cause.code : "RehearsalFailed",
+        location:
+          cause instanceof Error
+            ? cause.stack
+                ?.split("\n")
+                .filter((line) => /at .*\.ts:\d/.test(line))
+                .slice(0, 3)
+            : [],
+      },
       null,
       2,
     ),
