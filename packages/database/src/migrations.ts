@@ -293,6 +293,11 @@ export const databaseMigrationDefinitions = [
     name: "receipt-delivery-envelope",
     url: new URL("../migrations/0033-receipt-delivery-envelope.sql", import.meta.url),
   },
+  {
+    id: "36_native-credential-cohort",
+    name: "native-credential-cohort",
+    url: new URL("../migrations/0036-native-credential-cohort.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>
