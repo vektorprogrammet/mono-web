@@ -42,7 +42,13 @@ export const ReceiptSnapshot = Schema.Struct({
   snapshotId: Text,
   sourceWatermark: Text,
   transformationRevision: Text,
-  persons: Schema.Array(Schema.Struct({ sourceUser: Text, personId: Text })),
+  persons: Schema.Array(
+    Schema.Struct({
+      sourceUser: Text,
+      personId: Text,
+      syntheticPaymentAccount: Schema.Literal("synthetic:0095:not-a-payment-account"),
+    }),
+  ),
   departments: Schema.Array(Schema.Struct({ sourceDepartment: Text, departmentId: Text })),
   rows: Schema.Array(
     Schema.Struct({
@@ -144,6 +150,12 @@ export const prepareReceiptSnapshot = async (
       const data = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(
         entry.data,
       );
+      if (
+        ["sourcePrimaryKey", "destinationIdentity", "rowDigest"].some((key) =>
+          Object.hasOwn(data, key),
+        )
+      )
+        throw new Error("reserved occurrence metadata in row data");
       decoded.push({
         index,
         row: Schema.decodeUnknownSync(Row)(
@@ -210,7 +222,9 @@ export const prepareReceiptSnapshot = async (
         submittedAt: row.submittedAt,
         status: row.status,
         refundDate: row.refundDate,
-        paymentAccountCiphertext: "synthetic:0095:not-a-payment-account",
+        paymentAccountCiphertext:
+          snapshot.persons.find((person) => person.sourceUser === row.sourceUser)
+            ?.syntheticPaymentAccount ?? null,
         file,
       },
       provenance: {

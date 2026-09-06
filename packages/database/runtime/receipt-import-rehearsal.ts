@@ -357,7 +357,13 @@ try {
     snapshotId: "immutable-0095-v1",
     sourceWatermark: "synthetic:0",
     transformationRevision: "0095-v1",
-    persons: [{ sourceUser: "legacy-owner", personId: persons[0]!.personId }],
+    persons: [
+      {
+        sourceUser: "legacy-owner",
+        personId: persons[0]!.personId,
+        syntheticPaymentAccount: "synthetic:0095:not-a-payment-account",
+      },
+    ],
     departments: [
       { sourceDepartment: "legacy-department", departmentId: "receipt-department-0095" },
     ],

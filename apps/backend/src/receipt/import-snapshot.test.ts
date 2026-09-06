@@ -105,7 +105,13 @@ it("accounts for malformed occurrences and rejects a collision with a decoded ro
     snapshotId: "1",
     sourceWatermark: "0",
     transformationRevision: "1",
-    persons: [{ sourceUser: "legacy-owner", personId: "owner" }],
+    persons: [
+      {
+        sourceUser: "legacy-owner",
+        personId: "owner",
+        syntheticPaymentAccount: "synthetic:0095:not-a-payment-account",
+      },
+    ],
     departments: [{ sourceDepartment: "legacy-dept", departmentId: "dept" }],
     rows: [
       envelope(source),

@@ -400,6 +400,12 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     ),
   ],
   [
+    "GET",
+    "/api/receipts/:receiptId/file",
+    "receipts.readReceiptFile",
+    person("receipts.read-owned", "receipts.by-id", ["receipts.owner"], "SnapshotRead"),
+  ],
+  [
     "POST",
     "/api/receipts",
     "receipts.submitReceipt",
@@ -642,15 +648,15 @@ const reflectedOperations = () => {
 };
 
 describe("native API reflection", () => {
-  it("equals the extended 54-row matrix without a gap or legacy authority", () => {
+  it("equals the extended 55-row matrix without a gap or legacy authority", () => {
     const actual = reflectedOperations();
     const authorities = actual.map(([method, path]) => `${method} ${path}`);
     const operationIds = actual.map(([, , operationId]) => operationId);
 
     expect(actual).toEqual(expectedOperations);
-    expect(actual).toHaveLength(54);
-    expect(new Set(authorities).size).toBe(54);
-    expect(new Set(operationIds).size).toBe(54);
+    expect(actual).toHaveLength(55);
+    expect(new Set(authorities).size).toBe(55);
+    expect(new Set(operationIds).size).toBe(55);
     expect(authorities.some((authority) => /\/api\/admin(?:\/|$)/u.test(authority))).toBe(false);
     expect(
       authorities.some((authority) =>
@@ -661,13 +667,13 @@ describe("native API reflection", () => {
       authorities.some((authority) => /::|\/(?:revise|publish|unpublish)$/u.test(authority)),
     ).toBe(false);
   });
-  it("keeps 53 external authorities and one internal authority on separate roots", () => {
+  it("keeps 54 external authorities and one internal authority on separate roots", () => {
     const external = endpointInventory();
     const internal = internalEndpointInventory();
     const externalAuthorities = external.map(({ method, path }) => `${method} ${path}`);
 
-    expect(external).toHaveLength(53);
-    expect(new Set(externalAuthorities).size).toBe(53);
+    expect(external).toHaveLength(54);
+    expect(new Set(externalAuthorities).size).toBe(54);
     expect(external.map(({ group }) => group)).not.toContain("internal");
     expect(internal).toEqual([
       {
@@ -683,7 +689,7 @@ describe("native API reflection", () => {
     const operations = documentedOperations();
 
     expect(Context.get(InternalNativeApi.groups.internal.annotations, OpenApi.Exclude)).toBe(true);
-    expect(operations).toHaveLength(53);
+    expect(operations).toHaveLength(54);
     expect(operations.some(({ path }) => path.startsWith("/api/e2e"))).toBe(false);
     expect(operations.some(({ path }) => path.startsWith("/api/auth"))).toBe(false);
   });
@@ -810,6 +816,7 @@ describe("native API reflection", () => {
     );
     const categories = [
       "contact.submitContactMessage",
+      "receipts.readReceiptFile",
       ...publicConditionalOperations,
       ...privateConditionalOperations,
       ...createdMutationOperations,
@@ -819,8 +826,8 @@ describe("native API reflection", () => {
       ...privateReadOperations,
       ...noStoreReadOperations,
     ];
-    expect(categories).toHaveLength(53);
-    expect(new Set(categories).size).toBe(53);
+    expect(categories).toHaveLength(54);
+    expect(new Set(categories).size).toBe(54);
     expect([...byId.keys()].sort()).toEqual([...categories].sort());
 
     const operation = (operationId: string) => {
@@ -860,6 +867,9 @@ describe("native API reflection", () => {
       assertSuccess(operationId, "200", ["cache-control", "vary"], true);
     }
 
+    const binary = operation("receipts.readReceiptFile").responses["200"]!;
+    expect(Object.keys(binary.content ?? {})).toEqual(["application/octet-stream"]);
+    expect(Object.keys(binary.headers ?? {}).sort()).toEqual(["cache-control", "vary"]);
     assertSuccess("contact.submitContactMessage", "201", ["cache-control", "vary"], false);
     const tags = new Map<string, string>([
       ["contact", "Public contact"],
