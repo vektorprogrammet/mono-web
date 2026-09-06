@@ -196,12 +196,15 @@ function CommandForm({
       aria-label={label}
       method="post"
       className="space-y-3"
+      data-pending={busy ? "true" : "false"}
       onChange={() => setDirty(true)}
       onSubmit={(event) => {
-        if (busy) {
+        if (busy || event.currentTarget.dataset.pending === "true") {
           event.preventDefault();
           return;
         }
+        event.currentTarget.dataset.pending = "true";
+        setDirty(true);
         const draft = new FormData(event.currentTarget);
         const submitter = (event.nativeEvent as SubmitEvent).submitter;
         if (submitter instanceof HTMLButtonElement && submitter.name)
