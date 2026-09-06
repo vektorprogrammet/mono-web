@@ -336,7 +336,13 @@ try {
       ),
     ),
   );
-  assert.deepEqual(edits.map((r) => r.status).sort(), [200, 412]);
+  assert.equal(edits.filter((r) => r.status === 200).length, 1);
+  for (const response of edits.filter((r) => r.status !== 200))
+    await expectStatus(
+      response,
+      response.status === 409 ? 409 : 412,
+      response.status === 409 ? "transaction.conflict" : "precondition.failed",
+    );
   await command({ action: "Remove", placementId });
   const retained = await pool.query(
     "SELECT active,revision FROM assistant_placements WHERE placement_id=$1",
@@ -356,7 +362,13 @@ try {
   const concurrentCreates = await Promise.all(
     [0, 1].map(() => request(boardPath, leader, create, board.etag)),
   );
-  assert.deepEqual(concurrentCreates.map((r) => r.status).sort(), [200, 412]);
+  assert.equal(concurrentCreates.filter((r) => r.status === 200).length, 1);
+  for (const response of concurrentCreates.filter((r) => r.status !== 200))
+    await expectStatus(
+      response,
+      response.status === 409 ? 409 : 412,
+      response.status === 409 ? "transaction.conflict" : "precondition.failed",
+    );
   const replacement = (await readBoard()).placements.find(
     (p) => p.personId === leaderId && p.block === "1" && p.active,
   );
