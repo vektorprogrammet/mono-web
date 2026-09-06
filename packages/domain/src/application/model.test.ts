@@ -87,7 +87,8 @@ it("derives applicant and public-application variants from one Model declaration
     "submittedAt",
     "yearOfStudy",
   ]);
-  expect(keys(PublicApplication.update.fields)).toEqual([]);
+  // Coordinators may correct the canonical study year; submission identity and audit remain immutable.
+  expect(keys(PublicApplication.update.fields)).toEqual(["yearOfStudy"]);
   expect(keys(PublicApplication.json.fields)).toEqual([
     "admissionPeriodId",
     "applicantId",
