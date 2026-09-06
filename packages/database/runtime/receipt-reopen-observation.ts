@@ -6,6 +6,9 @@ import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import type { Pool } from "pg";
+import { Schema } from "effect";
+import { ReceiptResource } from "../../http-api/src/index.js";
+import { StrongETag, IdempotencyKey } from "../../http-api/src/http-semantics.js";
 import { createPromiseClient } from "../../sdk/src/promise.js";
 
 export async function observeReceiptReopening(options: {
@@ -22,7 +25,7 @@ export async function observeReceiptReopening(options: {
   const { pool, origin, cookie, approverCookie } = options;
   const dashboardOrigin = "http://127.0.0.1:5174";
   const client = createPromiseClient(origin, { cookie: approverCookie, origin: dashboardOrigin });
-  const headers = (session: string, etag?: string, key = randomUUID()) => ({
+  const headers = (session: string, etag?: string, key: string = randomUUID()) => ({
     cookie: session,
     origin: dashboardOrigin,
     "content-type": "application/json",
@@ -34,7 +37,7 @@ export async function observeReceiptReopening(options: {
     action: string,
     etag?: string,
     session = approverCookie,
-    key = randomUUID(),
+    key: string = randomUUID(),
     body = "{}",
   ) =>
     fetch(`${origin}/api/receipts/${id}:${action}`, {
@@ -80,13 +83,18 @@ export async function observeReceiptReopening(options: {
       body: form,
     });
     assert.equal(response.status, 201, "synthetic submission");
-    return { id: (await response.json()).receiptId as string, etag: response.headers.get("etag")! };
+    const resource = Schema.decodeUnknownSync(ReceiptResource)(await response.json());
+    return { id: resource.receiptId, etag: resource.etag };
   };
   const rejected = async () => {
     const receipt = await submit();
     const response = await request(receipt.id, "reject", receipt.etag);
     assert.equal(response.status, 200);
-    return { ...receipt, initialEtag: receipt.etag, etag: response.headers.get("etag")! };
+    return {
+      ...receipt,
+      initialEtag: receipt.etag,
+      etag: Schema.decodeUnknownSync(StrongETag)(response.headers.get("etag")),
+    };
   };
   options.setDeliveryAvailable(false);
   const target = await rejected();
@@ -144,7 +152,7 @@ export async function observeReceiptReopening(options: {
   await pool.query(
     "CREATE TRIGGER fail_reopen_0102 BEFORE INSERT ON economy_receipt_audit FOR EACH ROW EXECUTE FUNCTION fail_reopen_0102()",
   );
-  const retryKey = randomUUID();
+  const retryKey = IdempotencyKey.make(randomUUID());
   assert.equal(
     (await request(target.id, "reopen", target.etag, approverCookie, retryKey)).status,
     503,
