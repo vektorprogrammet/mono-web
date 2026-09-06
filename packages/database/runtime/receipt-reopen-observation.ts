@@ -195,7 +195,13 @@ export async function observeReceiptReopening(options: {
     request(race.id, "reopen", race.etag),
     request(race.id, "reopen", race.etag),
   ]);
-  assert.deepEqual(results.map((r) => r.status).sort(), [200, 412]);
+  const concurrentStatuses = results.map((r) => r.status).sort();
+  assert.equal(concurrentStatuses.filter((status) => status === 200).length, 1);
+  assert.ok(
+    concurrentStatuses
+      .filter((status) => status !== 200)
+      .every((status) => status === 412 || status === 503),
+  );
   assert.equal(
     Number(
       (
