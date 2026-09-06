@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -47,6 +47,10 @@ export default function PasswordReset() {
   const resetToken = useRef(
     typeof window === "undefined" ? null : new URL(window.location.href).searchParams.get("token"),
   );
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
   const result = useActionData<typeof action>();
   const pending = useNavigation().state !== "idle";
   const state = result?.state ?? (ready ? "Ready" : "InvalidOrExpired");
@@ -68,7 +72,7 @@ export default function PasswordReset() {
               if (field instanceof HTMLInputElement) field.value = token ?? "";
             }}
           >
-            <fieldset disabled={pending} className="space-y-4">
+            <fieldset disabled={pending || !hydrated} className="space-y-4">
               <input type="hidden" name="token" defaultValue="" />
               {state === "Rejected" && (
                 <p role="alert">Passordene må være like og ha minst 12 tegn.</p>

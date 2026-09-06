@@ -65,6 +65,7 @@ let page: any;
 let mailbox: ReturnType<typeof Bun.serve> | undefined;
 const secrets: string[] = [];
 const gates: string[] = [];
+const submissions: { tokenPresent: boolean; queryAbsent: boolean }[] = [];
 try {
   const pgPort = await port(),
     apiPort = await port(),
@@ -186,6 +187,13 @@ try {
       process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ?? "/etc/profiles/per-user/nori/bin/chromium",
   });
   page = await browser.newPage();
+  page.on("request", (request: any) => {
+    const url = new URL(request.url());
+    if (request.method() === "POST" && url.pathname === "/tilbakestill-passord") {
+      const body = new URLSearchParams(request.postData() ?? "");
+      submissions.push({ tokenPresent: !!body.get("token"), queryAbsent: !url.search });
+    }
+  });
   const errors: string[] = [];
   page.on("pageerror", () => errors.push("Browser runtime error"));
   await page.goto(`${dashboardOrigin}/glemt-passord`);
@@ -428,6 +436,7 @@ try {
     JSON.stringify({
       failure: error instanceof Error ? error.name : "Failure",
       gates,
+      submissions,
       pageText: text.slice(0, 1800),
       artifacts,
     }),
