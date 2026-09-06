@@ -247,12 +247,14 @@ try {
   await page.getByLabel("Gjenta passord", { exact: true }).fill(newPassword);
   await page.getByRole("button", { name: "Lagre passord" }).click();
   await page.waitForURL("**/login?reset=true");
+  gates.push("browser policy rejection then corrected reset reaches login");
   for (const cookie of [cookie1, cookie2]) {
     const r = await fetch(`${canonicalOrigin}/api/session`, {
       headers: { cookie, origin: dashboardOrigin },
     });
     assert.equal(r.status, 401);
   }
+  gates.push("both old sessions denied");
   assert.equal((await post("sign-in/email", { email, password: oldPassword })).status, 401);
   await login(newPassword);
   assert.equal((await post("reset-password", { token, newPassword: oldPassword })).status, 400);
