@@ -372,8 +372,13 @@ export default function Assistenter() {
   const { scopes, own, board, departmentId, semesterId, error } = useLoaderData<typeof loader>();
   const scope = { departmentId, semesterId };
   return (
-    <main className="mx-auto w-full max-w-5xl space-y-6 p-4 sm:p-6">
-      <h1 className="text-2xl font-semibold">Frivilligtilknytning og skoleplassering</h1>
+    <section
+      aria-labelledby="placement-title"
+      className="mx-auto w-full max-w-5xl space-y-6 p-4 sm:p-6"
+    >
+      <h1 id="placement-title" className="text-2xl font-semibold">
+        Frivilligtilknytning og skoleplassering
+      </h1>
       <p>
         Be om tilknytning til en avdeling. Avdelingens koordinator godkjenner forespørselen og
         fordeler frivillige på skoler.
@@ -553,6 +558,6 @@ export default function Assistenter() {
           </section>
         </div>
       )}
-    </main>
+    </section>
   );
 }
