@@ -149,6 +149,7 @@ const finalizeFields = FinalizeInterviewCommandSchema.fields;
 export const FinalizeInterviewRequest = Schema.Struct({
   answers: finalizeFields.answers,
   score: finalizeFields.score,
+  recommendation: finalizeFields.recommendation,
 }).annotate({ identifier: "FinalizeInterviewRequest" });
 export type FinalizeInterviewRequest = typeof FinalizeInterviewRequest.Type;
 

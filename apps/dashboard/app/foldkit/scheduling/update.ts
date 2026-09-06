@@ -92,6 +92,7 @@ const clearConduct = (
   answers: [],
   answerErrors: [],
   score: emptyScore(),
+  recommendation: null,
   conductValidationFeedback: null,
   conductFeedback,
   isConducting: false,
@@ -470,6 +471,7 @@ export const makeUpdate =
             {
               ...model,
               conduct: ConductData.Success({ data: detail }),
+              recommendation: detail.recommendation,
               answers: detail.answers.map((answer) => ({
                 questionId: answer.questionId,
                 answer: answer.answer,
@@ -546,6 +548,18 @@ export const makeUpdate =
             [],
           ];
         },
+        ChangedRecommendation: ({ value }) =>
+          model.isConducting || model.pendingConductAction !== null
+            ? [model, []]
+            : [
+                {
+                  ...model,
+                  recommendation: value,
+                  commandSequence: model.commandSequence + 1,
+                  conductValidationFeedback: null,
+                },
+                [],
+              ],
         ChangedScore: ({ axis, value }) => [
           {
             ...model,
@@ -587,6 +601,7 @@ export const makeUpdate =
             suitability: FieldValidation.validate(scoreRules)(model.score.suitability.value),
           };
           if (
+            model.recommendation === null ||
             answerErrors.length > 0 ||
             !FieldValidation.isValid(scoreRules)(score.explanatoryPower) ||
             !FieldValidation.isValid(scoreRules)(score.roleModel) ||
@@ -597,7 +612,8 @@ export const makeUpdate =
                 ...model,
                 answerErrors,
                 score,
-                conductValidationFeedback: "Svar på alle spørsmål og velg alle tre scorer.",
+                conductValidationFeedback:
+                  "Svar på alle spørsmål, velg alle tre scorer og en anbefaling.",
               },
               [],
             ];
@@ -665,6 +681,7 @@ export const makeUpdate =
                 payload: {
                   answers: model.answers,
                   score,
+                  recommendation: model.recommendation,
                 },
               },
               { onExcessProperty: "error" },
@@ -836,7 +853,17 @@ export const makeUpdate =
             return [model, []];
           }
           return failure._tag === "Conflict"
-            ? [clearConduct(model, failure), []]
+            ? [
+                {
+                  ...model,
+                  isConducting: false,
+                  pendingConductAction: null,
+                  conductFeedback: failure,
+                  conductValidationFeedback:
+                    "Intervjuet er endret. Utkastet er beholdt; åpne intervjuet på nytt for å hente gjeldende versjon.",
+                },
+                [],
+              ]
             : [{ ...model, isConducting: false, conductFeedback: failure }, []];
         },
         FailedCancel: ({ requestId, generation, interviewId, failure }) => {

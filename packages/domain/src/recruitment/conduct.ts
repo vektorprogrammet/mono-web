@@ -11,6 +11,7 @@ import {
   RecruitmentScopeDenied,
 } from "./errors.js";
 import {
+  interviewRecommendations,
   CancelInterviewObservationSchema,
   FinalizeInterviewObservationSchema,
   RecruitmentInterviewAnswerSchema,
@@ -228,11 +229,14 @@ export const finalizeInterview = (
       });
     const answers = yield* validateAnswers(state, command.answers);
     yield* validateScore(state, command.score);
+    if (!interviewRecommendations.includes(command.recommendation))
+      return yield* invalid(state, "an explicit interviewer recommendation is required");
     const revision = state.revision + 1;
     const conduct = new RecruitmentInterviewConduct({
       interviewId: state.interview.interviewId,
       answers,
       score: command.score,
+      recommendation: command.recommendation,
       finalizedByPersonId: actor.personId,
       finalizedAt: now,
       interviewRevision: revision,

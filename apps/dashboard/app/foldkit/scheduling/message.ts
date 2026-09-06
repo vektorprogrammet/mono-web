@@ -1,3 +1,4 @@
+import { InterviewRecommendationSchema } from "@vektorprogrammet/domain/recruitment";
 import { RecruitmentInterviewId } from "@vektorprogrammet/domain/recruitment";
 import { StrongETag } from "@vektorprogrammet/http-api";
 import { Dialog } from "@foldkit/ui";
@@ -59,6 +60,9 @@ export const ChangedAnswer = m("ChangedAnswer", {
   answer: S.Union([S.String, S.Array(S.String)]),
 });
 export const ClosedConductConfirmation = m("ClosedConductConfirmation");
+export const ChangedRecommendation = m("ChangedRecommendation", {
+  value: S.NullOr(InterviewRecommendationSchema),
+});
 export const ChangedScore = m("ChangedScore", {
   axis: S.Literals(["explanatoryPower", "roleModel", "suitability"]),
   value: S.String,
@@ -114,6 +118,7 @@ export const Message = S.Union([
   FailedConduct,
   ChangedAnswer,
   ChangedScore,
+  ChangedRecommendation,
   ClosedConductConfirmation,
   SubmittedCancel,
   SubmittedFinalize,

@@ -308,6 +308,11 @@ export const databaseMigrationDefinitions = [
     name: "native-credential-cohort",
     url: new URL("../migrations/0036-native-credential-cohort.sql", import.meta.url),
   },
+  {
+    id: "37_interviewer-recommendation",
+    name: "interviewer-recommendation",
+    url: new URL("../migrations/0037-interviewer-recommendation.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

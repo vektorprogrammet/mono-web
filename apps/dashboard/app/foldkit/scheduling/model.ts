@@ -1,3 +1,4 @@
+import { InterviewRecommendationSchema } from "@vektorprogrammet/domain/recruitment";
 import { RecruitmentInterviewId } from "@vektorprogrammet/domain/recruitment";
 import { IdempotencyKey, StrongETag } from "@vektorprogrammet/http-api";
 import { Dialog } from "@foldkit/ui";
@@ -59,6 +60,7 @@ const ReadyModel = S.Struct({
   answers: S.Array(ConductAnswer),
   answerErrors: S.Array(AnswerError),
   score: ScoreDraft,
+  recommendation: S.NullOr(InterviewRecommendationSchema),
   conductValidationFeedback: S.NullOr(S.String),
   conductFeedback: S.NullOr(RecruitmentBridgeFailure),
   isConducting: S.Boolean,
@@ -100,6 +102,7 @@ export const makeInitialModel = (
   conductGeneration: 0,
   conductDialog: Dialog.init({ id: "recruitment-conduct-dialog" }),
   pendingConductAction: null,
+  recommendation: null,
   answers: [],
   answerErrors: [],
   score: {

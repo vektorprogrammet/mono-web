@@ -4489,6 +4489,7 @@ describe("DatabaseTest", () => {
           expectedRevision: 1,
           answers,
           score: { explanatoryPower: 0, roleModel: 10, suitability: 5 },
+          recommendation: "Ja" as const,
         };
         const finalized = yield* recruitment.finalizeInterview(command, context);
         const replayed = yield* recruitment.finalizeInterview(command, context);

@@ -86,7 +86,7 @@ VALUES ('membership-native-conduct-leader-0063', '${persons.leader.personId}', '
 ON CONFLICT (membership_id) DO NOTHING;
 INSERT INTO recruitment_interview_schemas (interview_schema_id, name, question_count, active, revision)
 VALUES ('${schemaId}', 'Førstegangsintervju 0063', ${questions.length}, TRUE, 0) ON CONFLICT (interview_schema_id) DO NOTHING;
-INSERT INTO auth.recruitment_interview_schema_questions (interview_schema_id, question_id, ordinal, prompt, help_text, kind, alternatives)
+INSERT INTO public.recruitment_interview_schema_questions (interview_schema_id, question_id, ordinal, prompt, help_text, kind, alternatives)
 VALUES
 ${questions.map(([id, ordinal, prompt, help, kind, alternatives]) => ` ('${schemaId}', '${schemaId}-${id}', ${ordinal}, '${prompt}', ${help === null ? "NULL" : `'${help}'`}, '${kind}', '${JSON.stringify(alternatives)}'::jsonb)`).join(",\n")}
 ON CONFLICT (interview_schema_id, question_id) DO NOTHING;
@@ -110,10 +110,10 @@ VALUES
  ('${invitationA}', '${interviewA}', 1, 1, 'Accepted', NULL, '2031-09-13T10:00:00.000Z'),
  ('${invitationB}', '${interviewB}', 1, 1, 'Accepted', NULL, '2031-09-13T10:01:00.000Z')
 ON CONFLICT (invitation_id) DO NOTHING;
-INSERT INTO auth.recruitment_interview_question_snapshots (interview_id, question_id, ordinal, prompt, help_text, kind, alternatives)
+INSERT INTO public.recruitment_interview_question_snapshots (interview_id, question_id, ordinal, prompt, help_text, kind, alternatives)
 SELECT i.interview_id, q.question_id, q.ordinal, q.prompt, q.help_text, q.kind, q.alternatives
 FROM (VALUES ('${interviewA}'), ('${interviewB}')) AS i(interview_id)
-CROSS JOIN auth.recruitment_interview_schema_questions q
+CROSS JOIN public.recruitment_interview_schema_questions q
 WHERE q.interview_schema_id = '${schemaId}'
 ON CONFLICT (interview_id, question_id) DO NOTHING;
 COMMIT;
@@ -127,15 +127,18 @@ if (
   !["127.0.0.1", "localhost", "::1"].includes(parsed.hostname)
 )
   throw new Error("conduct seed requires loopback PostgreSQL");
-const identity = spawnSync("bun", ["run", "identity:seed"], {
-  cwd: databaseRoot,
-  env: {
-    ...process.env,
-    IDENTITY_SEED_PG_URL: postgresUrl,
-    IDENTITY_SEED_PERSONS: JSON.stringify(Object.values(persons)),
-  },
-  encoding: "utf8",
-});
+const identity =
+  process.env.CONDUCT_SEED_SKIP_IDENTITY === "1"
+    ? { status: 0 }
+    : spawnSync("bun", ["run", "identity:seed"], {
+        cwd: databaseRoot,
+        env: {
+          ...process.env,
+          IDENTITY_SEED_PG_URL: postgresUrl,
+          IDENTITY_SEED_PERSONS: JSON.stringify(Object.values(persons)),
+        },
+        encoding: "utf8",
+      });
 if (identity.status !== 0)
   throw new Error(`identity:seed failed:\n${identity.stdout}\n${identity.stderr}`);
 const pool = new Pool({
@@ -147,7 +150,7 @@ const pool = new Pool({
 try {
   await pool.query(sql);
   const result = await pool.query(
-    `SELECT (SELECT count(*) FROM recruitment_interviews WHERE interview_id IN ('${interviewA}', '${interviewB}')) AS interviews, (SELECT count(*) FROM recruitment_interview_schedules WHERE interview_id IN ('${interviewA}', '${interviewB}')) AS schedules, (SELECT count(*) FROM recruitment_invitations WHERE interview_id IN ('${interviewA}', '${interviewB}') AND response_state = 'Accepted') AS accepted, (SELECT count(*) FROM auth.recruitment_interview_question_snapshots WHERE interview_id IN ('${interviewA}', '${interviewB}')) AS snapshots`,
+    `SELECT (SELECT count(*) FROM recruitment_interviews WHERE interview_id IN ('${interviewA}', '${interviewB}')) AS interviews, (SELECT count(*) FROM recruitment_interview_schedules WHERE interview_id IN ('${interviewA}', '${interviewB}')) AS schedules, (SELECT count(*) FROM recruitment_invitations WHERE interview_id IN ('${interviewA}', '${interviewB}') AND response_state = 'Accepted') AS accepted, (SELECT count(*) FROM public.recruitment_interview_question_snapshots WHERE interview_id IN ('${interviewA}', '${interviewB}')) AS snapshots`,
   );
   const row = result.rows[0];
   if (

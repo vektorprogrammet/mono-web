@@ -1255,10 +1255,6 @@ const lifecycleInterview = async (
       input,
       txRun,
     );
-    const precondition = evaluateMutationPrecondition(interviewETag(authorization.source), ifMatch);
-    if (precondition._tag === "Failed") {
-      throw new HttpSemanticFailure(precondition.code, precondition.status);
-    }
     return authorization;
   };
   if (operation === "Finalize") {
@@ -1277,6 +1273,14 @@ const lifecycleInterview = async (
           credentialSubject: `Person:${authorization.actor.personId}`,
           execute: (commandId) =>
             Effect.gen(function* () {
+              const precondition = evaluateMutationPrecondition(
+                interviewETag(authorization.source),
+                ifMatch,
+              );
+              if (precondition._tag === "Failed")
+                return yield* Effect.fail(
+                  new HttpSemanticFailure(precondition.code, precondition.status),
+                );
               const result = yield* finalizeInterviewPostgres(
                 {
                   commandId,
@@ -1332,6 +1336,14 @@ const lifecycleInterview = async (
         credentialSubject: `Person:${authorization.actor.personId}`,
         execute: (commandId) =>
           Effect.gen(function* () {
+            const precondition = evaluateMutationPrecondition(
+              interviewETag(authorization.source),
+              ifMatch,
+            );
+            if (precondition._tag === "Failed")
+              return yield* Effect.fail(
+                new HttpSemanticFailure(precondition.code, precondition.status),
+              );
             const result = yield* cancelInterviewPostgres(
               {
                 commandId,

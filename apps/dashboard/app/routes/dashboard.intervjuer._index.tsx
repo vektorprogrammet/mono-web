@@ -31,7 +31,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     throw await expiredSessionRedirect(request);
   }
 
-  if (!isDashboardRole(profile.role) || profile.role !== "ROLE_TEAM_LEADER") {
+  if (!isDashboardRole(profile.role)) {
     throw new Response(null, { status: 403, headers: responseHeaders });
   }
 

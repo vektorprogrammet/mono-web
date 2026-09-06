@@ -734,6 +734,10 @@ export const RecruitmentInterviewAnswerSchema = Schema.Struct({
 });
 export type RecruitmentInterviewAnswer = typeof RecruitmentInterviewAnswerSchema.Type;
 
+export const interviewRecommendations = ["Ja", "Kanskje", "Nei"] as const;
+export const InterviewRecommendationSchema = Schema.Literals(interviewRecommendations);
+export type InterviewRecommendation = typeof InterviewRecommendationSchema.Type;
+
 export const RecruitmentInterviewScoreSchema = Schema.Struct({
   explanatoryPower: Schema.Int.pipe(
     Schema.check(
@@ -776,6 +780,11 @@ export class RecruitmentInterviewConduct extends Model.Class<RecruitmentIntervie
     select: RecruitmentInterviewScoreSchema,
     insert: RecruitmentInterviewScoreSchema,
     json: RecruitmentInterviewScoreSchema,
+  }),
+  recommendation: Model.Field({
+    select: Schema.NullOr(InterviewRecommendationSchema),
+    insert: InterviewRecommendationSchema,
+    json: Schema.NullOr(InterviewRecommendationSchema),
   }),
   finalizedByPersonId: Model.Field({
     select: PersonId,
@@ -838,6 +847,7 @@ export const FinalizeInterviewCommandSchema = Schema.Struct({
   expectedRevision: Revision,
   answers: Schema.Array(RecruitmentInterviewAnswerSchema),
   score: RecruitmentInterviewScoreSchema,
+  recommendation: InterviewRecommendationSchema,
 });
 export type FinalizeInterviewCommand = typeof FinalizeInterviewCommandSchema.Type;
 
@@ -921,6 +931,7 @@ export const RecruitmentInterviewConductObservationSchema = Schema.Struct({
   questions: Schema.Array(RecruitmentInterviewQuestionSnapshot),
   answers: Schema.Array(RecruitmentInterviewAnswerSchema),
   score: Schema.NullOr(RecruitmentInterviewScoreSchema),
+  recommendation: Schema.NullOr(InterviewRecommendationSchema),
   completionState: Schema.Literals(["NotCompleted", "Completed"]),
   cancellationState: Schema.Literals(["NotCancelled", "Cancelled"]),
   finalizedAt: Schema.NullOr(Rfc3339InstantSchema),

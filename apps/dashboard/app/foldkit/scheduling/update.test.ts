@@ -11,6 +11,8 @@ import { describe, expect, it } from "vitest";
 import type { RecruitmentClient } from "../recruitment/browser-client";
 import { makeSchedulingCommands } from "./command";
 import {
+  FailedFinalize,
+  ChangedRecommendation,
   FailedLoadSchedulingBoard,
   FailedSchedule,
   Message,
@@ -355,5 +357,36 @@ describe("Foldkit scheduling transitions", () => {
       expect(next).toBe(current);
       expect(emitted).toEqual([]);
     }
+  });
+});
+
+describe("0101 explicit recommendation draft", () => {
+  it("starts without an inferred recommendation and retains the whole draft on stale finalization", () => {
+    const initial = initialModel();
+    expect(initial.recommendation).toBeNull();
+    const chosen = advance(update, initial, ChangedRecommendation({ value: "Kanskje" }));
+    const draft = {
+      ...chosen,
+      selectedInterviewId: rawInterview.interviewId,
+      answers: [{ questionId: "question-1", answer: "My unchanged answer" }],
+      isConducting: true,
+      pendingConductAction: "Finalize" as const,
+    };
+    const [next, effects] = update(
+      draft,
+      FailedFinalize({
+        requestId: draft.conductRequestId,
+        generation: draft.conductGeneration,
+        interviewId: rawInterview.interviewId,
+        failure: { _tag: "Conflict", message: "Changed remotely" },
+      }),
+    );
+    const kept = ready(next);
+    expect(kept.recommendation).toBe("Kanskje");
+    expect(kept.answers).toEqual(draft.answers);
+    expect(kept.score).toEqual(draft.score);
+    expect(kept.conduct).toEqual(draft.conduct);
+    expect(kept.isConducting).toBe(false);
+    expect(effects).toEqual([]);
   });
 });

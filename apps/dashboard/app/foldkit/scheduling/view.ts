@@ -1,3 +1,4 @@
+import { interviewRecommendations } from "@vektorprogrammet/domain/recruitment";
 import type {
   RecruitmentInterviewConductObservation,
   RecruitmentInterviewQuestionSnapshot,
@@ -10,6 +11,7 @@ import { SchedulingBoard } from "../recruitment/bridge";
 import {
   ChangedAnswer,
   ChangedScore,
+  ChangedRecommendation,
   ClosedConduct,
   ClosedConductConfirmation,
   ConfirmedCancel,
@@ -602,6 +604,31 @@ const scoreView = (model: ReadyModel, isTerminal: boolean, h: HtmlBuilder<Messag
     [h.Class("fs-score"), h.AriaLabelledBy("fs-score-legend")],
     [
       h.legend([h.Id("fs-score-legend")], ["Score"]),
+      h.div(
+        [h.Class("fs-score__field")],
+        [
+          h.label(
+            [h.For("interviewer-recommendation")],
+            ["Passer denne studenten til å være vektorassistent?"],
+          ),
+          h.select(
+            [
+              h.Id("interviewer-recommendation"),
+              h.Value(model.recommendation ?? ""),
+              h.Disabled(model.isConducting || isTerminal),
+              h.OnChange((value) =>
+                ChangedRecommendation({
+                  value: interviewRecommendations.find((choice) => choice === value) ?? null,
+                }),
+              ),
+            ],
+            [
+              h.option([h.Value("")], [isTerminal ? "Ikke registrert" : "Velg anbefaling"]),
+              ...interviewRecommendations.map((value) => h.option([h.Value(value)], [value])),
+            ],
+          ),
+        ],
+      ),
       ...(
         [
           ["explanatoryPower", "Forklaringskraft"],

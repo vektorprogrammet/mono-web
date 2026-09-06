@@ -130,6 +130,7 @@ const ConductObservationExample: any = {
   ],
   answers: [{ questionId: "q-1", answer: "I am drawn to the study programme's breadth." }],
   score: { explanatoryPower: 7, roleModel: 8, suitability: 6 },
+  recommendation: "Ja",
   completionState: "Completed",
   cancellationState: "NotCancelled",
   finalizedAt: "2026-09-12T15:00:00.000Z",

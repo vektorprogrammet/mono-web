@@ -134,6 +134,7 @@ const detailFor = (state: "Completed" | "Cancelled") =>
       { questionId: "question-check", answer: ["Nysgjerrig"] },
     ],
     score: state === "Completed" ? { explanatoryPower: 7, roleModel: 8, suitability: 9 } : null,
+    recommendation: null,
     completionState: state === "Completed" ? "Completed" : "NotCompleted",
     cancellationState: state === "Cancelled" ? "Cancelled" : "NotCancelled",
     finalizedAt: state === "Completed" ? "2031-09-15T13:00:00.000Z" : null,
@@ -239,13 +240,13 @@ describe("Foldkit scheduling conduct view", () => {
     const completedControls = completedNodes.filter((node) =>
       ["textarea", "input", "select"].includes(node.tag),
     );
-    expect(completedControls).toHaveLength(6);
+    expect(completedControls).toHaveLength(7);
     expect(completedControls.every((node) => hasAttribute(node, "Disabled", true))).toBe(true);
     expect(
       completedNodes
         .filter((node) => node.tag === "select")
         .map((node) => attribute(node, "Value")),
-    ).toEqual(["7", "8", "9"]);
+    ).toEqual(["", "7", "8", "9"]);
 
     const cancelled = view(terminalModel("Cancelled"), htmlBuilder) as unknown as RenderedNode;
     const cancelledNodes = descendants(cancelled);
