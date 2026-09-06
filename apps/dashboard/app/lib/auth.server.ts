@@ -1,4 +1,4 @@
-import { nativeDashboardRecoveryMode } from "../server/credential-engine-config.server";
+import { nativeDashboardRecoveryMode } from "../server/native-account-mode.server";
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 import { redirect } from "react-router";

@@ -1,5 +1,5 @@
 /** Production server: credentials never enter access logs; browser assets and SSR share one entrypoint. */
-import { nativeDashboardRecoveryMode } from "./app/server/credential-engine-config.server.ts";
+import { nativeDashboardRecoveryMode } from "./app/server/native-account-mode.server.ts";
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";

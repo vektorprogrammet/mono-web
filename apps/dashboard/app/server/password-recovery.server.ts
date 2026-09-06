@@ -1,4 +1,4 @@
-import { nativeDashboardRecoveryMode } from "./credential-engine-config.server";
+import { nativeDashboardRecoveryMode } from "./native-account-mode.server";
 import { serverApiEndpoint } from "../lib/api.server";
 export class PasswordRecoveryError extends Error {
   constructor(readonly outcome: "InvalidOrExpired" | "OutcomeUnknown" | "Rejected") {
