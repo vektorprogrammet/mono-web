@@ -40,8 +40,13 @@ function ResolutionAction({ receipt, intent, failure, actionErrorId }: Resolutio
     navigation.formData?.get("receiptId") === receipt.receiptId &&
     navigation.formData?.get("_intent") === intent;
   const refunding = intent === "refund";
-  const label = refunding ? "Refunder" : "Avvis";
-  const confirmation = refunding ? "Bekreft refusjon" : "Bekreft avvisning";
+  const reopening = intent === "reopen";
+  const label = refunding ? "Refunder" : reopening ? "Åpne for korrigering" : "Avvis";
+  const confirmation = refunding
+    ? "Bekreft refusjon"
+    : reopening
+      ? "Bekreft gjenåpning"
+      : "Bekreft avvisning";
 
   return (
     <AlertDialog>
@@ -49,7 +54,7 @@ function ResolutionAction({ receipt, intent, failure, actionErrorId }: Resolutio
         <Button
           type="button"
           size="sm"
-          variant={refunding ? "default" : "destructive"}
+          variant={refunding || reopening ? "default" : "destructive"}
           disabled={navigation.state !== "idle"}
           onClick={() => {
             setCommandId((current) => current || crypto.randomUUID());
@@ -66,7 +71,9 @@ function ResolutionAction({ receipt, intent, failure, actionErrorId }: Resolutio
           <AlertDialogDescription id={descriptionId}>
             {refunding
               ? `${receipt.amount} fra eier ${receipt.ownerPersonId} i avdeling ${receipt.departmentId} markeres som refundert. Handlingen kan ikke angres.`
-              : `${receipt.amount} fra eier ${receipt.ownerPersonId} i avdeling ${receipt.departmentId} avvises. Handlingen kan ikke angres.`}
+              : reopening
+                ? "Utlegget åpnes for korrigering. Eieren kan redigere det samme utlegget før ny behandling. Det sendes ingen e-post nå."
+                : `${receipt.amount} fra eier ${receipt.ownerPersonId} i avdeling ${receipt.departmentId} avvises. En godkjenner kan åpne det for korrigering senere.`}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
@@ -83,7 +90,11 @@ function ResolutionAction({ receipt, intent, failure, actionErrorId }: Resolutio
 
           {busy && (
             <p className="sr-only" role="status">
-              {refunding ? "Refunderer utlegget." : "Avviser utlegget."}
+              {refunding
+                ? "Refunderer utlegget."
+                : reopening
+                  ? "Åpner utlegget."
+                  : "Avviser utlegget."}
             </p>
           )}
 
@@ -94,9 +105,17 @@ function ResolutionAction({ receipt, intent, failure, actionErrorId }: Resolutio
             <AlertDialogAction
               type="submit"
               disabled={busy || commandId.length === 0}
-              className={refunding ? undefined : buttonVariants({ variant: "destructive" })}
+              className={
+                refunding || reopening ? undefined : buttonVariants({ variant: "destructive" })
+              }
             >
-              {busy ? (refunding ? "Refunderer …" : "Avviser …") : confirmation}
+              {busy
+                ? refunding
+                  ? "Refunderer …"
+                  : reopening
+                    ? "Åpner …"
+                    : "Avviser …"
+                : confirmation}
             </AlertDialogAction>
           </AlertDialogFooter>
         </Form>
@@ -186,6 +205,13 @@ export function ApprovalReceiptRow({ receipt, failure, actionErrorId }: Approval
               actionErrorId={actionErrorId}
             />
           </div>
+        ) : receipt.status === "Rejected" ? (
+          <ResolutionAction
+            receipt={receipt}
+            intent="reopen"
+            failure={relevantFailure}
+            actionErrorId={actionErrorId}
+          />
         ) : (
           <span className="text-muted-foreground text-sm" data-terminal="true">
             Ferdigbehandlet

@@ -248,6 +248,12 @@
     },
     {
       "group": "receipts",
+      "method": "POST",
+      "operationId": "receipts.reopenReceipt",
+      "path": "/api/receipts/{receiptId}:reopen"
+    },
+    {
+      "group": "receipts",
       "method": "PATCH",
       "operationId": "receipts.reviseReceipt",
       "path": "/api/receipts/{receiptId}"

@@ -8,6 +8,7 @@ import {
   ReceiptsApi,
   RefundReceiptEndpoint,
   RejectReceiptEndpoint,
+  ReopenReceiptEndpoint,
   ReviseReceiptEndpoint,
   SubmitReceiptEndpoint,
   WithdrawReceiptEndpoint,
@@ -17,7 +18,7 @@ const outwardPath = (path: string): string =>
   path.replace(/:receiptId(?:\(\[\^:\]\+\))?/u, "{receiptId}").replaceAll("::", ":");
 
 describe("frozen receipt route contract", () => {
-  it("projects the suffix-regex declarations to the exact eight public outward routes", () => {
+  it("projects the suffix-regex declarations to the exact nine public outward routes", () => {
     const routes = [
       [ReadReceiptFileEndpoint, "GET", "/api/receipts/{receiptId}/file", "readReceiptFile"],
       [SubmitReceiptEndpoint, "POST", "/api/receipts", "submitReceipt"],
@@ -32,6 +33,7 @@ describe("frozen receipt route contract", () => {
       ],
       [RefundReceiptEndpoint, "POST", "/api/receipts/{receiptId}:refund", "refundReceipt"],
       [RejectReceiptEndpoint, "POST", "/api/receipts/{receiptId}:reject", "rejectReceipt"],
+      [ReopenReceiptEndpoint, "POST", "/api/receipts/{receiptId}:reopen", "reopenReceipt"],
     ] as const;
 
     expect(routes.map(([endpoint]) => [endpoint.method, outwardPath(endpoint.path)])).toEqual(

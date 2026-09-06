@@ -46,7 +46,8 @@ export type ReceiptMutationAuthorizationTarget =
         | "RevisePendingReceipt"
         | "WithdrawPendingReceipt"
         | "RefundReceipt"
-        | "RejectReceipt";
+        | "RejectReceipt"
+        | "ReopenRejectedReceipt";
       readonly receiptId: string;
     };
 
@@ -63,7 +64,8 @@ export type ReceiptMutationAuthorization =
         | "RevisePendingReceipt"
         | "WithdrawPendingReceipt"
         | "RefundReceipt"
-        | "RejectReceipt";
+        | "RejectReceipt"
+        | "ReopenRejectedReceipt";
       readonly principal: ReceiptCommandPrincipal;
       readonly actor: ReceiptActor;
       readonly current: Receipt;

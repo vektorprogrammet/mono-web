@@ -91,7 +91,7 @@ export type ReceiptOwnerMutationNotice = {
   readonly etag: StrongETagValue;
 };
 
-export type ReceiptApprovalIntent = "refund" | "reject";
+export type ReceiptApprovalIntent = "refund" | "reject" | "reopen";
 
 export type ReceiptApprovalFailure = {
   readonly intent: ReceiptApprovalIntent;

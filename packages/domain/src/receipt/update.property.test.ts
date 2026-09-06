@@ -88,7 +88,7 @@ it.effect.prop(
 );
 
 it.effect.prop(
-  "withdrawn, refunded, and rejected Receipts are terminal",
+  "owners cannot withdraw withdrawn, refunded, or rejected Receipts",
   { amount: Schema.Int },
   ({ amount }) =>
     Effect.gen(function* () {

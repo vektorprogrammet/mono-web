@@ -1,8 +1,8 @@
 {
   "counts": {
-    "externalOperations": 68,
+    "externalOperations": 69,
     "internalOperations": 1,
-    "operations": 69
+    "operations": 70
   },
   "operations": [
     {
@@ -1496,9 +1496,6 @@
         ],
         "requirements": [
           {
-            "id": "receipts.pending"
-          },
-          {
             "id": "receipts.approver-relationship"
           }
         ]
@@ -1657,6 +1654,56 @@
         "503"
       ],
       "summary": "Reject receipt",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "receipts.by-id",
+        "capabilities": {
+          "one": "approveReceipt"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "receipts.rejected"
+          },
+          {
+            "id": "receipts.approver-relationship"
+          }
+        ]
+      },
+      "group": "receipts",
+      "method": "POST",
+      "operationId": "receipts.reopenReceipt",
+      "path": "/api/receipts/{receiptId}:reopen",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Reopen rejected receipt",
       "visibility": "external"
     },
     {

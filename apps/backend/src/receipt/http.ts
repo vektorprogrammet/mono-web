@@ -356,7 +356,7 @@ const authorizationPrincipalInTransaction = async (
 };
 
 type ReceiptApprovalRoute = {
-  readonly action: "refund" | "reject";
+  readonly action: "refund" | "reject" | "reopen";
   readonly receiptId: string;
 };
 
@@ -1122,13 +1122,22 @@ const approvalCommandV2 = async (
   const ifMatch = parseRequiredIfMatch(headerValues(request, "if-match"));
   const body = await decodeExactEmptyJson(request);
   const operationId =
-    route.action === "refund" ? "receipts.refundReceipt" : "receipts.rejectReceipt";
+    route.action === "refund"
+      ? "receipts.refundReceipt"
+      : route.action === "reopen"
+        ? "receipts.reopenReceipt"
+        : "receipts.rejectReceipt";
   const normalizedTarget = `/api/receipts/${encodeURIComponent(route.receiptId)}/${route.action}`;
   const outcome = await executeV2ReceiptMutation(options, async (txRun) => {
     const principal = await authorizationPrincipalInTransaction(request, options, txRun);
     const authorization = await authorizeReceiptMutationInTransaction(
       {
-        _tag: route.action === "refund" ? ("RefundReceipt" as const) : ("RejectReceipt" as const),
+        _tag:
+          route.action === "refund"
+            ? ("RefundReceipt" as const)
+            : route.action === "reopen"
+              ? ("ReopenRejectedReceipt" as const)
+              : ("RejectReceipt" as const),
         receiptId: route.receiptId,
       },
       principal,
@@ -1141,7 +1150,12 @@ const approvalCommandV2 = async (
       operationId,
       requestSha256: semanticRequestDigest(semanticMutationRequest(body, ifMatch)),
       command: {
-        _tag: route.action === "refund" ? ("RefundReceipt" as const) : ("RejectReceipt" as const),
+        _tag:
+          route.action === "refund"
+            ? ("RefundReceipt" as const)
+            : route.action === "reopen"
+              ? ("ReopenRejectedReceipt" as const)
+              : ("RejectReceipt" as const),
         commandId: identity.commandId,
         receiptId: route.receiptId,
         expectedRevision: current.revision,
@@ -1155,7 +1169,8 @@ const approvalCommandV2 = async (
       },
     };
   });
-  if (outcome._tag === "Committed") await drainOutbox(options, fileStore, route.receiptId);
+  if (outcome._tag === "Committed" && route.action !== "reopen")
+    await drainOutbox(options, fileStore, route.receiptId);
   return nativeCommandOutcomeResponse(outcome);
 };
 
@@ -1456,6 +1471,19 @@ export const ReceiptApiHandlers = (input: ReceiptApiHttpOptions) => {
               approvalCommandV2(
                 webRequest,
                 { action: "reject", receiptId: params.receiptId },
+                input,
+                fileStore,
+              ),
+            publicReceiptErrorResponse,
+          ),
+        )
+        .handleRaw("reopenReceipt", ({ request, params }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) =>
+              approvalCommandV2(
+                webRequest,
+                { action: "reopen", receiptId: params.receiptId },
                 input,
                 fileStore,
               ),

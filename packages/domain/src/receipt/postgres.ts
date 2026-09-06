@@ -719,7 +719,11 @@ const authorizeReceiptMutationWithSql = (
         departmentId: canonicalDepartment,
         paymentAccountCiphertext: submission.paymentAccountCiphertext,
       };
-    } else if (target._tag === "RefundReceipt" || target._tag === "RejectReceipt") {
+    } else if (
+      target._tag === "RefundReceipt" ||
+      target._tag === "RejectReceipt" ||
+      target._tag === "ReopenRejectedReceipt"
+    ) {
       const receipt = current!;
       const directAuthority = yield* resolveReceiptAuthorityWithSql(
         sql,

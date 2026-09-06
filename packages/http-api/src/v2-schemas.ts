@@ -76,6 +76,9 @@ export const RefundReceiptRequest = EmptyJsonRequest.annotate({
 export const RejectReceiptRequest = EmptyJsonRequest.annotate({
   identifier: "RejectReceiptRequest",
 });
+export const ReopenReceiptRequest = EmptyJsonRequest.annotate({
+  identifier: "ReopenReceiptRequest",
+});
 export const PublishArticleRequest = EmptyJsonRequest.annotate({
   identifier: "PublishArticleRequest",
 });

@@ -1,5 +1,6 @@
 /** 0097 extends the owned 0095 PostgreSQL/API rehearsal after its zero-effect import window. */
 import assert from "node:assert/strict";
+import { observeReceiptReopening } from "./receipt-reopen-observation.js";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -237,6 +238,21 @@ export const observeReceiptDelivery = async (options: {
     assert.equal(attempts.at(-1)!.to, "changed-owner@example.invalid");
     assert.match(attempts.at(-1)!.subject, /avvist/);
     assert.match(attempts.at(-1)!.text, /Kontakt økonomiansvarlig/);
+    const reopening =
+      process.env.RECEIPT_REOPEN_REHEARSAL === "1"
+        ? await observeReceiptReopening({
+            pool,
+            origin,
+            cookie,
+            approverCookie,
+            root: options.root,
+            attempts: () => attempts.length,
+            accepted: () => accepted.size,
+            setDeliveryAvailable: (available) => {
+              mode = available ? "accept" : "reject";
+            },
+          })
+        : undefined;
     const countBefore = Number(
       (await pool.query("SELECT count(*) FROM economy_receipt_command_receipts")).rows[0].count,
     );
@@ -259,6 +275,7 @@ export const observeReceiptDelivery = async (options: {
     assert.equal(Number(audit), countBefore);
     return {
       specId: "0097",
+      reopening,
       transportAttempts: attempts.length,
       distinctAccepted: accepted.size,
       submissionEconomyRecipient: true,

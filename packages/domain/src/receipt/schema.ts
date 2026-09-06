@@ -154,6 +154,11 @@ export const ReceiptCommandRequestSchema = Schema.TaggedUnion({
     receiptId: ReceiptId,
     expectedRevision: Revision,
   },
+  ReopenRejectedReceipt: {
+    commandId: NonEmpty,
+    receiptId: ReceiptId,
+    expectedRevision: Revision,
+  },
 });
 export type ReceiptCommandRequest = typeof ReceiptCommandRequestSchema.Type;
 

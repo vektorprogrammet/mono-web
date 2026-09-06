@@ -4,7 +4,17 @@ import { observeReceiptDelivery } from "./receipt-delivery-observation.js";
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:net";
-import { mkdtemp, mkdir, readFile, writeFile, rm, cp, symlink, chmod } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  writeFile,
+  rm,
+  cp,
+  symlink,
+  chmod,
+  readdir,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
@@ -464,6 +474,11 @@ try {
   console.log("0095 backend ready");
   const cookie = await signIn(persons[0]!.email),
     foreign = await signIn(persons[1]!.email);
+  secretValues.push(
+    cookie,
+    foreign,
+    ...[cookie, foreign].map((value) => value.slice(value.indexOf("=") + 1)),
+  );
   const client = createPromiseClient(backendOrigin, { cookie, origin: "http://127.0.0.1:5174" });
   const reconciliationDiagnostics: Array<{
     sourcePrimaryKey: string;
@@ -703,12 +718,18 @@ try {
     ),
   );
   console.error(`0095 failure diagnostics: ${join(artifacts, "failure.json")}`);
-  throw cause;
+  throw new Error("Receipt rehearsal failed; inspect sanitized failure evidence");
 } finally {
   if (pool) await pool.end();
   for (const child of [...children].reverse()) await stop(child);
   await rm(pgdata, { recursive: true, force: true });
   await rm(storage, { recursive: true, force: true });
+  if (process.env.RECEIPT_REOPEN_REHEARSAL === "1") {
+    for (const entry of await readdir(artifacts)) {
+      if (entry !== "failure.json")
+        await rm(join(artifacts, entry), { recursive: true, force: true });
+    }
+  }
   cleanupOkay = true;
 }
 assert.ok(cleanupOkay);

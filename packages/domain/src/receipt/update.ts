@@ -47,6 +47,10 @@ const AuthorizedReceiptCommandSchema = Schema.TaggedUnion({
     ...ReceiptCommandRequestSchema.cases.RejectReceipt.fields,
     actor: ReceiptActorSchema,
   },
+  ReopenRejectedReceipt: {
+    ...ReceiptCommandRequestSchema.cases.ReopenRejectedReceipt.fields,
+    actor: ReceiptActorSchema,
+  },
 });
 type AuthorizedReceiptCommand = typeof AuthorizedReceiptCommandSchema.Type;
 
@@ -156,7 +160,8 @@ type ReceiptAccessAuthorization =
         | "RevisePendingReceipt"
         | "WithdrawPendingReceipt"
         | "RefundReceipt"
-        | "RejectReceipt";
+        | "RejectReceipt"
+        | "ReopenRejectedReceipt";
       readonly actor: ReceiptActor;
       readonly current: Receipt;
     };
@@ -174,6 +179,7 @@ export const authorizeReceiptMutationAccess = (
         return yield* owner(authorization.current, authorization.actor);
       case "RefundReceipt":
       case "RejectReceipt":
+      case "ReopenRejectedReceipt":
         return yield* approver(authorization.current, authorization.actor);
     }
   });
@@ -303,6 +309,29 @@ const decideCommand = (
               effect(input.commandId, receipt.receiptId, "WriteReceiptAudit"),
             ],
             auditAction: "ReceiptRefunded",
+          };
+        }),
+      ReopenRejectedReceipt: (input) =>
+        Effect.gen(function* () {
+          const current = yield* requireReceipt(existing, input.receiptId);
+          yield* currentRevision(current, input.expectedRevision);
+          if (current.status !== "Rejected") {
+            return yield* new InvalidReceiptTransition({
+              receiptId: current.receiptId,
+              status: current.status,
+              command: input._tag,
+            });
+          }
+          const receipt: Receipt = {
+            ...current,
+            status: "Pending",
+            revision: current.revision + 1,
+          };
+          return {
+            receipt,
+            observation: observation(input.commandId, receipt),
+            outbox: [],
+            auditAction: "RejectedReceiptReopened",
           };
         }),
       RejectReceipt: (input) =>

@@ -19,6 +19,7 @@ import {
   ReceiptsReadReceiptFileProblem,
   ReceiptsRefundReceiptProblem,
   ReceiptsRejectReceiptProblem,
+  ReceiptsReopenReceiptProblem,
   ReceiptsReviseReceiptProblem,
   ReceiptsSubmitReceiptProblem,
   ReceiptsWithdrawReceiptProblem,
@@ -37,6 +38,7 @@ import {
   ReceiptResource,
   RefundReceiptRequest,
   RejectReceiptRequest,
+  ReopenReceiptRequest,
   ReviseReceiptMultipartV2,
   SubmitReceiptMultipartV2,
   WithdrawReceiptRequest,
@@ -393,6 +395,36 @@ export const RejectReceiptEndpoint = HttpApiEndpoint.post(
   )
   .annotateMerge(operationAnnotations("Reject receipt", "Rejects a pending receipt."));
 
+export const ReopenReceiptEndpoint = HttpApiEndpoint.post(
+  "reopenReceipt",
+  "/api/receipts/:receiptId([^:]+)::reopen",
+  {
+    params: ReceiptParams,
+    headers: IdempotencyIfMatchHeaders,
+    payload: ReopenReceiptRequest,
+    success: entityMutationResponse(ReceiptResource),
+    error: endpointProblemResponses(ReceiptsReopenReceiptProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "approveReceipt",
+        canonicalScopeResolver: "receipts.by-id",
+        requirements: ["receipts.rejected", "receipts.approver-relationship"],
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
+  .annotateMerge(
+    operationAnnotations(
+      "Reopen rejected receipt",
+      "Reopens a rejected receipt for owner correction.",
+    ),
+  );
+
 /**
  * Owner and approver receipt API.
  *
@@ -409,6 +441,7 @@ export class ReceiptsApi extends HttpApiGroup.make("receipts")
     ListReceiptsForApprovalEndpoint,
     RefundReceiptEndpoint,
     RejectReceiptEndpoint,
+    ReopenReceiptEndpoint,
   )
   .annotateMerge(
     OpenApi.annotations({

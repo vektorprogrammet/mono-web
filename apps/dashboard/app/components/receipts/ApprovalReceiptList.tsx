@@ -108,8 +108,13 @@ export function ApprovalReceiptList({
                 data-revision={actionNotice.revision}
                 data-etag={actionNotice.etag}
               >
-                Utlegget er {actionNotice.intent === "refund" ? "refundert" : "avvist"} som versjon{" "}
-                {actionNotice.revision}.
+                Utlegget er{" "}
+                {actionNotice.intent === "refund"
+                  ? "refundert"
+                  : actionNotice.intent === "reopen"
+                    ? "åpnet for korrigering (Venter)"
+                    : "avvist"}{" "}
+                som versjon {actionNotice.revision}.
               </p>
             )}
 

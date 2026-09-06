@@ -140,7 +140,7 @@ export async function action({ request }: Route.ActionArgs) {
   const form = await request.formData();
   const intentValue = readFormText(form, "_intent");
 
-  if (intentValue !== "refund" && intentValue !== "reject") {
+  if (intentValue !== "refund" && intentValue !== "reject" && intentValue !== "reopen") {
     const actionError: ReceiptUiError = {
       _tag: "ReceiptDecodeError",
       message: "Ukjent behandling. Åpne bekreftelsen på nytt og prøv igjen.",
@@ -167,7 +167,9 @@ export async function action({ request }: Route.ActionArgs) {
     const result =
       command.intent === "refund"
         ? await client.receipts.refundReceipt(requestInput)
-        : await client.receipts.rejectReceipt(requestInput);
+        : command.intent === "reopen"
+          ? await client.receipts.reopenReceipt(requestInput)
+          : await client.receipts.rejectReceipt(requestInput);
 
     return {
       success: true as const,

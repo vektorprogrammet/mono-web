@@ -331,3 +331,94 @@ it("quarantines duplicate visual and source identities across an import snapshot
     reasons: ["SourceIdentityCollision"],
   });
 });
+
+it.effect(
+  "reopens only a rejected claim under current approval authority, preserving content without effects",
+  () =>
+    Effect.gen(function* () {
+      const submitted = yield* decideReceipt(undefined, submit, context);
+      const rejected = yield* decideReceipt(
+        submitted.receipt,
+        {
+          _tag: "RejectReceipt",
+          commandId: "reject-for-correction",
+          actor: approver,
+          receiptId: context.receiptId,
+          expectedRevision: 0,
+        },
+        context,
+      );
+      const reopen = {
+        _tag: "ReopenRejectedReceipt",
+        commandId: "reopen-for-correction",
+        actor: approver,
+        receiptId: context.receiptId,
+        expectedRevision: 1,
+      } as const;
+      const reopened = yield* decideReceipt(rejected.receipt, reopen, context);
+      expect(reopened.receipt).toEqual({ ...rejected.receipt, status: "Pending", revision: 2 });
+      expect(reopened.outbox).toEqual([]);
+      expect(reopened.auditAction).toBe("RejectedReceiptReopened");
+      for (const actor of [
+        owner,
+        { ...approver, active: false },
+        {
+          ...approver,
+          approvalScope: { _tag: "Department", departmentId: DepartmentId.make("elsewhere") },
+        },
+      ]) {
+        const denied = yield* Effect.exit(
+          decideReceipt(rejected.receipt, { ...reopen, actor }, context),
+        );
+        expect(denied._tag).toBe("Failure");
+      }
+      for (const status of ["Pending", "Refunded", "Withdrawn"] as const) {
+        const denied = yield* Effect.flip(
+          decideReceipt({ ...rejected.receipt, status }, reopen, context),
+        );
+        expect(denied._tag).toBe("InvalidReceiptTransition");
+      }
+      const stale = yield* Effect.flip(
+        decideReceipt(rejected.receipt, { ...reopen, expectedRevision: 0 }, context),
+      );
+      expect(stale._tag).toBe("StaleReceiptRevision");
+      const excess = yield* Effect.flip(
+        decideReceipt(rejected.receipt, { ...reopen, status: "Pending" }, context),
+      );
+      expect(excess._tag).toBe("ReceiptDecodeError");
+      const revise = {
+        _tag: "RevisePendingReceipt",
+        commandId: "correction",
+        actor: owner,
+        receiptId: context.receiptId,
+        description: "Corrected travel",
+        amountOre: 12000,
+        receiptDate: "2026-08-19",
+        file: { _tag: "KeepCurrentFile" },
+      };
+      expect(
+        (yield* Effect.flip(
+          decideReceipt(rejected.receipt, { ...revise, expectedRevision: 1 }, context),
+        ))._tag,
+      ).toBe("InvalidReceiptTransition");
+      const corrected = yield* decideReceipt(
+        reopened.receipt,
+        { ...revise, expectedRevision: 2 },
+        context,
+      );
+      expect(corrected.receipt.receiptId).toBe(context.receiptId);
+      const resolved = yield* decideReceipt(
+        corrected.receipt,
+        {
+          _tag: "RefundReceipt",
+          commandId: "corrected-refund",
+          actor: approver,
+          receiptId: context.receiptId,
+          expectedRevision: 3,
+        },
+        context,
+      );
+      expect(resolved.receipt.status).toBe("Refunded");
+      expect(resolved.receipt.revision).toBe(4);
+    }),
+);

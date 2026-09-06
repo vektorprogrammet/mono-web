@@ -837,6 +837,31 @@ export const ReceiptsRejectReceiptProblem = problemUnion("ReceiptsRejectReceiptP
   ["receipt.invalid-transition", 409],
 ]);
 
+/** Problems for `receipts.reopenReceipt`. */
+export const ReceiptsReopenReceiptProblem = problemUnion("ReceiptsReopenReceiptProblem", [
+  ["request.malformed", 400],
+  ["header.malformed", 400],
+  ["credential.missing", 401],
+  ["credential.invalid", 401],
+  ["authority.denied", 403],
+  ["origin.denied", 403],
+  ["idempotency-key.invalid", 400],
+  ["idempotency.in-flight", 409],
+  ["idempotency.digest-conflict", 409],
+  ["idempotency.response-expired", 409],
+  ["request.too-large", 413],
+  ["media-type.unsupported", 415],
+  ["validation.failed", 422],
+  ["precondition.invalid", 400],
+  ["precondition.failed", 412],
+  ["precondition.required", 428],
+  ["internal.error", 500],
+  ["dependency.unavailable", 503],
+  ["idempotency.unavailable", 503],
+  ["receipt.not-found", 404],
+  ["receipt.invalid-transition", 409],
+]);
+
 /** Problems for `content.readContentWorkspace`. */
 export const ContentReadContentWorkspaceProblem = problemUnion(
   "ContentReadContentWorkspaceProblem",
