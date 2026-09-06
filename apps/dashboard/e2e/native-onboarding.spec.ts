@@ -43,11 +43,9 @@ test("0099 applicant claims an invited account then requests affiliation and rec
     "/dashboard/assistenter?" +
     new URLSearchParams({ departmentId: manifest.departmentId, semesterId: manifest.semesterId });
   await signIn(managerPage, manifest.persons.leader, onboarding);
-  const card = managerPage
-    .getByRole("article")
-    .filter({
-      has: managerPage.getByRole("heading", { name: "Onboarding Applicant", exact: true }),
-    });
+  const card = managerPage.getByRole("article").filter({
+    has: managerPage.getByRole("heading", { name: "Onboarding Applicant", exact: true }),
+  });
   await expect(card).toBeVisible();
   await axe(managerPage);
   await card.getByRole("button", { name: "Inviter", exact: true }).click();

@@ -18,6 +18,7 @@ CREATE TABLE public.applicant_account_invitations (
  FOREIGN KEY(application_id,applicant_id) REFERENCES public.admission_applications(application_id,applicant_id),
  CHECK(issued_at<expires_at)
 );
+ALTER TABLE public.applicant_account_invitations ADD COLUMN generation bigint GENERATED ALWAYS AS IDENTITY UNIQUE;
 ALTER TABLE public.applicant_account_links ADD CONSTRAINT applicant_account_link_invitation_fk
  FOREIGN KEY(invitation_id,applicant_id) REFERENCES public.applicant_account_invitations(invitation_id,applicant_id);
 CREATE UNIQUE INDEX applicant_account_one_open ON public.applicant_account_invitations(applicant_id) WHERE state='Open';

@@ -31,7 +31,7 @@ export const readOnboardingBoard = (departmentId: DepartmentId) =>
   Database.use((sql) =>
     Effect.gen(function* () {
       const items =
-        yield* sql`SELECT a.application_id AS "applicationId",p.first_name AS "firstName",p.last_name AS "lastName",i.invitation_id AS "invitationId",CASE WHEN l.applicant_id IS NOT NULL THEN 'Linked' WHEN i.state='Open' AND i.expires_at<=transaction_timestamp() THEN 'Expired' ELSE COALESCE(i.state,'Absent') END AS state,COALESCE(d.state,'Absent') AS delivery,to_char(i.expires_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "expiresAt" FROM public.admission_applications a JOIN public.admission_applicants p USING(applicant_id) LEFT JOIN public.applicant_account_links l USING(applicant_id) LEFT JOIN LATERAL(SELECT * FROM public.applicant_account_invitations WHERE applicant_id=a.applicant_id ORDER BY issued_at DESC,invitation_id DESC LIMIT 1)i ON true LEFT JOIN public.applicant_account_delivery d USING(invitation_id) WHERE a.department_id=${departmentId} ORDER BY a.submitted_at DESC,a.application_id`;
+        yield* sql`SELECT a.application_id AS "applicationId",p.first_name AS "firstName",p.last_name AS "lastName",i.invitation_id AS "invitationId",CASE WHEN l.applicant_id IS NOT NULL THEN 'Linked' WHEN i.state='Open' AND i.expires_at<=transaction_timestamp() THEN 'Expired' ELSE COALESCE(i.state,'Absent') END AS state,COALESCE(d.state,'Absent') AS delivery,to_char(i.expires_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "expiresAt" FROM public.admission_applications a JOIN public.admission_applicants p USING(applicant_id) LEFT JOIN public.applicant_account_links l USING(applicant_id) LEFT JOIN LATERAL(SELECT * FROM public.applicant_account_invitations WHERE applicant_id=a.applicant_id ORDER BY generation DESC LIMIT 1)i ON true LEFT JOIN public.applicant_account_delivery d USING(invitation_id) WHERE a.department_id=${departmentId} ORDER BY a.submitted_at DESC,a.application_id`;
       return { departmentId, items };
     }),
   );
@@ -64,7 +64,7 @@ export const commandOnboarding = (input: {
       }
       if (input.command.action === "Revoke") return;
       const expiresAt = new Date(Date.parse(input.now) + 86400000).toISOString();
-      yield* sql`INSERT INTO public.applicant_account_invitations VALUES(${input.invitationId},${input.command.applicationId},${applicantId},${input.digest},${expiresAt},'Open',${input.actor},${input.now})`;
+      yield* sql`INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES(${input.invitationId},${input.command.applicationId},${applicantId},${input.digest},${expiresAt},'Open',${input.actor},${input.now})`;
       yield* sql`INSERT INTO public.applicant_account_delivery(invitation_id,state,secret,recipient) SELECT ${input.invitationId},'Pending',${input.token},email FROM public.admission_applicants WHERE applicant_id=${applicantId}`;
       yield* sql`INSERT INTO public.applicant_account_audit VALUES(${input.invitationId + ":issue"},${applicantId},${input.invitationId},${input.actor},'Issued',${input.now})`;
     }),
@@ -93,7 +93,7 @@ export const claimOnboarding = <E, R>(input: {
           lastName: string;
           email: string;
           phone: string;
-        }>`SELECT i.invitation_id AS "invitationId",i.applicant_id AS "applicantId",a.department_id AS "departmentId",p.first_name AS "firstName",p.last_name AS "lastName",p.email,p.phone FROM public.applicant_account_invitations i JOIN public.admission_applicants p USING(applicant_id) JOIN public.admission_applications a USING(application_id) WHERE i.token_digest=${input.digest} AND i.state='Open' AND i.expires_at>${input.now}::timestamptz AND NOT EXISTS(SELECT 1 FROM public.applicant_account_links l WHERE l.applicant_id=i.applicant_id)`;
+        }>`SELECT i.invitation_id AS "invitationId",i.applicant_id AS "applicantId",a.department_id AS "departmentId",p.first_name AS "firstName",p.last_name AS "lastName",d.recipient AS email,p.phone FROM public.applicant_account_invitations i JOIN public.applicant_account_delivery d USING(invitation_id) JOIN public.admission_applicants p USING(applicant_id) JOIN public.admission_applications a USING(application_id) WHERE i.token_digest=${input.digest} AND i.state='Open' AND i.expires_at>${input.now}::timestamptz AND NOT EXISTS(SELECT 1 FROM public.applicant_account_links l WHERE l.applicant_id=i.applicant_id)`;
         const row = rows[0];
         if (!row) return yield* fail("onboarding.claim-invalid", 400);
         if (input.identity.mode === "NewAccount")

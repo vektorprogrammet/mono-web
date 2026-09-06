@@ -11,7 +11,10 @@ import { Effect } from "effect";
 import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 import { provisionOnboardingAccount, hashOnboardingPassword } from "./onboarding-account.js";
-import { drainOnboardingDelivery } from "../../../apps/backend/src/onboarding/delivery.js";
+import {
+  drainOnboardingDelivery,
+  expireOnboardingSecrets,
+} from "../../../apps/backend/src/onboarding/delivery.js";
 const runtime = makeControlledTestRuntime(DatabaseTest());
 afterAll(() => runtime.dispose());
 const dept = DepartmentId.make("onboarding-dept");
@@ -147,13 +150,15 @@ describe("applicant account authority", () => {
     );
     expect(
       await drain(async (_, init) => {
-        envelopes.push(String(init?.body));
+        if (typeof init?.body !== "string") throw new Error("Expected serialized delivery body");
+        envelopes.push(init.body);
         return new Response(null, { status: 503 });
       }),
     ).toBe("Pending");
     expect(
       await drain(async (_, init) => {
-        envelopes.push(String(init?.body));
+        if (typeof init?.body !== "string") throw new Error("Expected serialized delivery body");
+        envelopes.push(init.body);
         return new Response(null, { status: 204 });
       }),
     ).toBe("Delivered");
@@ -179,6 +184,72 @@ describe("applicant account authority", () => {
         }),
       ),
     ).toBe("BusyOrComplete");
+  });
+  it("reissue is ordered independently of equal timestamps and claims the proven recipient snapshot", async () => {
+    await issue(6);
+    await runtime.runPromise(
+      Database.use((sql) =>
+        sql.withTransaction(
+          commandOnboarding({
+            departmentId: dept,
+            command: {
+              applicationId: PublicApplicationIdSchema.make("onboard-app-6"),
+              action: "Issue",
+            },
+            actor,
+            now,
+            invitationId: "aaa-reissued",
+            token: "onboard_" + "7".repeat(64),
+            digest: "7".repeat(64),
+          }),
+        ),
+      ),
+    );
+    await expect(claim(6, "stale-person")).rejects.toMatchObject({
+      code: "onboarding.claim-invalid",
+    });
+    await runtime.runPromise(
+      Database.use(
+        (sql) =>
+          sql`UPDATE admission_applicants SET email='changed@example.invalid' WHERE applicant_id='onboard-applicant-6'`,
+      ),
+    );
+    await claim(7, "reissued-person");
+    const rows = await runtime.runPromise(
+      Database.use((sql) => sql`SELECT email FROM auth."user" WHERE id='reissued-person'`),
+    );
+    expect(rows[0]?.email).toBe("applicant6@example.invalid");
+  });
+  it("expired claims fail immediately and expiry sweep erases retained delivery material", async () => {
+    await runtime.runPromise(
+      Database.use((sql) =>
+        sql.withTransaction(
+          commandOnboarding({
+            departmentId: dept,
+            command: {
+              applicationId: PublicApplicationIdSchema.make("onboard-app-5"),
+              action: "Issue",
+            },
+            actor,
+            now: "2000-01-01T00:00:00.000Z",
+            invitationId: "expired-invitation",
+            token: "onboard_" + "8".repeat(64),
+            digest: "8".repeat(64),
+          }),
+        ),
+      ),
+    );
+    await expect(claim(8, "expired-person")).rejects.toMatchObject({
+      code: "onboarding.claim-invalid",
+    });
+    await runtime.runPromise(expireOnboardingSecrets);
+    const rows = await runtime.runPromise(
+      Database.use(
+        (sql) =>
+          sql`SELECT state,secret,envelope FROM applicant_account_delivery WHERE invitation_id='expired-invitation'`,
+      ),
+    );
+    expect(rows[0]).toEqual({ state: "Cancelled", secret: null, envelope: null });
   });
   it("uses installed Better Auth hashing", async () => {
     expect(await hashOnboardingPassword("Long synthetic password")).not.toBe(
