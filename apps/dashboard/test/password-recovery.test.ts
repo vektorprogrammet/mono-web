@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { action as requestPasswordReset } from "../app/routes/glemt-passord";
-import { action as setPassword } from "../app/routes/tilbakestill-passord";
-import { action as legacySetPassword } from "../app/routes/tilbakestill-passord.$code";
+let requestPasswordReset: typeof import("../app/routes/glemt-passord").action;
+let setPassword: typeof import("../app/routes/tilbakestill-passord").action;
+let legacySetPassword: typeof import("../app/routes/tilbakestill-passord.$code").action;
 
 const dashboardOrigin = "http://127.0.0.1:5174";
 const backendOrigin = "http://127.0.0.1:8790";
@@ -19,13 +19,18 @@ const resetFields = {
 };
 
 describe("native credential recovery route boundary", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    vi.resetModules();
     vi.stubEnv("PASSWORD_RECOVERY_ENGINE", "native");
     vi.stubEnv("OAUTH_DASHBOARD_ORIGIN", dashboardOrigin);
     vi.stubEnv("API_URL", backendOrigin);
     vi.stubGlobal("fetch", fetchMock);
     fetchMock.mockReset();
     fetchMock.mockImplementation(async () => Response.json({ status: true }));
+    // The server URL is captured at module startup, after configuration is supplied.
+    requestPasswordReset = (await import("../app/routes/glemt-passord")).action;
+    setPassword = (await import("../app/routes/tilbakestill-passord")).action;
+    legacySetPassword = (await import("../app/routes/tilbakestill-passord.$code")).action;
   });
   afterEach(() => {
     vi.unstubAllEnvs();
