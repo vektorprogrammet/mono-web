@@ -259,7 +259,7 @@ export async function observeReceiptReopening(options: {
       PORT: "5174",
       NODE_ENV: "production",
     },
-    stdio: "ignore",
+    stdio: ["ignore", "ignore", "pipe"],
   });
   const startupDiagnostics: string[] = [];
   dashboard.stderr?.on("data", (chunk) => {
