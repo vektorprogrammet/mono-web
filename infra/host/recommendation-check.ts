@@ -526,6 +526,29 @@ try {
     403,
   );
   assert.equal((await get("interview-recommendation-link-race")).status, 403);
+
+  const readLocker = await pool.connect();
+  heldIdentityClient = readLocker;
+  await readLocker.query("BEGIN");
+  await readLocker.query(
+    `SELECT applicant_id FROM public.admission_applicants WHERE applicant_id='applicant-recommendation-read-race' FOR UPDATE`,
+  );
+  const readLockerPid = (await readLocker.query("SELECT pg_backend_pid() pid")).rows[0].pid;
+  const waitingRead = get("interview-recommendation-read-race");
+  await ready(
+    async () =>
+      (
+        await pool.query(
+          `SELECT count(*)::int n FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid))`,
+          [readLockerPid],
+        )
+      ).rows[0].n > 0,
+  );
+  await link("read-race", "journey-conduct-leader-0063", readLocker);
+  await readLocker.query("COMMIT");
+  readLocker.release();
+  heldIdentityClient = undefined;
+  assert.equal((await waitingRead).status, 403);
   assert.equal(await count(), lifecycleBeforeSelf);
   gates.push(
     "known self denied before read/finalize/cancel and both receipt layers; different Person allowed; real waiting serializable snapshot fails409 then self-denial",

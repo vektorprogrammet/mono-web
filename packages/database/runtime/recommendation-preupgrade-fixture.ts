@@ -37,7 +37,7 @@ try {
     stdio: "pipe",
   });
   await pool.query("BEGIN");
-  for (const suffix of ["maybe", "no", "history", "self", "link-race"] as const) {
+  for (const suffix of ["maybe", "no", "history", "self", "link-race", "read-race"] as const) {
     const applicant = `applicant-recommendation-${suffix}`,
       application = `application-recommendation-${suffix}`,
       interview = `interview-recommendation-${suffix}`,
@@ -70,9 +70,14 @@ try {
     await clone("recruitment_invitations", "invitation_id='invitation-native-conduct-a-0063'", {
       invitation_id: invitation,
       interview_id: interview,
-      capability_sha256: { maybe: "c", no: "d", history: "e", self: "f", "link-race": "9" }[
-        suffix
-      ]!.repeat(64),
+      capability_sha256: {
+        maybe: "c",
+        no: "d",
+        history: "e",
+        self: "f",
+        "link-race": "9",
+        "read-race": "8",
+      }[suffix]!.repeat(64),
     });
     await clone(
       "recruitment_invitation_response_audit",
