@@ -58,7 +58,9 @@ type BackendRequirements =
   Parameters<BackendRun>[0] extends Effect.Effect<unknown, unknown, infer R> ? R : never;
 const header = (request: Request, key: string) =>
   request.headers.has(key) ? [request.headers.get(key)!] : [];
-export const substituteResource = (entry: SubstituteEntry): typeof SubstituteResource.Type => ({
+export const substituteResource = <A extends SubstituteEntry>(
+  entry: A,
+): A & { readonly etag: (typeof SubstituteResource.Type)["etag"] } => ({
   ...entry,
   etag: deriveStrongETag({
     representationKind: "SubstituteResource",
@@ -66,6 +68,7 @@ export const substituteResource = (entry: SubstituteEntry): typeof SubstituteRes
     version: JSON.stringify(entry),
   }),
 });
+
 const json = (body: unknown, etag?: string) =>
   new Response(JSON.stringify(body), {
     headers: {

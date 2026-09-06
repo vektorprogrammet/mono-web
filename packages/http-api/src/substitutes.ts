@@ -1,8 +1,7 @@
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import { AdmissionPeriodId } from "@vektorprogrammet/domain/admission-period";
 import {
-  SubstituteEntryFields,
-  SubstitutePreferences,
+  SubstituteEntry,
   SubstituteMutation,
   SubstituteScope,
   SubstituteScopes,
@@ -22,31 +21,29 @@ import {
   problemUnion,
 } from "./http-semantics.js";
 
+export const ActiveSubstituteResource = Schema.Struct({
+  ...SubstituteEntry.members[0].fields,
+  etag: StrongETag,
+});
+export const InactiveSubstituteResource = Schema.Struct({
+  ...SubstituteEntry.members[1].fields,
+  etag: StrongETag,
+});
 export const SubstituteResource = Schema.Union([
-  Schema.Struct({
-    ...SubstituteEntryFields,
-    active: Schema.Literal(true),
-    preferences: SubstitutePreferences,
-    etag: StrongETag,
-  }),
-  Schema.Struct({
-    ...SubstituteEntryFields,
-    active: Schema.Literal(false),
-    preferences: Schema.NullOr(SubstitutePreferences),
-    etag: StrongETag,
-  }),
+  ActiveSubstituteResource,
+  InactiveSubstituteResource,
 ]).annotate({ identifier: "SubstituteResource" });
 const BoardFields = {
   ...SubstituteScope.fields,
   admissionPeriodId: Schema.NullOr(AdmissionPeriodId),
-  entries: Schema.Array(SubstituteResource),
+  entries: Schema.Array(ActiveSubstituteResource),
 };
 export const SubstituteBoard = Schema.Union([
   Schema.Struct({ _tag: Schema.Literal("ReadOnly"), ...BoardFields }),
   Schema.Struct({
     _tag: Schema.Literal("Manage"),
     ...BoardFields,
-    candidates: Schema.Array(SubstituteResource),
+    candidates: Schema.Array(InactiveSubstituteResource),
   }),
 ]).annotate({ identifier: "SubstituteBoard" });
 export const SubstituteProblem = problemUnion("SubstituteProblem", [

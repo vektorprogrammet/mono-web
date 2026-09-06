@@ -154,7 +154,7 @@
       },
       "Arrays_": {
         "items": {
-          "$ref": "#/components/schemas/SubstituteResource"
+          "$ref": "#/components/schemas/Objects_21"
         },
         "type": "array"
       },
@@ -328,7 +328,7 @@
                 "interviewer": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_24"
+                      "$ref": "#/components/schemas/Objects_26"
                     },
                     {
                       "type": "null"
@@ -338,7 +338,7 @@
                 "interviewSchema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_25"
+                      "$ref": "#/components/schemas/Objects_27"
                     },
                     {
                       "type": "null"
@@ -392,13 +392,13 @@
           },
           "interviewers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_24"
+              "$ref": "#/components/schemas/Objects_26"
             },
             "type": "array"
           },
           "interviewSchemas": {
             "items": {
-              "$ref": "#/components/schemas/Objects_25"
+              "$ref": "#/components/schemas/Objects_27"
             },
             "type": "array"
           }
@@ -519,7 +519,7 @@
         "properties": {
           "answers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_28"
+              "$ref": "#/components/schemas/Objects_30"
             },
             "type": "array"
           },
@@ -619,7 +619,7 @@
           "score": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Objects_29"
+                "$ref": "#/components/schemas/Objects_31"
               },
               {
                 "type": "null"
@@ -1250,12 +1250,12 @@
         "properties": {
           "answers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_28"
+              "$ref": "#/components/schemas/Objects_30"
             },
             "type": "array"
           },
           "score": {
-            "$ref": "#/components/schemas/Objects_29"
+            "$ref": "#/components/schemas/Objects_31"
           }
         },
         "required": [
@@ -2262,6 +2262,79 @@
       "Objects_21": {
         "additionalProperties": false,
         "properties": {
+          "active": {
+            "enum": [
+              true
+            ],
+            "type": "boolean"
+          },
+          "admissionPeriodId": {
+            "allOf": [
+              {
+                "minLength": 1
+              }
+            ],
+            "type": "string"
+          },
+          "applicationId": {
+            "type": "string"
+          },
+          "departmentId": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "etag": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "preferences": {
+            "$ref": "#/components/schemas/Objects_22"
+          },
+          "revision": {
+            "allOf": [
+              {
+                "minimum": 0
+              }
+            ],
+            "type": "integer"
+          },
+          "semesterId": {
+            "type": "string"
+          },
+          "yearOfStudy": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "applicationId",
+          "admissionPeriodId",
+          "departmentId",
+          "semesterId",
+          "firstName",
+          "lastName",
+          "email",
+          "phone",
+          "yearOfStudy",
+          "revision",
+          "active",
+          "preferences",
+          "etag"
+        ],
+        "type": "object"
+      },
+      "Objects_22": {
+        "additionalProperties": false,
+        "properties": {
           "friday": {
             "type": "boolean"
           },
@@ -2291,7 +2364,87 @@
         ],
         "type": "object"
       },
-      "Objects_22": {
+      "Objects_23": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "enum": [
+              false
+            ],
+            "type": "boolean"
+          },
+          "admissionPeriodId": {
+            "allOf": [
+              {
+                "minLength": 1
+              }
+            ],
+            "type": "string"
+          },
+          "applicationId": {
+            "type": "string"
+          },
+          "departmentId": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "etag": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "preferences": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Objects_22"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "allOf": [
+              {
+                "minimum": 0
+              }
+            ],
+            "type": "integer"
+          },
+          "semesterId": {
+            "type": "string"
+          },
+          "yearOfStudy": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "applicationId",
+          "admissionPeriodId",
+          "departmentId",
+          "semesterId",
+          "firstName",
+          "lastName",
+          "email",
+          "phone",
+          "yearOfStudy",
+          "revision",
+          "active",
+          "preferences",
+          "etag"
+        ],
+        "type": "object"
+      },
+      "Objects_24": {
         "additionalProperties": false,
         "properties": {
           "friday": {
@@ -2327,7 +2480,7 @@
         ],
         "type": "object"
       },
-      "Objects_23": {
+      "Objects_25": {
         "additionalProperties": false,
         "examples": [
           {
@@ -2429,7 +2582,7 @@
         ],
         "type": "object"
       },
-      "Objects_24": {
+      "Objects_26": {
         "additionalProperties": false,
         "properties": {
           "displayName": {
@@ -2450,7 +2603,7 @@
         ],
         "type": "object"
       },
-      "Objects_25": {
+      "Objects_27": {
         "additionalProperties": false,
         "properties": {
           "active": {
@@ -2493,7 +2646,7 @@
         ],
         "type": "object"
       },
-      "Objects_26": {
+      "Objects_28": {
         "additionalProperties": false,
         "properties": {
           "displayName": {
@@ -2522,7 +2675,7 @@
         ],
         "type": "object"
       },
-      "Objects_27": {
+      "Objects_29": {
         "additionalProperties": false,
         "properties": {
           "applicantId": {
@@ -2551,52 +2704,6 @@
           "lastName",
           "email",
           "phone"
-        ],
-        "type": "object"
-      },
-      "Objects_28": {
-        "additionalProperties": false,
-        "properties": {
-          "answer": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            ]
-          },
-          "questionId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "questionId",
-          "answer"
-        ],
-        "type": "object"
-      },
-      "Objects_29": {
-        "additionalProperties": false,
-        "properties": {
-          "explanatoryPower": {
-            "type": "integer"
-          },
-          "roleModel": {
-            "type": "integer"
-          },
-          "suitability": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "explanatoryPower",
-          "roleModel",
-          "suitability"
         ],
         "type": "object"
       },
@@ -2647,6 +2754,52 @@
         "type": "object"
       },
       "Objects_30": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            ]
+          },
+          "questionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "questionId",
+          "answer"
+        ],
+        "type": "object"
+      },
+      "Objects_31": {
+        "additionalProperties": false,
+        "properties": {
+          "explanatoryPower": {
+            "type": "integer"
+          },
+          "roleModel": {
+            "type": "integer"
+          },
+          "suitability": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "explanatoryPower",
+          "roleModel",
+          "suitability"
+        ],
+        "type": "object"
+      },
+      "Objects_32": {
         "additionalProperties": false,
         "properties": {
           "articleId": {
@@ -4469,7 +4622,7 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_27"
+                "$ref": "#/components/schemas/Objects_29"
               },
               "applicationId": {
                 "type": "string"
@@ -4481,7 +4634,7 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_26"
+                "$ref": "#/components/schemas/Objects_28"
               },
               "interviewId": {
                 "type": "string"
@@ -4526,7 +4679,7 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_27"
+                "$ref": "#/components/schemas/Objects_29"
               },
               "applicationId": {
                 "type": "string"
@@ -4538,7 +4691,7 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_26"
+                "$ref": "#/components/schemas/Objects_28"
               },
               "interviewId": {
                 "type": "string"
@@ -4587,7 +4740,7 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_27"
+                "$ref": "#/components/schemas/Objects_29"
               },
               "applicationId": {
                 "type": "string"
@@ -4599,7 +4752,7 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_26"
+                "$ref": "#/components/schemas/Objects_28"
               },
               "interviewId": {
                 "type": "string"
@@ -4658,7 +4811,7 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_27"
+                "$ref": "#/components/schemas/Objects_29"
               },
               "applicationId": {
                 "type": "string"
@@ -4670,7 +4823,7 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_26"
+                "$ref": "#/components/schemas/Objects_28"
               },
               "interviewId": {
                 "type": "string"
@@ -4726,13 +4879,13 @@
         "properties": {
           "activeSchools": {
             "items": {
-              "$ref": "#/components/schemas/Objects_23"
+              "$ref": "#/components/schemas/Objects_25"
             },
             "type": "array"
           },
           "inactiveSchools": {
             "items": {
-              "$ref": "#/components/schemas/Objects_23"
+              "$ref": "#/components/schemas/Objects_25"
             },
             "type": "array"
           }
@@ -5048,7 +5201,7 @@
               },
               "candidates": {
                 "items": {
-                  "$ref": "#/components/schemas/SubstituteResource"
+                  "$ref": "#/components/schemas/Objects_23"
                 },
                 "type": "array"
               },
@@ -5077,157 +5230,10 @@
       "SubstituteResource": {
         "anyOf": [
           {
-            "additionalProperties": false,
-            "properties": {
-              "active": {
-                "enum": [
-                  true
-                ],
-                "type": "boolean"
-              },
-              "admissionPeriodId": {
-                "allOf": [
-                  {
-                    "minLength": 1
-                  }
-                ],
-                "type": "string"
-              },
-              "applicationId": {
-                "type": "string"
-              },
-              "departmentId": {
-                "type": "string"
-              },
-              "email": {
-                "type": "string"
-              },
-              "etag": {
-                "type": "string"
-              },
-              "firstName": {
-                "type": "string"
-              },
-              "lastName": {
-                "type": "string"
-              },
-              "phone": {
-                "type": "string"
-              },
-              "preferences": {
-                "$ref": "#/components/schemas/Objects_21"
-              },
-              "revision": {
-                "allOf": [
-                  {
-                    "minimum": 0
-                  }
-                ],
-                "type": "integer"
-              },
-              "semesterId": {
-                "type": "string"
-              },
-              "yearOfStudy": {
-                "type": "integer"
-              }
-            },
-            "required": [
-              "applicationId",
-              "admissionPeriodId",
-              "departmentId",
-              "semesterId",
-              "firstName",
-              "lastName",
-              "email",
-              "phone",
-              "yearOfStudy",
-              "revision",
-              "active",
-              "preferences",
-              "etag"
-            ],
-            "type": "object"
+            "$ref": "#/components/schemas/Objects_21"
           },
           {
-            "additionalProperties": false,
-            "properties": {
-              "active": {
-                "enum": [
-                  false
-                ],
-                "type": "boolean"
-              },
-              "admissionPeriodId": {
-                "allOf": [
-                  {
-                    "minLength": 1
-                  }
-                ],
-                "type": "string"
-              },
-              "applicationId": {
-                "type": "string"
-              },
-              "departmentId": {
-                "type": "string"
-              },
-              "email": {
-                "type": "string"
-              },
-              "etag": {
-                "type": "string"
-              },
-              "firstName": {
-                "type": "string"
-              },
-              "lastName": {
-                "type": "string"
-              },
-              "phone": {
-                "type": "string"
-              },
-              "preferences": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/Objects_21"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "revision": {
-                "allOf": [
-                  {
-                    "minimum": 0
-                  }
-                ],
-                "type": "integer"
-              },
-              "semesterId": {
-                "type": "string"
-              },
-              "yearOfStudy": {
-                "type": "integer"
-              }
-            },
-            "required": [
-              "applicationId",
-              "admissionPeriodId",
-              "departmentId",
-              "semesterId",
-              "firstName",
-              "lastName",
-              "email",
-              "phone",
-              "yearOfStudy",
-              "revision",
-              "active",
-              "preferences",
-              "etag"
-            ],
-            "type": "object"
+            "$ref": "#/components/schemas/Objects_23"
           }
         ]
       },
@@ -14067,7 +14073,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Objects_30"
+                  "$ref": "#/components/schemas/Objects_32"
                 }
               }
             },
@@ -14956,7 +14962,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Objects_30"
+                  "$ref": "#/components/schemas/Objects_32"
                 }
               }
             },
@@ -55632,7 +55638,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Objects_22"
+                "$ref": "#/components/schemas/Objects_24"
               }
             }
           },
@@ -56595,7 +56601,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Objects_22"
+                "$ref": "#/components/schemas/Objects_24"
               }
             }
           },

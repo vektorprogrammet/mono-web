@@ -13,8 +13,8 @@ const requireDatabase = createRequire(
   new URL("../../packages/database/package.json", import.meta.url),
 );
 const { Pool } = requireDatabase("pg");
-const run = (command: string, args: string[], env = process.env) =>
-  execFileSync(command, args, { cwd: root, env, encoding: "utf8", timeout: 60_000 });
+const run = (command: string, args: string[], env = process.env, timeout = 60_000) =>
+  execFileSync(command, args, { cwd: root, env, encoding: "utf8", timeout });
 const revision = run("git", ["rev-parse", "HEAD"]).trim();
 assert.equal(run("git", ["status", "--porcelain"]).trim(), "", "requires committed clean artifact");
 const artifacts = await mkdtemp(join(tmpdir(), "vektor-substitutes-0094-"));
@@ -201,6 +201,27 @@ try {
     assert.equal(response.status, 200, await response.clone().text());
     return response.json();
   };
+  await pool.query(
+    "INSERT INTO public.organization_memberships(membership_id,person_id,team_id,deleted_team_name,start_at,end_at,position_id,is_team_leader,is_suspended,revision) VALUES ('first-membership-0094','journey-rec-leader-0049','wrong-team-0094',NULL,'2026-01-01',NULL,NULL,false,false,0)",
+  );
+  const choices = await request("/api/substitutes/scopes", leader);
+  assert.equal(choices.status, 200);
+  assert.equal(
+    (await choices.json()).departments.length,
+    2,
+    "all requested-department memberships evaluated",
+  );
+  await pool.query(
+    "INSERT INTO public.organization_global_administrator_grants(grant_id,person_id,start_at,end_at,revision) VALUES ('admin-0094','journey-rec-interviewer-b-0049','2026-01-01',NULL,0)",
+  );
+  assert.equal(
+    (await request(path, wrong)).status,
+    200,
+    "active global administrator sees candidate across departments",
+  );
+  await pool.query(
+    "DELETE FROM public.organization_global_administrator_grants WHERE grant_id='admin-0094'",
+  );
   const initial = await get();
   assert.equal(initial.active, false);
   assert.equal(initial.preferences, null);
@@ -209,6 +230,19 @@ try {
   }
   assert.equal((await request(path, member)).status, 403, "inactive item private from member");
   const selectedPool = `/api/substitutes?departmentId=${departmentId}&semesterId=${secondSemesterId}`;
+  assert.equal((await request(selectedPool, wrong)).status, 403, "wrong department pool denied");
+  assert.equal((await request(selectedPool)).status, 401, "anonymous pool denied");
+  assert.equal(
+    (await request(`${path}?departmentId=wrong-0094`, leader)).status,
+    400,
+    "forged item scope rejected",
+  );
+  assert.equal(
+    (await request(`${path}:activate`, leader, body)).status,
+    428,
+    "conditional version required",
+  );
+
   const memberEmpty = await request(selectedPool, member);
   assert.equal(memberEmpty.status, 200);
   const memberBoard = await memberEmpty.json();
@@ -301,10 +335,12 @@ try {
   });
   assert.equal((await request(`${path}:edit`, leader, body, inactive.etag)).status, 400);
   assert.equal((await request(`${path}:deactivate`, leader, {}, inactive.etag)).status, 400);
+  const unavailable = { ...body, monday: false, wednesday: false, friday: false };
   const concurrent = await Promise.all([
-    request(`${path}:activate`, leader, body, inactive.etag),
-    request(`${path}:activate`, leader, body, inactive.etag),
+    request(`${path}:activate`, leader, unavailable, inactive.etag),
+    request(`${path}:activate`, leader, unavailable, inactive.etag),
   ]);
+
   assert.equal(
     concurrent.filter((r) => r.status === 200).length,
     1,
@@ -339,6 +375,12 @@ try {
   );
   assert.equal(browserCandidate.rows[0].year_of_study, 3, "other semester unchanged");
   const finalApi = await get();
+  assert.ok(
+    ["monday", "tuesday", "wednesday", "thursday", "friday"].every(
+      (day) => finalApi.preferences[day] === false,
+    ),
+    "all unavailable is a valid explicit declaration",
+  );
   assert.equal((await request(`${path}:deactivate`, leader, {}, finalApi.etag)).status, 200);
   const receiptCount = await pool.query(
     "SELECT count(*)::integer AS count FROM public.native_http_idempotency_receipts WHERE operation_id LIKE 'substitutes.%'",
@@ -358,20 +400,59 @@ try {
   };
   const manifestPath = join(artifacts, "manifest.json");
   await writeFile(manifestPath, JSON.stringify(manifest), { mode: 0o600 });
-  let browserEvidence: unknown = null;
+  const secondSemesterBefore = await pool.query(
+    "SELECT row_to_json(application) AS application FROM public.admission_applications application INNER JOIN public.admission_periods period ON period.admission_period_id=application.admission_period_id WHERE period.semester_id=$1 ORDER BY application.application_id",
+    [secondSemesterId],
+  );
+  let browserEvidence: Record<string, unknown> | null = null;
+
   if (process.argv.includes("--browser")) {
-    run("bun", ["apps/dashboard/e2e/run-real-native-substitute-pool.mjs"], {
-      ...environment,
-      SUBSTITUTE_JOURNEY_MANIFEST: manifestPath,
-    });
+    run(
+      "bun",
+      ["apps/dashboard/e2e/run-real-native-substitute-pool.mjs"],
+      {
+        ...environment,
+        SUBSTITUTE_JOURNEY_MANIFEST: manifestPath,
+      },
+      300_000,
+    );
     browserEvidence = JSON.parse(await readFile(join(artifacts, "browser-evidence.json"), "utf8"));
+    assert.equal(browserEvidence?.passed, true);
+    assert.equal(browserEvidence?.revision, revision);
+    const browserRows = await pool.query(
+      `SELECT application.application_id AS "applicationId", application.year_of_study AS "yearOfStudy", preferences.active,
+      jsonb_build_object('monday',monday,'tuesday',tuesday,'wednesday',wednesday,'thursday',thursday,'friday',friday,'language',language) AS preferences
+      FROM public.admission_applications application INNER JOIN public.admission_substitute_preferences preferences ON preferences.application_id=application.application_id WHERE application.application_id=$1`,
+      [manifest.applicationId],
+    );
+    assert.deepEqual(
+      browserRows.rows,
+      [browserEvidence?.finalExpected],
+      "browser final expectation independently observed in PostgreSQL",
+    );
+    const secondSemesterAfter = await pool.query(
+      "SELECT row_to_json(application) AS application FROM public.admission_applications application INNER JOIN public.admission_periods period ON period.admission_period_id=application.admission_period_id WHERE period.semester_id=$1 ORDER BY application.application_id",
+      [secondSemesterId],
+    );
+    assert.deepEqual(
+      secondSemesterAfter.rows,
+      secondSemesterBefore.rows,
+      "browser edits do not change another semester",
+    );
   }
   evidence = {
     revision,
+    runtime: {
+      bun: process.versions.bun,
+      postgres: (await pool.query("SELECT version() AS version")).rows[0].version,
+    },
     apiPassed: true,
     browserEvidence,
     apiGates: [
       "canonical identity/scope",
+      "all memberships and active global administrator",
+      "wrong-department pool and forged item scope denied",
+      "required conditional version header",
       "immutable submission replay after canonical year edit",
       "negative application revision rejected",
       "recruitment history retained after deactivation",
@@ -386,6 +467,7 @@ try {
       "empty no-period scope",
       "other semester unchanged",
       "five executed receipts",
+      "explicit all-unavailable weekdays accepted",
     ],
     receiptCount: receiptCount.rows[0].count,
     scope: "owned loopback synthetic runtime; no production/provider effects",

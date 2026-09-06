@@ -20,8 +20,10 @@ showAskAi: false
 
 - [utils](#utils)
   - [ActivateSubstituteEndpoint](#activatesubstituteendpoint)
+  - [ActiveSubstituteResource](#activesubstituteresource)
   - [DeactivateSubstituteEndpoint](#deactivatesubstituteendpoint)
   - [EditSubstituteEndpoint](#editsubstituteendpoint)
+  - [InactiveSubstituteResource](#inactivesubstituteresource)
   - [ListSubstituteScopesEndpoint](#listsubstitutescopesendpoint)
   - [ReadSubstituteEndpoint](#readsubstituteendpoint)
   - [ReadSubstitutePoolEndpoint](#readsubstitutepoolendpoint)
@@ -69,6 +71,7 @@ declare const ActivateSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       Schema.Union<
         readonly [
           Schema.Struct<{
+            readonly etag: Schema.brand<Schema.String, "StrongETag">;
             readonly active: Schema.Literal<true>;
             readonly preferences: Schema.Struct<{
               readonly monday: Schema.Boolean;
@@ -80,7 +83,6 @@ declare const ActivateSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
                 readonly ["Norwegian", "English", "NorwegianAndEnglish"]
               >;
             }>;
-            readonly etag: Schema.brand<Schema.String, "StrongETag">;
             readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
             readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
             readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
@@ -93,6 +95,7 @@ declare const ActivateSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
             readonly revision: Schema.Int;
           }>,
           Schema.Struct<{
+            readonly etag: Schema.brand<Schema.String, "StrongETag">;
             readonly active: Schema.Literal<false>;
             readonly preferences: Schema.NullOr<
               Schema.Struct<{
@@ -106,7 +109,6 @@ declare const ActivateSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
                 >;
               }>
             >;
-            readonly etag: Schema.brand<Schema.String, "StrongETag">;
             readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
             readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
             readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
@@ -135,7 +137,38 @@ declare const ActivateSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L127)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L124)
+
+### ActiveSubstituteResource
+
+**Signature**
+
+```ts
+declare const ActiveSubstituteResource: Schema.Struct<{
+  readonly etag: Schema.brand<Schema.String, "StrongETag">;
+  readonly active: Schema.Literal<true>;
+  readonly preferences: Schema.Struct<{
+    readonly monday: Schema.Boolean;
+    readonly tuesday: Schema.Boolean;
+    readonly wednesday: Schema.Boolean;
+    readonly thursday: Schema.Boolean;
+    readonly friday: Schema.Boolean;
+    readonly language: Schema.Literals<readonly ["Norwegian", "English", "NorwegianAndEnglish"]>;
+  }>;
+  readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+  readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
+  readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+  readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
+  readonly firstName: Schema.String;
+  readonly lastName: Schema.String;
+  readonly email: Schema.String;
+  readonly phone: Schema.String;
+  readonly yearOfStudy: Schema.Int;
+  readonly revision: Schema.Int;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L24)
 
 ### DeactivateSubstituteEndpoint
 
@@ -162,6 +195,7 @@ declare const DeactivateSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       Schema.Union<
         readonly [
           Schema.Struct<{
+            readonly etag: Schema.brand<Schema.String, "StrongETag">;
             readonly active: Schema.Literal<true>;
             readonly preferences: Schema.Struct<{
               readonly monday: Schema.Boolean;
@@ -173,7 +207,6 @@ declare const DeactivateSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
                 readonly ["Norwegian", "English", "NorwegianAndEnglish"]
               >;
             }>;
-            readonly etag: Schema.brand<Schema.String, "StrongETag">;
             readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
             readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
             readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
@@ -186,6 +219,7 @@ declare const DeactivateSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
             readonly revision: Schema.Int;
           }>,
           Schema.Struct<{
+            readonly etag: Schema.brand<Schema.String, "StrongETag">;
             readonly active: Schema.Literal<false>;
             readonly preferences: Schema.NullOr<
               Schema.Struct<{
@@ -199,7 +233,6 @@ declare const DeactivateSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
                 >;
               }>
             >;
-            readonly etag: Schema.brand<Schema.String, "StrongETag">;
             readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
             readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
             readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
@@ -228,7 +261,7 @@ declare const DeactivateSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L165)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L162)
 
 ### EditSubstituteEndpoint
 
@@ -265,6 +298,7 @@ declare const EditSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       Schema.Union<
         readonly [
           Schema.Struct<{
+            readonly etag: Schema.brand<Schema.String, "StrongETag">;
             readonly active: Schema.Literal<true>;
             readonly preferences: Schema.Struct<{
               readonly monday: Schema.Boolean;
@@ -276,7 +310,6 @@ declare const EditSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
                 readonly ["Norwegian", "English", "NorwegianAndEnglish"]
               >;
             }>;
-            readonly etag: Schema.brand<Schema.String, "StrongETag">;
             readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
             readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
             readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
@@ -289,6 +322,7 @@ declare const EditSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
             readonly revision: Schema.Int;
           }>,
           Schema.Struct<{
+            readonly etag: Schema.brand<Schema.String, "StrongETag">;
             readonly active: Schema.Literal<false>;
             readonly preferences: Schema.NullOr<
               Schema.Struct<{
@@ -302,7 +336,6 @@ declare const EditSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
                 >;
               }>
             >;
-            readonly etag: Schema.brand<Schema.String, "StrongETag">;
             readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
             readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
             readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
@@ -331,7 +364,40 @@ declare const EditSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L146)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L143)
+
+### InactiveSubstituteResource
+
+**Signature**
+
+```ts
+declare const InactiveSubstituteResource: Schema.Struct<{
+  readonly etag: Schema.brand<Schema.String, "StrongETag">;
+  readonly active: Schema.Literal<false>;
+  readonly preferences: Schema.NullOr<
+    Schema.Struct<{
+      readonly monday: Schema.Boolean;
+      readonly tuesday: Schema.Boolean;
+      readonly wednesday: Schema.Boolean;
+      readonly thursday: Schema.Boolean;
+      readonly friday: Schema.Boolean;
+      readonly language: Schema.Literals<readonly ["Norwegian", "English", "NorwegianAndEnglish"]>;
+    }>
+  >;
+  readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+  readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
+  readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+  readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
+  readonly firstName: Schema.String;
+  readonly lastName: Schema.String;
+  readonly email: Schema.String;
+  readonly phone: Schema.String;
+  readonly yearOfStudy: Schema.Int;
+  readonly revision: Schema.Int;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L28)
 
 ### ListSubstituteScopesEndpoint
 
@@ -377,7 +443,7 @@ declare const ListSubstituteScopesEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L80)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L77)
 
 ### ReadSubstituteEndpoint
 
@@ -404,6 +470,7 @@ declare const ReadSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
         Schema.Union<
           readonly [
             Schema.Struct<{
+              readonly etag: Schema.brand<Schema.String, "StrongETag">;
               readonly active: Schema.Literal<true>;
               readonly preferences: Schema.Struct<{
                 readonly monday: Schema.Boolean;
@@ -415,7 +482,6 @@ declare const ReadSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
                   readonly ["Norwegian", "English", "NorwegianAndEnglish"]
                 >;
               }>;
-              readonly etag: Schema.brand<Schema.String, "StrongETag">;
               readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
               readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
               readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
@@ -428,6 +494,7 @@ declare const ReadSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
               readonly revision: Schema.Int;
             }>,
             Schema.Struct<{
+              readonly etag: Schema.brand<Schema.String, "StrongETag">;
               readonly active: Schema.Literal<false>;
               readonly preferences: Schema.NullOr<
                 Schema.Struct<{
@@ -441,7 +508,6 @@ declare const ReadSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
                   >;
                 }>
               >;
-              readonly etag: Schema.brand<Schema.String, "StrongETag">;
               readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
               readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
               readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
@@ -480,7 +546,7 @@ declare const ReadSubstituteEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L109)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L106)
 
 ### ReadSubstitutePoolEndpoint
 
@@ -509,66 +575,33 @@ declare const ReadSubstitutePoolEndpoint: HttpApiEndpoint.HttpApiEndpoint<
               Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">
             >;
             readonly entries: Schema.$Array<
-              Schema.Union<
-                readonly [
-                  Schema.Struct<{
-                    readonly active: Schema.Literal<true>;
-                    readonly preferences: Schema.Struct<{
-                      readonly monday: Schema.Boolean;
-                      readonly tuesday: Schema.Boolean;
-                      readonly wednesday: Schema.Boolean;
-                      readonly thursday: Schema.Boolean;
-                      readonly friday: Schema.Boolean;
-                      readonly language: Schema.Literals<
-                        readonly ["Norwegian", "English", "NorwegianAndEnglish"]
-                      >;
-                    }>;
-                    readonly etag: Schema.brand<Schema.String, "StrongETag">;
-                    readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-                    readonly admissionPeriodId: Schema.brand<
-                      Schema.NonEmptyString,
-                      "AdmissionPeriodId"
-                    >;
-                    readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-                    readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
-                    readonly firstName: Schema.String;
-                    readonly lastName: Schema.String;
-                    readonly email: Schema.String;
-                    readonly phone: Schema.String;
-                    readonly yearOfStudy: Schema.Int;
-                    readonly revision: Schema.Int;
-                  }>,
-                  Schema.Struct<{
-                    readonly active: Schema.Literal<false>;
-                    readonly preferences: Schema.NullOr<
-                      Schema.Struct<{
-                        readonly monday: Schema.Boolean;
-                        readonly tuesday: Schema.Boolean;
-                        readonly wednesday: Schema.Boolean;
-                        readonly thursday: Schema.Boolean;
-                        readonly friday: Schema.Boolean;
-                        readonly language: Schema.Literals<
-                          readonly ["Norwegian", "English", "NorwegianAndEnglish"]
-                        >;
-                      }>
-                    >;
-                    readonly etag: Schema.brand<Schema.String, "StrongETag">;
-                    readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-                    readonly admissionPeriodId: Schema.brand<
-                      Schema.NonEmptyString,
-                      "AdmissionPeriodId"
-                    >;
-                    readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-                    readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
-                    readonly firstName: Schema.String;
-                    readonly lastName: Schema.String;
-                    readonly email: Schema.String;
-                    readonly phone: Schema.String;
-                    readonly yearOfStudy: Schema.Int;
-                    readonly revision: Schema.Int;
-                  }>,
-                ]
-              >
+              Schema.Struct<{
+                readonly etag: Schema.brand<Schema.String, "StrongETag">;
+                readonly active: Schema.Literal<true>;
+                readonly preferences: Schema.Struct<{
+                  readonly monday: Schema.Boolean;
+                  readonly tuesday: Schema.Boolean;
+                  readonly wednesday: Schema.Boolean;
+                  readonly thursday: Schema.Boolean;
+                  readonly friday: Schema.Boolean;
+                  readonly language: Schema.Literals<
+                    readonly ["Norwegian", "English", "NorwegianAndEnglish"]
+                  >;
+                }>;
+                readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+                readonly admissionPeriodId: Schema.brand<
+                  Schema.NonEmptyString,
+                  "AdmissionPeriodId"
+                >;
+                readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+                readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
+                readonly firstName: Schema.String;
+                readonly lastName: Schema.String;
+                readonly email: Schema.String;
+                readonly phone: Schema.String;
+                readonly yearOfStudy: Schema.Int;
+                readonly revision: Schema.Int;
+              }>
             >;
             readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
             readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
@@ -576,131 +609,67 @@ declare const ReadSubstitutePoolEndpoint: HttpApiEndpoint.HttpApiEndpoint<
           }>,
           Schema.Struct<{
             readonly candidates: Schema.$Array<
-              Schema.Union<
-                readonly [
+              Schema.Struct<{
+                readonly etag: Schema.brand<Schema.String, "StrongETag">;
+                readonly active: Schema.Literal<false>;
+                readonly preferences: Schema.NullOr<
                   Schema.Struct<{
-                    readonly active: Schema.Literal<true>;
-                    readonly preferences: Schema.Struct<{
-                      readonly monday: Schema.Boolean;
-                      readonly tuesday: Schema.Boolean;
-                      readonly wednesday: Schema.Boolean;
-                      readonly thursday: Schema.Boolean;
-                      readonly friday: Schema.Boolean;
-                      readonly language: Schema.Literals<
-                        readonly ["Norwegian", "English", "NorwegianAndEnglish"]
-                      >;
-                    }>;
-                    readonly etag: Schema.brand<Schema.String, "StrongETag">;
-                    readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-                    readonly admissionPeriodId: Schema.brand<
-                      Schema.NonEmptyString,
-                      "AdmissionPeriodId"
+                    readonly monday: Schema.Boolean;
+                    readonly tuesday: Schema.Boolean;
+                    readonly wednesday: Schema.Boolean;
+                    readonly thursday: Schema.Boolean;
+                    readonly friday: Schema.Boolean;
+                    readonly language: Schema.Literals<
+                      readonly ["Norwegian", "English", "NorwegianAndEnglish"]
                     >;
-                    readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-                    readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
-                    readonly firstName: Schema.String;
-                    readonly lastName: Schema.String;
-                    readonly email: Schema.String;
-                    readonly phone: Schema.String;
-                    readonly yearOfStudy: Schema.Int;
-                    readonly revision: Schema.Int;
-                  }>,
-                  Schema.Struct<{
-                    readonly active: Schema.Literal<false>;
-                    readonly preferences: Schema.NullOr<
-                      Schema.Struct<{
-                        readonly monday: Schema.Boolean;
-                        readonly tuesday: Schema.Boolean;
-                        readonly wednesday: Schema.Boolean;
-                        readonly thursday: Schema.Boolean;
-                        readonly friday: Schema.Boolean;
-                        readonly language: Schema.Literals<
-                          readonly ["Norwegian", "English", "NorwegianAndEnglish"]
-                        >;
-                      }>
-                    >;
-                    readonly etag: Schema.brand<Schema.String, "StrongETag">;
-                    readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-                    readonly admissionPeriodId: Schema.brand<
-                      Schema.NonEmptyString,
-                      "AdmissionPeriodId"
-                    >;
-                    readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-                    readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
-                    readonly firstName: Schema.String;
-                    readonly lastName: Schema.String;
-                    readonly email: Schema.String;
-                    readonly phone: Schema.String;
-                    readonly yearOfStudy: Schema.Int;
-                    readonly revision: Schema.Int;
-                  }>,
-                ]
-              >
+                  }>
+                >;
+                readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+                readonly admissionPeriodId: Schema.brand<
+                  Schema.NonEmptyString,
+                  "AdmissionPeriodId"
+                >;
+                readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+                readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
+                readonly firstName: Schema.String;
+                readonly lastName: Schema.String;
+                readonly email: Schema.String;
+                readonly phone: Schema.String;
+                readonly yearOfStudy: Schema.Int;
+                readonly revision: Schema.Int;
+              }>
             >;
             readonly admissionPeriodId: Schema.NullOr<
               Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">
             >;
             readonly entries: Schema.$Array<
-              Schema.Union<
-                readonly [
-                  Schema.Struct<{
-                    readonly active: Schema.Literal<true>;
-                    readonly preferences: Schema.Struct<{
-                      readonly monday: Schema.Boolean;
-                      readonly tuesday: Schema.Boolean;
-                      readonly wednesday: Schema.Boolean;
-                      readonly thursday: Schema.Boolean;
-                      readonly friday: Schema.Boolean;
-                      readonly language: Schema.Literals<
-                        readonly ["Norwegian", "English", "NorwegianAndEnglish"]
-                      >;
-                    }>;
-                    readonly etag: Schema.brand<Schema.String, "StrongETag">;
-                    readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-                    readonly admissionPeriodId: Schema.brand<
-                      Schema.NonEmptyString,
-                      "AdmissionPeriodId"
-                    >;
-                    readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-                    readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
-                    readonly firstName: Schema.String;
-                    readonly lastName: Schema.String;
-                    readonly email: Schema.String;
-                    readonly phone: Schema.String;
-                    readonly yearOfStudy: Schema.Int;
-                    readonly revision: Schema.Int;
-                  }>,
-                  Schema.Struct<{
-                    readonly active: Schema.Literal<false>;
-                    readonly preferences: Schema.NullOr<
-                      Schema.Struct<{
-                        readonly monday: Schema.Boolean;
-                        readonly tuesday: Schema.Boolean;
-                        readonly wednesday: Schema.Boolean;
-                        readonly thursday: Schema.Boolean;
-                        readonly friday: Schema.Boolean;
-                        readonly language: Schema.Literals<
-                          readonly ["Norwegian", "English", "NorwegianAndEnglish"]
-                        >;
-                      }>
-                    >;
-                    readonly etag: Schema.brand<Schema.String, "StrongETag">;
-                    readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-                    readonly admissionPeriodId: Schema.brand<
-                      Schema.NonEmptyString,
-                      "AdmissionPeriodId"
-                    >;
-                    readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-                    readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
-                    readonly firstName: Schema.String;
-                    readonly lastName: Schema.String;
-                    readonly email: Schema.String;
-                    readonly phone: Schema.String;
-                    readonly yearOfStudy: Schema.Int;
-                    readonly revision: Schema.Int;
-                  }>,
-                ]
-              >
+              Schema.Struct<{
+                readonly etag: Schema.brand<Schema.String, "StrongETag">;
+                readonly active: Schema.Literal<true>;
+                readonly preferences: Schema.Struct<{
+                  readonly monday: Schema.Boolean;
+                  readonly tuesday: Schema.Boolean;
+                  readonly wednesday: Schema.Boolean;
+                  readonly thursday: Schema.Boolean;
+                  readonly friday: Schema.Boolean;
+                  readonly language: Schema.Literals<
+                    readonly ["Norwegian", "English", "NorwegianAndEnglish"]
+                  >;
+                }>;
+                readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+                readonly admissionPeriodId: Schema.brand<
+                  Schema.NonEmptyString,
+                  "AdmissionPeriodId"
+                >;
+                readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+                readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
+                readonly firstName: Schema.String;
+                readonly lastName: Schema.String;
+                readonly email: Schema.String;
+                readonly phone: Schema.String;
+                readonly yearOfStudy: Schema.Int;
+                readonly revision: Schema.Int;
+              }>
             >;
             readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
             readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
@@ -722,7 +691,7 @@ declare const ReadSubstitutePoolEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L96)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L93)
 
 ### SubstituteBoard
 
@@ -736,60 +705,30 @@ declare const SubstituteBoard: Schema.Union<
         Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">
       >;
       readonly entries: Schema.$Array<
-        Schema.Union<
-          readonly [
-            Schema.Struct<{
-              readonly active: Schema.Literal<true>;
-              readonly preferences: Schema.Struct<{
-                readonly monday: Schema.Boolean;
-                readonly tuesday: Schema.Boolean;
-                readonly wednesday: Schema.Boolean;
-                readonly thursday: Schema.Boolean;
-                readonly friday: Schema.Boolean;
-                readonly language: Schema.Literals<
-                  readonly ["Norwegian", "English", "NorwegianAndEnglish"]
-                >;
-              }>;
-              readonly etag: Schema.brand<Schema.String, "StrongETag">;
-              readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-              readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
-              readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-              readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
-              readonly firstName: Schema.String;
-              readonly lastName: Schema.String;
-              readonly email: Schema.String;
-              readonly phone: Schema.String;
-              readonly yearOfStudy: Schema.Int;
-              readonly revision: Schema.Int;
-            }>,
-            Schema.Struct<{
-              readonly active: Schema.Literal<false>;
-              readonly preferences: Schema.NullOr<
-                Schema.Struct<{
-                  readonly monday: Schema.Boolean;
-                  readonly tuesday: Schema.Boolean;
-                  readonly wednesday: Schema.Boolean;
-                  readonly thursday: Schema.Boolean;
-                  readonly friday: Schema.Boolean;
-                  readonly language: Schema.Literals<
-                    readonly ["Norwegian", "English", "NorwegianAndEnglish"]
-                  >;
-                }>
-              >;
-              readonly etag: Schema.brand<Schema.String, "StrongETag">;
-              readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-              readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
-              readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-              readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
-              readonly firstName: Schema.String;
-              readonly lastName: Schema.String;
-              readonly email: Schema.String;
-              readonly phone: Schema.String;
-              readonly yearOfStudy: Schema.Int;
-              readonly revision: Schema.Int;
-            }>,
-          ]
-        >
+        Schema.Struct<{
+          readonly etag: Schema.brand<Schema.String, "StrongETag">;
+          readonly active: Schema.Literal<true>;
+          readonly preferences: Schema.Struct<{
+            readonly monday: Schema.Boolean;
+            readonly tuesday: Schema.Boolean;
+            readonly wednesday: Schema.Boolean;
+            readonly thursday: Schema.Boolean;
+            readonly friday: Schema.Boolean;
+            readonly language: Schema.Literals<
+              readonly ["Norwegian", "English", "NorwegianAndEnglish"]
+            >;
+          }>;
+          readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+          readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
+          readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+          readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
+          readonly firstName: Schema.String;
+          readonly lastName: Schema.String;
+          readonly email: Schema.String;
+          readonly phone: Schema.String;
+          readonly yearOfStudy: Schema.Int;
+          readonly revision: Schema.Int;
+        }>
       >;
       readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
       readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
@@ -797,119 +736,61 @@ declare const SubstituteBoard: Schema.Union<
     }>,
     Schema.Struct<{
       readonly candidates: Schema.$Array<
-        Schema.Union<
-          readonly [
+        Schema.Struct<{
+          readonly etag: Schema.brand<Schema.String, "StrongETag">;
+          readonly active: Schema.Literal<false>;
+          readonly preferences: Schema.NullOr<
             Schema.Struct<{
-              readonly active: Schema.Literal<true>;
-              readonly preferences: Schema.Struct<{
-                readonly monday: Schema.Boolean;
-                readonly tuesday: Schema.Boolean;
-                readonly wednesday: Schema.Boolean;
-                readonly thursday: Schema.Boolean;
-                readonly friday: Schema.Boolean;
-                readonly language: Schema.Literals<
-                  readonly ["Norwegian", "English", "NorwegianAndEnglish"]
-                >;
-              }>;
-              readonly etag: Schema.brand<Schema.String, "StrongETag">;
-              readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-              readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
-              readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-              readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
-              readonly firstName: Schema.String;
-              readonly lastName: Schema.String;
-              readonly email: Schema.String;
-              readonly phone: Schema.String;
-              readonly yearOfStudy: Schema.Int;
-              readonly revision: Schema.Int;
-            }>,
-            Schema.Struct<{
-              readonly active: Schema.Literal<false>;
-              readonly preferences: Schema.NullOr<
-                Schema.Struct<{
-                  readonly monday: Schema.Boolean;
-                  readonly tuesday: Schema.Boolean;
-                  readonly wednesday: Schema.Boolean;
-                  readonly thursday: Schema.Boolean;
-                  readonly friday: Schema.Boolean;
-                  readonly language: Schema.Literals<
-                    readonly ["Norwegian", "English", "NorwegianAndEnglish"]
-                  >;
-                }>
+              readonly monday: Schema.Boolean;
+              readonly tuesday: Schema.Boolean;
+              readonly wednesday: Schema.Boolean;
+              readonly thursday: Schema.Boolean;
+              readonly friday: Schema.Boolean;
+              readonly language: Schema.Literals<
+                readonly ["Norwegian", "English", "NorwegianAndEnglish"]
               >;
-              readonly etag: Schema.brand<Schema.String, "StrongETag">;
-              readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-              readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
-              readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-              readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
-              readonly firstName: Schema.String;
-              readonly lastName: Schema.String;
-              readonly email: Schema.String;
-              readonly phone: Schema.String;
-              readonly yearOfStudy: Schema.Int;
-              readonly revision: Schema.Int;
-            }>,
-          ]
-        >
+            }>
+          >;
+          readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+          readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
+          readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+          readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
+          readonly firstName: Schema.String;
+          readonly lastName: Schema.String;
+          readonly email: Schema.String;
+          readonly phone: Schema.String;
+          readonly yearOfStudy: Schema.Int;
+          readonly revision: Schema.Int;
+        }>
       >;
       readonly admissionPeriodId: Schema.NullOr<
         Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">
       >;
       readonly entries: Schema.$Array<
-        Schema.Union<
-          readonly [
-            Schema.Struct<{
-              readonly active: Schema.Literal<true>;
-              readonly preferences: Schema.Struct<{
-                readonly monday: Schema.Boolean;
-                readonly tuesday: Schema.Boolean;
-                readonly wednesday: Schema.Boolean;
-                readonly thursday: Schema.Boolean;
-                readonly friday: Schema.Boolean;
-                readonly language: Schema.Literals<
-                  readonly ["Norwegian", "English", "NorwegianAndEnglish"]
-                >;
-              }>;
-              readonly etag: Schema.brand<Schema.String, "StrongETag">;
-              readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-              readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
-              readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-              readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
-              readonly firstName: Schema.String;
-              readonly lastName: Schema.String;
-              readonly email: Schema.String;
-              readonly phone: Schema.String;
-              readonly yearOfStudy: Schema.Int;
-              readonly revision: Schema.Int;
-            }>,
-            Schema.Struct<{
-              readonly active: Schema.Literal<false>;
-              readonly preferences: Schema.NullOr<
-                Schema.Struct<{
-                  readonly monday: Schema.Boolean;
-                  readonly tuesday: Schema.Boolean;
-                  readonly wednesday: Schema.Boolean;
-                  readonly thursday: Schema.Boolean;
-                  readonly friday: Schema.Boolean;
-                  readonly language: Schema.Literals<
-                    readonly ["Norwegian", "English", "NorwegianAndEnglish"]
-                  >;
-                }>
-              >;
-              readonly etag: Schema.brand<Schema.String, "StrongETag">;
-              readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-              readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
-              readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-              readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
-              readonly firstName: Schema.String;
-              readonly lastName: Schema.String;
-              readonly email: Schema.String;
-              readonly phone: Schema.String;
-              readonly yearOfStudy: Schema.Int;
-              readonly revision: Schema.Int;
-            }>,
-          ]
-        >
+        Schema.Struct<{
+          readonly etag: Schema.brand<Schema.String, "StrongETag">;
+          readonly active: Schema.Literal<true>;
+          readonly preferences: Schema.Struct<{
+            readonly monday: Schema.Boolean;
+            readonly tuesday: Schema.Boolean;
+            readonly wednesday: Schema.Boolean;
+            readonly thursday: Schema.Boolean;
+            readonly friday: Schema.Boolean;
+            readonly language: Schema.Literals<
+              readonly ["Norwegian", "English", "NorwegianAndEnglish"]
+            >;
+          }>;
+          readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+          readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
+          readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+          readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
+          readonly firstName: Schema.String;
+          readonly lastName: Schema.String;
+          readonly email: Schema.String;
+          readonly phone: Schema.String;
+          readonly yearOfStudy: Schema.Int;
+          readonly revision: Schema.Int;
+        }>
       >;
       readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
       readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
@@ -919,7 +800,7 @@ declare const SubstituteBoard: Schema.Union<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L44)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L41)
 
 ### SubstituteProblem
 
@@ -929,7 +810,7 @@ declare const SubstituteBoard: Schema.Union<
 declare const SubstituteProblem: Schema.Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L52)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L49)
 
 ### SubstituteResource
 
@@ -939,6 +820,7 @@ declare const SubstituteProblem: Schema.Codec<unknown, unknown, never, never>;
 declare const SubstituteResource: Schema.Union<
   readonly [
     Schema.Struct<{
+      readonly etag: Schema.brand<Schema.String, "StrongETag">;
       readonly active: Schema.Literal<true>;
       readonly preferences: Schema.Struct<{
         readonly monday: Schema.Boolean;
@@ -950,7 +832,6 @@ declare const SubstituteResource: Schema.Union<
           readonly ["Norwegian", "English", "NorwegianAndEnglish"]
         >;
       }>;
-      readonly etag: Schema.brand<Schema.String, "StrongETag">;
       readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
       readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
       readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
@@ -963,6 +844,7 @@ declare const SubstituteResource: Schema.Union<
       readonly revision: Schema.Int;
     }>,
     Schema.Struct<{
+      readonly etag: Schema.brand<Schema.String, "StrongETag">;
       readonly active: Schema.Literal<false>;
       readonly preferences: Schema.NullOr<
         Schema.Struct<{
@@ -976,7 +858,6 @@ declare const SubstituteResource: Schema.Union<
           >;
         }>
       >;
-      readonly etag: Schema.brand<Schema.String, "StrongETag">;
       readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
       readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
       readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
@@ -992,7 +873,7 @@ declare const SubstituteResource: Schema.Union<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L25)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L32)
 
 ### SubstitutesApi (class)
 
@@ -1002,4 +883,4 @@ declare const SubstituteResource: Schema.Union<
 declare class SubstitutesApi
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L184)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/substitutes.ts#L181)
