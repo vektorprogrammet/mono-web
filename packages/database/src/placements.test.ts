@@ -1,3 +1,5 @@
+import { PGlite } from "@electric-sql/pglite";
+import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { afterAll, describe, expect, it } from "vitest";
 import { Database } from "@vektorprogrammet/domain/database";
 import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
@@ -105,5 +107,31 @@ describe("canonical placement persistence", () => {
       { person_id: volunteer, first_name: "Vera", last_name: "Volunteer" },
     ]);
     expect(observed.inactive).toMatchObject({ code: "affiliation.inactive" });
+  }, 15000);
+});
+
+describe("placement schema ownership", () => {
+  it("creates all four canonical tables in public even when auth is first in search_path", async () => {
+    const pglite = new PGlite({ extensions: { btree_gist } });
+    await pglite.waitReady;
+    await pglite.exec("SET search_path TO auth,public");
+    const isolated = makeControlledTestRuntime(DatabaseTest({ liveClient: pglite }));
+    try {
+      const rows = await isolated.runPromise(
+        Database.use(
+          (sql) => sql<{ name: string; publicExists: boolean; authExists: boolean }>`
+        SELECT name, to_regclass('public.' || name) IS NOT NULL AS "publicExists",
+          to_regclass('auth.' || name) IS NOT NULL AS "authExists"
+        FROM (VALUES ('organization_volunteer_affiliations'), ('organization_volunteer_affiliation_audit'),
+          ('assistant_placements'), ('assistant_placement_audit')) AS expected(name) ORDER BY name
+      `,
+        ),
+      );
+      expect(rows).toHaveLength(4);
+      for (const row of rows) expect(row).toMatchObject({ publicExists: true, authExists: false });
+    } finally {
+      await isolated.dispose();
+      await pglite.close();
+    }
   }, 15000);
 });
