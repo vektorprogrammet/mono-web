@@ -10,10 +10,10 @@ Now:
 
 Next:
 - Keep exact-commit runtime evidence separate from implementation and production cutover claims.
-- Resolve volunteer affiliation and applicant/account identity before freezing the manual placement contract.
+- Execute the accepted [continuation plan](docs/migration/continuation-plan.md): existing-volunteer affiliation/manual placement (0096) and acknowledged receipt notification delivery (0097), followed by explicit applicant/account onboarding.
 - Rehearse receipt, private-file and identity reconciliation before any production cutover.
 
 Blocked:
 - No blocker to the substitute-pool contract.
-- Full placement/account scope awaits the existing-volunteer versus applicant-onboarding decision. Team membership must not stand in for volunteer affiliation.
+- Existing-volunteer placement first is accepted. Applicant/account onboarding remains a subsequent required journey; team membership must not stand in for volunteer affiliation.
 - Production changes require a separately authorized cutover; this phase uses synthetic local data only.
