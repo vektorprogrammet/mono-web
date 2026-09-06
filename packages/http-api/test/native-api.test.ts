@@ -464,7 +464,7 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     person(
       "recruitment.conduct-interview",
       "recruitment.interview-by-id",
-      ["recruitment.assigned-interviewer"],
+      ["recruitment.assigned-interviewer", "recruitment.not-known-self"],
       "SnapshotRead",
     ),
   ],
@@ -475,7 +475,7 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     person(
       "recruitment.conduct-interview",
       "recruitment.interview-by-id",
-      ["recruitment.assigned-interviewer"],
+      ["recruitment.assigned-interviewer", "recruitment.not-known-self"],
       "Transaction",
     ),
   ],
@@ -486,7 +486,7 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     person(
       "recruitment.conduct-interview",
       "recruitment.interview-by-id",
-      ["recruitment.assigned-interviewer"],
+      ["recruitment.assigned-interviewer", "recruitment.not-known-self"],
       "Transaction",
     ),
   ],

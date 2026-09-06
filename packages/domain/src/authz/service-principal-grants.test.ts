@@ -117,7 +117,7 @@ describe("service-principal receipt grants", () => {
     });
   });
 
-  it("allows only the matching pending receipt and preserves per-receipt requirements", () => {
+  it("lists explicitly granted receipts across statuses and preserves per-receipt authority", () => {
     const pendingGrant = grant();
     const nonpendingGrant = grant({
       grantId: "service-receipt-approval-nonpending-grant",
@@ -134,11 +134,11 @@ describe("service-principal receipt grants", () => {
     expect(evaluation._tag).toBe("Allow");
     if (evaluation._tag !== "Allow") throw new TypeError("expected service receipt access");
     expect(evaluation.resolution.contexts.map((context) => context.resource?.id)).toEqual([
+      "service-receipt-approval-nonpending",
       "service-receipt-approval-pending",
     ]);
-    expect(evaluation.resolution.contexts[0]?.facts.approverServicePrincipalIds).toEqual([
-      servicePrincipalId,
-    ]);
+    for (const context of evaluation.resolution.contexts)
+      expect(context.facts.approverServicePrincipalIds).toEqual([servicePrincipalId]);
   });
 
   it("cannot use one grant for a different receipt", () => {
