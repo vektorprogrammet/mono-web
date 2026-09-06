@@ -56,6 +56,10 @@ const ready = async (test: () => Promise<boolean>) => {
 };
 let pool: any, browser: any, page: any, heldIdentityClient: any;
 const gates: string[] = [];
+const recordGate = (...observations: string[]) => {
+  gates.push(...observations);
+  console.log(JSON.stringify({ observed: observations }));
+};
 const secrets: string[] = [];
 const assertNoRecommendation = (value: unknown): void => {
   if (Array.isArray(value)) for (const item of value) assertNoRecommendation(item);
@@ -116,7 +120,7 @@ try {
   ).rows[0];
   assert.deepEqual(historicalAfter.value, historicalBefore);
   assert.equal(historicalAfter.recommendation, null);
-  gates.push(
+  recordGate(
     "immutable historical row survived actual0037 upgrade without invented recommendation",
   );
   const effectSnapshot = async () => {
@@ -185,7 +189,7 @@ try {
     throw new Error(`Native sign-in failed: ${credentialCheck.status} ${JSON.stringify(failure)}`);
   }
   await credentialCheck.body?.cancel();
-  gates.push("seeded native credentials accepted by real identity engine");
+  recordGate("seeded native credentials accepted by real identity engine");
   browser = await chromium.launch({
     headless: true,
     executablePath:
@@ -302,7 +306,7 @@ try {
   assert.deepEqual((await new AxeBuilder({ page: stale }).analyze()).violations, []);
   await stale.close();
   await staleContext.close();
-  gates.push(
+  recordGate(
     "ordinary assigned member: required choice, keyboard finalization, reload and real stale-conflict draft retention",
   );
   const answers = [
@@ -388,7 +392,7 @@ try {
     );
   }
   assert.equal((await (await get(id)).json()).recommendation, "Kanskje");
-  gates.push(
+  recordGate(
     "missing/null/unknown/numeric rejected without effects; all choices roundtrip; exact replay and conflicting/concurrent writes fenced",
   );
   await pool.query(
@@ -403,7 +407,7 @@ try {
   await pool.query(
     `UPDATE public.organization_memberships SET is_suspended=false WHERE membership_id='membership-native-conduct-leader-0063'`,
   );
-  gates.push("suspended authority denies reads and stored receipt replay");
+  recordGate("suspended authority denies reads and stored receipt replay");
   const authorizationBefore = await lifecycleSnapshot();
 
   // Change current source authority, not authentication claims or an authorization stub.
@@ -466,11 +470,11 @@ try {
   const applicationBody = await applicationProjection.text();
   assertNoRecommendation(JSON.parse(applicationBody));
   assert.ok(!applicationBody.includes("Kanskje"));
-  gates.push(
+  recordGate(
     "wrong department denied; actual applicant capability projection excludes recommendation",
   );
 
-  gates.push(
+  recordGate(
     "removed assignment and ended membership deny read/write/replay without lifecycle writes",
   );
 
@@ -525,7 +529,7 @@ try {
     departmentId: "department-native-conduct-0063",
   });
   const effectsAfterOnboarding = await effectSnapshot();
-  gates.push(
+  recordGate(
     "actual application confirmation and onboarding claim projections exclude recommendation; recommendation produced no effect rows",
   );
 
@@ -610,7 +614,7 @@ try {
   heldIdentityClient = undefined;
   assert.equal((await waitingRead).status, 403);
   assert.equal(await lifecycleSnapshot(), lifecycleBeforeSelf);
-  gates.push(
+  recordGate(
     "known self denied before read/finalize/cancel and both receipt layers; different Person allowed; real waiting serializable snapshot fails409 then self-denial",
   );
   let immutable = false;
@@ -675,7 +679,7 @@ try {
   assert.deepEqual(await effectSnapshot(), effectsAfterOnboarding);
   assert.deepEqual(errors, []);
   for (const secret of secrets) assert.ok(!JSON.stringify(logs).includes(secret));
-  gates.push(
+  recordGate(
     "historical immutable not-recorded display; direct storage constraints; desktop/mobile Axe; independent public-schema SQL",
   );
   await writeFile(
