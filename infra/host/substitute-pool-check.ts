@@ -291,6 +291,18 @@ try {
     (await request(`${path}:edit`, leader, { ...body, yearOfStudy: 4 }, initial.etag)).status,
     412,
   );
+  const staleCommand = {
+    params: { applicationId },
+    headers: { "if-match": initial.etag, "idempotency-key": randomBytes(18).toString("base64url") },
+    payload: { ...body, yearOfStudy: 4 },
+  };
+  for (const attempt of ["initial stale edit", "unchanged rejected retry"]) {
+    await assert.rejects(sdk.substitutes.edit(staleCommand), (error: unknown) => {
+      assert.ok(error !== null && typeof error === "object" && "code" in error, attempt);
+      assert.equal(error.code, "precondition.failed", attempt);
+      return true;
+    });
+  }
   assert.equal((await request(path, member)).status, 200);
   const edits = await Promise.all([
     request(`${path}:edit`, leader, { ...body, yearOfStudy: 4 }, activated.etag),
@@ -476,6 +488,7 @@ try {
       "wrong/inactive/anonymous authority",
       "exact replay and changed-body conflict",
       "fresh stale edit",
+      "generated SDK preserves precondition failure on unchanged rejected retry",
       "concurrent activation and edits",
       "deactivation preserves preferences",
       "revoked authority replay",
