@@ -66,3 +66,7 @@ Fresh deactivation of an inactive entry returns 400, matching `AdminSubstituteDe
 ## Implementation amendment — dashboard prerequisite read headers (2026-09-06)
 
 The real browser authenticated successfully but its shell failed before rendering: session reads sent `no-store` while the generated SDK requires the existing private-read contract `private, no-store`. Profile's selected 200 response had the same mismatch (its 304 was already correct). The prerequisite session/current-list and profile read responses now honor their declared contracts. Health and mutation cache policies are preserved. Acceptance runs the real generated SDK for these prerequisites before the browser, preventing a body-only HTTP check from falsely accepting them.
+
+## Implementation amendment — generated SDK problem envelopes (2026-09-06)
+
+The real generated SDK returns declared header-bearing failures as `HttpApiSchema.WithHeadersValue`, with the canonical problem in `body`. Reading `error.code` misclassified a real stale edit as unavailable and hid conflict recovery. The dashboard reuses the existing interview bridge's schema-checked problem projection for substitute feedback; the native transport remains unchanged. Acceptance validates the actual SDK envelope on an initial stale edit and its unchanged rejected retry, and requires conflict-specific browser feedback plus the explicit refresh control rather than generic draft-retention copy.
