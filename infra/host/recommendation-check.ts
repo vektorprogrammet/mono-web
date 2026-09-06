@@ -221,6 +221,13 @@ try {
   await page.reload();
   await open(page, "Sofie Gjennomfører");
   assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Ja");
+  await page.screenshot({ path: join(artifacts, "recommendation-desktop.png") });
+  assert.deepEqual((await new AxeBuilder({ page }).analyze()).violations, []);
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+  await page.screenshot({ path: join(artifacts, "recommendation-mobile.png") });
+  assert.deepEqual((await new AxeBuilder({ page }).analyze()).violations, []);
+  await page.setViewportSize({ width: 1280, height: 900 });
   await stale.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
   await stale
     .getByRole("dialog")
@@ -446,6 +453,19 @@ try {
     rows.find((r: any) => r.interview_id === "interview-recommendation-history").recommendation,
     null,
   );
+  const maybeRow = rows.find((r: any) => r.interview_id === id);
+  assert.deepEqual(maybeRow.answers, answers);
+  assert.equal(maybeRow.explanatory_power, 7);
+  assert.equal(maybeRow.role_model, 8);
+  assert.equal(maybeRow.suitability, 9);
+  const lifecycle = (
+    await pool.query(
+      `SELECT c.interview_id,c.recommendation,a.kind,a.resulting_revision,r.command_id FROM public.recruitment_interview_conducts c JOIN public.recruitment_interview_lifecycle_audit a USING(interview_id) JOIN public.recruitment_interview_lifecycle_command_receipts r ON r.command_id=a.command_id ORDER BY c.interview_id`,
+    )
+  ).rows;
+  assert.equal(lifecycle.length, rows.length - 1);
+  assert.ok(lifecycle.every((r: any) => r.kind === "InterviewFinalized"));
+  assert.equal(new Set(lifecycle.map((r: any) => r.interview_id)).size, lifecycle.length);
   assert.deepEqual(await effectSnapshot(), effectsBefore);
   assert.deepEqual(errors, []);
   for (const secret of secrets) assert.ok(!JSON.stringify(logs).includes(secret));
@@ -459,6 +479,7 @@ try {
         revision,
         gates,
         rows,
+        lifecycle,
         pageErrors: errors,
         observer: "independent PostgreSQL connection",
         noNotificationEffects: true,
