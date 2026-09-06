@@ -1,4 +1,7 @@
 import { createPromiseClient } from "../../packages/sdk/src/promise.js";
+import { NativeProblem } from "../../packages/http-api/src/http-semantics.js";
+import { Schema } from "effect";
+import { HttpApiSchema } from "effect/unstable/httpapi";
 /** 0094 real local API + browser acceptance. Reuses native identity seed and owned process lifecycle. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -298,24 +301,10 @@ try {
   };
   for (const attempt of ["initial stale edit", "unchanged rejected retry"]) {
     await assert.rejects(sdk.substitutes.edit(staleCommand), (error: unknown) => {
-      const shape =
-        error !== null && typeof error === "object"
-          ? {
-              keys: Object.keys(error),
-              body:
-                "body" in error && error.body !== null && typeof error.body === "object"
-                  ? {
-                      keys: Object.keys(error.body),
-                      code: "code" in error.body ? error.body.code : null,
-                    }
-                  : null,
-            }
-          : { type: typeof error };
-      assert.ok(
-        error !== null && typeof error === "object" && "code" in error,
-        `${attempt}: ${JSON.stringify(shape)}`,
-      );
-      assert.equal(error.code, "precondition.failed", attempt);
+      assert.ok(HttpApiSchema.isWithHeadersValue(error), attempt);
+      const problem = Schema.decodeUnknownSync(NativeProblem)(error.body);
+      assert.equal(problem.code, "precondition.failed", attempt);
+      assert.equal(problem.status, 412, attempt);
       return true;
     });
   }
