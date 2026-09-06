@@ -49,14 +49,14 @@ legacy role boundary.
 
 ## Ownership and invariants
 
-| Input/fact | Canonical owner | Rule |
-| --- | --- | --- |
-| Reopen command | Receipt | Explicit ReopenRejectedReceipt operation; strict decoded request, receipt identity, expected revision and command identity. |
-| Authority | Identity/Organization → existing receipt approval scope | Active in-scope approver required before first execution and receipt replay; owner-only authority is insufficient. |
-| State | Existing Receipt row | Only Rejected → Pending; one revision increment. No new receipt or generic status mutation. |
-| Content | Existing Receipt | Keep owner, department, original submission instant, amount, date, description, payment authority, visual ID and attachment unchanged on reopening. Refund date remains null. |
-| History | Existing command receipt/audit transaction | Record reopening through the existing audit mechanism, with actor/time/revision provenance; preserve all prior evidence. |
-| Delivery | Existing acknowledged receipt outbox | No notification or file effect for reopening. Existing later refund/reject effects still occur exactly once per accepted command. |
+| Input/fact     | Canonical owner                                         | Rule                                                                                                                                                                          |
+| -------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reopen command | Receipt                                                 | Explicit ReopenRejectedReceipt operation; strict decoded request, receipt identity, expected revision and command identity.                                                   |
+| Authority      | Identity/Organization → existing receipt approval scope | Active in-scope approver required before first execution and receipt replay; owner-only authority is insufficient.                                                            |
+| State          | Existing Receipt row                                    | Only Rejected → Pending; one revision increment. No new receipt or generic status mutation.                                                                                   |
+| Content        | Existing Receipt                                        | Keep owner, department, original submission instant, amount, date, description, payment authority, visual ID and attachment unchanged on reopening. Refund date remains null. |
+| History        | Existing command receipt/audit transaction              | Record reopening through the existing audit mechanism, with actor/time/revision provenance; preserve all prior evidence.                                                      |
+| Delivery       | Existing acknowledged receipt outbox                    | No notification or file effect for reopening. Existing later refund/reject effects still occur exactly once per accepted command.                                             |
 
 No mandatory free-text reason, owner self-reopening, new notification, payment
 operation, linked replacement receipt, historical import rewrite or role change.

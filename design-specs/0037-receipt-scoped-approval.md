@@ -6,16 +6,16 @@ The rejected-is-terminal law below is superseded by [0102 — Reopen a rejected 
 
 ## Metadata
 
-| Field | Value |
-|---|---|
-| Goal | Complete native scoped economy resolution for Pending Receipts |
-| Status | Frozen through amendment 0037.1. Amendment implementation and evidence are pending. No production cutover authority |
-| Depends on | Design specs 0035 and 0036 at `e1dd14a`; ADR 0004; ADR 0005; design specs 0033 and 0034 |
-| Actors | Authenticated active department approver or global economy approver |
-| Environment | Loopback HTTP, disposable PostgreSQL, disposable private filesystem root |
-| Amendment | `0037.1` corrects only the disposable identity, authority-fixture, transport, and evidence-harness contract |
-| Amendment base | `20d30b82fe060df390ddf01b949e85ce936a4ff2` |
-| Revision status | Implementation and evidence pending |
+| Field           | Value                                                                                                               |
+| --------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Goal            | Complete native scoped economy resolution for Pending Receipts                                                      |
+| Status          | Frozen through amendment 0037.1. Amendment implementation and evidence are pending. No production cutover authority |
+| Depends on      | Design specs 0035 and 0036 at `e1dd14a`; ADR 0004; ADR 0005; design specs 0033 and 0034                             |
+| Actors          | Authenticated active department approver or global economy approver                                                 |
+| Environment     | Loopback HTTP, disposable PostgreSQL, disposable private filesystem root                                            |
+| Amendment       | `0037.1` corrects only the disposable identity, authority-fixture, transport, and evidence-harness contract         |
+| Amendment base  | `20d30b82fe060df390ddf01b949e85ce936a4ff2`                                                                          |
+| Revision status | Implementation and evidence pending                                                                                 |
 
 ## Amendment 0037.1 — native Identity and finance evidence correction
 
@@ -37,34 +37,34 @@ This amendment authorizes no product route or domain change. It authorizes no co
 
 The run must seed exactly seven deterministic, disposable Better Auth personas. Each Better Auth user identifier must equal its canonical `PersonId`.
 
-| Persona | Canonical Organization and Economy facts |
-|---|---|
-| `owner-a` | Active ordinary membership in department A, payment authority for department A, and no approval grant |
-| `owner-b` | Active ordinary membership in department B, payment authority for department B, and no approval grant |
-| `approver-a` | Active membership in department A and an active Department receipt-approval grant for department A |
-| `approver-b` | Active membership in department B and an active Department receipt-approval grant for department B |
-| `approver-global` | Active ordinary membership, an active Global receipt-approval grant, and no global-administrator grant |
-| `approver-inactive` | Ended membership and a known Department receipt-approval grant that produces `InactiveActor` |
-| `approver-none` | Active membership in department A and no receipt-approval grant, which produces `ReceiptScopeDenied` |
+| Persona             | Canonical Organization and Economy facts                                                               |
+| ------------------- | ------------------------------------------------------------------------------------------------------ |
+| `owner-a`           | Active ordinary membership in department A, payment authority for department A, and no approval grant  |
+| `owner-b`           | Active ordinary membership in department B, payment authority for department B, and no approval grant  |
+| `approver-a`        | Active membership in department A and an active Department receipt-approval grant for department A     |
+| `approver-b`        | Active membership in department B and an active Department receipt-approval grant for department B     |
+| `approver-global`   | Active ordinary membership, an active Global receipt-approval grant, and no global-administrator grant |
+| `approver-inactive` | Ended membership and a known Department receipt-approval grant that produces `InactiveActor`           |
+| `approver-none`     | Active membership in department A and no receipt-approval grant, which produces `ReceiptScopeDenied`   |
 
 Identity proves only the person and session identity. Public-schema Organization and Economy facts provide all authorization.
 
 The fixture must contain these exact counts:
 
-| Fixture fact | Count |
-|---|---:|
-| Better Auth users | 7 |
-| Credential accounts | 7 |
-| Person profiles | 7 |
-| Contact profiles | 7 |
-| Departments | 2 |
-| Teams | 2 |
-| Organization memberships | 7 |
-| Active memberships | 6 |
-| Inactive memberships | 1 |
-| Organization global-administrator grants | 0 |
-| Payment authorities | 2 |
-| Receipt-approval grants | 4 |
+| Fixture fact                             | Count |
+| ---------------------------------------- | ----: |
+| Better Auth users                        |     7 |
+| Credential accounts                      |     7 |
+| Person profiles                          |     7 |
+| Contact profiles                         |     7 |
+| Departments                              |     2 |
+| Teams                                    |     2 |
+| Organization memberships                 |     7 |
+| Active memberships                       |     6 |
+| Inactive memberships                     |     1 |
+| Organization global-administrator grants |     0 |
+| Payment authorities                      |     2 |
+| Receipt-approval grants                  |     4 |
 
 The seed must use the existing `identity:seed` entrypoint for identity migrations and credentials. One transaction must add canonical Organization and Economy facts.
 
@@ -120,24 +120,24 @@ The run must not assert the raw order of authentication and profile traffic. Das
 
 The runner must prove this exact HTTP status matrix:
 
-| Operation and condition | Status |
-|---|---:|
-| Approval list with a missing or invalid session | 401 |
-| Approval list for the inactive actor | 403 |
-| Approval list for the no-scope actor | 403 |
-| Approval list for a Department or Global approver | 200 |
-| Refund or reject for the inactive actor | 403 |
-| Refund or reject with malformed JSON, excess JSON, or query parameters | 422 |
-| Refund or reject for a foreign department | 403 |
-| Refund or reject of an absent Receipt by a Department approver | 403 |
-| Refund or reject of an absent Receipt by the Global approver | 404 |
-| Accepted refund or rejection | 200 |
-| Identical command replay | 200 |
-| Changed command replay | 409 |
-| Stale or terminal command | 409 |
-| Concurrent refund and reject | Unordered pair with exactly one 200 and one 409 |
-| Approval list during a forced PostgreSQL failure | 503 |
-| Approval list after PostgreSQL recovery | 200 |
+| Operation and condition                                                |                                          Status |
+| ---------------------------------------------------------------------- | ----------------------------------------------: |
+| Approval list with a missing or invalid session                        |                                             401 |
+| Approval list for the inactive actor                                   |                                             403 |
+| Approval list for the no-scope actor                                   |                                             403 |
+| Approval list for a Department or Global approver                      |                                             200 |
+| Refund or reject for the inactive actor                                |                                             403 |
+| Refund or reject with malformed JSON, excess JSON, or query parameters |                                             422 |
+| Refund or reject for a foreign department                              |                                             403 |
+| Refund or reject of an absent Receipt by a Department approver         |                                             403 |
+| Refund or reject of an absent Receipt by the Global approver           |                                             404 |
+| Accepted refund or rejection                                           |                                             200 |
+| Identical command replay                                               |                                             200 |
+| Changed command replay                                                 |                                             409 |
+| Stale or terminal command                                              |                                             409 |
+| Concurrent refund and reject                                           | Unordered pair with exactly one 200 and one 409 |
+| Approval list during a forced PostgreSQL failure                       |                                             503 |
+| Approval list after PostgreSQL recovery                                |                                             200 |
 
 ### Accepted semantic replacement
 
@@ -188,14 +188,14 @@ After those checks succeed, it must call `emitNativeRuntimeEvidenceReceipts` exa
 
 The call must produce one native receipt with this fixed input:
 
-| Field | Exact value |
-|---|---|
-| `fixtureId` | `native-receipt-approval-0037` |
-| Journey | `intent://journey:parity:finance_operations:v1` with the exact four step identifiers above |
-| Source paths | `apps/dashboard/e2e/run-real-receipt-approval.mjs`, `apps/dashboard/e2e/receipt-approval.spec.ts`, `apps/dashboard/e2e/native-receipt-approval-seed.mjs` |
-| Fixture bytes | Exact bytes of `apps/dashboard/e2e/native-receipt-approval-seed.mjs` |
-| Artifact bytes | Sanitized Playwright JSON reporter output |
-| Generated path | `evidence/functional-parity/runtime/native-receipt-approval-0037.json` |
+| Field          | Exact value                                                                                                                                              |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fixtureId`    | `native-receipt-approval-0037`                                                                                                                           |
+| Journey        | `intent://journey:parity:finance_operations:v1` with the exact four step identifiers above                                                               |
+| Source paths   | `apps/dashboard/e2e/run-real-receipt-approval.mjs`, `apps/dashboard/e2e/receipt-approval.spec.ts`, `apps/dashboard/e2e/native-receipt-approval-seed.mjs` |
+| Fixture bytes  | Exact bytes of `apps/dashboard/e2e/native-receipt-approval-seed.mjs`                                                                                     |
+| Artifact bytes | Sanitized Playwright JSON reporter output                                                                                                                |
+| Generated path | `evidence/functional-parity/runtime/native-receipt-approval-0037.json`                                                                                   |
 
 The implementation and evidence for amendment 0037.1 remain pending. An operator must separately authorize every external effect.
 
@@ -230,21 +230,21 @@ Stable string IDs, positive integer `amountOre`, `NOK`, current revision, and ca
 
 ## Authorization laws
 
-| Token-derived scope | Visible and resolvable Receipts |
-|---|---|
+| Token-derived scope        | Visible and resolvable Receipts               |
+| -------------------------- | --------------------------------------------- |
 | `Department(departmentId)` | Exactly matching immutable Receipt department |
-| `Global` | Every Receipt |
-| `None` | None; request rejected |
-| Inactive actor | None; request rejected |
+| `Global`                   | Every Receipt                                 |
+| `None`                     | None; request rejected                        |
+| Inactive actor             | None; request rejected                        |
 
 A caller-supplied department or scope value has no authority and is rejected as excess input. Direct resolution of an out-of-scope Receipt returns the same typed scope denial regardless of whether it was absent from the list.
 
 ## Transition and replay laws
 
-| Command | Required current state | Result | Revision | Durable effects |
-|---|---|---|---|---|
-| Refund | In-scope `Pending`, exact revision | terminal `Refunded`, refund instant set | `+1` | refund notification, audit |
-| Reject | In-scope `Pending`, exact revision | terminal `Rejected`, refund instant null | `+1` | rejection notification, audit |
+| Command | Required current state             | Result                                   | Revision | Durable effects               |
+| ------- | ---------------------------------- | ---------------------------------------- | -------- | ----------------------------- |
+| Refund  | In-scope `Pending`, exact revision | terminal `Refunded`, refund instant set  | `+1`     | refund notification, audit    |
+| Reject  | In-scope `Pending`, exact revision | terminal `Rejected`, refund instant null | `+1`     | rejection notification, audit |
 
 A replay with the same `commandId` and canonical command digest returns the original observation without another revision, audit row, command receipt, outbox request, or notification. Reusing the command ID with different command bytes is rejected. Concurrent refund and reject commands at the same expected revision produce exactly one accepted terminal transition and one stale or invalid-transition rejection.
 

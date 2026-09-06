@@ -4,14 +4,14 @@ Accepted by the operator on 2026-09-06. Baseline: `ddd7c91ff5e913eac4cf70a7ce68e
 
 Functional parity and production replacement are separate milestones. Completion means agreed operational journeys, not endpoint counts. Preserve intended legacy behavior and explicitly record corrections or retirements. Current runtime evidence is in the workspace report `docs/assistant-operations-2026-09-06.md`; the dated [journey inventory](2026-09-05-journey-inventory.md) is historical evidence, superseded for substitute pool and contact by their completed specs.
 
-| Sequence | Outcome | Acceptance boundary |
-| --- | --- | --- |
-| 1 | Authoritative parity checklist | Enumerate roles, department scope, history, files, effects and exports; preserve unresolved dispositions. Diagnose `UNSAFE_SOURCE` without weakening guards. |
-| 2 | Existing-volunteer manual placement | Explicit Organization affiliation, scoped coordinator creation/edit/removal, semester and school history. |
-| 3 | Applicant-to-assistant lifecycle | Application, interview, decision, explicit Person/account linking, activation, recovery and placement. Email equality alone cannot establish identity. |
-| 4 | Complete finance operations | Actual acknowledged notification transport, reconciled real records/files/identity/payment authority, explicit rejected-claim reopening disposition. |
-| 5 | Remaining operational journeys | Events, surveys, certificates, statistics and exports, ordered by semester needs; validate supporting administration and public journeys. |
-| 6 | Production rehearsal and cutover | Authorized real-data reconciliation, separately restored account access, legacy writer fence, final delta, native ownership, rollback accounting for new writes. |
+| Sequence | Outcome                             | Acceptance boundary                                                                                                                                              |
+| -------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1        | Authoritative parity checklist      | Enumerate roles, department scope, history, files, effects and exports; preserve unresolved dispositions. Diagnose `UNSAFE_SOURCE` without weakening guards.     |
+| 2        | Existing-volunteer manual placement | Explicit Organization affiliation, scoped coordinator creation/edit/removal, semester and school history.                                                        |
+| 3        | Applicant-to-assistant lifecycle    | Application, interview, decision, explicit Person/account linking, activation, recovery and placement. Email equality alone cannot establish identity.           |
+| 4        | Complete finance operations         | Actual acknowledged notification transport, reconciled real records/files/identity/payment authority, explicit rejected-claim reopening disposition.             |
+| 5        | Remaining operational journeys      | Events, surveys, certificates, statistics and exports, ordered by semester needs; validate supporting administration and public journeys.                        |
+| 6        | Production rehearsal and cutover    | Authorized real-data reconciliation, separately restored account access, legacy writer fence, final delta, native ownership, rollback accounting for new writes. |
 
 Current implementation and next work are recorded in [STATE.md](../../STATE.md).
 Existing volunteers preceded applicant onboarding. Automatic scheduling awaits

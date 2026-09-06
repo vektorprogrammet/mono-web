@@ -52,14 +52,14 @@ labels a recommendation as an admission or waitlist decision.
 
 ## Ownership and invariants
 
-| Fact | Authority | Rule |
-| --- | --- | --- |
-| Recommendation | Recruitment interview conduct | One explicit enum value per newly finalized interview; no independent duplicate record or score threshold. |
-| Historical absence | Existing immutable native conduct | Represent as absent/not recorded on reads; never backfill an invented assessment. |
-| New finalization | Existing Recruitment command | Required recommendation at decoded input and storage boundary; old rows remain readable. |
-| Person, affiliation, placement | Existing identity/Organization/placement authorities | Recommendation creates no account, role, affiliation or school placement and changes no eligibility rule. |
-| Access | Existing conduct authorization plus explicit self-identity restriction | Assigned active interviewer and current scope required before reads/writes/replay; a proven applicant/interviewer Person match is denied. |
-| Notification | None in this amendment | No mail, SMS, outbox or provider effect. Internal recommendation stays out of applicant-facing responses. |
+| Fact                           | Authority                                                              | Rule                                                                                                                                      |
+| ------------------------------ | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Recommendation                 | Recruitment interview conduct                                          | One explicit enum value per newly finalized interview; no independent duplicate record or score threshold.                                |
+| Historical absence             | Existing immutable native conduct                                      | Represent as absent/not recorded on reads; never backfill an invented assessment.                                                         |
+| New finalization               | Existing Recruitment command                                           | Required recommendation at decoded input and storage boundary; old rows remain readable.                                                  |
+| Person, affiliation, placement | Existing identity/Organization/placement authorities                   | Recommendation creates no account, role, affiliation or school placement and changes no eligibility rule.                                 |
+| Access                         | Existing conduct authorization plus explicit self-identity restriction | Assigned active interviewer and current scope required before reads/writes/replay; a proven applicant/interviewer Person match is denied. |
+| Notification                   | None in this amendment                                                 | No mail, SMS, outbox or provider effect. Internal recommendation stays out of applicant-facing responses.                                 |
 
 Reuse existing Effect Schemas, Model fields, conduct SQL transaction, immutable
 records, command receipts, SDK generation, Foldkit model/messages/update/view,
