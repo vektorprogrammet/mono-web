@@ -157,6 +157,36 @@
       "path": "/api/teams"
     },
     {
+      "group": "placements",
+      "method": "POST",
+      "operationId": "placements.commandBoard",
+      "path": "/api/placements"
+    },
+    {
+      "group": "placements",
+      "method": "POST",
+      "operationId": "placements.commandOwnAffiliation",
+      "path": "/api/placements/affiliation"
+    },
+    {
+      "group": "placements",
+      "method": "GET",
+      "operationId": "placements.listScopes",
+      "path": "/api/placements/scopes"
+    },
+    {
+      "group": "placements",
+      "method": "GET",
+      "operationId": "placements.readBoard",
+      "path": "/api/placements"
+    },
+    {
+      "group": "placements",
+      "method": "GET",
+      "operationId": "placements.readOwnAffiliation",
+      "path": "/api/placements/affiliation"
+    },
+    {
       "group": "profile",
       "method": "GET",
       "operationId": "profile.readOwnProfile",

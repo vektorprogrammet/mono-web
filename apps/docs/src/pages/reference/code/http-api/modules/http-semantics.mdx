@@ -175,6 +175,10 @@ Path-level error for a method outside a resource's frozen method set.
 ```ts
 declare const NativeMethodNotAllowedProblem: Schema.Struct<{
   readonly type: Schema.Literal<
+    | "urn:vektorprogrammet:problem:v0.2:affiliation.transition-invalid"
+    | "urn:vektorprogrammet:problem:v0.2:affiliation.inactive"
+    | "urn:vektorprogrammet:problem:v0.2:placement.overlap"
+    | "urn:vektorprogrammet:problem:v0.2:placement.inactive"
     | "urn:vektorprogrammet:problem:v0.2:scope.invalid"
     | "urn:vektorprogrammet:problem:v0.2:substitute.already-active"
     | "urn:vektorprogrammet:problem:v0.2:substitute.inactive"
@@ -251,7 +255,11 @@ declare const NativeMethodNotAllowedProblem: Schema.Struct<{
     | "urn:vektorprogrammet:problem:v0.2:validation.no-change"
   >;
   readonly title: Schema.Literal<
-    | "Invalid substitute scope"
+    | "Invalid affiliation transition"
+    | "Inactive volunteer affiliation"
+    | "Duplicate placement"
+    | "Removed placement"
+    | "Invalid scope"
     | "Substitute already active"
     | "Substitute inactive"
     | "Concurrent transaction conflict"
@@ -327,11 +335,15 @@ declare const NativeMethodNotAllowedProblem: Schema.Struct<{
     | "No changes requested"
   >;
   readonly status: Schema.Literal<
-    503 | 422 | 400 | 409 | 404 | 403 | 500 | 401 | 415 | 405 | 412 | 428 | 429 | 413
+    503 | 422 | 409 | 400 | 404 | 403 | 500 | 401 | 415 | 405 | 412 | 428 | 429 | 413
   >;
   readonly code: Schema.Literal<"method.not-allowed">;
   readonly detail: Schema.Literal<
-    | "The selected semester does not exist."
+    | "The requested transition is not allowed from the current affiliation state."
+    | "An active volunteer affiliation is required to create or edit a placement."
+    | "An active placement already exists for this person, school, semester and block."
+    | "The placement has already been removed."
+    | "The selected department, semester or school is not available in this scope."
     | "The application is already in the substitute pool."
     | "The application is not in the substitute pool."
     | "Another transaction changed the selected state. Refresh before retrying."
@@ -410,7 +422,7 @@ declare const NativeMethodNotAllowedProblem: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L879)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L904)
 
 ### NativeProblem
 
@@ -422,7 +434,7 @@ The closed RFC 9457 core representation used by native API failures.
 declare const NativeProblem: Schema.Union<never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L720)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L745)
 
 ### NativeProblem (type alias)
 
@@ -432,7 +444,7 @@ declare const NativeProblem: Schema.Union<never>;
 type NativeProblem = typeof NativeProblem.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L723)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L748)
 
 ### NativeProblemCode (type alias)
 
@@ -442,7 +454,7 @@ type NativeProblem = typeof NativeProblem.Type;
 type NativeProblemCode = keyof typeof NativeProblemRegistry;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L699)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L724)
 
 ### NativeProblemRegistry
 
@@ -452,11 +464,35 @@ Exhaustive public registry. No title or detail is derived from a code.
 
 ```ts
 declare const NativeProblemRegistry: {
+  readonly "affiliation.transition-invalid": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:affiliation.transition-invalid";
+    readonly title: "Invalid affiliation transition";
+    readonly status: 422;
+    readonly detail: "The requested transition is not allowed from the current affiliation state.";
+  };
+  readonly "affiliation.inactive": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:affiliation.inactive";
+    readonly title: "Inactive volunteer affiliation";
+    readonly status: 422;
+    readonly detail: "An active volunteer affiliation is required to create or edit a placement.";
+  };
+  readonly "placement.overlap": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:placement.overlap";
+    readonly title: "Duplicate placement";
+    readonly status: 409;
+    readonly detail: "An active placement already exists for this person, school, semester and block.";
+  };
+  readonly "placement.inactive": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:placement.inactive";
+    readonly title: "Removed placement";
+    readonly status: 422;
+    readonly detail: "The placement has already been removed.";
+  };
   readonly "scope.invalid": {
     readonly type: "urn:vektorprogrammet:problem:v0.2:scope.invalid";
-    readonly title: "Invalid substitute scope";
+    readonly title: "Invalid scope";
     readonly status: 422;
-    readonly detail: "The selected semester does not exist.";
+    readonly detail: "The selected department, semester or school is not available in this scope.";
   };
   readonly "substitute.already-active": {
     readonly type: "urn:vektorprogrammet:problem:v0.2:substitute.already-active";
@@ -997,7 +1033,7 @@ declare const NativeValidationMessage: {
 type ProblemDescriptor = readonly [code: NativeProblemCode, status: number];
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L758)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L783)
 
 ### Sha256Hex
 
@@ -1242,7 +1278,7 @@ declare const ValidationProblem: Schema.Union<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L751)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L776)
 
 ### ValidationProblem (type alias)
 
@@ -1252,7 +1288,7 @@ declare const ValidationProblem: Schema.Union<
 type ValidationProblem = typeof ValidationProblem.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L756)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L781)
 
 ### ValidationProblemCode (type alias)
 
@@ -1263,7 +1299,7 @@ type ValidationProblemCode =
   "validation.failed" | "validation.no-change" | "validation.field-not-deletable";
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L700)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L725)
 
 ### createdMutationResponse
 
@@ -1333,7 +1369,7 @@ declare const endpointProblemResponses: <S extends Schema.Top>(
 ) => ReadonlyArray<Schema.Codec<unknown, unknown>>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L808)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L833)
 
 ### entityMutationResponse
 
@@ -1382,11 +1418,35 @@ declare const makeNativeProblem: <Code extends NativeProblemCode>(
   expectedStatus?: number,
   instance?: string,
 ) => {
+  readonly "affiliation.transition-invalid": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:affiliation.transition-invalid";
+    readonly title: "Invalid affiliation transition";
+    readonly status: 422;
+    readonly detail: "The requested transition is not allowed from the current affiliation state.";
+  };
+  readonly "affiliation.inactive": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:affiliation.inactive";
+    readonly title: "Inactive volunteer affiliation";
+    readonly status: 422;
+    readonly detail: "An active volunteer affiliation is required to create or edit a placement.";
+  };
+  readonly "placement.overlap": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:placement.overlap";
+    readonly title: "Duplicate placement";
+    readonly status: 409;
+    readonly detail: "An active placement already exists for this person, school, semester and block.";
+  };
+  readonly "placement.inactive": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:placement.inactive";
+    readonly title: "Removed placement";
+    readonly status: 422;
+    readonly detail: "The placement has already been removed.";
+  };
   readonly "scope.invalid": {
     readonly type: "urn:vektorprogrammet:problem:v0.2:scope.invalid";
-    readonly title: "Invalid substitute scope";
+    readonly title: "Invalid scope";
     readonly status: 422;
-    readonly detail: "The selected semester does not exist.";
+    readonly detail: "The selected department, semester or school is not available in this scope.";
   };
   readonly "substitute.already-active": {
     readonly type: "urn:vektorprogrammet:problem:v0.2:substitute.already-active";
@@ -1829,7 +1889,7 @@ declare const makeNativeProblem: <Code extends NativeProblemCode>(
 }[Code] & { instance?: string | undefined; code: Code };
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L862)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L887)
 
 ### makeNativeValidationError
 
@@ -1858,7 +1918,7 @@ Standard credential accepted by a cookie-only native endpoint.
 declare const nativeCookieChallenge: 'VektorSession realm="native-api"';
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L888)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L913)
 
 ### nativeProblemSchema
 
@@ -1872,6 +1932,10 @@ declare const nativeProblemSchema: <Code extends NativeProblemCode>(
   expectedStatus?: number,
 ) => Schema.Struct<{
   readonly type: Schema.Literal<
+    | "urn:vektorprogrammet:problem:v0.2:affiliation.transition-invalid"
+    | "urn:vektorprogrammet:problem:v0.2:affiliation.inactive"
+    | "urn:vektorprogrammet:problem:v0.2:placement.overlap"
+    | "urn:vektorprogrammet:problem:v0.2:placement.inactive"
     | "urn:vektorprogrammet:problem:v0.2:scope.invalid"
     | "urn:vektorprogrammet:problem:v0.2:substitute.already-active"
     | "urn:vektorprogrammet:problem:v0.2:substitute.inactive"
@@ -1948,7 +2012,11 @@ declare const nativeProblemSchema: <Code extends NativeProblemCode>(
     | "urn:vektorprogrammet:problem:v0.2:validation.no-change"
   >;
   readonly title: Schema.Literal<
-    | "Invalid substitute scope"
+    | "Invalid affiliation transition"
+    | "Inactive volunteer affiliation"
+    | "Duplicate placement"
+    | "Removed placement"
+    | "Invalid scope"
     | "Substitute already active"
     | "Substitute inactive"
     | "Concurrent transaction conflict"
@@ -2024,11 +2092,15 @@ declare const nativeProblemSchema: <Code extends NativeProblemCode>(
     | "No changes requested"
   >;
   readonly status: Schema.Literal<
-    503 | 422 | 400 | 409 | 404 | 403 | 500 | 401 | 415 | 405 | 412 | 428 | 429 | 413
+    503 | 422 | 409 | 400 | 404 | 403 | 500 | 401 | 415 | 405 | 412 | 428 | 429 | 413
   >;
   readonly code: Schema.Literal<Code>;
   readonly detail: Schema.Literal<
-    | "The selected semester does not exist."
+    | "The requested transition is not allowed from the current affiliation state."
+    | "An active volunteer affiliation is required to create or edit a placement."
+    | "An active placement already exists for this person, school, semester and block."
+    | "The placement has already been removed."
+    | "The selected department, semester or school is not available in this scope."
     | "The application is already in the substitute pool."
     | "The application is not in the substitute pool."
     | "Another transaction changed the selected state. Refresh before retrying."
@@ -2107,7 +2179,7 @@ declare const nativeProblemSchema: <Code extends NativeProblemCode>(
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L761)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L786)
 
 ### nativeUserChallenges
 
@@ -2119,7 +2191,7 @@ Standard credentials accepted by a native user endpoint.
 declare const nativeUserChallenges: (invalidBearer?: boolean) => string;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L884)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L909)
 
 ### noContentMutationResponse
 
@@ -2222,7 +2294,7 @@ declare const problemUnion: (
 ) => Schema.Codec<unknown, unknown>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L778)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L803)
 
 ### publicConditionalResponses
 
@@ -2328,4 +2400,4 @@ declare const validationProblemSchema: <Code extends ValidationProblemCode>(
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L737)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L762)
