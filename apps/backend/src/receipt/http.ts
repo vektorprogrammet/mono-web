@@ -143,12 +143,16 @@ const COMPOSED_DENIAL_MESSAGES = {
   FailedComposedRequirement: "Composed authorization requirement failed",
 } as const;
 
-const jsonResponse = (body: unknown, status = 200): Response =>
+const jsonResponse = (
+  body: unknown,
+  status = 200,
+  cacheControl: "no-store" | "private, no-store" = "no-store",
+): Response =>
   new Response(JSON.stringify(body), {
     status,
     headers: {
       "content-type": "application/json",
-      "cache-control": "no-store",
+      "cache-control": cacheControl,
     },
   });
 
@@ -868,7 +872,7 @@ const listOwnedV2 = async (request: Request, options: ReceiptApiHttpOptions): Pr
     options.run,
   );
   const items = rows.map(ownedReceiptResource);
-  return jsonResponse({ items, totalItems: items.length });
+  return jsonResponse({ items, totalItems: items.length }, 200, "private, no-store");
 };
 
 const submitV2 = async (
@@ -1238,7 +1242,7 @@ const approvalList = async (
         },
       ];
     });
-    return jsonResponse({ items, totalItems: items.length });
+    return jsonResponse({ items, totalItems: items.length }, 200, "private, no-store");
   }
 
   const principal =
@@ -1280,7 +1284,7 @@ const approvalList = async (
       }),
     };
   });
-  return jsonResponse({ items, totalItems: items.length });
+  return jsonResponse({ items, totalItems: items.length }, 200, "private, no-store");
 };
 
 /** Native HttpApi implementations for receipt lifecycle endpoints. */

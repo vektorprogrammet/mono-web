@@ -1042,3 +1042,14 @@ describe("private receipt owner reads", () => {
     expect(response.headers.get("content-disposition")).toBeNull();
   });
 });
+
+it("owned list response preserves the canonical private cache contract consumed by the SDK", async () => {
+  const owner = harness();
+  const response = await owner.http.fetch(
+    new Request("http://localhost/api/receipts", {
+      headers: { cookie: "better-auth.session_token=fixture" },
+    }),
+  );
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+});
