@@ -1,3 +1,4 @@
+import { nativeAndLegacyPasswordCodec } from "./password-codec.js";
 import { betterAuth } from "better-auth";
 import type { makePasswordRecovery } from "./password-recovery.js";
 import { Pool } from "pg";
@@ -51,6 +52,7 @@ export const makeAuthEngineOptions = (
     enabled: true,
     disableSignUp: true,
     minPasswordLength: 12,
+    password: nativeAndLegacyPasswordCodec,
     resetPasswordTokenExpiresIn: 60 * 60,
     revokeSessionsOnPasswordReset: true,
     ...(recovery

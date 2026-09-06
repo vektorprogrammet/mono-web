@@ -239,7 +239,7 @@ try {
   await page.getByRole("button", { name: "Lagre passord" }).click();
   await page.waitForURL("**/login?reset=true");
   for (const cookie of [cookie1, cookie2]) {
-    const r = await fetch(`${canonicalOrigin}/api/native/system/session`, {
+    const r = await fetch(`${canonicalOrigin}/api/session`, {
       headers: { cookie, origin: dashboardOrigin },
     });
     assert.equal(r.status, 401);
@@ -363,7 +363,7 @@ try {
   await pool.query(
     `DROP TRIGGER reject_recovery_session_delete ON auth.session; DROP FUNCTION auth.reject_recovery_session_delete()`,
   );
-  const stillLive = await fetch(`${canonicalOrigin}/api/native/system/session`, {
+  const stillLive = await fetch(`${canonicalOrigin}/api/session`, {
     headers: { cookie: partialCookie, origin: dashboardOrigin },
   });
   assert.equal(stillLive.status, 200);
