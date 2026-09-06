@@ -30,9 +30,9 @@ export default async function handleRequest(
     <ServerRouter context={routerContext} url={request.url} />,
     {
       signal: AbortSignal.timeout(STREAM_TIMEOUT_MS + 1_000),
-      onError(error: unknown) {
+      onError(_error: unknown) {
         responseStatusCode = 500;
-        if (shellRendered) console.error(error);
+        if (shellRendered) console.error("Dashboard stream failed");
       },
     },
   );
@@ -48,4 +48,9 @@ export default async function handleRequest(
     status: responseStatusCode,
     headers: responseHeaders,
   });
+}
+
+/** Request errors may contain credential URLs; never log their raw payload. */
+export function handleError(_error: unknown) {
+  console.error("Dashboard request failed");
 }

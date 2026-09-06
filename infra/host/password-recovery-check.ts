@@ -435,6 +435,13 @@ try {
   console.error(
     JSON.stringify({
       failure: error instanceof Error ? error.name : "Failure",
+      assertion:
+        error !== null && typeof error === "object" && "actual" in error && "expected" in error
+          ? {
+              actual: typeof error.actual === "number" ? error.actual : typeof error.actual,
+              expected: typeof error.expected === "number" ? error.expected : typeof error.expected,
+            }
+          : null,
       gates,
       submissions,
       pageText: text.slice(0, 1800),
