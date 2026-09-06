@@ -219,7 +219,8 @@ export default function Utlegg() {
             Utlegg
           </h1>
           <p className="mt-2 text-muted-foreground">
-            Refunder eller avvis ventende utlegg i godkjenningsområdet ditt.
+            Behandle ventende utlegg eller åpne avviste utlegg for korrigering i godkjenningsområdet
+            ditt.
           </p>
         </header>
 

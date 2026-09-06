@@ -241,6 +241,24 @@ export async function observeReceiptReopening(options: {
   const requireDashboard = createRequire(join(options.root, "apps/dashboard/package.json"));
   const { chromium, expect } = requireDashboard("@playwright/test");
   const { default: AxeBuilder } = requireDashboard("@axe-core/playwright");
+  const checkAxe = async (page: any, gate: string) => {
+    await page.evaluate(async () => {
+      await Promise.all(
+        document.getAnimations().map((animation) => animation.finished.catch(() => {})),
+      );
+    });
+    const violations = (await new AxeBuilder({ page }).analyze()).violations.map((v: any) => ({
+      id: v.id,
+      nodes: v.nodes.map((node: any) => ({ target: node.target, summary: node.failureSummary })),
+    }));
+    if (violations.length > 0) {
+      await page.screenshot({
+        path: join(options.artifactDirectory, "0102-browser-failure.png"),
+        fullPage: true,
+      });
+      throw new Error(JSON.stringify({ gate, violations }));
+    }
+  };
   const reservation = createServer();
   await new Promise<void>((resolve, reject) => {
     reservation.once("error", reject);
@@ -326,10 +344,7 @@ export async function observeReceiptReopening(options: {
     await button.focus();
     await approverPage.keyboard.press("Enter");
     await expect(approverPage.getByRole("alertdialog")).toBeVisible();
-    assert.deepEqual(
-      (await new AxeBuilder({ page: approverPage }).analyze()).violations.map((v: any) => v.id),
-      [],
-    );
+    await checkAxe(approverPage, "approval accessibility");
     await approverPage.screenshot({
       path: join(options.artifactDirectory, "0102-reopen-mobile.png"),
       fullPage: true,
@@ -372,9 +387,11 @@ export async function observeReceiptReopening(options: {
       .filter({ has: ownerPage.locator(`input[name="receiptId"][value="${browserTarget.id}"]`) });
     await edit.locator('[name="description"]').fill("Corrected same claim 0102");
     await edit.locator('[name="amountNok"]').fill("6,00");
-    assert.deepEqual(
-      (await new AxeBuilder({ page: ownerPage }).analyze()).violations.map((v: any) => v.id),
-      [],
+    await checkAxe(ownerPage, "owner correction accessibility");
+    const editorBounds = await edit.boundingBox();
+    assert.ok(
+      editorBounds && editorBounds.x >= 0 && editorBounds.x + editorBounds.width <= 390,
+      "mobile correction editor fits viewport",
     );
     await ownerPage.screenshot({
       path: join(options.artifactDirectory, "0102-correction-mobile.png"),
@@ -385,10 +402,7 @@ export async function observeReceiptReopening(options: {
     await approverPage.goto(`${dashboardOrigin}/dashboard/utlegg?status=Pending`);
     await expect(approvalRow).toContainText("Corrected same claim 0102");
     await approvalRow.getByRole("button", { name: "Avvis", exact: true }).click();
-    assert.deepEqual(
-      (await new AxeBuilder({ page: approverPage }).analyze()).violations.map((v: any) => v.id),
-      [],
-    );
+    await checkAxe(approverPage, "approval accessibility");
     const acceptedBefore = options.accepted();
     await approverPage.getByRole("button", { name: "Bekreft avvisning", exact: true }).click();
     await expect(
@@ -401,10 +415,7 @@ export async function observeReceiptReopening(options: {
     await approverPage.setViewportSize({ width: 1440, height: 1000 });
     await approverPage.goto(`${dashboardOrigin}/dashboard/utlegg?status=Rejected`);
     await expect(approvalRow).toContainText("Corrected same claim 0102");
-    assert.deepEqual(
-      (await new AxeBuilder({ page: approverPage }).analyze()).violations.map((v: any) => v.id),
-      [],
-    );
+    await checkAxe(approverPage, "approval accessibility");
     await approverPage.screenshot({
       path: join(options.artifactDirectory, "0102-rejected-desktop.png"),
       fullPage: true,

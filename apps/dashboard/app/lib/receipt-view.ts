@@ -129,7 +129,8 @@ const receiptErrorMessages: Record<ReceiptUiErrorTag, string> = {
   ReceiptNotFound: "Utlegget ble ikke funnet.",
   StaleReceiptRevision:
     "Utlegget ble endret et annet sted. Listen viser nå siste versjon. Kontroller statusen og prøv igjen.",
-  InvalidReceiptTransition: "Utlegget har en ferdig status og kan ikke behandles på nytt.",
+  InvalidReceiptTransition:
+    "Handlingen kan ikke utføres med utleggets nåværende status. Last inn listen på nytt.",
   ReceiptFileNotStaged:
     "Erstatningsfilen kunne ikke behandles. Den gjeldende filen er ikke endret.",
   ReceiptNetworkError: "Kunne ikke nå API-et. Prøv igjen senere.",

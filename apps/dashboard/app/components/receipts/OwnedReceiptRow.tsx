@@ -144,7 +144,7 @@ export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
                 aria-labelledby={reviseTitleId}
                 aria-describedby={revisionFailure ? actionErrorId : undefined}
                 aria-busy={revising}
-                className="mx-auto grid max-w-3xl gap-5"
+                className="sticky left-4 grid w-[calc(100cqw-2rem)] max-w-3xl gap-5 sm:left-6 sm:w-[calc(100cqw-3rem)]"
                 data-receipt-form="revise"
               >
                 <input type="hidden" name="_intent" value="revise" />
@@ -292,7 +292,7 @@ export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
                 aria-labelledby={withdrawTitleId}
                 aria-describedby={`${fieldId}-withdraw-help${withdrawalFailure ? ` ${actionErrorId}` : ""}`}
                 aria-busy={withdrawing}
-                className="mx-auto grid max-w-3xl gap-5"
+                className="sticky left-4 grid w-[calc(100cqw-2rem)] max-w-3xl gap-5 sm:left-6 sm:w-[calc(100cqw-3rem)]"
                 data-receipt-form="withdraw"
               >
                 <input type="hidden" name="_intent" value="withdraw" />

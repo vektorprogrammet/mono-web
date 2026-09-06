@@ -1,3 +1,14 @@
+import {
+  AuthorizationInstant,
+  CredentialEvidenceRef,
+  ServicePrincipalId,
+  ServicePrincipalGrantAuthority,
+  NATIVE_API_PROTECTED_RESOURCE,
+  RECEIPT_APPROVAL_QUEUE_OPERATION,
+  makeServicePrincipalReceiptGrant,
+  type AcceptedOAuthServiceCredential,
+  type ServicePrincipalReceiptGrantAuthority,
+} from "@vektorprogrammet/domain/authz";
 import { IdentitySnapshot } from "@vektorprogrammet/database";
 import { ReceiptResource, ReceiptListItem } from "@vektorprogrammet/http-api";
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
@@ -126,6 +137,7 @@ const fileStore: ReceiptFileStore = {
 };
 
 interface HarnessOptions {
+  readonly serviceApproval?: ServicePrincipalReceiptGrantAuthority;
   readonly unauthenticated?: boolean;
   readonly privateFileOwner?: string;
   readonly privateFileUnavailable?: boolean;
@@ -141,6 +153,20 @@ interface HarnessOptions {
 type RevocableReceiptAuthority = "Owner" | "Approval";
 
 const harness = (options: HarnessOptions = {}) => {
+  const serviceCredential: AcceptedOAuthServiceCredential | undefined =
+    options.serviceApproval === undefined
+      ? undefined
+      : {
+          _tag: "Accepted",
+          mechanism: { _tag: "OAuthServiceBearer" },
+          principal: {
+            _tag: "ServicePrincipal",
+            servicePrincipalId: options.serviceApproval.servicePrincipalId,
+          },
+          evidenceRef: CredentialEvidenceRef.make(
+            "oauth:ServicePrincipal:receipt-unit:client:1970000000",
+          ),
+        };
   let privateFileReads = 0;
   const commands: Array<Record<string, unknown>> = [];
   const principals: Array<ReceiptCommandPrincipal> = [];
@@ -459,11 +485,28 @@ const harness = (options: HarnessOptions = {}) => {
         Effect.provideService(Database, sql),
         Effect.provideService(Economy, economy),
         Effect.provideService(IdentitySnapshot, identitySnapshot),
+        Effect.provideService(ServicePrincipalGrantAuthority, {
+          readReceiptApprovalCandidates: () =>
+            options.serviceApproval
+              ? Effect.succeed(options.serviceApproval)
+              : Effect.die("unexpected service receipt read"),
+          createGrant: () => Effect.die("unexpected grant write"),
+          endGrant: () => Effect.die("unexpected grant write"),
+          revokeGrant: () => Effect.die("unexpected grant write"),
+        }),
       ) as Effect.Effect<A, E>,
     )) as ReceiptApiHttpOptions["run"];
   const httpOptions = {
     config: { ...config, e2eTestMode: true },
     identity: {
+      ...(serviceCredential === undefined
+        ? {}
+        : {
+            resolveApprovalCredential: async () => ({
+              credential: serviceCredential,
+              authorizationInstant: AuthorizationInstant.make(evaluatedAt),
+            }),
+          }),
       resolveAuthorizationPrincipal: async () => {
         authorizationPrincipalCalls += 1;
         if (options.unauthenticated === true) {
@@ -919,6 +962,67 @@ describe("receipt v0.2 HTTP contract", () => {
         status: 400,
         detail: "The request is malformed.",
       });
+    }
+  });
+
+  it("service-principal queue items expose the same entity condition consumed by person decisions", async () => {
+    for (const action of ["refund", "reopen"] as const) {
+      const receipt = pendingReceipt({
+        status: action === "reopen" ? "Rejected" : "Pending",
+        revision: 2,
+      });
+      const grant = makeServicePrincipalReceiptGrant({
+        grantId: "service-queue0102",
+        servicePrincipalId: "service0102",
+        clientId: "client0102",
+        protectedResource: NATIVE_API_PROTECTED_RESOURCE,
+        operationId: RECEIPT_APPROVAL_QUEUE_OPERATION,
+        capabilityId: "approveReceipt",
+        resourceKind: "receipt",
+        receiptId,
+        startAt: "2026-01-01T00:00:00Z",
+        endAt: null,
+        revokedAt: null,
+        revision: 0,
+      });
+      const service = harness({
+        serviceApproval: {
+          servicePrincipalId: ServicePrincipalId.make("service0102"),
+          clientId: grant.clientId,
+          protectedResource: NATIVE_API_PROTECTED_RESOURCE,
+          candidates: [
+            {
+              grant,
+              receipt: {
+                ...receipt,
+                receiptId: grant.receiptId,
+                visualId: Schema.decodeUnknownSync(ReceiptResource.fields.visualId)(visualId),
+                ownerPersonId: personId,
+              },
+            },
+          ],
+          rules: [],
+        },
+      });
+      const listed = await request(
+        service.http,
+        `/api/receipt-approval-queue?status=${receipt.status}`,
+      );
+      expect(listed.status).toBe(200);
+      const body = await readJson(listed);
+      const item = (body.items as Array<{ etag: string }>)[0]!;
+      expect(item.etag).toBe(receiptEtag(receiptId, 2));
+      const person = harness({ approvalRows: [receipt] });
+      const accepted = await request(person.http, `/api/receipts/${receiptId}:${action}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": `${action}-service-queue0102`,
+          "if-match": item.etag,
+        },
+        body: "{}",
+      });
+      expect(accepted.status).toBe(200);
     }
   });
 

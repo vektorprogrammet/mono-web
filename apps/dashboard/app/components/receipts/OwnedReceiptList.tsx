@@ -43,7 +43,7 @@ export function OwnedReceiptList({
         </p>
       </CardHeader>
 
-      <CardContent className="grid gap-4">
+      <CardContent className="@container grid gap-4">
         {busy && (
           <p className="sr-only" role="status">
             Oppdaterer utleggslisten.
