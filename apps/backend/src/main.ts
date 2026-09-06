@@ -160,9 +160,9 @@ if (process.exitCode !== 1) {
   }
   process.stdout.write(`${ingress} backend listening on ${config.host}:${config.port}\n`);
   let shutdownPromise: Promise<void> | undefined;
-  const shutdown = () => {
+  const shutdown = (workerFailed = false) => {
     shutdownPromise ??= (async () => {
-      let exitCode = 0;
+      let exitCode = workerFailed ? 1 : 0;
       try {
         await server.stop(true);
       } catch {
@@ -195,7 +195,7 @@ if (process.exitCode !== 1) {
     void runtime.runPromise(Fiber.await(onboardingExpiryFiber)).then((exit) => {
       if (Exit.isFailure(exit) && shutdownPromise === undefined) {
         process.stderr.write("onboarding expiry worker failed\n");
-        void shutdown();
+        void shutdown(true);
       }
     });
   }
@@ -203,10 +203,10 @@ if (process.exitCode !== 1) {
     void runtime.runPromise(Fiber.await(workerFiber)).then((exit) => {
       if (Exit.isFailure(exit) && shutdownPromise === undefined) {
         process.stderr.write("public application effect worker failed\n");
-        shutdown();
+        shutdown(true);
       }
     });
   }
-  process.once("SIGINT", shutdown);
-  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", () => shutdown());
+  process.once("SIGTERM", () => shutdown());
 }

@@ -501,6 +501,67 @@ try {
     ).rows[0].count,
     0,
   );
+  // Expiry is enforced immediately; physical secret cleanup belongs to the backend lifetime.
+  const cleanupApplication = await submit("onboarding-cleanup@example.invalid", "Cleanup");
+  rejectNext = true;
+  await expectStatus(
+    await request(
+      boardPath,
+      leader,
+      { applicationId: cleanupApplication.applicationId, action: "Issue" },
+      (await board()).etag,
+    ),
+    200,
+  );
+  const cleanupId = (
+    await pool.query(
+      "SELECT invitation_id FROM applicant_account_invitations WHERE application_id=$1 AND state='Open'",
+      [cleanupApplication.applicationId],
+    )
+  ).rows[0].invitation_id;
+  assert.equal(
+    (
+      await pool.query("SELECT state FROM applicant_account_delivery WHERE invitation_id=$1", [
+        cleanupId,
+      ])
+    ).rows[0].state,
+    "Pending",
+  );
+  await stopPreviewScenarioBackend(backend);
+  await pool.query(
+    "UPDATE applicant_account_invitations SET issued_at=clock_timestamp()-interval '2 days', expires_at=clock_timestamp()-interval '1 second' WHERE invitation_id=$1",
+    [cleanupId],
+  );
+  await pool.query(`CREATE FUNCTION public.reject_onboarding_expiry_rehearsal() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic expiry cleanup failure'; END $$;
+    CREATE TRIGGER reject_onboarding_expiry_rehearsal BEFORE UPDATE ON applicant_account_delivery FOR EACH ROW WHEN (OLD.state='Pending' AND NEW.state='Cancelled') EXECUTE FUNCTION public.reject_onboarding_expiry_rehearsal()`);
+  backend = start("bun", ["run", "--cwd", "apps/backend", "start"], environment);
+  const failedWorkerExit = await new Promise<number | null>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("expiry worker failure did not stop backend")),
+      30000,
+    );
+    backend.once("exit", (code) => {
+      clearTimeout(timer);
+      resolve(code);
+    });
+  });
+  assert.equal(failedWorkerExit, 1, "unexpected expiry worker failure must not report success");
+  await pool.query(
+    "DROP TRIGGER reject_onboarding_expiry_rehearsal ON applicant_account_delivery; DROP FUNCTION public.reject_onboarding_expiry_rehearsal()",
+  );
+  backend = start("bun", ["run", "--cwd", "apps/backend", "start"], environment);
+  await ready();
+  for (let attempt = 0; ; attempt++) {
+    const cleaned = (
+      await pool.query(
+        "SELECT state, secret IS NULL AS secret_removed, envelope IS NULL AS envelope_removed FROM applicant_account_delivery WHERE invitation_id=$1",
+        [cleanupId],
+      )
+    ).rows[0];
+    if (cleaned.state === "Cancelled" && cleaned.secret_removed && cleaned.envelope_removed) break;
+    assert.ok(attempt < 50, "startup expiry cleanup must erase the pending secret");
+    await delay(100);
+  }
   const manifest = {
     revision,
     backendOrigin,
@@ -566,6 +627,7 @@ try {
       "failed delivery restart retry",
       "revoked and consumed token rejected",
       "terminal secret cleanup",
+      "expired pending secret erased on restart; failed expiry worker exits nonzero",
       "claim rejects expiry crossed while waiting for applicant lock",
     ],
     scope: "synthetic loopback only",
