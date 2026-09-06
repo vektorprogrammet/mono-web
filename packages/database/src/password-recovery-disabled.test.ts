@@ -6,7 +6,7 @@ import { OAUTH_NATIVE_API_RESOURCE } from "./oauth-config.js";
 const database = Object.create(null) as Pool;
 
 describe("native password recovery release boundary", () => {
-  it("keeps Better Auth recovery disabled until the outbox and cohort cutover", () => {
+  it("keeps recovery callbacks absent without the owned outbox boundary", () => {
     const options = makeAuthEngineOptions(
       {
         postgresUrl: "postgresql://unused.example.invalid/unused",
@@ -22,13 +22,14 @@ describe("native password recovery release boundary", () => {
       database,
     );
 
-    expect(options.emailAndPassword).toEqual({
+    expect(options.emailAndPassword).toMatchObject({
       enabled: true,
       disableSignUp: true,
       minPasswordLength: 12,
+      resetPasswordTokenExpiresIn: 3600,
+      revokeSessionsOnPasswordReset: true,
     });
     expect(options.emailAndPassword).not.toHaveProperty("sendResetPassword");
     expect(options.emailAndPassword).not.toHaveProperty("onPasswordReset");
-    expect(options.emailAndPassword).not.toHaveProperty("revokeSessionsOnPasswordReset");
   });
 });

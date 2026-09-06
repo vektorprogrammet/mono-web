@@ -17,13 +17,13 @@ const localProfileHrefs = profileLinks
   .map(({ href }) => href);
 const navigationHrefs = new Set([...localShellHrefs, ...localProfileHrefs]);
 
-const routeFileFor = (href: string): string => {
+const routeFilesFor = (href: string): string[] => {
   const pathname = href.split(/[?#]/u, 1)[0] ?? href;
   const internalPath =
     pathname === "/dashboard" ? "/" : pathname.replace(/^\/dashboard(?=\/)/u, "");
-  if (internalPath === "/") return "dashboard._index.tsx";
+  if (internalPath === "/") return ["dashboard._index.tsx"];
   const stem = internalPath.replace(/^\//u, "").replaceAll("/", ".");
-  return `dashboard.${stem}._index.tsx`;
+  return [`dashboard.${stem}._index.tsx`, `dashboard.${stem}.tsx`];
 };
 
 describe("dashboard navigation route integrity", () => {
@@ -32,10 +32,10 @@ describe("dashboard navigation route integrity", () => {
     expect(localShellHrefs).toEqual(expect.arrayContaining(["/", "/profile", "/mine-utlegg"]));
 
     for (const href of navigationHrefs) {
-      const routeFile = routeFileFor(href);
+      const routeFiles = routeFilesFor(href);
       expect(
-        existsSync(join(routeDirectory, routeFile)),
-        `${href} must be backed by app/routes/${routeFile}`,
+        routeFiles.some((routeFile) => existsSync(join(routeDirectory, routeFile))),
+        `${href} must be backed by an index or leaf route module`,
       ).toBe(true);
     }
   });
