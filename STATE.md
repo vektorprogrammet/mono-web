@@ -13,13 +13,13 @@ Now:
 - Runtime behavior and generated API contracts are authoritative; historical migration prose in the agent instructions is background, not current completion evidence.
 
 - Implemented and observed in synthetic isolated rehearsals: [0054.2 — native recovery](design-specs/0054.2-native-password-recovery.md), [0099 — applicant account onboarding](design-specs/0099-applicant-account-onboarding.md), and [0100 — synthetic password cohort](design-specs/0100-synthetic-password-cohort.md). Exact combined-commit acceptance is recorded separately from lane evidence.
-- Building [0101 — interviewer recommendation](design-specs/0101-native-interviewer-recommendation.md): restore the explicit Ja/Kanskje/Nei assessment missing from native conduct. Source review found no separate legacy assistant admission decision; school placement determines that legacy status.
-- Building [0102 — rejected receipt correction](design-specs/0102-reopen-rejected-receipt.md): scoped approver reopens a rejected claim, its owner corrects it, and an approver decides it again. This explicitly amends the prior Rejected-is-terminal rule; Refunded and Withdrawn remain terminal.
+- Implemented and observed in isolated synthetic rehearsals: [0101 — interviewer recommendation](design-specs/0101-native-interviewer-recommendation.md), including explicit Ja/Kanskje/Nei, immutable historical absence, current membership and proven self-interview denial before reads/replay. Source review found no separate legacy assistant admission decision; school placement determines that legacy status. Combined-commit acceptance is recorded separately from lane evidence.
+- Implemented and observed in an isolated synthetic rehearsal: [0102 — rejected receipt correction](design-specs/0102-reopen-rejected-receipt.md), including scoped reopening, correction of the same claim, subsequent decision and acknowledged local transport. This explicitly amends the prior Rejected-is-terminal rule; Refunded and Withdrawn remain terminal.
 
 Next:
 
 - Keep exact-commit runtime evidence separate from implementation and production cutover claims.
-- Continue the accepted [continuation plan](docs/migration/continuation-plan.md): recommendation capture, remaining recruitment outcomes, finance outcomes and semester workflows. A new coordinator admission-decision workflow remains a separate product choice. The implemented onboarding journey grants no assistant acceptance or automatic affiliation.
+- Continue the accepted [continuation plan](docs/migration/continuation-plan.md): coordinator recommendation reporting and authorized completed-interview edits, remaining recruitment/finance outcomes and semester workflows. A new coordinator admission-decision workflow remains a separate product choice. The implemented onboarding journey grants no assistant acceptance or automatic affiliation.
 - Rehearse receipt, private-file and identity reconciliation before any production cutover.
 
 Blocked:
