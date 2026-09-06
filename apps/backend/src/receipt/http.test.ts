@@ -985,7 +985,7 @@ describe("receipt v0.2 HTTP contract", () => {
     );
     expect(response.status, await response.clone().text()).toBe(503);
     const body = Schema.decodeUnknownSync(ReceiptsReopenReceiptProblem)(await response.json());
-    expect(body.code).toBe("receipts.unavailable");
+    expect(body).toMatchObject({ code: "receipts.unavailable" });
     expect(JSON.stringify(body)).not.toContain("private SQL details");
     expect(state.nativeReceiptCount()).toBe(0);
   });
