@@ -1,8 +1,10 @@
 import {
-  NativeProblem,
+  nativeProblemFrom as decodeNativeProblem,
+  type NativeProblemSummary as DecodedNativeProblem,
+} from "./native-problem";
+import {
   ReceiptApprovalQueueItem,
   ReceiptListItem,
-  ValidationProblem,
   type StrongETag as StrongETagValue,
 } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
@@ -133,24 +135,6 @@ const receiptErrorMessages: Record<ReceiptUiErrorTag, string> = {
     "Erstatningsfilen kunne ikke behandles. Den gjeldende filen er ikke endret.",
   ReceiptNetworkError: "Kunne ikke nå API-et. Prøv igjen senere.",
   UnknownReceiptError: "Kunne ikke fullføre forespørselen.",
-};
-
-const nativeProblemSchema = Schema.Union([ValidationProblem, NativeProblem]);
-type DecodedNativeProblem = {
-  readonly code: string;
-  readonly validation?: {
-    readonly errors: ReadonlyArray<{ readonly pointer: string }>;
-  };
-};
-
-const decodeNativeProblem = (error: unknown): DecodedNativeProblem | undefined => {
-  try {
-    return Schema.decodeUnknownSync(nativeProblemSchema)(error, {
-      onExcessProperty: "error",
-    });
-  } catch {
-    return undefined;
-  }
 };
 
 const validationField = (problem: DecodedNativeProblem): ReceiptUiErrorField | undefined => {

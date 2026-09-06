@@ -1,12 +1,14 @@
+import {
+  nativeProblemFrom as decodeNativeProblem,
+  type NativeProblemSummary as DecodedNativeProblem,
+} from "./native-problem";
 import { AdmissionPeriodId } from "@vektorprogrammet/domain/admission-period";
 import {
   AdmissionPeriodManagementItem,
   AdmissionPeriodMergePatch,
   CreateAdmissionPeriodRequest,
   IdempotencyKey,
-  NativeProblem,
   StrongETag,
-  ValidationProblem,
   type IdempotencyKey as IdempotencyKeyValue,
   type StrongETag as StrongETagValue,
 } from "@vektorprogrammet/http-api";
@@ -178,24 +180,6 @@ const errorMessages: Record<AdmissionPeriodUiErrorTag, string> = {
   AdmissionPeriodRateLimited: "For mange forespørsler. Prøv igjen senere.",
   AdmissionPeriodNetworkError: "Kunne ikke nå API-et. Prøv igjen senere.",
   UnknownAdmissionPeriodError: "Kunne ikke fullføre forespørselen.",
-};
-
-const nativeProblemSchema = Schema.Union([ValidationProblem, NativeProblem]);
-type DecodedNativeProblem = {
-  readonly code: string;
-  readonly validation?: {
-    readonly errors: ReadonlyArray<{ readonly pointer: string }>;
-  };
-};
-
-const decodeNativeProblem = (error: unknown): DecodedNativeProblem | undefined => {
-  try {
-    return Schema.decodeUnknownSync(nativeProblemSchema)(error, {
-      onExcessProperty: "error",
-    });
-  } catch {
-    return undefined;
-  }
 };
 
 const validationField = (
