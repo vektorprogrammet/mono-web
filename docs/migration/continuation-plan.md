@@ -13,7 +13,18 @@ Functional parity and production replacement are separate milestones. Completion
 | 5 | Remaining operational journeys | Events, surveys, certificates, statistics and exports, ordered by semester needs; validate supporting administration and public journeys. |
 | 6 | Production rehearsal and cutover | Authorized real-data reconciliation, separately restored account access, legacy writer fence, final delta, native ownership, rollback accounting for new writes. |
 
-Next batch: [0096 placement](../../design-specs/0096-existing-volunteer-placement.md) and [0097 receipt delivery](../../design-specs/0097-receipt-notification-delivery.md). Existing volunteers precede applicant onboarding; this sequencing is now accepted, not blocked on another preference question. Automatic scheduling awaits verified source behavior or an explicit replacement contract.
+Current implementation and next work are recorded in [STATE.md](../../STATE.md).
+Existing volunteers preceded applicant onboarding. Automatic scheduling awaits
+verified source behavior or an explicit replacement contract.
+
+Source correction, 2026-09-06: legacy assistant admission is derived from school
+history, not a persisted Accept/Reject/Waitlist decision. Its explicit interviewer
+recommendation is a distinct Ja/Kanskje/Nei field missing from native conduct.
+[0101](../../design-specs/0101-native-interviewer-recommendation.md) restores that
+field first. A separate coordinator admission-decision workflow would be new
+product policy. Legacy recommendation reporting, authorized edits to completed
+interviews, co-interviewer privileges, applicant progress and completion receipts
+remain separate parity items; 0101 does not establish all of them.
 
 Each felt journey gets one frozen design-spec, isolated writer worktree and independently checked committed artifact. Use native agents. Serialize heavyweight execution across lanes. Reuse existing domain authorities, schemas, generated SDK, PostgreSQL and dashboard patterns. No stack replacement.
 
