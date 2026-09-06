@@ -261,6 +261,11 @@ export async function observeReceiptReopening(options: {
     },
     stdio: "ignore",
   });
+  const startupDiagnostics: string[] = [];
+  dashboard.stderr?.on("data", (chunk) => {
+    startupDiagnostics.push(String(chunk));
+    if (startupDiagnostics.length > 20) startupDiagnostics.shift();
+  });
   let browser: any;
   const errors: string[] = [];
   try {
@@ -274,7 +279,10 @@ export async function observeReceiptReopening(options: {
       } catch {}
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    assert.ok(ready, "production dashboard startup");
+    assert.ok(
+      ready,
+      `production dashboard startup: exit=${dashboard.exitCode}; ${startupDiagnostics.join("").slice(-4000)}`,
+    );
     browser = await chromium.launch({
       executablePath:
         process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ??

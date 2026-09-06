@@ -11,9 +11,11 @@ The approver finds it under Venter and resolves it again. Success is announced
 when the rejected-only row disappears; choose Venter to inspect the updated row.
 
 Run the synthetic end-to-end gate from a clean committed checkout after building
-`packages/sdk` and `apps/dashboard`:
+`packages/sdk` and the root-mounted dashboard:
 
 ```sh
+bun run --cwd packages/sdk build
+DASHBOARD_MOUNT=/ bun run --cwd apps/dashboard build
 RECEIPT_DELIVERY_REHEARSAL=1 RECEIPT_REOPEN_REHEARSAL=1 bun run packages/database/runtime/receipt-import-rehearsal.ts
 ```
 
