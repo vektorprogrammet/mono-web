@@ -168,6 +168,36 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
   ],
 
   [
+    "GET",
+    "/api/placements/scopes",
+    "placements.listScopes",
+    person("placements.self", "placements.explicit-department", [], "SnapshotRead"),
+  ],
+  [
+    "GET",
+    "/api/placements/affiliation",
+    "placements.readOwnAffiliation",
+    person("placements.self", "placements.explicit-department", [], "SnapshotRead"),
+  ],
+  [
+    "POST",
+    "/api/placements/affiliation",
+    "placements.commandOwnAffiliation",
+    person("placements.self", "placements.explicit-department", [], "Transaction"),
+  ],
+  [
+    "GET",
+    "/api/placements",
+    "placements.readBoard",
+    person("placements.manage", "placements.explicit-department", [], "SnapshotRead"),
+  ],
+  [
+    "POST",
+    "/api/placements",
+    "placements.commandBoard",
+    person("placements.manage", "placements.explicit-department", [], "Transaction"),
+  ],
+  [
     "POST",
     "/api/contact-messages",
     "contact.submitContactMessage",
@@ -614,6 +644,8 @@ const createdMutationOperations = [
 ] as const;
 
 const entityMutationOperations = [
+  "placements.commandOwnAffiliation",
+  "placements.commandBoard",
   "substitutes.activate",
   "substitutes.edit",
   "substitutes.deactivate",
@@ -645,6 +677,9 @@ const plainNoContentMutationOperations = [
 ] as const;
 
 const privateReadOperations = [
+  "placements.listScopes",
+  "placements.readOwnAffiliation",
+  "placements.readBoard",
   "substitutes.listScopes",
   "substitutes.readPool",
   "system.readSession",
@@ -920,6 +955,7 @@ describe("native API reflection", () => {
     const tags = new Map<string, string>([
       ["contact", "Public contact"],
       ["substitutes", "Substitute pool"],
+      ["placements", "Volunteer placement"],
       ["admissions", "Admissions"],
       ["content", "Content and news"],
       ["directory", "Directories"],

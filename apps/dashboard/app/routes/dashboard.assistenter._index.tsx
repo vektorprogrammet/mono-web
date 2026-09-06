@@ -178,7 +178,9 @@ function CommandForm({
   const [signature, setSignature] = useState("");
   const [accepted, setAccepted] = useState("");
   const [dirty, setDirty] = useState(false);
+  const [fieldRevision, setFieldRevision] = useState(etag);
   if (!dirty && baseline !== etag) setBaseline(etag);
+  if (!dirty && fieldRevision !== etag) setFieldRevision(etag);
   const busy = fetcher.state !== "idle";
   const completed = fetcher.data?.success ? fetcher.data.commandId : "";
   if (completed && completed !== accepted) {
@@ -220,7 +222,7 @@ function CommandForm({
       {Object.entries(hidden).map(([name, value]) => (
         <input key={name} type="hidden" name={name} value={value} />
       ))}
-      <fieldset disabled={busy} className="space-y-3">
+      <fieldset key={fieldRevision} disabled={busy} className="space-y-3">
         <legend className="sr-only">{label}</legend>
         {children}
       </fieldset>
