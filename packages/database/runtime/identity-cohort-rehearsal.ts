@@ -362,12 +362,24 @@ try {
     });
   };
   startEngine(config);
-  const post = (path: string, body: unknown) =>
-    fetch(origin + path, {
-      method: "POST",
-      headers: { origin: "http://127.0.0.1:5174", "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
+  const post = async (path: string, body: unknown): Promise<Response> => {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const response = await fetch(origin + path, {
+        method: "POST",
+        headers: { origin: "http://127.0.0.1:5174", "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (response.status !== 429) return response;
+      const retryAfter = Number(response.headers.get("retry-after"));
+      const waitMs =
+        Number.isFinite(retryAfter) && retryAfter > 0
+          ? Math.min(retryAfter * 1000 + 100, 61_000)
+          : 10_100;
+      await response.body?.cancel();
+      await pause(waitMs);
+    }
+    throw new Error("bounded identity rate-limit retry exhausted");
+  };
   const login = async (email: string, password: string) =>
     post("/api/auth/sign-in/email", { email, password });
   let oldCookie = "";
