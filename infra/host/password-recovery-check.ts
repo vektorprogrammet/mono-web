@@ -196,7 +196,8 @@ try {
     executablePath:
       process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ?? "/etc/profiles/per-user/nori/bin/chromium",
   });
-  page = await browser.newPage();
+  const browserContext = await browser.newContext();
+  page = await browserContext.newPage();
   page.on("request", (request: any) => {
     const url = new URL(request.url());
     if (

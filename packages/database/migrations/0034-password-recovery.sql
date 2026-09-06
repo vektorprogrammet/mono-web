@@ -70,7 +70,8 @@ ALTER TABLE auth.identity_security_audit ADD CONSTRAINT identity_security_audit_
 
 CREATE TABLE auth.password_reset_email_outbox (
  effect_id text PRIMARY KEY,
- verification_id text NOT NULL UNIQUE,
+ verification_id text NOT NULL UNIQUE CHECK (verification_id <> '' AND char_length(verification_id) <= 128),
+ CHECK (effect_id = 'password-reset:' || verification_id),
  subject_person_id text NOT NULL REFERENCES public.person_profiles(person_id),
  status text NOT NULL CHECK(status IN ('Pending','Processing','Delivered','Failed','Quarantined')),
  attempts integer NOT NULL DEFAULT 0 CHECK(attempts >= 0),

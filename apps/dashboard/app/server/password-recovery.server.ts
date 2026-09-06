@@ -1,3 +1,4 @@
+import { nativeDashboardRecoveryMode } from "./credential-engine-config.server";
 import { serverApiEndpoint } from "../lib/api.server";
 export class PasswordRecoveryError extends Error {
   constructor(readonly outcome: "InvalidOrExpired" | "OutcomeUnknown" | "Rejected") {
@@ -53,6 +54,6 @@ export const createPasswordRecoveryClient = (request: Request) => {
 };
 /** Explicit ownership; native dashboard sign-in cannot be paired with legacy reset. */
 export const requireNativePasswordRecovery = () => {
-  if (process.env.PASSWORD_RECOVERY_ENGINE !== "native")
+  if (nativeDashboardRecoveryMode(process.env) !== "native")
     throw new Error("Native recovery cohort has not been enabled");
 };
