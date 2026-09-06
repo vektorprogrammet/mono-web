@@ -10,7 +10,11 @@ import {
   type ServicePrincipalReceiptGrantAuthority,
 } from "@vektorprogrammet/domain/authz";
 import { IdentitySnapshot } from "@vektorprogrammet/database";
-import { ReceiptResource, ReceiptListItem } from "@vektorprogrammet/http-api";
+import {
+  ReceiptResource,
+  ReceiptListItem,
+  ReceiptsReopenReceiptProblem,
+} from "@vektorprogrammet/http-api";
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
 import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
 import {
@@ -23,6 +27,7 @@ import {
   Economy,
   ReceiptFileService,
   ReceiptNotFound,
+  ReceiptPersistenceError,
   ReceiptOwnerDenied,
   ReceiptScopeDenied,
   UnauthenticatedActor,
@@ -143,7 +148,7 @@ interface HarnessOptions {
   readonly privateFileUnavailable?: boolean;
   readonly ownedRows?: ReadonlyArray<ProjectionRow>;
   readonly approvalRows?: ReadonlyArray<ProjectionRow>;
-  readonly commandFailure?: ReceiptScopeDenied | ReceiptNotFound;
+  readonly commandFailure?: ReceiptScopeDenied | ReceiptNotFound | ReceiptPersistenceError;
   readonly evidenceAccessRows?: ReadonlyArray<ReceiptAccessRow>;
   readonly evidenceResult?: unknown;
   readonly revokeSessionAfterSnapshotRead?: boolean;
@@ -963,6 +968,26 @@ describe("receipt v0.2 HTTP contract", () => {
         detail: "The request is malformed.",
       });
     }
+  });
+
+  it("projects receipt persistence failure through the reopening endpoint's declared problem schema", async () => {
+    const state = harness({
+      approvalRows: [{ ...pendingReceipt(), status: "Rejected" }],
+      commandFailure: new ReceiptPersistenceError({
+        operation: "synthetic",
+        message: "private SQL details",
+      }),
+    });
+    const response = await actionRequest(
+      state.http,
+      `/api/receipts/${receiptId}:reopen`,
+      "reopen-failed-command-0102",
+    );
+    expect(response.status, await response.clone().text()).toBe(503);
+    const body = Schema.decodeUnknownSync(ReceiptsReopenReceiptProblem)(await response.json());
+    expect(body.code).toBe("receipts.unavailable");
+    expect(JSON.stringify(body)).not.toContain("private SQL details");
+    expect(state.nativeReceiptCount()).toBe(0);
   });
 
   it("service-principal queue items expose the same entity condition consumed by person decisions", async () => {

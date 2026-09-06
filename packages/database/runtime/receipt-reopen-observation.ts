@@ -243,6 +243,9 @@ export async function observeReceiptReopening(options: {
   const { default: AxeBuilder } = requireDashboard("@axe-core/playwright");
   const checkAxe = async (page: any, gate: string) => {
     await page.evaluate(async () => {
+      const { document } = globalThis as unknown as {
+        document: { getAnimations: () => Array<{ finished: Promise<unknown> }> };
+      };
       await Promise.all(
         document.getAnimations().map((animation) => animation.finished.catch(() => {})),
       );
