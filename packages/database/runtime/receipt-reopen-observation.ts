@@ -268,6 +268,7 @@ export async function observeReceiptReopening(options: {
   });
   let browser: any;
   const errors: string[] = [];
+  const mutations: Array<{ path: string; status: number }> = [];
   try {
     let ready = false;
     for (let n = 0; n < 100; n++) {
@@ -302,6 +303,10 @@ export async function observeReceiptReopening(options: {
         },
       ]);
       const page = await value.newPage();
+      page.on("response", (response: any) => {
+        if (response.request().method() === "POST")
+          mutations.push({ path: new URL(response.url()).pathname, status: response.status() });
+      });
       page.on("pageerror", () => errors.push("browser runtime error"));
       page.on("console", (message: any) => {
         if (message.type() === "error") errors.push("browser console error");
@@ -331,9 +336,26 @@ export async function observeReceiptReopening(options: {
     });
     const browserAttempts = options.attempts();
     await approverPage.getByRole("button", { name: "Bekreft gjenåpning", exact: true }).click();
-    await expect(
-      approverPage.locator('[role="status"][data-action-intent="reopen"]'),
-    ).toContainText("åpnet for korrigering");
+    try {
+      await expect(
+        approverPage.locator('[role="status"][data-action-intent="reopen"]'),
+      ).toContainText("åpnet for korrigering");
+    } catch {
+      await approverPage.screenshot({
+        path: join(options.artifactDirectory, "0102-browser-failure.png"),
+        fullPage: true,
+      });
+      throw new Error(
+        JSON.stringify({
+          gate: "browser reopen confirmation",
+          mutations,
+          alerts: await approverPage.locator('[role="alert"]').allTextContents(),
+          path: new URL(approverPage.url()).pathname,
+          sqlState: (await row(browserTarget.id)).status,
+          browserErrors: errors,
+        }),
+      );
+    }
     await expect(approvalRow).toHaveCount(0);
     assert.equal(options.attempts(), browserAttempts);
     const browserReopened = await snapshot(browserTarget.id);
@@ -363,6 +385,10 @@ export async function observeReceiptReopening(options: {
     await approverPage.goto(`${dashboardOrigin}/dashboard/utlegg?status=Pending`);
     await expect(approvalRow).toContainText("Corrected same claim 0102");
     await approvalRow.getByRole("button", { name: "Avvis", exact: true }).click();
+    assert.deepEqual(
+      (await new AxeBuilder({ page: approverPage }).analyze()).violations.map((v: any) => v.id),
+      [],
+    );
     const acceptedBefore = options.accepted();
     await approverPage.getByRole("button", { name: "Bekreft avvisning", exact: true }).click();
     await expect(

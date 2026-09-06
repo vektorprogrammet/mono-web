@@ -736,6 +736,7 @@ try {
           "0102-reopen-mobile.png",
           "0102-correction-mobile.png",
           "0102-rejected-desktop.png",
+          "0102-browser-failure.png",
         ].includes(entry)
       )
         await rm(join(artifacts, entry), { recursive: true, force: true });
