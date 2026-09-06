@@ -1,7 +1,5 @@
 import { createPromiseClient } from "../../packages/sdk/src/promise.js";
 import { NativeProblem } from "../../packages/http-api/src/http-semantics.js";
-import { Schema } from "effect";
-import { HttpApiSchema } from "effect/unstable/httpapi";
 /** 0094 real local API + browser acceptance. Reuses native identity seed and owned process lifecycle. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -16,6 +14,9 @@ const root = new URL("../../", import.meta.url).pathname;
 const requireDatabase = createRequire(
   new URL("../../packages/database/package.json", import.meta.url),
 );
+const requireApi = createRequire(new URL("../../packages/http-api/package.json", import.meta.url));
+const { Schema } = await import(requireApi.resolve("effect"));
+const { HttpApiSchema } = await import(requireApi.resolve("effect/unstable/httpapi"));
 const { Pool } = requireDatabase("pg");
 const run = (command: string, args: string[], env = process.env, timeout = 60_000) =>
   execFileSync(command, args, { cwd: root, env, encoding: "utf8", timeout });
