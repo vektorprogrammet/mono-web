@@ -41,7 +41,7 @@ Since v0.1.0
 declare class Economy
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/service.ts#L128)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/service.ts#L130)
 
 ### EconomyShape (interface)
 
@@ -105,7 +105,7 @@ export interface EconomyShape {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/service.ts#L72)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/service.ts#L74)
 
 ### ReceiptMutationAuthorization (type alias)
 
@@ -122,14 +122,18 @@ type ReceiptMutationAuthorization =
     }
   | {
       readonly _tag:
-        "RevisePendingReceipt" | "WithdrawPendingReceipt" | "RefundReceipt" | "RejectReceipt";
+        | "RevisePendingReceipt"
+        | "WithdrawPendingReceipt"
+        | "RefundReceipt"
+        | "RejectReceipt"
+        | "ReopenRejectedReceipt";
       readonly principal: ReceiptCommandPrincipal;
       readonly actor: ReceiptActor;
       readonly current: Receipt;
     };
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/service.ts#L53)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/service.ts#L54)
 
 ### ReceiptMutationAuthorizationTarget (type alias)
 
@@ -143,7 +147,11 @@ type ReceiptMutationAuthorizationTarget =
     }
   | {
       readonly _tag:
-        "RevisePendingReceipt" | "WithdrawPendingReceipt" | "RefundReceipt" | "RejectReceipt";
+        | "RevisePendingReceipt"
+        | "WithdrawPendingReceipt"
+        | "RefundReceipt"
+        | "RejectReceipt"
+        | "ReopenRejectedReceipt";
       readonly receiptId: string;
     };
 ```

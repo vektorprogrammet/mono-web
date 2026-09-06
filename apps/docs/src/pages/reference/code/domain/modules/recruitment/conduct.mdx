@@ -40,7 +40,7 @@ export interface CancelTransition {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L35)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L36)
 
 ### FinalizeTransition (interface)
 
@@ -53,7 +53,7 @@ export interface FinalizeTransition {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L30)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L31)
 
 ### cancelInterview
 
@@ -68,7 +68,7 @@ declare const cancelInterview: (
 ) => Effect.Effect<CancelTransition, ConductFailure>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L263)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L267)
 
 ### finalizeInterview
 
@@ -83,7 +83,7 @@ declare const finalizeInterview: (
 ) => Effect.Effect<FinalizeTransition, ConductFailure>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L206)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L207)
 
 ### recruitmentInterviewAnswerIsValid
 
@@ -95,4 +95,4 @@ declare const recruitmentInterviewAnswerIsValid: (
 ) => value is RecruitmentInterviewAnswer;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L310)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L314)

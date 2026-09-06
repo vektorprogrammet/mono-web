@@ -97,7 +97,7 @@ declare const LegacyReceiptFileSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/schema.ts#L240)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/schema.ts#L245)
 
 ### LegacyReceiptRow (type alias)
 
@@ -107,7 +107,7 @@ declare const LegacyReceiptFileSchema: Schema.Struct<{
 type LegacyReceiptRow = typeof LegacyReceiptRowSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/schema.ts#L262)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/schema.ts#L267)
 
 ### LegacyReceiptRowSchema
 
@@ -138,7 +138,7 @@ declare const LegacyReceiptRowSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/schema.ts#L248)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/schema.ts#L253)
 
 ### Receipt (class)
 
@@ -148,7 +148,7 @@ declare const LegacyReceiptRowSchema: Schema.Struct<{
 declare class Receipt
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/schema.ts#L160)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/schema.ts#L165)
 
 ### ReceiptActor (type alias)
 
@@ -213,7 +213,7 @@ declare const ReceiptCommandPrincipalSchema: Schema.Struct<{
 type ReceiptCommandRequest = typeof ReceiptCommandRequestSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/schema.ts#L158)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/schema.ts#L163)
 
 ### ReceiptCommandRequestSchema
 
@@ -285,6 +285,14 @@ declare const ReceiptCommandRequestSchema: Schema.TaggedUnion<{
   >;
   readonly RejectReceipt: Schema.TaggedStruct<
     "RejectReceipt",
+    {
+      readonly commandId: Schema.String;
+      readonly receiptId: Schema.brand<Schema.String, "ReceiptId">;
+      readonly expectedRevision: Schema.Int;
+    }
+  >;
+  readonly ReopenRejectedReceipt: Schema.TaggedStruct<
+    "ReopenRejectedReceipt",
     {
       readonly commandId: Schema.String;
       readonly receiptId: Schema.brand<Schema.String, "ReceiptId">;
@@ -374,7 +382,7 @@ type ReceiptId = typeof ReceiptId.Type;
 type ReceiptObservation = typeof ReceiptObservationSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/schema.ts#L238)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/schema.ts#L243)
 
 ### ReceiptObservationSchema
 
@@ -391,7 +399,7 @@ declare const ReceiptObservationSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/schema.ts#L230)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/schema.ts#L235)
 
 ### ReceiptStatus (type alias)
 
