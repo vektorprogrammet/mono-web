@@ -24,6 +24,7 @@ showAskAi: false
   - [ReceiptAuxiliaryEffectsShape (interface)](#receiptauxiliaryeffectsshape-interface)
   - [ReceiptAuxiliaryRecordingControl (interface)](#receiptauxiliaryrecordingcontrol-interface)
   - [ReceiptAuxiliaryRequest (type alias)](#receiptauxiliaryrequest-type-alias)
+  - [ReceiptDeliveryUnavailable (class)](#receiptdeliveryunavailable-class)
   - [makeReceiptAuxiliaryRecording](#makereceiptauxiliaryrecording)
 
 ---
@@ -48,7 +49,7 @@ declare class ReceiptAuxiliaryEffectConflict
 declare class ReceiptAuxiliaryEffects
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/auxiliary-service.ts#L21)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/auxiliary-service.ts#L27)
 
 ### ReceiptAuxiliaryEffectsShape (interface)
 
@@ -58,11 +59,12 @@ declare class ReceiptAuxiliaryEffects
 export interface ReceiptAuxiliaryEffectsShape {
   readonly apply: (
     request: ReceiptAuxiliaryRequest,
-  ) => Effect.Effect<void, ReceiptAuxiliaryEffectConflict>;
+    claimId?: string,
+  ) => Effect.Effect<void, ReceiptAuxiliaryEffectConflict | ReceiptDeliveryUnavailable>;
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/auxiliary-service.ts#L15)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/auxiliary-service.ts#L20)
 
 ### ReceiptAuxiliaryRecordingControl (interface)
 
@@ -75,7 +77,7 @@ export interface ReceiptAuxiliaryRecordingControl {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/auxiliary-service.ts#L26)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/auxiliary-service.ts#L32)
 
 ### ReceiptAuxiliaryRequest (type alias)
 
@@ -90,6 +92,16 @@ type ReceiptAuxiliaryRequest = Exclude<
 
 [Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/auxiliary-service.ts#L5)
 
+### ReceiptDeliveryUnavailable (class)
+
+**Signature**
+
+```ts
+declare class ReceiptDeliveryUnavailable
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/auxiliary-service.ts#L15)
+
 ### makeReceiptAuxiliaryRecording
 
 **Signature**
@@ -98,4 +110,4 @@ type ReceiptAuxiliaryRequest = Exclude<
 declare const makeReceiptAuxiliaryRecording: () => ReceiptAuxiliaryRecordingControl;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/auxiliary-service.ts#L31)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/auxiliary-service.ts#L37)
