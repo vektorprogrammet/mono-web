@@ -1261,6 +1261,7 @@ const generateFixtureFromWorkspaceEffect = (
           operation:
             cause instanceof UnsafeSourceProjectionError ? "unsafe_source" : "fixture_generate",
           path: workspace.root,
+          diagnostics: cause instanceof UnsafeSourceProjectionError ? cause.diagnostics : undefined,
           message: cause instanceof Error ? cause.message : "fixture projection generation failed",
         }),
     });

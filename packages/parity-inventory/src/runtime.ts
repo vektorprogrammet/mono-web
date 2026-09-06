@@ -1,4 +1,4 @@
-import { unsafeDiagnosticCategories } from "./unsafe-diagnostics.js";
+import { UnsafeDiagnosticSchema } from "./unsafe-diagnostics.js";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { Effect, Schema } from "effect";
 import { canonicalJson, compareByteOrder, sha256, stableId } from "./canonical.js";
@@ -26,17 +26,7 @@ import type { EvidenceAuthorityRecord, RuntimeEvidenceRegister } from "./types.j
 export class ParityRuntimeError extends Schema.TaggedError<ParityRuntimeError>()(
   "ParityRuntimeError",
   {
-    diagnostics: Schema.optional(
-      Schema.Array(
-        Schema.Struct({
-          category: Schema.Literals(unsafeDiagnosticCategories),
-          record_index: Schema.Number,
-          sources: Schema.Array(
-            Schema.Struct({ source_index: Schema.Number, path: Schema.NullOr(Schema.String) }),
-          ),
-        }),
-      ),
-    ),
+    diagnostics: Schema.optional(Schema.Array(UnsafeDiagnosticSchema)),
     operation: Schema.String,
     path: Schema.String,
     message: Schema.String,

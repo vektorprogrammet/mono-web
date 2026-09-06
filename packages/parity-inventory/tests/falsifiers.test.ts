@@ -1357,6 +1357,7 @@ const cliReport = (
   readonly status: number | null;
   readonly report: Record<string, unknown>;
   readonly output: string;
+  readonly diagnostics: string;
 } => {
   const authority = createIntentAuthority(root, legacyRoot);
   const evidenceAuthority = createEvidenceAuthority(authority.path);
@@ -1383,6 +1384,7 @@ const cliReport = (
     return {
       status: process.status,
       report: JSON.parse(output) as Record<string, unknown>,
+      diagnostics: process.stderr,
       output,
     };
   } finally {
@@ -1468,6 +1470,10 @@ test("unsafe parsed scalars produce identical blocked receipts", () => {
         inventory_artifact_sha256: {},
         projection_write: { status: "blocked", target_ref: null },
       });
+      expect(receipt.diagnostics).toContain('"diagnostics":[');
+      expect(receipt.diagnostics).toContain('"path":"app/config/routing.yml"');
+      expect(receipt.diagnostics).not.toContain("sk_live_");
+      expect(receipt.diagnostics).not.toContain("university.no");
       expect(receipt.output).not.toContain("sk_live_");
       expect(receipt.output).not.toContain("university.no");
       outputs.push(receipt.output);

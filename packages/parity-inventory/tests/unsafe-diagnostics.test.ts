@@ -30,7 +30,7 @@ test("unsafe projection diagnostics identify a source without copying rejected m
   expect(diagnostic).toEqual({
     category: "effect_failure",
     record_index: 3,
-    sources: [{ source_index: 0, path: "src/Controller.php" }],
+    sources: [{ source_index: 0, line_start: 1, path: "src/Controller.php" }],
   });
   expect(JSON.stringify(diagnostic)).not.toContain("never-disclose-symbol");
 });
@@ -43,7 +43,7 @@ test("unsafe paths remain redacted while record and source indices remain action
     "src/password=concrete.ts",
   ]) {
     const diagnostic = unsafeDiagnostic("source", 4, ["source-1"], [source(path)]);
-    expect(diagnostic.sources).toEqual([{ source_index: 0, path: null }]);
+    expect(diagnostic.sources).toEqual([{ source_index: 0, line_start: 1, path: null }]);
     expect(JSON.stringify(diagnostic)).not.toContain(path);
   }
 });

@@ -1,3 +1,4 @@
+import { Schema } from "effect";
 import { isUnsafeSourcePath, unsafeSourceScalarReason } from "./source-manifest.js";
 import type { SourceRecord } from "./types.js";
 
@@ -11,11 +12,18 @@ export const unsafeDiagnosticCategories = [
   "api_failure",
 ] as const;
 export type UnsafeDiagnosticCategory = (typeof unsafeDiagnosticCategories)[number];
-export interface UnsafeDiagnostic {
-  readonly category: UnsafeDiagnosticCategory;
-  readonly record_index: number;
-  readonly sources: readonly { readonly source_index: number; readonly path: string | null }[];
-}
+export const UnsafeDiagnosticSchema = Schema.Struct({
+  category: Schema.Literals(unsafeDiagnosticCategories),
+  record_index: Schema.Number,
+  sources: Schema.Array(
+    Schema.Struct({
+      source_index: Schema.Number,
+      path: Schema.NullOr(Schema.String),
+      line_start: Schema.NullOr(Schema.Number),
+    }),
+  ),
+});
+export type UnsafeDiagnostic = typeof UnsafeDiagnosticSchema.Type;
 
 // Never include symbols, payloads or unchecked paths. Indices still locate a
 // rejected record when its path itself cannot safely be disclosed.
@@ -32,6 +40,7 @@ export const unsafeDiagnostic = (
       ? [
           {
             source_index: sourceIndex,
+            line_start: source.line_start,
             path:
               source.path.length <= 512 &&
               !isUnsafeSourcePath(source.path) &&
