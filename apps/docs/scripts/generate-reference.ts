@@ -44,7 +44,6 @@ const MigrationStateSchema = z.strictObject({
       path: z.literal("STATE.md"),
       present: z.literal(true),
       status: z.literal("source-linked"),
-      sourceRevision: z.string().regex(/^[a-f0-9]{40}$/u),
       note: z.string().min(1),
     }),
   ]),
@@ -120,7 +119,7 @@ const makeSureReferencesExist = async (state: MigrationState): Promise<void> => 
 
 const migrationStatePage = (state: MigrationState): string => {
   const stateNote = state.stateDocument.present
-    ? `${state.stateDocument.note}\n\n[Recorded mission state](${fileLink(state.stateDocument.sourceRevision, state.stateDocument.path)}). Its revision is separate from the historical capability inspection below.`
+    ? `${state.stateDocument.note}\n\n[Current mission state](${fileLink(sourceRevisionFor(state.stateDocument.path), state.stateDocument.path)}). Its source revision is derived independently of the historical capability inspection below.`
     : state.stateDocument.note;
   const rows = state.rows
     .map(
