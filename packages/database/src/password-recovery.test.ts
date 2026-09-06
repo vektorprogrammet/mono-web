@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
 import type { Pool } from "pg";
+import type { AuthEngineConfig } from "./auth-engine.js";
 import { makePasswordRecovery } from "./password-recovery.js";
-const config = {
+const config: AuthEngineConfig = {
   postgresUrl: "",
   secret: "synthetic",
   oauth: {
