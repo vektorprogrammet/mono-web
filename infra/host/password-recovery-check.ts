@@ -123,13 +123,23 @@ try {
     oldPassword = "journey-secret-0123456789abcdef",
     newPassword = "New-password-recovery-0123456789";
   secrets.push(email, oldPassword, newPassword);
-  const post = (path: string, body: unknown, origin = dashboardOrigin) =>
-    fetch(`${canonicalOrigin}/api/auth/${path}`, {
-      method: "POST",
-      headers: { origin, "content-type": "application/json" },
-      body: JSON.stringify(body),
-      redirect: "manual",
-    });
+  const post = async (path: string, body: unknown, origin = dashboardOrigin): Promise<Response> => {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const response = await fetch(`${canonicalOrigin}/api/auth/${path}`, {
+        method: "POST",
+        headers: { origin, "content-type": "application/json" },
+        body: JSON.stringify(body),
+        redirect: "manual",
+      });
+      if (response.status !== 429) return response;
+      const retry = Number(response.headers.get("x-retry-after"));
+      assert.ok(Number.isFinite(retry) && retry >= 0 && retry <= 60, "bounded engine retry window");
+      gates.push("real credential rate limit observed; waited retry window");
+      await response.body?.cancel();
+      await new Promise((ok) => setTimeout(ok, retry * 1000 + 100));
+    }
+    throw new Error("Credential rate limit did not clear");
+  };
   const login = async (password: string) => {
     const r = await post("sign-in/email", { email, password });
     assert.equal(r.status, 200);
@@ -189,9 +199,15 @@ try {
   page = await browser.newPage();
   page.on("request", (request: any) => {
     const url = new URL(request.url());
-    if (request.method() === "POST" && url.pathname === "/tilbakestill-passord") {
+    if (
+      request.method() === "POST" &&
+      ["/tilbakestill-passord", "/tilbakestill-passord.data"].includes(url.pathname)
+    ) {
       const body = new URLSearchParams(request.postData() ?? "");
-      submissions.push({ tokenPresent: !!body.get("token"), queryAbsent: !url.search });
+      submissions.push({
+        tokenPresent: !!body.get("token"),
+        queryAbsent: !url.searchParams.has("token"),
+      });
     }
   });
   const errors: string[] = [];

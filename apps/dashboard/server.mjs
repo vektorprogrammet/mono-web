@@ -6,7 +6,9 @@ import { createRequestHandler } from "react-router";
 import * as build from "./build/server/index.js";
 const handler = createRequestHandler(build, "production");
 const clientRoot = fileURLToPath(new URL("./build/client/", import.meta.url));
-const mount = process.env.DASHBOARD_MOUNT ?? "/dashboard/";
+const mount = build.basename;
+if (process.env.DASHBOARD_MOUNT !== undefined && process.env.DASHBOARD_MOUNT !== mount)
+  throw new Error("Dashboard mount does not match built artifact");
 if (mount !== "/" && mount !== "/dashboard/") throw new Error("Invalid dashboard mount");
 const server = Bun.serve({
   hostname: process.env.HOST ?? "127.0.0.1",
