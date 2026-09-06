@@ -61,6 +61,7 @@ const wait = async (test: () => Promise<boolean>) => {
 };
 let pool: InstanceType<typeof Pool> | undefined;
 let browser: any;
+let page: any;
 let mailbox: ReturnType<typeof Bun.serve> | undefined;
 const secrets: string[] = [];
 const gates: string[] = [];
@@ -184,7 +185,7 @@ try {
     executablePath:
       process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ?? "/etc/profiles/per-user/nori/bin/chromium",
   });
-  const page = await browser.newPage();
+  page = await browser.newPage();
   const errors: string[] = [];
   page.on("pageerror", () => errors.push("Browser runtime error"));
   await page.goto(`${dashboardOrigin}/glemt-passord`);
@@ -415,6 +416,23 @@ try {
     ),
   );
   console.log(JSON.stringify({ result: "Passed", artifacts, revision, gates }));
+} catch (error) {
+  let text = page
+    ? await page
+        .locator("body")
+        .innerText()
+        .catch(() => "")
+    : "";
+  for (const secret of secrets) text = text.replaceAll(secret, "[redacted]");
+  console.error(
+    JSON.stringify({
+      failure: error instanceof Error ? error.name : "Failure",
+      gates,
+      pageText: text.slice(0, 1800),
+      artifacts,
+    }),
+  );
+  process.exitCode = 1;
 } finally {
   await browser?.close();
   await mailbox?.stop(true);
