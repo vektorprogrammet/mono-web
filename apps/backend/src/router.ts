@@ -114,7 +114,10 @@ export interface BackendAuthHandler {
     context: IdentityRequestContext,
   ) => Promise<Response>;
   readonly exactRedirectAccepted?: (clientId: string, redirectUri: string) => Promise<boolean>;
-  readonly recordTrustedOriginRejection: (context: IdentityRequestContext) => Promise<void>;
+  readonly recordTrustedOriginRejection: (
+    context: IdentityRequestContext,
+    credentialFlow?: "PasswordRecovery",
+  ) => Promise<void>;
 }
 
 export interface BackendHttpOptions {
@@ -440,15 +443,26 @@ export const makeBackendHttp = (
         jsonResponse({ error: { tag: "RouteNotFound" } }, 404)
       );
     }
+    const credentialFlow =
+      (prepared.request.method === "POST" &&
+        (pathname === "/api/auth/request-password-reset" ||
+          pathname === "/api/auth/reset-password")) ||
+      (prepared.request.method === "GET" && /^\/api\/auth\/reset-password\/[^/]+$/.test(pathname))
+        ? ("PasswordRecovery" as const)
+        : undefined;
     const decision = decideTrustedOrigin(sessionBoundary, prepared.request);
     const acceptedOrigin = decision._tag === "Allowed" ? decision.origin : null;
     if (decision._tag === "Rejected") {
-      await authHandler.recordTrustedOriginRejection(prepared.context).catch(() => undefined);
+      await authHandler
+        .recordTrustedOriginRejection(prepared.context, credentialFlow)
+        .catch(() => undefined);
       return trustedOriginRejectedResponse();
     }
     if (prepared.request.method === "OPTIONS") {
       if (acceptedOrigin === null) {
-        await authHandler.recordTrustedOriginRejection(prepared.context).catch(() => undefined);
+        await authHandler
+          .recordTrustedOriginRejection(prepared.context, credentialFlow)
+          .catch(() => undefined);
         return trustedOriginRejectedResponse();
       }
       const requestedMethod = prepared.request.headers.get("access-control-request-method");

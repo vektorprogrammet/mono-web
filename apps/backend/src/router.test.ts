@@ -907,3 +907,37 @@ describe("unified backend router", () => {
     ).toThrow("require PUBLIC_APPLICATION_EFFECT_MODE=http");
   });
 });
+
+it("classifies only exact password recovery method/path origin rejections", async () => {
+  const observed: Array<string | undefined> = [];
+  const backend = makeBackendHttp(config, successfulRun, {
+    handle: async () => {
+      throw new Error("Rejected origin must not reach engine");
+    },
+    recordTrustedOriginRejection: async (_context, flow) => {
+      observed.push(flow);
+    },
+  });
+  const cases = [
+    ["POST", "/api/auth/request-password-reset", "PasswordRecovery"],
+    ["POST", "/api/auth/reset-password", "PasswordRecovery"],
+    ["GET", "/api/auth/reset-password/opaque", "PasswordRecovery"],
+    ["GET", "/api/auth/request-password-reset", undefined],
+    ["POST", "/api/auth/reset-password/opaque", undefined],
+    ["GET", "/api/auth/reset-password/opaque/extra", undefined],
+    ["POST", "/api/auth/sign-in/email", undefined],
+  ] as const;
+  for (const [method, path, flow] of cases) {
+    expect(
+      (
+        await backend.fetch(
+          new Request(`http://backend.test${path}`, {
+            method,
+            headers: { origin: "https://untrusted.example.invalid" },
+          }),
+        )
+      ).status,
+    ).toBe(403);
+    expect(observed.at(-1)).toBe(flow);
+  }
+});

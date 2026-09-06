@@ -52,7 +52,10 @@ export interface AuthEngineService {
   ) => Promise<Response>;
   readonly exactRedirectAccepted: (clientId: string, redirectUri: string) => Promise<boolean>;
   /** Records a transport rejection that intentionally did not reach Better Auth. */
-  readonly recordTrustedOriginRejection: (context: IdentityRequestContext) => Promise<void>;
+  readonly recordTrustedOriginRejection: (
+    context: IdentityRequestContext,
+    credentialFlow?: "PasswordRecovery",
+  ) => Promise<void>;
 }
 export class AuthEngine extends Context.Service<AuthEngine, AuthEngineService>()(
   "@vektorprogrammet/database/AuthEngine",
@@ -803,10 +806,13 @@ export const AuthLive = (
         oauthIntrospectionHandler,
         exactRedirectAccepted: (clientId, redirectUri) =>
           exactRedirectAccepted(pool, clientId, redirectUri),
-        recordTrustedOriginRejection: (context) =>
+        recordTrustedOriginRejection: (context, credentialFlow) =>
           identity.recordSecurityEvent(
             auditEvent({
-              eventKind: "trusted-origin-csrf-rejected",
+              eventKind:
+                credentialFlow === "PasswordRecovery"
+                  ? "password-reset-request-rejected"
+                  : "trusted-origin-csrf-rejected",
               actor: null,
               subjectPersonId: null,
               sessionId: null,

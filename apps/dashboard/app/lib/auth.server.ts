@@ -1,3 +1,4 @@
+import { nativeDashboardRecoveryMode } from "../server/credential-engine-config.server";
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 import { redirect } from "react-router";
@@ -112,6 +113,7 @@ export async function signInWithEmail(
 
   let response: Response;
   try {
+    nativeDashboardRecoveryMode(process.env);
     response = await fetch(serverApiEndpoint("/api/auth/sign-in/email"), {
       method: "POST",
       headers,

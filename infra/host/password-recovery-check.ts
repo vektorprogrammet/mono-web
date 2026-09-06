@@ -72,18 +72,7 @@ try {
     uiPort = await port(5174);
   const pgDir = join(artifacts, "postgres");
   run("initdb", ["-D", pgDir, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"]);
-  start("postgres", [
-    "-D",
-    pgDir,
-    "-p",
-    String(pgPort),
-    "-h",
-    "127.0.0.1",
-    "-k",
-    artifacts,
-    "-c",
-    "log_min_error_statement=panic",
-  ]);
+  start("postgres", ["-D", pgDir, "-p", String(pgPort), "-h", "127.0.0.1", "-k", artifacts]);
   const pg = `postgres://postgres@127.0.0.1:${pgPort}/postgres`;
   pool = new Pool({ connectionString: pg });
   await wait(async () => {

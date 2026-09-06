@@ -48,6 +48,7 @@ describe("native dashboard authentication", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("fresh-reads the strict actor projection and returns the exact incoming Cookie", async () => {
@@ -315,4 +316,23 @@ describe("native dashboard authentication", () => {
     expect(safeRedirect("//attacker.example")).toBe("/");
     expect(safeRedirect("/\\attacker.example")).toBe("/");
   });
+});
+
+it("rejects explicit legacy recovery before native sign-in in dev and production callers", async () => {
+  vi.stubEnv("PASSWORD_RECOVERY_ENGINE", "legacy-symfony");
+  const network = vi.fn();
+  vi.stubGlobal("fetch", network);
+  try {
+    expect(
+      await signInWithEmail(
+        new Request("http://dashboard.test/login"),
+        "person@example.invalid",
+        "synthetic-password",
+      ),
+    ).toEqual({ _tag: "Unavailable" });
+    expect(network).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  }
 });

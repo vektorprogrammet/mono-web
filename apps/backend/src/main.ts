@@ -113,10 +113,10 @@ const authHandler: BackendAuthHandler = {
         Effect.promise(() => engine.exactRedirectAccepted(clientId, redirectUri)),
       ),
     ),
-  recordTrustedOriginRejection: (context) =>
+  recordTrustedOriginRejection: (context, credentialFlow) =>
     runtime.runPromise(
       AuthEngine.use((engine) =>
-        Effect.promise(() => engine.recordTrustedOriginRejection(context)),
+        Effect.promise(() => engine.recordTrustedOriginRejection(context, credentialFlow)),
       ),
     ),
 };
