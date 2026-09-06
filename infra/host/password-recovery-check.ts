@@ -179,7 +179,11 @@ try {
   run("bun", ["run", "build"], env, join(root, "apps/dashboard"));
   start("bun", ["e2e/recovery-server.mjs"], env, join(root, "apps/dashboard"));
   await wait(async () => (await fetch(`${dashboardOrigin}/glemt-passord`)).ok);
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({
+    headless: true,
+    executablePath:
+      process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ?? "/etc/profiles/per-user/nori/bin/chromium",
+  });
   const page = await browser.newPage();
   const errors: string[] = [];
   page.on("pageerror", () => errors.push("Browser runtime error"));
@@ -226,6 +230,10 @@ try {
   secrets.push(token, resetUrl);
   await page.goto(resetUrl);
   assert.equal(new URL(page.url()).pathname, "/tilbakestill-passord");
+  await page.getByLabel("Nytt passord", { exact: true }).fill("x".repeat(129));
+  await page.getByLabel("Gjenta passord", { exact: true }).fill("x".repeat(129));
+  await page.getByRole("button", { name: "Lagre passord" }).click();
+  await page.getByRole("alert").waitFor();
   await page.getByLabel("Nytt passord", { exact: true }).fill(newPassword);
   await page.getByLabel("Gjenta passord", { exact: true }).fill(newPassword);
   await page.getByRole("button", { name: "Lagre passord" }).click();
@@ -298,6 +306,84 @@ try {
   const simultaneous = await Promise.all([drain(), drain()]);
   assert.deepEqual(simultaneous.sort(), ["Delivered", "Empty"]);
   gates.push("stale recovery and concurrent SKIP LOCKED claims");
+  const nextToken = async () => {
+    assert.equal((await requestReset()).status, 200);
+    const row = (
+      await pool.query(
+        `SELECT identifier FROM auth.verification WHERE identifier LIKE 'reset-password:%' ORDER BY "createdAt" DESC LIMIT 1`,
+      )
+    ).rows[0];
+    const value = row.identifier.slice("reset-password:".length);
+    secrets.push(value);
+    return value;
+  };
+  const concurrentToken = await nextToken();
+  const resetStatuses = await Promise.all([
+    post("reset-password", { token: concurrentToken, newPassword: "Concurrent-password-A-12345" }),
+    post("reset-password", { token: concurrentToken, newPassword: "Concurrent-password-B-12345" }),
+  ]);
+  assert.deepEqual(resetStatuses.map((r) => r.status).sort(), [200, 400]);
+  const winner =
+    resetStatuses[0]!.status === 200
+      ? "Concurrent-password-A-12345"
+      : "Concurrent-password-B-12345";
+  await login(winner);
+  gates.push("one consumed token, concurrent different-password reset exactly one success");
+  const auditFailureToken = await nextToken();
+  await pool.query(
+    `CREATE FUNCTION auth.reject_recovery_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_kind='password-reset-success' THEN RAISE EXCEPTION 'synthetic audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_recovery_audit BEFORE INSERT ON auth.identity_security_audit FOR EACH ROW EXECUTE FUNCTION auth.reject_recovery_audit()`,
+  );
+  assert.equal(
+    (await post("reset-password", { token: auditFailureToken, newPassword })).status,
+    503,
+  );
+  await pool.query(
+    `DROP TRIGGER reject_recovery_audit ON auth.identity_security_audit; DROP FUNCTION auth.reject_recovery_audit()`,
+  );
+  assert.equal(
+    (
+      await pool.query(
+        `SELECT count(*)::int n FROM auth.session WHERE "userId"='journey-rec-leader-0049'`,
+      )
+    ).rows[0].n,
+    0,
+  );
+  const partialCookie = await login(newPassword);
+  gates.push(
+    "audit failure after password update and session deletion returns503; credential changed",
+  );
+  const deletionFailureToken = await nextToken();
+  await pool.query(
+    `CREATE FUNCTION auth.reject_recovery_session_delete() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic session deletion failure'; END $$; CREATE TRIGGER reject_recovery_session_delete BEFORE DELETE ON auth.session FOR EACH ROW EXECUTE FUNCTION auth.reject_recovery_session_delete()`,
+  );
+  assert.ok(
+    (await post("reset-password", { token: deletionFailureToken, newPassword: oldPassword }))
+      .status >= 500,
+  );
+  await pool.query(
+    `DROP TRIGGER reject_recovery_session_delete ON auth.session; DROP FUNCTION auth.reject_recovery_session_delete()`,
+  );
+  const stillLive = await fetch(`${canonicalOrigin}/api/native/system/session`, {
+    headers: { cookie: partialCookie, origin: dashboardOrigin },
+  });
+  assert.equal(stillLive.status, 200);
+  await login(oldPassword);
+  gates.push("session deletion failure returns5xx; password changed with old session still live");
+  const expiredToken = await nextToken();
+  await pool.query(
+    `UPDATE auth.verification SET "expiresAt"=CURRENT_TIMESTAMP-INTERVAL '1 second' WHERE identifier=$1`,
+    [`reset-password:${expiredToken}`],
+  );
+  await page.goto(
+    `${canonicalOrigin}/api/auth/reset-password/${expiredToken}?callbackURL=${encodeURIComponent(`${dashboardOrigin}/tilbakestill-passord`)}`,
+  );
+  await page.getByText("Lenken er ugyldig eller utløpt.").waitFor();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: join(artifacts, "invalid-link-mobile.png") });
+  const AxeBuilder = requireDashboard("@axe-core/playwright").default;
+  const axe = await new AxeBuilder({ page }).analyze();
+  assert.deepEqual(axe.violations, []);
+  gates.push("actual expired token callback, mobile invalid-link view, Axe");
   const audits = (
     await pool.query(
       "SELECT event_kind,subject_person_id,details,request_correlation FROM auth.identity_security_audit ORDER BY occurred_at",
