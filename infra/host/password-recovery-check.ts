@@ -242,7 +242,18 @@ try {
   rejectMail = true;
   assert.equal(await drain(), "Failed");
   rejectMail = false;
-  assert.equal(await drain(), "Delivered");
+  const operator = start("bun", ["apps/backend/src/password-recovery/drain-main.ts", "--once"], {
+    ...env,
+    PASSWORD_RESET_DELIVERY_URL: `http://127.0.0.1:${mailbox.port}/mail`,
+    PASSWORD_RESET_DELIVERY_TOKEN: mailboxToken,
+    PASSWORD_RESET_DELIVERY_TIMEOUT_MS: "2000",
+    PASSWORD_RESET_DELIVERY_SENDER: "recovery@example.invalid",
+  });
+  assert.equal(await new Promise((resolve) => operator.once("exit", resolve)), 0);
+  assert.equal(
+    (await pool.query("SELECT status FROM auth.password_reset_email_outbox")).rows[0].status,
+    "Delivered",
+  );
   gates.push(
     "known/unknown concealment, durable acceptance, missing authority, HTTP503 retry and ACK",
   );
