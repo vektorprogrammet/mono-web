@@ -62,3 +62,7 @@ Potential defects discovered on this journey are reported with reproduced eviden
 Real PostgreSQL activation exposed an older submission-only constraint: `admission_applications.revision = 0`. The canonical `PublicApplication` Model already permits nonnegative revisions. The required application-owned year edit now exposes that field's update variant and migration 0031 widens only the application revision constraint to `revision >= 0`. Substitute commands advance it atomically with preferences. Submission audit and command receipts remain immutable; acceptance includes original submission replay after a year edit and rejection of negative application revisions. This introduces no applicant identity/account workflow.
 
 Fresh deactivation of an inactive entry returns 400, matching `AdminSubstituteDeactivateProcessor`; an authorized exact HTTP command retry replays its original accepted result.
+
+## Implementation amendment — dashboard prerequisite read headers (2026-09-06)
+
+The real browser authenticated successfully but its shell failed before rendering: session reads sent `no-store` while the generated SDK requires the existing private-read contract `private, no-store`. Profile's selected 200 response had the same mismatch (its 304 was already correct). The prerequisite session/current-list and profile read responses now honor their declared contracts. Health and mutation cache policies are preserved. Acceptance runs the real generated SDK for these prerequisites before the browser, preventing a body-only HTTP check from falsely accepting them.

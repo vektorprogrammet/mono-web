@@ -241,7 +241,7 @@ const strictProfileResponse = async (
   if (decision._tag === "NotModified") {
     return notModifiedResponse({ etag, cacheControl: PRIVATE_NO_STORE, vary: "Origin" });
   }
-  return jsonResponse(decoded, 200, { etag });
+  return jsonResponse(decoded, 200, { etag, "cache-control": PRIVATE_NO_STORE });
 };
 
 const readOwnProfile = async (

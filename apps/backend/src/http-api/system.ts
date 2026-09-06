@@ -48,12 +48,12 @@ import type { BackendRun } from "../router.js";
 import { identityRequestContext } from "../session-security.js";
 import { toHttpApiResponse } from "./transport.js";
 
-const jsonResponse = (body: unknown, status = 200): Response =>
+const jsonResponse = (body: unknown, cacheControl: "no-store" | "private, no-store"): Response =>
   new Response(JSON.stringify(body), {
-    status,
+    status: 200,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
+      "cache-control": cacheControl,
     },
   });
 
@@ -288,7 +288,7 @@ export const SystemApiHandlers = (run: BackendRun, options: SystemOptions = {}) 
                 run,
               );
               await run(databaseHealth);
-              return jsonResponse({ status: "ok" });
+              return jsonResponse({ status: "ok" }, "no-store");
             },
             (cause) =>
               cause instanceof HttpSemanticFailure
@@ -312,7 +312,7 @@ export const SystemApiHandlers = (run: BackendRun, options: SystemOptions = {}) 
                 endpoint: ReadSessionEndpoint,
                 resourceId: session.sessionId,
               });
-              return jsonResponse(projection(principal.personId, session));
+              return jsonResponse(projection(principal.personId, session), "private, no-store");
             },
             identityErrorResponse,
           ),
@@ -352,6 +352,7 @@ export const SystemApiHandlers = (run: BackendRun, options: SystemOptions = {}) 
               );
               return jsonResponse(
                 sessions.map((session) => projection(principal.personId, session)),
+                "private, no-store",
               );
             },
             identityErrorResponse,

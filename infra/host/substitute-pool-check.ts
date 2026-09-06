@@ -1,3 +1,4 @@
+import { createPromiseClient } from "../../packages/sdk/src/promise.js";
 /** 0094 real local API + browser acceptance. Reuses native identity seed and owned process lifecycle. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -149,6 +150,16 @@ try {
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
+  const sdk = createPromiseClient(backendOrigin, { cookie: leader, origin: dashboardOrigin });
+  const sessionResponse = await request("/api/session", leader);
+  assert.equal(sessionResponse.headers.get("cache-control"), "private, no-store");
+  assert.equal((await sdk.system.readSession()).body.personId, "journey-rec-leader-0049");
+  assert.ok((await sdk.system.listSessions()).body.length > 0);
+  assert.equal(
+    (await sdk.profile.readOwnProfile({ headers: {} })).body?.personId,
+    "journey-rec-leader-0049",
+  );
+  assert.ok((await sdk.substitutes.listScopes()).body.departments.length > 0);
   const submissionKey = randomBytes(18).toString("base64url");
   const submission = {
     departmentId,
@@ -223,6 +234,9 @@ try {
     "DELETE FROM public.organization_global_administrator_grants WHERE grant_id='admin-0094'",
   );
   const initial = await get();
+  const selectedSdk = await sdk.substitutes.readEntry({ params: { applicationId }, headers: {} });
+  assert.equal(selectedSdk.body?.applicationId, applicationId);
+
   assert.equal(initial.active, false);
   assert.equal(initial.preferences, null);
   for (const cookie of [undefined, wrong]) {
@@ -450,6 +464,7 @@ try {
     browserEvidence,
     apiGates: [
       "canonical identity/scope",
+      "real SDK session/list/profile/substitute response decoding",
       "all memberships and active global administrator",
       "wrong-department pool and forged item scope denied",
       "required conditional version header",

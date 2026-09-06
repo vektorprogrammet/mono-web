@@ -425,6 +425,7 @@ describe("unified backend router", () => {
       "idempotency-key": "session-mutation-key-0001",
     };
     const current = await request("/api/session", { headers: cookieHeaders });
+    expect(current.headers.get("cache-control")).toBe("private, no-store");
     expect({ status: current.status, body: await current.json() }).toEqual({
       status: 200,
       body: {
@@ -439,6 +440,7 @@ describe("unified backend router", () => {
       },
     });
     const listed = await request("/api/sessions", { headers: cookieHeaders });
+    expect(listed.headers.get("cache-control")).toBe("private, no-store");
     expect({ status: listed.status, body: await listed.json() }).toEqual({
       status: 200,
       body: [
