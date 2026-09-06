@@ -497,6 +497,7 @@
                 "questionId": "q-1"
               }
             ],
+            "recommendation": "Ja",
             "revision": 3,
             "schedule": {
               "campus": "Gløshaugen",
@@ -605,6 +606,16 @@
             },
             "type": "array"
           },
+          "recommendation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Union_15"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "revision": {
             "allOf": [
               {
@@ -636,6 +647,7 @@
           "questions",
           "answers",
           "score",
+          "recommendation",
           "completionState",
           "cancellationState",
           "finalizedAt",
@@ -1254,13 +1266,17 @@
             },
             "type": "array"
           },
+          "recommendation": {
+            "$ref": "#/components/schemas/Union_15"
+          },
           "score": {
             "$ref": "#/components/schemas/Objects_72"
           }
         },
         "required": [
           "answers",
-          "score"
+          "score",
+          "recommendation"
         ],
         "type": "object"
       },
@@ -4952,7 +4968,7 @@
             "type": "string"
           },
           "status": {
-            "$ref": "#/components/schemas/Union_16"
+            "$ref": "#/components/schemas/Union_17"
           },
           "sticky": {
             "type": "boolean"
@@ -6029,7 +6045,7 @@
             "type": "integer"
           },
           "status": {
-            "$ref": "#/components/schemas/Union_15"
+            "$ref": "#/components/schemas/Union_16"
           },
           "visualId": {
             "type": "string"
@@ -6124,7 +6140,7 @@
             "type": "integer"
           },
           "status": {
-            "$ref": "#/components/schemas/Union_15"
+            "$ref": "#/components/schemas/Union_16"
           },
           "visualId": {
             "type": "string"
@@ -6255,7 +6271,7 @@
             "type": "integer"
           },
           "status": {
-            "$ref": "#/components/schemas/Union_15"
+            "$ref": "#/components/schemas/Union_16"
           },
           "submittedAt": {
             "type": "string"
@@ -6356,7 +6372,7 @@
             "type": "integer"
           },
           "status": {
-            "$ref": "#/components/schemas/Union_15"
+            "$ref": "#/components/schemas/Union_16"
           },
           "submittedAt": {
             "type": "string"
@@ -7658,6 +7674,14 @@
       },
       "Union_15": {
         "enum": [
+          "Ja",
+          "Kanskje",
+          "Nei"
+        ],
+        "type": "string"
+      },
+      "Union_16": {
+        "enum": [
           "Pending",
           "Refunded",
           "Rejected",
@@ -7665,7 +7689,7 @@
         ],
         "type": "string"
       },
-      "Union_16": {
+      "Union_17": {
         "enum": [
           "Draft",
           "Published"
@@ -14232,7 +14256,7 @@
                             "type": "string"
                           },
                           "status": {
-                            "$ref": "#/components/schemas/Union_16"
+                            "$ref": "#/components/schemas/Union_17"
                           },
                           "sticky": {
                             "type": "boolean"
@@ -14990,7 +15014,7 @@
                       "type": "string"
                     },
                     "status": {
-                      "$ref": "#/components/schemas/Union_16"
+                      "$ref": "#/components/schemas/Union_17"
                     },
                     "sticky": {
                       "type": "boolean"
@@ -34512,7 +34536,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "$ref": "#/components/schemas/Union_15"
+                  "$ref": "#/components/schemas/Union_16"
                 },
                 {
                   "type": "null"
@@ -35127,11 +35151,11 @@
                 {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Union_15"
+                      "$ref": "#/components/schemas/Union_16"
                     },
                     {
                       "items": {
-                        "$ref": "#/components/schemas/Union_15"
+                        "$ref": "#/components/schemas/Union_16"
                       },
                       "type": "array"
                     }
@@ -48743,6 +48767,9 @@
           "requirements": [
             {
               "id": "recruitment.assigned-interviewer"
+            },
+            {
+              "id": "recruitment.not-known-self"
             }
           ]
         },
@@ -50215,6 +50242,9 @@
           "requirements": [
             {
               "id": "recruitment.assigned-interviewer"
+            },
+            {
+              "id": "recruitment.not-known-self"
             }
           ]
         },
@@ -51825,6 +51855,9 @@
           "requirements": [
             {
               "id": "recruitment.assigned-interviewer"
+            },
+            {
+              "id": "recruitment.not-known-self"
             }
           ]
         },
