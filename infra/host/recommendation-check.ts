@@ -1,3 +1,4 @@
+import { IdempotencyKey } from "../../packages/http-api/src/http-semantics.js";
 /**0101: previous-schema history -> actual migration -> production browser/API/PostgreSQL. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -12,6 +13,25 @@ const root = new URL("../../", import.meta.url).pathname;
 const dbRequire = createRequire(new URL("../../packages/database/package.json", import.meta.url));
 const uiRequire = createRequire(new URL("../../apps/dashboard/package.json", import.meta.url));
 const { Pool } = dbRequire("pg");
+const { Schema } = dbRequire("effect");
+const fixtureKeys = {
+  invalid0: "invalid-recommendation-0101-0",
+  invalid1: "invalid-recommendation-0101-1",
+  invalid2: "invalid-recommendation-0101-2",
+  invalid3: "invalid-recommendation-0101-3",
+  maybe: "recommendation-maybe-0101",
+  raceA: "recommendation-no-a-0101",
+  raceB: "recommendation-no-b-0101",
+  no: "recommendation-no-0101",
+  selfFinalize: "known-self-recommendation-0101",
+  selfCancel: "self-cancel-recommendation-0101",
+  linkRace: "identity-race-recommendation-0101",
+} as const;
+for (const key of Object.values(fixtureKeys)) Schema.decodeUnknownSync(IdempotencyKey)(key);
+if (process.argv.includes("--validate-fixture")) {
+  console.log("All recommendation fixture idempotency keys satisfy the canonical schema");
+  process.exit(0);
+}
 const { chromium } = uiRequire("@playwright/test");
 const AxeBuilder = uiRequire("@axe-core/playwright").default;
 const run = (cmd: string, args: string[], env = process.env, cwd = root) =>
@@ -222,6 +242,7 @@ try {
   await page.getByRole("button", { name: "Logg inn", exact: true }).click();
   await page.waitForURL(/\/dashboard\/?$/);
   await page.goto(`${ui}/dashboard/intervjuer`);
+  assert.equal(await page.getByRole("link", { name: "Søkerkontoer", exact: true }).count(), 0);
   const cookies = await context.cookies();
   const cookie = cookies.map((c: any) => `${c.name}=${c.value}`).join("; ");
   secrets.push(...cookies.map((c: any) => c.value));
@@ -348,26 +369,32 @@ try {
   const before = await lifecycleSnapshot();
   for (const [i, value] of [undefined, null, "invalid", 9].entries()) {
     const body = value === undefined ? payload : { ...payload, recommendation: value };
-    assert.equal((await post(id, body, `invalid-recommendation-0101-${i}`, etag)).status, 422);
+    assert.equal(
+      (
+        await post(
+          id,
+          body,
+          [fixtureKeys.invalid0, fixtureKeys.invalid1, fixtureKeys.invalid2, fixtureKeys.invalid3][
+            i
+          ]!,
+          etag,
+        )
+      ).status,
+      422,
+    );
   }
   assert.equal(await lifecycleSnapshot(), before);
-  const first = await post(
-    id,
-    { ...payload, recommendation: "Kanskje" },
-    "recommendation-maybe-0101",
-    etag,
-  );
+  const first = await post(id, { ...payload, recommendation: "Kanskje" }, fixtureKeys.maybe, etag);
   assert.equal(first.status, 200);
   const bytes = await first.text();
   assert.equal(
     await (
-      await post(id, { ...payload, recommendation: "Kanskje" }, "recommendation-maybe-0101", etag)
+      await post(id, { ...payload, recommendation: "Kanskje" }, fixtureKeys.maybe, etag)
     ).text(),
     bytes,
   );
   assert.equal(
-    (await post(id, { ...payload, recommendation: "Nei" }, "recommendation-maybe-0101", etag))
-      .status,
+    (await post(id, { ...payload, recommendation: "Nei" }, fixtureKeys.maybe, etag)).status,
     409,
   );
   const no = await get("interview-recommendation-no");
@@ -375,13 +402,13 @@ try {
     post(
       "interview-recommendation-no",
       { ...payload, recommendation: "Nei" },
-      "recommendation-no-a-0101",
+      fixtureKeys.raceA,
       no.headers.get("etag")!,
     ),
     post(
       "interview-recommendation-no",
       { ...payload, recommendation: "Ja" },
-      "recommendation-no-b-0101",
+      fixtureKeys.raceB,
       no.headers.get("etag")!,
     ),
   ]);
@@ -397,7 +424,7 @@ try {
         await post(
           "interview-native-conduct-b-0063",
           { ...payload, recommendation: "Nei" },
-          "recommendation-no-0101",
+          fixtureKeys.no,
           b.headers.get("etag")!,
         )
       ).status,
@@ -417,8 +444,7 @@ try {
   );
   assert.equal((await get(id)).status, 403);
   assert.equal(
-    (await post(id, { ...payload, recommendation: "Kanskje" }, "recommendation-maybe-0101", etag))
-      .status,
+    (await post(id, { ...payload, recommendation: "Kanskje" }, fixtureKeys.maybe, etag)).status,
     403,
   );
   await pool.query(
@@ -434,8 +460,7 @@ try {
   );
   assert.equal((await get(id)).status, 403);
   assert.equal(
-    (await post(id, { ...payload, recommendation: "Kanskje" }, "recommendation-maybe-0101", etag))
-      .status,
+    (await post(id, { ...payload, recommendation: "Kanskje" }, fixtureKeys.maybe, etag)).status,
     403,
   );
   await pool.query(
@@ -447,8 +472,7 @@ try {
   );
   assert.equal((await get(id)).status, 403);
   assert.equal(
-    (await post(id, { ...payload, recommendation: "Kanskje" }, "recommendation-maybe-0101", etag))
-      .status,
+    (await post(id, { ...payload, recommendation: "Kanskje" }, fixtureKeys.maybe, etag)).status,
     403,
   );
   await pool.query(
@@ -465,8 +489,7 @@ try {
   );
   assert.equal((await get(id)).status, 403);
   assert.equal(
-    (await post(id, { ...payload, recommendation: "Kanskje" }, "recommendation-maybe-0101", etag))
-      .status,
+    (await post(id, { ...payload, recommendation: "Kanskje" }, fixtureKeys.maybe, etag)).status,
     403,
   );
   await pool.query(
@@ -502,7 +525,7 @@ try {
       await post(
         "interview-recommendation-self",
         { ...payload, recommendation: "Ja" },
-        "known-self-0101",
+        fixtureKeys.selfFinalize,
         etag,
       )
     ).status,
@@ -517,7 +540,7 @@ try {
         origin: ui,
         "content-type": "application/json",
         "if-match": etag,
-        "idempotency-key": "self-cancel-0101",
+        "idempotency-key": fixtureKeys.selfCancel,
       },
       body: "{}",
     },
@@ -557,7 +580,7 @@ try {
       await post(
         "interview-recommendation-no",
         { ...payload, recommendation: winner === 0 ? "Nei" : "Ja" },
-        winner === 0 ? "recommendation-no-a-0101" : "recommendation-no-b-0101",
+        winner === 0 ? fixtureKeys.raceA : fixtureKeys.raceB,
         no.headers.get("etag")!,
       )
     ).status,
@@ -576,7 +599,7 @@ try {
   const waiting = post(
     "interview-recommendation-link-race",
     { ...payload, recommendation: "Ja" },
-    "identity-race-0101",
+    fixtureKeys.linkRace,
     raceRead.headers.get("etag")!,
   );
   await ready(
@@ -600,7 +623,7 @@ try {
       await post(
         "interview-recommendation-link-race",
         { ...payload, recommendation: "Ja" },
-        "identity-race-0101",
+        fixtureKeys.linkRace,
         raceRead.headers.get("etag")!,
       )
     ).status,
@@ -667,6 +690,28 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "historical-mobile.png") });
   await auditPage(page, "historical-mobile");
+  await pool.query(
+    `UPDATE public.organization_memberships SET is_team_leader=true,position_id='teamleader' WHERE membership_id='membership-native-conduct-leader-0063'`,
+  );
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.reload();
+  await page.getByRole("link", { name: "Søkerkontoer", exact: true }).click();
+  await page.waitForURL(/\/dashboard\/onboarding$/);
+  await page.getByRole("heading", { name: "Søkerkontoer", exact: true }).waitFor();
+  await page.goto(`${ui}/dashboard/intervjuer`);
+  await page.getByRole("link", { name: "Intervjuskjema", exact: true }).click();
+  await page.waitForURL(/\/dashboard\/intervjusjema$/);
+  await page.getByRole("heading", { name: "Intervjusjema", exact: true }).waitFor();
+  await page.goto(`${ui}/dashboard/intervjuer`);
+  await page.getByRole("link", { name: "Kontrollpanel", exact: true }).click();
+  await page.waitForURL(/\/dashboard\/?$/);
+  await page.getByRole("heading", { name: "Velkommen, Lina Lagleder", exact: true }).waitFor();
+  await pool.query(
+    `UPDATE public.organization_memberships SET is_team_leader=false,position_id='member' WHERE membership_id='membership-native-conduct-leader-0063'`,
+  );
+  recordGate(
+    "owned interview shell retains role-scoped onboarding and existing schema/dashboard navigation",
+  );
   const rows = (
     await pool.query(
       `SELECT interview_id,recommendation,answers,explanatory_power,role_model,suitability FROM public.recruitment_interview_conducts ORDER BY interview_id`,

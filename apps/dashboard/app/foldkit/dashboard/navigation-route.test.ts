@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { profileLinks } from "./navigation";
+import { profileLinks, controlPanelLink, navigationSections } from "./navigation";
 
 const routeDirectory = dirname(
   fileURLToPath(new URL("../../routes/dashboard.tsx", import.meta.url)),
@@ -15,7 +15,15 @@ const localShellHrefs = literalShellHrefs.filter((href) => href.startsWith("/"))
 const localProfileHrefs = profileLinks
   .filter(({ external, href }) => external !== true && href.startsWith("/"))
   .map(({ href }) => href);
-const navigationHrefs = new Set([...localShellHrefs, ...localProfileHrefs]);
+const localFoldkitHrefs = [
+  controlPanelLink,
+  ...navigationSections.flatMap((section) =>
+    section.entries.flatMap((entry) => (entry.kind === "link" ? [entry.link] : entry.links)),
+  ),
+]
+  .filter((link) => !link.external && link.href.startsWith("/"))
+  .map((link) => link.href);
+const navigationHrefs = new Set([...localShellHrefs, ...localProfileHrefs, ...localFoldkitHrefs]);
 
 const routeFilesFor = (href: string): string[] => {
   const pathname = href.split(/[?#]/u, 1)[0] ?? href;

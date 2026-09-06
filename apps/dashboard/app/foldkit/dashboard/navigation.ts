@@ -32,13 +32,14 @@ const leaderLink = (label: string, href: string): NavigationLink => ({
   requiredRole: "team-leader",
 });
 
-export const controlPanelLink = memberLink("Kontrollpanel", "/dashboard/foldkit");
+export const controlPanelLink = memberLink("Kontrollpanel", "/dashboard");
 
 export const admissionLinks = [
   memberLink("Nye søkere", "/dashboard/sokere"),
   memberLink("Tidligere assistenter", "/dashboard/tidligere-assistenter"),
   memberLink("Intervjufordeling", "/dashboard/intervjufordeling"),
   memberLink("Intervjuer", "/dashboard/intervjuer"),
+  leaderLink("Søkerkontoer", "/dashboard/onboarding"),
 ] as const;
 
 export const navigationSections: ReadonlyArray<NavigationSection> = [
@@ -52,7 +53,7 @@ export const navigationSections: ReadonlyArray<NavigationSection> = [
       { kind: "admission-menu", label: "Opptak", links: admissionLinks },
       {
         kind: "link",
-        link: leaderLink("Intervjuskjema", "/dashboard/intervjuskjema"),
+        link: leaderLink("Intervjuskjema", "/dashboard/intervjusjema"),
       },
       {
         kind: "link",
