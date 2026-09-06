@@ -19,6 +19,11 @@ const { Schema } = await import(requireApi.resolve("effect"));
 const { Pool } = requireDatabase("pg");
 const run = (command: string, args: string[], env = process.env, timeout = 60_000) =>
   execFileSync(command, args, { cwd: root, env, encoding: "utf8", timeout });
+const mode = process.argv[2];
+assert.ok(
+  process.argv.length === 3 && (mode === "--browser" || mode === "--api-only"),
+  "Usage: bun run infra/host/placement-check.ts --browser | --api-only",
+);
 const revision = run("git", ["rev-parse", "HEAD"]).trim();
 assert.equal(run("git", ["status", "--porcelain"]).trim(), "", "requires committed clean artifact");
 const artifacts = await mkdtemp(join(tmpdir(), "vektor-placements-0096-"));
@@ -429,7 +434,7 @@ try {
   const manifestPath = join(artifacts, "manifest.json");
   await writeFile(manifestPath, JSON.stringify(manifest), { mode: 0o600 });
   let browserEvidence: Record<string, unknown> | null = null;
-  if (process.argv.includes("--browser")) {
+  if (mode === "--browser") {
     run(
       "bun",
       ["apps/dashboard/e2e/run-real-native-placement.mjs"],
