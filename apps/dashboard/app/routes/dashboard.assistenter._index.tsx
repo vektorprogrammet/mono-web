@@ -459,7 +459,7 @@ export default function Assistenter() {
           <section className="space-y-4">
             <h2 className="text-xl font-semibold">Frivillige i avdelingen</h2>
             {!board.affiliations.length && <p>Ingen forespørsler eller tilknytninger ennå.</p>}
-            {board.affiliations.map((a) => (
+            {board.affiliations.map((a, index) => (
               <article key={a.personId} className="space-y-2 rounded-lg border p-4">
                 <h3 className="font-semibold">
                   {a.firstName} {a.lastName}
@@ -468,7 +468,7 @@ export default function Assistenter() {
                 <CommandForm
                   etag={board.etag}
                   hidden={{ ...scope, action: "Affiliation", personId: a.personId }}
-                  label={`Tilknytning ${a.firstName} ${a.lastName}`}
+                  label={`Tilknytning ${index + 1}: ${a.firstName} ${a.lastName}`}
                 >
                   <div className="flex flex-wrap gap-3">
                     {a.status === "Pending" && (
@@ -526,8 +526,12 @@ export default function Assistenter() {
           <section className="space-y-4">
             <h2 className="text-xl font-semibold">Plasseringer i valgt semester</h2>
             {!board.placements.length && <p>Ingen plasseringer i dette semesteret.</p>}
-            {board.placements.map((p) => (
-              <article key={p.placementId} className="space-y-3 rounded-lg border p-4">
+            {board.placements.map((p, index) => (
+              <article
+                key={p.placementId}
+                data-placement-id={p.placementId}
+                className="space-y-3 rounded-lg border p-4"
+              >
                 <h3 className="font-semibold">
                   {p.firstName} {p.lastName} — {p.schoolName}
                 </h3>
@@ -535,7 +539,7 @@ export default function Assistenter() {
                 <CommandForm
                   etag={board.etag}
                   hidden={{ ...scope, placementId: p.placementId }}
-                  label={`Plassering ${p.firstName} ${p.lastName} ${p.block}`}
+                  label={`Plassering ${index + 1}: ${p.firstName} ${p.lastName}, ${p.schoolName}, bolk ${p.block === "Both" ? "1 og 2" : p.block}, ${p.active ? "aktiv" : "fjernet"}`}
                 >
                   <PlacementFields board={board} entry={p} />
                   <div className="flex flex-wrap gap-3">
