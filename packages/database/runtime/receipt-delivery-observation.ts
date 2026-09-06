@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 
 export const observeReceiptDelivery = async (options: {
@@ -95,10 +95,15 @@ export const observeReceiptDelivery = async (options: {
         [id],
       )
     ).rows;
+  const keys = new Map<string, string>();
+  const identity = (key: string) => {
+    if (!keys.has(key)) keys.set(key, randomUUID());
+    return keys.get(key)!;
+  };
   const headers = (session: string, key: string, etag?: string) => ({
     cookie: session,
     origin: "http://127.0.0.1:5174",
-    "idempotency-key": key,
+    "idempotency-key": identity(key),
     ...(etag ? { "if-match": etag } : {}),
   });
   const submit = async (key: string) => {
