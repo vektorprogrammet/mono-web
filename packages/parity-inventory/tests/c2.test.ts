@@ -3552,3 +3552,52 @@ test("owner-null integration modules require positive loader reachability", asyn
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
+test("fetch destination excludes Origin and body URLs while unsafe destinations remain rejected", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-fetch-arguments-legacy-");
+  const monoRoot = mkdtempSync("/tmp/parity-c2-fetch-arguments-mono-");
+  try {
+    const cases = [
+      [
+        "dynamic",
+        'fetch(destination, { headers: { origin: "http://127.0.0.1:5174" }, body: "https://body.example.test/path" })',
+        null,
+        false,
+      ],
+      [
+        "literal",
+        'fetch("https://api.example.test/items", { headers: { origin: "http://127.0.0.1:5174" }, body: "https://body.example.test/path" })',
+        "https://api.example.test/items",
+        false,
+      ],
+      [
+        "unsafe",
+        'fetch("https://user:pass@api.example.test/items", { headers: { origin: "https://safe.example.test" } })',
+        null,
+        true,
+      ],
+    ] as const;
+    for (const [name, expression] of cases)
+      put(
+        monoRoot,
+        `packages/transport/${name}.ts`,
+        `export const send = (destination: string) => ${expression};\n`,
+      );
+    const context = await contextFor(legacyRoot, monoRoot);
+    const integrations = collectC2(context, sha256("fetch-arguments-c2")).integrations;
+    for (const [name, , endpoint, unsafe] of cases) {
+      const rows = integrations.rows.filter((row) =>
+        row.source_ref_ids.some(
+          (ref) => context.sourcePathById.get(ref)?.path === `packages/transport/${name}.ts`,
+        ),
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.details).toMatchObject({ endpoint_ref: endpoint });
+      expect(rows[0]?.reason_codes.includes("UNSAFE_SOURCE")).toBe(unsafe);
+    }
+    expect(JSON.stringify(integrations)).not.toContain("user:pass");
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true });
+    rmSync(monoRoot, { recursive: true, force: true });
+  }
+});

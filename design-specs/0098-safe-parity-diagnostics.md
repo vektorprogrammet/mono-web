@@ -22,3 +22,12 @@ Root roadmap and STATE are outside this change.
   values remain absent and unsafe projections remain blocked.
 - Run the real CLI on a clean committed tree; record remaining failure honestly.
 - No claim of functional parity follows from a tooling correction.
+
+## Explicit amendment — transport destination extraction
+
+Observed clean-tree diagnostics identify receipt rehearsal sign-in fetch line451.
+The integration parser incorrectly treats the Origin header URL as the transport
+endpoint because it searches all arguments. For fetch calls, derive destination
+only from the first argument; dynamic destinations remain unknown. Headers/body
+must not establish a destination. Preserve rejection of actual unsafe destination
+URLs. Other transport conventions and safety predicates remain unchanged.

@@ -5038,7 +5038,13 @@ const integrationCallsFor = (
               candidate.offset >= callOffset &&
               candidate.offset <= callOffset + (effectCall?.chain.length ?? callableName.length),
           );
-    const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(literalCall?.rawArgs.join(",") ?? "");
+    // Fetch's destination is its first argument. URLs in RequestInit headers or
+    // body are request data and cannot establish an integration endpoint.
+    const endpointArguments =
+      callableName === "fetch"
+        ? (literalCall?.rawArgs[0] ?? "")
+        : (literalCall?.rawArgs.join(",") ?? "");
+    const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(endpointArguments);
     const endpointRaw = endpointMatch?.[0] ?? typeScriptBoundary?.backendOriginEndpoint ?? null;
     const endpointRef = endpointRaw === null ? null : safeEndpoint(endpointRaw, reasons);
     const callSiteContext = functionContextFor(unit.text, callOffset, true);
