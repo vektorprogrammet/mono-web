@@ -7,7 +7,6 @@ import {
   ReceiptListItem,
   type StrongETag as StrongETagValue,
 } from "@vektorprogrammet/http-api";
-import { Schema } from "effect";
 
 type OwnedReceiptProjection = typeof ReceiptListItem.Type;
 type ApprovalReceiptProjection = typeof ReceiptApprovalQueueItem.Type;
