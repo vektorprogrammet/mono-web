@@ -551,7 +551,12 @@ const reportWith = (params: {
 });
 
 class UnsafeSourceProjectionError extends Error {
-  constructor(message: string, readonly diagnostics: readonly UnsafeDiagnostic[] = []) { super(message); }
+  constructor(
+    message: string,
+    readonly diagnostics: readonly UnsafeDiagnostic[] = [],
+  ) {
+    super(message);
+  }
 }
 const hasUnsafeProjectionMetadata = (
   context: ManifestContext,
@@ -676,13 +681,41 @@ const generateFromContext = (
     throw new UnsafeSourceProjectionError(
       "unsafe source metadata encountered during projection construction",
       [
-        ...context.sources.flatMap((source, index) => source.failure_reason === "UNSAFE_SOURCE" ? [unsafeDiagnostic("source", index, [source.source_id], context.sources)] : []),
-        ...preliminary.failures.flatMap((failure, index) => failure.reason_code === "UNSAFE_SOURCE" ? [unsafeDiagnostic("route_failure", index, failure.source_ref_ids, context.sources)] : []),
-        ...preliminary.legacy.rows.flatMap((row, index) => row.reason_codes.includes("UNSAFE_SOURCE") ? [unsafeDiagnostic("legacy_route", index, row.source_ref_ids, context.sources)] : []),
-        ...preliminary.mono.rows.flatMap((row, index) => row.reason_codes.includes("UNSAFE_SOURCE") ? [unsafeDiagnostic("mono_route", index, row.source_ref_ids, context.sources)] : []),
-        ...preliminaryC2.failures.flatMap((failure, index) => failure.reasonCode === "UNSAFE_SOURCE" ? [unsafeDiagnostic("effect_failure", index, failure.sourceRefIds, context.sources)] : []),
-        ...preliminaryC2.rows.flatMap((row, index) => row.reason_codes.includes("UNSAFE_SOURCE") ? [unsafeDiagnostic("effect_row", index, row.source_ref_ids, context.sources)] : []),
-        ...preliminaryApi.failures.flatMap((failure, index) => failure.reasonCode === "UNSAFE_SOURCE" ? [unsafeDiagnostic("api_failure", index, failure.sourceRefIds, context.sources)] : []),
+        ...context.sources.flatMap((source, index) =>
+          source.failure_reason === "UNSAFE_SOURCE"
+            ? [unsafeDiagnostic("source", index, [source.source_id], context.sources)]
+            : [],
+        ),
+        ...preliminary.failures.flatMap((failure, index) =>
+          failure.reason_code === "UNSAFE_SOURCE"
+            ? [unsafeDiagnostic("route_failure", index, [failure.source_ref_id], context.sources)]
+            : [],
+        ),
+        ...preliminary.legacy.rows.flatMap((row, index) =>
+          row.reason_codes.includes("UNSAFE_SOURCE")
+            ? [unsafeDiagnostic("legacy_route", index, row.source_ref_ids, context.sources)]
+            : [],
+        ),
+        ...preliminary.mono.rows.flatMap((row, index) =>
+          row.reason_codes.includes("UNSAFE_SOURCE")
+            ? [unsafeDiagnostic("mono_route", index, row.source_ref_ids, context.sources)]
+            : [],
+        ),
+        ...preliminaryC2.failures.flatMap((failure, index) =>
+          failure.reasonCode === "UNSAFE_SOURCE"
+            ? [unsafeDiagnostic("effect_failure", index, failure.sourceRefIds, context.sources)]
+            : [],
+        ),
+        ...preliminaryC2.rows.flatMap((row, index) =>
+          row.reason_codes.includes("UNSAFE_SOURCE")
+            ? [unsafeDiagnostic("effect_row", index, row.source_ref_ids, context.sources)]
+            : [],
+        ),
+        ...preliminaryApi.failures.flatMap((failure, index) =>
+          failure.reasonCode === "UNSAFE_SOURCE"
+            ? [unsafeDiagnostic("api_failure", index, failure.sourceRefIds, context.sources)]
+            : [],
+        ),
       ],
     );
   if (runtimeEvidenceRegister !== null) {
