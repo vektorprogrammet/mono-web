@@ -12,10 +12,16 @@ export class ReceiptAuxiliaryEffectConflict extends Schema.TaggedError<ReceiptAu
   { effectId: Schema.String },
 ) {}
 
+export class ReceiptDeliveryUnavailable extends Schema.TaggedError<ReceiptDeliveryUnavailable>()(
+  "ReceiptDeliveryUnavailable",
+  { effectId: Schema.String },
+) {}
+
 export interface ReceiptAuxiliaryEffectsShape {
   readonly apply: (
     request: ReceiptAuxiliaryRequest,
-  ) => Effect.Effect<void, ReceiptAuxiliaryEffectConflict>;
+    claimId?: string,
+  ) => Effect.Effect<void, ReceiptAuxiliaryEffectConflict | ReceiptDeliveryUnavailable>;
 }
 
 export class ReceiptAuxiliaryEffects extends Context.Service<

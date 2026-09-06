@@ -17,3 +17,7 @@ Use real native API/PostgreSQL and an actual loopback HTTP delivery sink; reuse 
 ## Boundaries
 
 One isolated writer owns this spec. Local code and synthetic loopback only: no provider credentials, real recipients, real data, production config or remote effects. Do not edit placement implementation or root roadmap/state. Account migration/recovery, payment-key migration, receipt reopening and production writer fencing remain separate contracts. Before broad changes record a bounded spec amendment. Deliver committed source, exact evidence, unrun boundaries and stopped owned processes.
+
+## Implementation amendment — 2026-09-06
+
+The existing outbox receives an immutable first-attempt delivery envelope. Resolve current canonical contact/policy once, under the active claim lock, before network access; subsequent attempts retain exactly those bytes even if contact/configuration changes. Event status/visual reference comes from the immutable command observation. This is first-attempt recipient policy, not event-time contact history. Transport acceptance requires receiver deduplication by effect ID and rejection of conflicting payloads; timeout/crash may have accepted remotely, so retries are at-least-once. The existing SQL audit is verified independently without pretending to send an audit notification. A bounded local operator drain command retries existing work without a new business mutation. Messages identify the receipt and outcome; private bank-account/file material is deliberately excluded (legacy templates included account numbers).

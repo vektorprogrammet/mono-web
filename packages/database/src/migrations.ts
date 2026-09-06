@@ -288,6 +288,11 @@ export const databaseMigrationDefinitions = [
     name: "native-volunteer-placement",
     url: new URL("../migrations/0032-native-volunteer-placement.sql", import.meta.url),
   },
+  {
+    id: "33_receipt-delivery-envelope",
+    name: "receipt-delivery-envelope",
+    url: new URL("../migrations/0033-receipt-delivery-envelope.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

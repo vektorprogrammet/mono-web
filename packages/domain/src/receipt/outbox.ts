@@ -3,6 +3,7 @@ import { Effect, Schema } from "effect";
 import {
   ReceiptAuxiliaryEffects,
   type ReceiptAuxiliaryEffectConflict,
+  type ReceiptDeliveryUnavailable,
   type ReceiptAuxiliaryRequest,
 } from "./auxiliary-service.js";
 import { ReceiptOutboxRequestSchema, type ReceiptOutboxRequest } from "./effects.js";
@@ -238,9 +239,10 @@ export const recoverStaleReceiptOutbox = (
 
 const interpretReceiptOutbox = (
   request: ReceiptOutboxRequest,
+  claimId: string,
 ): Effect.Effect<
   void,
-  ReceiptFileFailure | ReceiptAuxiliaryEffectConflict,
+  ReceiptFileFailure | ReceiptAuxiliaryEffectConflict | ReceiptDeliveryUnavailable,
   ReceiptFileService | ReceiptAuxiliaryEffects
 > => {
   switch (request._tag) {
@@ -251,7 +253,9 @@ const interpretReceiptOutbox = (
     case "NotifyReceiptRefunded":
     case "NotifyReceiptRejected":
     case "WriteReceiptAudit":
-      return ReceiptAuxiliaryEffects.use(({ apply }) => apply(request as ReceiptAuxiliaryRequest));
+      return ReceiptAuxiliaryEffects.use(({ apply }) =>
+        apply(request as ReceiptAuxiliaryRequest, claimId),
+      );
   }
 };
 
@@ -268,7 +272,7 @@ export const deliverNextReceiptOutbox = (
     const claim = yield* claimNextReceiptOutbox(claimId, claimedAt, receiptId);
     if (claim === undefined) return { _tag: "Idle" as const };
 
-    return yield* interpretReceiptOutbox(claim.request).pipe(
+    return yield* interpretReceiptOutbox(claim.request, claim.claimId).pipe(
       Effect.matchEffect({
         onFailure: (failure) =>
           failReceiptOutbox(claim, failure._tag).pipe(

@@ -1,5 +1,6 @@
 /** 0095: owned local PostgreSQL/auth/SDK/files import and restore rehearsal. */
 import assert from "node:assert/strict";
+import { observeReceiptDelivery } from "./receipt-delivery-observation.js";
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:net";
@@ -51,6 +52,8 @@ assert.equal(
   "committed clean artifact required",
 );
 for (const key of [
+  "RECEIPT_DELIVERY_URL",
+  "RECEIPT_DELIVERY_TOKEN",
   "CONTACT_DELIVERY_URL",
   "CONTACT_DELIVERY_TOKEN",
   "PUBLIC_APPLICATION_EFFECT_ENDPOINT",
@@ -599,6 +602,25 @@ try {
   const current = await snapshot();
   for (const table of authorityTables) assert.equal(current[table], baseline[table]);
   console.log("0095 replay and tamper observations passed");
+  let deliveryObservation: unknown;
+  if (process.env.RECEIPT_DELIVERY_REHEARSAL === "1") {
+    deliveryObservation = await observeReceiptDelivery({
+      pool,
+      env,
+      origin: backendOrigin,
+      cookie,
+      approverCookie: foreign,
+      root,
+      restart: async (nextEnv) => {
+        if (backend) await stop(backend);
+        backend = start("bun", ["run", "apps/backend/src/main.ts"], nextEnv);
+        await wait(async () => {
+          const r = await fetch(`${backendOrigin}/health`);
+          assert.equal(r.status, 200);
+        });
+      },
+    });
+  }
   await stop(backend);
   backend = undefined;
   await pool.query("CREATE DATABASE receipt_0095_restored");
@@ -625,6 +647,7 @@ try {
   );
   evidence = {
     specId: "0095",
+    deliveryObservation,
     revision,
     manifestDigest: digest(canonicalJson(manifest)),
     counts: {
