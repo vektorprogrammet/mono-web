@@ -85,7 +85,7 @@ export async function observeReceiptReopening(options: {
     const receipt = await submit();
     const response = await request(receipt.id, "reject", receipt.etag);
     assert.equal(response.status, 200);
-    return { ...receipt, etag: response.headers.get("etag")! };
+    return { ...receipt, initialEtag: receipt.etag, etag: response.headers.get("etag")! };
   };
   options.setDeliveryAvailable(false);
   const target = await rejected();
@@ -97,7 +97,7 @@ export async function observeReceiptReopening(options: {
   for (const [name, response, expected] of [
     ["owner", await request(target.id, "reopen", target.etag, cookie), 403],
     ["missing revision", await request(target.id, "reopen"), 428],
-    ["stale revision", await request(target.id, "reopen", '"stale"'), 412],
+    ["stale revision", await request(target.id, "reopen", target.initialEtag), 412],
     [
       "extra authority",
       await request(
