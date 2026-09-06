@@ -411,6 +411,49 @@ try {
   const axe = await new AxeBuilder({ page }).analyze();
   assert.deepEqual(axe.violations, []);
   gates.push("actual expired token callback, mobile invalid-link view, Axe");
+  for (const [id, identifier, value] of [
+    [
+      "invalid-verification-proof",
+      "not-a-reset-identifier",
+      "journey-rec-leader-0049",
+      "verification-invalid",
+    ],
+    [
+      "mismatched-verification-proof",
+      "reset-password:synthetic-mismatch",
+      "wrong-person",
+      "authority-mismatch",
+    ],
+  ]) {
+    await pool.query(
+      `INSERT INTO auth.verification(id,identifier,value,"expiresAt","createdAt","updatedAt") VALUES($1,$2,$3,CURRENT_TIMESTAMP+INTERVAL '1 hour',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
+      [id, identifier, value],
+    );
+    await pool.query(
+      `INSERT INTO auth.password_reset_email_outbox(effect_id,verification_id,subject_person_id,status) VALUES($1,$2,'journey-rec-leader-0049','Pending')`,
+      [`password-reset:${id}`, id],
+    );
+  }
+  // Drain earlier reset-consumed/expired effects first, then malformed fixtures; none can be mailed.
+  for (let n = 0; n < 16; n++) {
+    const result = await drain();
+    if (result === "Empty") break;
+    assert.equal(result, "Quarantined");
+  }
+  const invalid = (
+    await pool.query(
+      `SELECT last_failure_code FROM auth.password_reset_email_outbox WHERE verification_id IN ('invalid-verification-proof','mismatched-verification-proof') ORDER BY verification_id`,
+    )
+  ).rows;
+  assert.deepEqual(
+    invalid.map((r: any) => r.last_failure_code),
+    ["verification-invalid", "authority-mismatch"],
+  );
+  assert.ok(submissions.length >= 2);
+  assert.ok(submissions.every((item) => item.tokenPresent && item.queryAbsent));
+  gates.push(
+    "invalid and authority-mismatched verification quarantined; browser token only in request body",
+  );
   const audits = (
     await pool.query(
       "SELECT event_kind,subject_person_id,details,request_correlation FROM auth.identity_security_audit ORDER BY occurred_at",
