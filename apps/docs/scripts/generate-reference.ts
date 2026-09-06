@@ -1,4 +1,5 @@
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as z from "zod";
@@ -132,14 +133,27 @@ const migrationStatePage = (state: MigrationState): string => {
 
 type SpecIndexRow = {
   readonly path: string;
+  readonly revision: string;
   readonly title: string;
   readonly recordedStatus: string;
   readonly classification: string;
 };
 
+// Current indexes must not link newly added paths to the older capability inspection.
+// A path's last source commit stays stable when only generated documentation changes.
+const sourceRevisionFor = (path: string): string => {
+  const revision = execFileSync("git", ["log", "-1", "--format=%H", "--", path], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  }).trim();
+  if (!/^[a-f0-9]{40}$/u.test(revision))
+    throw new Error(`Commit indexed source before generating its reference: ${path}`);
+  return revision;
+};
+
 const recordedStatus = (content: string): string => {
   const table = content.match(/^\|\s*(?:Status|State)\s*\|\s*([^|]+?)\s*\|\s*$/imu)?.[1];
-  const prose = content.match(/^>??\s*\*\*(?:Status|State):\*\*\s*(.+)$/imu)?.[1];
+  const prose = content.match(/^>?\s*(?:\*\*)?(?:Status|State):(?:\*\*)?\s*(.+)$/imu)?.[1];
   return (table ?? prose ?? "No explicit status metadata").trim();
 };
 
@@ -166,6 +180,7 @@ const readSpecIndex = async (): Promise<ReadonlyArray<SpecIndexRow>> => {
       const status = recordedStatus(content);
       return {
         path,
+        revision: sourceRevisionFor(path),
         title,
         recordedStatus: status,
         classification: classifySpec(status),
@@ -191,12 +206,12 @@ const evidenceClassification = (name: string): string => {
   return "unclassified-evidence";
 };
 
-const designSpecEvidencePage = async (state: MigrationState): Promise<string> => {
+const designSpecEvidencePage = async (_state: MigrationState): Promise<string> => {
   const specs = await readSpecIndex();
   const specRows = specs
     .map(
       (spec) =>
-        `| [${spec.title}](${repositoryUrl}/blob/${state.sourceRevision}/${spec.path}) | ${spec.classification} | ${spec.recordedStatus.replaceAll("|", "\\|")} |`,
+        `| [${spec.title}](${repositoryUrl}/blob/${spec.revision}/${spec.path}) | ${spec.classification} | ${spec.recordedStatus.replaceAll("|", "\\|")} |`,
     )
     .join("\n");
   const evidenceDirectory = join(repositoryRoot, "evidence");
@@ -207,13 +222,12 @@ const designSpecEvidencePage = async (state: MigrationState): Promise<string> =>
     evidenceEntries.map(async (entry) => {
       const path = `evidence/${entry.name}`;
       const files = entry.isDirectory() ? await countFiles(join(evidenceDirectory, entry.name)) : 1;
-      const link = entry.isDirectory()
-        ? treeLink(state.sourceRevision, path)
-        : fileLink(state.sourceRevision, path);
+      const revision = sourceRevisionFor(path);
+      const link = entry.isDirectory() ? treeLink(revision, path) : fileLink(revision, path);
       return `| ${link} | ${evidenceClassification(entry.name)} | ${files} |`;
     }),
   );
-  return `---\ntitle: Design-spec and evidence index\ndescription: Generated classifications for migration decisions and evidence bundles.\nshowAskAi: false\n---\n\n# Design-spec and evidence index\n\nThis page is generated from repository paths at \`${state.sourceRevision}\`. The generator reads explicit status metadata. It does not infer acceptance from a filename.\n\n\`accepted-with-limits\` means that the recorded status names acceptance or passed evidence. The original scope still applies.\n\n\`drifted\` and \`stale\` appear only when explicit status metadata uses those terms. \`unclassified\` means that automation cannot make the decision.\n\n## Design specs\n\n| Design spec | Classification | Recorded status |\n| --- | --- | --- |\n${specRows}\n\n## Evidence bundles\n\n| Evidence path | Classification | Files |\n| --- | --- | ---: |\n${evidenceRows.join("\n")}\n\nA test result is an observation over its checked scope. It is not proof of full parity or production readiness.\n`;
+  return `---\ntitle: Design-spec and evidence index\ndescription: Generated classifications for migration decisions and evidence bundles.\nshowAskAi: false\n---\n\n# Design-spec and evidence index\n\nThis page indexes the current checkout. Each source link uses the last commit that changed that path, independently of the historical capability inspection. The generator reads explicit status metadata. It does not infer acceptance from a filename.\n\n\`accepted-with-limits\` means that the recorded status names acceptance or passed evidence. The original scope still applies.\n\n\`drifted\` and \`stale\` appear only when explicit status metadata uses those terms. \`unclassified\` means that automation cannot make the decision.\n\n## Design specs\n\n| Design spec | Classification | Recorded status |\n| --- | --- | --- |\n${specRows}\n\n## Evidence bundles\n\n| Evidence path | Classification | Files |\n| --- | --- | ---: |\n${evidenceRows.join("\n")}\n\nA test result is an observation over its checked scope. It is not proof of full parity or production readiness.\n`;
 };
 
 const main = async (): Promise<void> => {
