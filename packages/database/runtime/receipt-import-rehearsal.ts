@@ -65,6 +65,9 @@ await mkdir(fixtureRoot);
 await mkdir(storage);
 const children: ChildProcess[] = [];
 const logs: string[] = [];
+const secretValues: string[] = [];
+const safe = (value: string) =>
+  secretValues.reduce((text, secret) => text.replaceAll(secret, "[redacted]"), value);
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const freePort = async () => {
   const s = createServer();
@@ -143,6 +146,7 @@ try {
   console.log("0095 database migrated");
   const backendOrigin = `http://127.0.0.1:${backendPort}`;
   const password = randomBytes(24).toString("hex");
+  secretValues.push(password);
   const persons = [
     {
       personId: "receipt-owner-0095",
@@ -166,14 +170,15 @@ try {
     BACKEND_PG_URL: pgUrl,
     BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
     NATIVE_IDENTITY_DEPLOYMENT: "local",
-    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([backendOrigin]),
+    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["http://127.0.0.1:5174"]),
     OAUTH_CANONICAL_ORIGIN: backendOrigin,
-    OAUTH_DASHBOARD_ORIGIN: backendOrigin,
+    OAUTH_DASHBOARD_ORIGIN: "http://127.0.0.1:5174",
     OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     RECEIPT_STAGING_ROOT: join(storage, "staging"),
     RECEIPT_COMMITTED_ROOT: join(storage, "committed"),
   };
+  secretValues.push(env.BETTER_AUTH_SECRET);
   command("bun", ["run", "packages/database/runtime/identity-seed-main.ts"], {
     ...env,
     IDENTITY_SEED_PG_URL: pgUrl,
@@ -313,14 +318,37 @@ try {
     { sourcePrimaryKey: "duplicate", visualId: "DUP" },
     { sourcePrimaryKey: "duplicate", visualId: "DUP" },
   ];
-  const rows = variants.map((change, index) => {
+  const rows: Array<{
+    sourcePrimaryKey: string;
+    destinationIdentity: string;
+    data: unknown;
+    rowDigest: string;
+  }> = variants.map((change, index) => {
     const source = {
       ...valid,
       ...change,
       destinationIdentity: `receipt-0095-${index}`,
       visualId: change.visualId ?? `SYN-0095-${index}`,
     };
-    return { ...source, rowDigest: rowDigest(source) };
+    const { sourcePrimaryKey, destinationIdentity, ...data } = source;
+    return { sourcePrimaryKey, destinationIdentity, data, rowDigest: rowDigest(source) };
+  });
+  const malformedSource = {
+    ...valid,
+    sourcePrimaryKey: "malformed",
+    destinationIdentity: "receipt-0095-malformed",
+    description: 42,
+  };
+  const {
+    sourcePrimaryKey: malformedKey,
+    destinationIdentity: malformedDestination,
+    ...malformedData
+  } = malformedSource;
+  rows.push({
+    sourcePrimaryKey: malformedKey,
+    destinationIdentity: malformedDestination,
+    data: malformedData,
+    rowDigest: rowDigest(malformedSource),
   });
   const manifest = decodeSnapshot({
     kind: "synthetic-receipt-import-0095",
@@ -416,7 +444,7 @@ try {
   const signIn = async (email: string) => {
     const response = await fetch(`${backendOrigin}/api/auth/sign-in/email`, {
       method: "POST",
-      headers: { "content-type": "application/json", origin: backendOrigin },
+      headers: { "content-type": "application/json", origin: "http://127.0.0.1:5174" },
       body: JSON.stringify({ email, password }),
     });
     assert.equal(response.status, 200);
@@ -427,7 +455,7 @@ try {
   console.log("0095 backend ready");
   const cookie = await signIn(persons[0]!.email),
     foreign = await signIn(persons[1]!.email);
-  const client = createPromiseClient(backendOrigin, { cookie, origin: backendOrigin });
+  const client = createPromiseClient(backendOrigin, { cookie, origin: "http://127.0.0.1:5174" });
   const reconcile = async (result: (typeof accepted)[number]) =>
     run(
       reconcileReceiptImport(result, () =>
@@ -468,6 +496,29 @@ try {
     }
   }
   console.log("0095 owner reads and denials passed");
+  const collision = {
+    ...accepted[0]!,
+    sourcePrimaryKey: "destination-collision",
+    receipt: { ...accepted[0]!.receipt, receiptId: ReceiptId.make("receipt-0095-baseline") },
+    provenance: {
+      ...accepted[0]!.provenance,
+      destinationIdentity: "receipt-0095-baseline",
+      sourceDigest: digest("synthetic-destination-collision-0095"),
+    },
+  };
+  await run(storeReceiptImportResult(collision));
+  const collisionLedger = (
+    await pool.query(
+      "SELECT result,reasons_json FROM economy_receipt_import_ledger WHERE source_primary_key='destination-collision'",
+    )
+  ).rows;
+  assert.equal(collisionLedger[0]?.result, "Quarantined");
+  assert.ok(collisionLedger[0]?.reasons_json.reasons.includes("DestinationIdentityCollision"));
+  const invalidBearer = await fetch(
+    `${backendOrigin}/api/receipts/${accepted[0]!.receipt.receiptId}/file`,
+    { headers: { cookie, authorization: "Bearer invalid-synthetic-0095" } },
+  );
+  assert.equal(invalidBearer.status, 401);
   const stable = await snapshot();
   const fileDigest = async () => {
     const values = [];
@@ -556,7 +607,12 @@ try {
       })),
     fileRejections: prepared.fileFailures,
     reconciliations,
-    denials: { foreign: 404, anonymous: 401 },
+    denials: { foreign: 404, anonymous: 401, invalidBearerWithOwnerCookie: 401 },
+    supplementalDestinationCollision: {
+      input: 1,
+      quarantined: 1,
+      reason: "DestinationIdentityCollision",
+    },
     effectAttempts,
     commandOutboxEffects: 0,
     replay: {
@@ -576,6 +632,17 @@ try {
     scope:
       "synthetic local fixtures; no password migration, notification delivery, production or cutover claim",
   };
+} catch (cause) {
+  await writeFile(
+    join(artifacts, "failure.json"),
+    JSON.stringify(
+      { revision, error: safe(String(cause)), backendDiagnostics: safe(logs.join("")) },
+      null,
+      2,
+    ),
+  );
+  console.error(`0095 failure diagnostics: ${join(artifacts, "failure.json")}`);
+  throw cause;
 } finally {
   if (pool) await pool.end();
   for (const child of [...children].reverse()) await stop(child);

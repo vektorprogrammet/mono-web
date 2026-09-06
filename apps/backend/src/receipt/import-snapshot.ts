@@ -44,13 +44,19 @@ export const ReceiptSnapshot = Schema.Struct({
   transformationRevision: Text,
   persons: Schema.Array(Schema.Struct({ sourceUser: Text, personId: Text })),
   departments: Schema.Array(Schema.Struct({ sourceDepartment: Text, departmentId: Text })),
-  rows: Schema.Array(Row),
+  rows: Schema.Array(
+    Schema.Struct({
+      sourcePrimaryKey: Text,
+      destinationIdentity: Text,
+      rowDigest: Text,
+      data: Schema.Unknown,
+    }),
+  ),
 });
 export type ReceiptSnapshot = typeof ReceiptSnapshot.Type;
 export const digest = (value: Uint8Array | string): string =>
   createHash("sha256").update(value).digest("hex");
-export const rowDigest = (row: Omit<typeof Row.Type, "rowDigest">): string =>
-  digest(canonicalJson(row));
+export const rowDigest = (row: unknown): string => digest(canonicalJson(row));
 export const decodeSnapshot = (input: unknown): ReceiptSnapshot =>
   Schema.decodeUnknownSync(ReceiptSnapshot)(input, { onExcessProperty: "error" });
 
@@ -110,7 +116,59 @@ export const prepareReceiptSnapshot = async (
   const staged: ReceiptFile[] = [];
   const failures = new Map<number, ReceiptQuarantineReason>();
   const inputs = [];
-  for (const [index, row] of snapshot.rows.entries()) {
+  const decoded: Array<{ index: number; row: typeof Row.Type }> = [];
+  const occurrences = new Map<string, number>();
+  const occurrenceIndices: number[] = [];
+  const sourceCounts = new Map<string, number>();
+  const destinationCounts = new Map<string, number>();
+  const resultByIndex = new Map<number, ReceiptImportResult>();
+  const provenanceFor = (entry: (typeof snapshot.rows)[number]) => ({
+    sourceRepository: snapshot.sourceRepository,
+    sourceRevision: snapshot.sourceRevision,
+    snapshotId: snapshot.snapshotId,
+    sourceWatermark: snapshot.sourceWatermark,
+    transformationRevision: snapshot.transformationRevision,
+    sourceDigest: entry.rowDigest,
+    destinationIdentity: entry.destinationIdentity,
+  });
+  for (const [index, entry] of snapshot.rows.entries()) {
+    const occurrence = occurrences.get(entry.sourcePrimaryKey) ?? 0;
+    occurrenceIndices.push(occurrence);
+    occurrences.set(entry.sourcePrimaryKey, occurrence + 1);
+    sourceCounts.set(entry.sourcePrimaryKey, (sourceCounts.get(entry.sourcePrimaryKey) ?? 0) + 1);
+    destinationCounts.set(
+      entry.destinationIdentity,
+      (destinationCounts.get(entry.destinationIdentity) ?? 0) + 1,
+    );
+    try {
+      const data = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(
+        entry.data,
+      );
+      decoded.push({
+        index,
+        row: Schema.decodeUnknownSync(Row)(
+          {
+            ...data,
+            sourcePrimaryKey: entry.sourcePrimaryKey,
+            destinationIdentity: entry.destinationIdentity,
+            rowDigest: entry.rowDigest,
+          },
+          { onExcessProperty: "error" },
+        ),
+      });
+    } catch {
+      resultByIndex.set(index, {
+        _tag: "QuarantinedReceiptImport",
+        sourcePrimaryKey: entry.sourcePrimaryKey,
+        sourceOccurrence: occurrence,
+        targetSemanticIdentity: entry.destinationIdentity,
+        reasons: ["InvalidSourceRow"],
+        provenance: provenanceFor(entry),
+        reconciliation: "NotApplicable",
+      });
+    }
+  }
+  for (const { index, row } of decoded) {
     const { rowDigest: expectedDigest, ...source } = row;
     let file: ReceiptFile | null = null;
     if (rowDigest(source) !== expectedDigest) failures.set(index, "SourceDigestMismatch");
@@ -166,16 +224,48 @@ export const prepareReceiptSnapshot = async (
       },
     });
   }
-  const results = importLegacyReceipts(inputs).map((result, index): ReceiptImportResult => {
+  importLegacyReceipts(inputs).forEach((result, localIndex) => {
+    const index = decoded[localIndex]!.index;
     const failure = failures.get(index);
-    return failure === undefined
-      ? result
-      : {
-          ...result,
-          _tag: "QuarantinedReceiptImport",
-          reconciliation: "NotApplicable",
-          reasons: [...(result._tag === "QuarantinedReceiptImport" ? result.reasons : []), failure],
-        };
+    resultByIndex.set(
+      index,
+      failure === undefined
+        ? result
+        : {
+            _tag: "QuarantinedReceiptImport",
+            sourcePrimaryKey: result.sourcePrimaryKey,
+            sourceOccurrence: result.sourceOccurrence,
+            targetSemanticIdentity: result.targetSemanticIdentity,
+            provenance: result.provenance,
+            reconciliation: "NotApplicable",
+            reasons: [
+              ...(result._tag === "QuarantinedReceiptImport" ? result.reasons : []),
+              failure,
+            ],
+          },
+    );
+  });
+  const results = snapshot.rows.map((entry, index): ReceiptImportResult => {
+    const result = resultByIndex.get(index)!;
+    const collisions: ReceiptQuarantineReason[] = [];
+    if (sourceCounts.get(entry.sourcePrimaryKey)! > 1) collisions.push("SourceIdentityCollision");
+    if (destinationCounts.get(entry.destinationIdentity)! > 1)
+      collisions.push("DestinationIdentityCollision");
+    if (collisions.length === 0) return { ...result, sourceOccurrence: occurrenceIndices[index]! };
+    return {
+      _tag: "QuarantinedReceiptImport",
+      sourcePrimaryKey: result.sourcePrimaryKey,
+      sourceOccurrence: occurrenceIndices[index]!,
+      targetSemanticIdentity: result.targetSemanticIdentity,
+      provenance: result.provenance,
+      reconciliation: "NotApplicable",
+      reasons: [
+        ...new Set([
+          ...(result._tag === "QuarantinedReceiptImport" ? result.reasons : []),
+          ...collisions,
+        ]),
+      ],
+    };
   });
   return {
     results,

@@ -10,6 +10,7 @@ import {
 } from "./schema.js";
 
 export type ReceiptQuarantineReason =
+  | "InvalidSourceRow"
   | "UnsafeFilePath"
   | "FileDigestMismatch"
   | "SourceDigestMismatch"
