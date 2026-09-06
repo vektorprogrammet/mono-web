@@ -63,7 +63,11 @@ function ResolutionAction({ receipt, intent, failure, actionErrorId }: Resolutio
           {label}
         </Button>
       </AlertDialogTrigger>
-      <AlertDialogContent aria-busy={busy}>
+      <AlertDialogContent
+        aria-busy={busy}
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+      >
         <AlertDialogHeader>
           <AlertDialogTitle id={titleId}>
             {label} utlegg {receipt.visualId}?

@@ -627,6 +627,9 @@ try {
       approverCookie: foreign,
       root,
       artifactDirectory: artifacts,
+      registerSecret: (secret) => {
+        secretValues.push(secret);
+      },
       restart: async (nextEnv) => {
         if (backend) await stop(backend);
         backend = start("bun", ["run", "apps/backend/src/main.ts"], nextEnv);
@@ -741,17 +744,16 @@ try {
   cleanupOkay = true;
 }
 assert.ok(cleanupOkay);
-await writeFile(
-  join(artifacts, "evidence.json"),
-  JSON.stringify(
-    {
-      ...(evidence as object),
-      passed: true,
-      cleanup:
-        "owned processes exited; disposable PostgreSQL and active private storage removed; synthetic evidence retained",
-    },
-    null,
-    2,
-  ),
+const encodedEvidence = JSON.stringify(
+  {
+    ...(evidence as object),
+    passed: true,
+    cleanup:
+      "owned processes exited; disposable PostgreSQL and active private storage removed; synthetic evidence retained",
+  },
+  null,
+  2,
 );
+assert.equal(safe(encodedEvidence), encodedEvidence, "retained evidence contains a credential");
+await writeFile(join(artifacts, "evidence.json"), encodedEvidence, { mode: 0o600 });
 console.log(`0095 passed: ${join(artifacts, "evidence.json")}`);

@@ -14,10 +14,12 @@ export const observeReceiptDelivery = async (options: {
   approverCookie: string;
   root: string;
   artifactDirectory: string;
+  registerSecret: (secret: string) => void;
   restart: (env: NodeJS.ProcessEnv) => Promise<void>;
 }) => {
   const { pool, origin, cookie, approverCookie } = options;
   const token = randomBytes(24).toString("hex");
+  options.registerSecret(token);
   let mode: "accept" | "reject" | "ambiguous" | "redirect" = "accept";
   const attempts: Array<{
     deliveryId: string;
