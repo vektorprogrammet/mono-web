@@ -456,11 +456,18 @@ try {
   const cookie = await signIn(persons[0]!.email),
     foreign = await signIn(persons[1]!.email);
   const client = createPromiseClient(backendOrigin, { cookie, origin: "http://127.0.0.1:5174" });
-  const reconcile = async (result: (typeof accepted)[number]) =>
-    run(
+  const reconciliationDiagnostics: Array<{
+    sourcePrimaryKey: string;
+    phase: string;
+    reason: string;
+  }> = [];
+  const reconcile = async (result: (typeof accepted)[number]) => {
+    let phase = "persisted fact comparison";
+    const observed = await run(
       reconcileReceiptImport(result, () =>
         Effect.tryPromise({
           try: async () => {
+            phase = "native owner projection";
             const list = await client.receipts.listReceipts({ query: {} });
             const item = list.body.items.find((i) => i.receiptId === result.receipt.receiptId);
             assert.ok(item);
@@ -469,15 +476,37 @@ try {
             assert.equal(item.visualId, result.receipt.visualId);
             assert.ok(!JSON.stringify(item).includes("synthetic:0095:not-a-payment-account"));
             assert.ok(!JSON.stringify(item).includes(result.receipt.file.objectKey));
+            phase = "native private byte download";
             const downloaded = await client.receipts.readReceiptFile({
               params: { receiptId: ReceiptId.make(result.receipt.receiptId) },
             });
             return digest(downloaded.body) === result.receipt.file.sha256;
           },
-          catch: () => new Error("fresh observation failed"),
+          catch: (cause) => {
+            const reason = safe(String(cause));
+            reconciliationDiagnostics.push({
+              sourcePrimaryKey: result.sourcePrimaryKey,
+              phase,
+              reason,
+            });
+            logs.push(`reconciliation ${result.sourcePrimaryKey} ${phase}: ${reason}`);
+            return new Error("fresh observation failed");
+          },
         }).pipe(Effect.orElseSucceed(() => false)),
       ),
     );
+    if (!observed && phase === "persisted fact comparison") {
+      reconciliationDiagnostics.push({
+        sourcePrimaryKey: result.sourcePrimaryKey,
+        phase,
+        reason: "persisted canonical fact differs from source",
+      });
+      logs.push(
+        `reconciliation ${result.sourcePrimaryKey}: persisted canonical fact differs from source`,
+      );
+    }
+    return observed;
+  };
   const reconciliations = [];
   for (const result of accepted) {
     assert.equal(await reconcile(result), true);
@@ -607,6 +636,7 @@ try {
       })),
     fileRejections: prepared.fileFailures,
     reconciliations,
+    reconciliationDiagnostics,
     denials: { foreign: 404, anonymous: 401, invalidBearerWithOwnerCookie: 401 },
     supplementalDestinationCollision: {
       input: 1,

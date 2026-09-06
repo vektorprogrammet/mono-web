@@ -1347,10 +1347,11 @@ export const ReceiptApiHandlers = (input: ReceiptApiHttpOptions) => {
                               resource,
                               facts: {
                                 ownerPersonId: principal.personId,
+                                state: owned.status,
                                 approverPersonIds: [],
                                 approverServicePrincipalIds: [],
                                 internalEvidenceEnabled: false,
-                              },
+                              } satisfies ReceiptAccessFacts,
                               authorityVersion: AuthorityVersion.make(`receipt:${owned.revision}`),
                             },
                           ],

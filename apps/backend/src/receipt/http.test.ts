@@ -127,6 +127,8 @@ const fileStore: ReceiptFileStore = {
 
 interface HarnessOptions {
   readonly unauthenticated?: boolean;
+  readonly privateFileOwner?: string;
+  readonly privateFileUnavailable?: boolean;
   readonly ownedRows?: ReadonlyArray<ProjectionRow>;
   readonly approvalRows?: ReadonlyArray<ProjectionRow>;
   readonly commandFailure?: ReceiptScopeDenied | ReceiptNotFound;
@@ -139,6 +141,7 @@ interface HarnessOptions {
 type RevocableReceiptAuthority = "Owner" | "Approval";
 
 const harness = (options: HarnessOptions = {}) => {
+  let privateFileReads = 0;
   const commands: Array<Record<string, unknown>> = [];
   const principals: Array<ReceiptCommandPrincipal> = [];
   const allocations: Array<ReceiptSubmissionAllocation | undefined> = [];
@@ -363,6 +366,21 @@ const harness = (options: HarnessOptions = {}) => {
         receiptWriteTransactionIds.push(currentTransactionId);
         return Effect.succeed([]);
       }
+      if (statement.includes("file_ref AS") && statement.includes("owner_person_id =")) {
+        if (options.privateFileOwner !== values[1]) return Effect.succeed([]);
+        return Effect.succeed([
+          {
+            departmentId: departmentOne,
+            revision: 1,
+            status: "Refunded",
+            fileRef: "staging/private",
+            objectKey: "committed/private",
+            contentType: "application/pdf",
+            byteLength: 4,
+            sha256: "a".repeat(64),
+          },
+        ]);
+      }
       if (statement.includes("FROM public.economy_receipts")) {
         evidenceContextReads += 1;
         evidenceContextSnapshotDepths.push(snapshotDepth);
@@ -454,12 +472,20 @@ const harness = (options: HarnessOptions = {}) => {
     },
     run,
     now: () => evaluatedAt,
-    fileStore,
+    fileStore: {
+      ...fileStore,
+      readCommitted: async () => {
+        privateFileReads++;
+        if (options.privateFileUnavailable) throw new Error("private bytes unavailable");
+        return new Uint8Array([1, 2, 3, 4]);
+      },
+    },
   } satisfies ReceiptApiHttpOptions;
   return {
     http: makeReceiptApiHttp(httpOptions),
     internalHttp: makeInternalReceiptTestHttp(httpOptions),
     commands,
+    privateFileReads: () => privateFileReads,
     principals,
     allocations,
     approvalQueries,
@@ -981,5 +1007,38 @@ describe("internal receipt evidence separation", () => {
       body: { error: { tag: "IdentityEngineError" } },
     });
     expect(unavailable.evidenceCounts().evidenceContextReads).toBe(0);
+  });
+});
+
+describe("private receipt owner reads", () => {
+  it("uses canonical owner authorization before binary storage IO", async () => {
+    const owner = harness({ privateFileOwner: personId });
+    const response = await owner.http.fetch(
+      new Request("http://localhost/api/receipts/private/file", {
+        headers: { cookie: "better-auth.session_token=fixture" },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([1, 2, 3, 4]);
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(owner.privateFileReads()).toBe(1);
+    const foreign = harness({ privateFileOwner: "different-person" });
+    const denied = await foreign.http.fetch(
+      new Request("http://localhost/api/receipts/private/file", {
+        headers: { cookie: "better-auth.session_token=fixture" },
+      }),
+    );
+    expect(denied.status).toBe(404);
+    expect(foreign.privateFileReads()).toBe(0);
+  });
+  it("does not expose a successful attachment for unavailable private bytes", async () => {
+    const owner = harness({ privateFileOwner: personId, privateFileUnavailable: true });
+    const response = await owner.http.fetch(
+      new Request("http://localhost/api/receipts/private/file", {
+        headers: { cookie: "better-auth.session_token=fixture" },
+      }),
+    );
+    expect(response.status).toBe(503);
+    expect(response.headers.get("content-disposition")).toBeNull();
   });
 });

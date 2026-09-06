@@ -1069,17 +1069,18 @@ export const readOwnedReceiptFile = (receiptId: string, personId: string) =>
   Effect.gen(function* () {
     const sql = yield* Database;
     const rows = yield* sql`
-      SELECT department_id AS "departmentId", revision, file_ref AS "fileRef", file_object_key AS "objectKey",
+      SELECT department_id AS "departmentId", revision, status, file_ref AS "fileRef", file_object_key AS "objectKey",
         file_content_type AS "contentType", file_byte_length::integer AS "byteLength",
         file_sha256 AS "sha256"
       FROM economy_receipts
       WHERE receipt_id = ${receiptId} AND owner_person_id = ${personId} AND status <> 'Withdrawn'
     `;
     if (rows[0] === undefined) return undefined;
-    const { departmentId, revision, ...file } = rows[0];
+    const { departmentId, revision, status, ...file } = rows[0];
     return {
       file: yield* Schema.decodeUnknownEffect(ReceiptFileSchema)(file),
       departmentId: String(departmentId),
+      status: String(status),
       revision: Number(revision),
     };
   }).pipe(Effect.mapError((cause) => persistenceError("read owned receipt file", cause)));
