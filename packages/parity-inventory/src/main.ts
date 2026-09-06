@@ -287,6 +287,8 @@ export const main = (
               error instanceof ParityRuntimeError
                 ? runtimeErrorReport(error)
                 : commandErrorReport(error instanceof Error ? error.message : "command error");
+            if (error instanceof ParityRuntimeError && error.operation === "unsafe_source" && error.diagnostics !== undefined)
+              terminal.writeStandardError(`${canonicalJson({ reason_code: "UNSAFE_SOURCE", diagnostics: error.diagnostics })}\n`);
             if (!(error instanceof ParityRuntimeError)) terminal.writeStandardError(`${USAGE}\n`);
             terminal.writeStandardOutput(`${canonicalJson(report)}\n`);
             return report.exit_code;
