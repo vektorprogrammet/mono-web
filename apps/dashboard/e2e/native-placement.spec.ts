@@ -47,8 +47,10 @@ const fillPlacement = async (form: Locator, block: string, day = "Monday", workd
   await form.getByLabel("Antall undervisningsdager").fill(workdays);
   await form.getByRole("combobox", { name: "Bolk", exact: true }).selectOption(block);
 };
-const saved = async (form: Locator) =>
-  expect(form.getByRole("status")).toHaveText("Endringen er lagret.");
+const saved = async (form: Locator) => {
+  await expect(form).toHaveAttribute("data-pending", "false");
+  await expect(form.getByRole("status")).toHaveText("Endringen er lagret.");
+};
 const readBoard = async (page: Page) => {
   const response = await page.request.get(
     `${manifest.backendOrigin}/api/placements?${new URLSearchParams({ departmentId: manifest.departmentId, semesterId: manifest.semesterId })}`,
@@ -208,6 +210,11 @@ test("0096 existing volunteer requests affiliation and coordinator places them w
     await fillPlacement(entry, "1", "Friday", "8");
     await entry.getByRole("button", { name: "Lagre plassering" }).click();
     await saved(entry);
+    expect(
+      (await readBoard(page)).placements.find(
+        (p: { placementId: string }) => p.placementId === first.placementId,
+      ),
+    ).toMatchObject({ day: "Friday", workdays: 8, revision: 4 });
     await page.reload();
     await expect(entry.getByLabel("Antall undervisningsdager")).toHaveValue("8");
     await axe(page, "coordinator persisted placements after explicit conflict recovery");
