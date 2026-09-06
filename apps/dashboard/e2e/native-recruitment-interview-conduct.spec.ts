@@ -216,14 +216,12 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
       });
       expect(staleResponse.status()).toBe(409);
       await expect(
-        stalePage
-          .getByRole("alert")
-          .filter({
-            hasText:
-              "Intervjuet er endret. Utkastet er beholdt; åpne intervjuet på nytt for å hente gjeldende versjon.",
-          }),
+        stalePage.getByRole("alert").filter({
+          hasText:
+            "Intervjuet er endret. Utkastet er beholdt; åpne intervjuet på nytt for å hente gjeldende versjon.",
+        }),
       ).toBeVisible();
-      await expect(stalePage.locator("#fs-conduct")).toHaveCount(1);
+      await expect(stalePage.locator(".fs-conduct")).toHaveCount(1);
       await expect(stalePage.locator("#interviewer-recommendation")).toHaveValue("Ja");
 
       const pageAxe = await new AxeBuilder({ page })

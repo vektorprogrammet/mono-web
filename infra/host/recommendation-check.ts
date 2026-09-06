@@ -243,11 +243,11 @@ try {
   await open(page, "Sofie Gjennomfører");
   await fill(page);
   assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "");
-  await page.locator("#fs-conduct").screenshot({ path: join(artifacts, "editable-desktop.png") });
+  await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "editable-desktop.png") });
   assert.deepEqual((await new AxeBuilder({ page }).analyze()).violations, []);
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
-  await page.locator("#fs-conduct").screenshot({ path: join(artifacts, "editable-mobile.png") });
+  await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "editable-mobile.png") });
   assert.deepEqual((await new AxeBuilder({ page }).analyze()).violations, []);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
@@ -280,13 +280,13 @@ try {
   await open(page, "Sofie Gjennomfører");
   assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Ja");
   await page
-    .locator("#fs-conduct")
+    .locator(".fs-conduct")
     .screenshot({ path: join(artifacts, "recommendation-desktop.png") });
   assert.deepEqual((await new AxeBuilder({ page }).analyze()).violations, []);
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
   await page
-    .locator("#fs-conduct")
+    .locator(".fs-conduct")
     .screenshot({ path: join(artifacts, "recommendation-mobile.png") });
   assert.deepEqual((await new AxeBuilder({ page }).analyze()).violations, []);
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -302,7 +302,7 @@ try {
     )
     .waitFor();
   assert.equal(await stale.locator("#interviewer-recommendation").inputValue(), "Kanskje");
-  await stale.locator("#fs-conduct").screenshot({ path: join(artifacts, "stale-draft.png") });
+  await stale.locator(".fs-conduct").screenshot({ path: join(artifacts, "stale-draft.png") });
   assert.deepEqual((await new AxeBuilder({ page: stale }).analyze()).violations, []);
   await stale.close();
   await staleContext.close();
@@ -645,10 +645,10 @@ try {
     await page.locator("#interviewer-recommendation option:checked").textContent(),
     "Ikke registrert",
   );
-  await page.locator("#fs-conduct").screenshot({ path: join(artifacts, "historical-desktop.png") });
+  await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "historical-desktop.png") });
   assert.deepEqual((await new AxeBuilder({ page }).analyze()).violations, []);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.locator("#fs-conduct").screenshot({ path: join(artifacts, "historical-mobile.png") });
+  await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "historical-mobile.png") });
   assert.deepEqual((await new AxeBuilder({ page }).analyze()).violations, []);
   const rows = (
     await pool.query(
