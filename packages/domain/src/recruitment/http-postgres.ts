@@ -1,3 +1,4 @@
+import { readInterviewApplicantIdentity } from "./conduct-identity.js";
 import type { Admissions } from "../admissions/service.js";
 import { PublicApplicationIdSchema } from "../application/schema.js";
 import { Database, type DatabaseShape } from "../database/service.js";
@@ -63,6 +64,7 @@ const RecruitmentInterviewHttpSourceSchema = Schema.Struct({
   departmentId: DepartmentId,
   interviewerPersonId: PersonId,
   interviewRevision: Revision,
+  linkedApplicantPersonId: Schema.NullOr(PersonId),
   authority: Schema.Array(RecruitmentAuthorityHttpSourceSchema),
 });
 export type RecruitmentInterviewHttpSource = typeof RecruitmentInterviewHttpSourceSchema.Type;
@@ -368,10 +370,16 @@ export const readRecruitmentInterviewHttpSourcePostgres = (
       const interview = interviewRows[0];
       if (interview === undefined) return yield* new RecruitmentInterviewNotFound({ interviewId });
 
+      const identity = yield* readInterviewApplicantIdentity(interviewId).pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("read interview applicant identity", cause)),
+        ),
+      );
       const authority = yield* readRecruitmentPersonAuthorityHttpSources(database, personId);
       return yield* Schema.decodeUnknownEffect(RecruitmentInterviewHttpSourceSchema)(
         {
           ...interview,
+          linkedApplicantPersonId: identity.linkedApplicantPersonId,
           authority,
         },
         { onExcessProperty: "error" },

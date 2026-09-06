@@ -601,13 +601,14 @@ const interviewContext = (
   },
   facts: {
     assignedInterviewerPersonIds: [source.interviewerPersonId],
+    linkedApplicantPersonId: source.linkedApplicantPersonId,
     departmentLeaderPersonIds:
       allowLeader && actor._tag === "DepartmentLeader" && actor.departmentId === source.departmentId
         ? [actor.personId]
         : [],
   },
   authorityVersion: AuthorityVersion.make(
-    `${source.interviewRevision}:${source.authority.map((item) => `${item.kind}:${item.identity}:${item.revisions.join(".")}`).join("|")}`,
+    `${source.interviewRevision}:${source.linkedApplicantPersonId ?? "Unknown"}:${source.authority.map((item) => `${item.kind}:${item.identity}:${item.revisions.join(".")}`).join("|")}`,
   ),
 });
 
@@ -618,7 +619,9 @@ export const invitationETag = (source: RecruitmentInvitationHttpSource): StrongE
     version: [source.scheduleRevision, source.responseRevision],
   });
 
-export const interviewETag = (source: RecruitmentInterviewHttpSource): StrongETag =>
+export const interviewETag = (
+  source: Omit<RecruitmentInterviewHttpSource, "linkedApplicantPersonId">,
+): StrongETag =>
   deriveStrongETag({
     representationKind: "RecruitmentInterviewResource",
     resourceIdentity: `recruitment-interview:${source.interviewId}`,

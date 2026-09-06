@@ -27,6 +27,10 @@ import {
   assertRequirementRegistration,
   accessHttpStatus,
   PrincipalSchema,
+  evaluateRequirement,
+  RequirementId,
+  DomainId,
+  ResourceKind,
   evaluateAccess,
   evaluateAccessJourney,
   expandAuthorityMacros,
@@ -751,4 +755,31 @@ describe("principal, credential, and access algebra", () => {
       decision: "Allow",
     });
   });
+});
+
+it("fails known-self or absent/malformed interview identity facts and permits explicit unknown/different links", () => {
+  for (const [linked, allowed] of [
+    [personId, false],
+    [otherPersonId, true],
+    [null, true],
+    [undefined, false],
+    ["", false],
+    [42, false],
+  ] as const) {
+    const result = evaluateRequirement(
+      { id: RequirementId.make("recruitment.not-known-self"), parameters: {} },
+      { _tag: "Person", personId },
+      {
+        domainId: DomainId.make("recruitment"),
+        departmentId: alphaDepartment,
+        resource: {
+          kind: ResourceKind.make("recruitment-interview"),
+          id: ResourceId.make("interview"),
+        },
+        authorityVersion: AuthorityVersion.make("known-identity-test"),
+        facts: { linkedApplicantPersonId: linked },
+      },
+    );
+    expect(result._tag).toBe(allowed ? "Satisfied" : "Failed");
+  }
 });

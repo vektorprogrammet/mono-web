@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, rm, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
@@ -57,6 +57,15 @@ const ready = async (test: () => Promise<boolean>) => {
 let pool: any, browser: any, page: any, heldIdentityClient: any;
 const gates: string[] = [];
 const secrets: string[] = [];
+const assertNoRecommendation = (value: unknown): void => {
+  if (Array.isArray(value)) for (const item of value) assertNoRecommendation(item);
+  else if (typeof value === "object" && value !== null)
+    for (const [key, item] of Object.entries(value)) {
+      assert.notEqual(key, "recommendation");
+      assertNoRecommendation(item);
+    }
+};
+
 try {
   const pgPort = await port(),
     apiPort = await port(),
@@ -92,6 +101,7 @@ try {
     PORT: String(uiPort),
     NODE_ENV: "production",
   };
+  secrets.push(env.BETTER_AUTH_SECRET);
   run("bun", ["packages/database/runtime/recommendation-preupgrade-fixture.ts"], env);
   const historicalBefore = (
     await pool.query(
@@ -229,6 +239,13 @@ try {
   await open(page, "Sofie Gjennomfører");
   await fill(page);
   assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "");
+  await page.screenshot({ path: join(artifacts, "editable-desktop.png") });
+  assert.deepEqual((await new AxeBuilder({ page }).analyze()).violations, []);
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+  await page.screenshot({ path: join(artifacts, "editable-mobile.png") });
+  assert.deepEqual((await new AxeBuilder({ page }).analyze()).violations, []);
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
   await page
     .getByText("Svar på alle spørsmål, velg alle tre scorer og en anbefaling.", { exact: true })
@@ -246,6 +263,9 @@ try {
   await page.keyboard.press("Enter");
   assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Ja");
   await page.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
+  await page.getByRole("dialog").waitFor();
+  await page.screenshot({ path: join(artifacts, "confirmation.png") });
+  assert.deepEqual((await new AxeBuilder({ page }).analyze()).violations, []);
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Fullfør intervju", exact: true })
@@ -273,6 +293,8 @@ try {
     )
     .waitFor();
   assert.equal(await stale.locator("#interviewer-recommendation").inputValue(), "Kanskje");
+  await stale.screenshot({ path: join(artifacts, "stale-draft.png") });
+  assert.deepEqual((await new AxeBuilder({ page: stale }).analyze()).violations, []);
   await stale.close();
   await staleContext.close();
   gates.push(
@@ -289,20 +311,20 @@ try {
     initial = await get(id);
   assert.equal(initial.status, 200);
   const etag = initial.headers.get("etag")!;
-  const count = async () =>
+  const lifecycleSnapshot = async () =>
     JSON.stringify(
       (
         await pool.query(
-          `SELECT (SELECT count(*) FROM public.recruitment_interview_conducts) conducts,(SELECT count(*) FROM public.recruitment_interview_lifecycle_command_receipts) receipts,(SELECT count(*) FROM public.recruitment_interview_lifecycle_audit) audit`,
+          `SELECT (SELECT jsonb_agg(to_jsonb(c) ORDER BY c.interview_id) FROM public.recruitment_interview_conducts c) conducts,(SELECT jsonb_agg(to_jsonb(r) ORDER BY r.command_id) FROM public.recruitment_interview_lifecycle_command_receipts r) receipts,(SELECT jsonb_agg(to_jsonb(a) ORDER BY a.command_id) FROM public.recruitment_interview_lifecycle_audit a) audit,(SELECT jsonb_agg(to_jsonb(h) ORDER BY to_jsonb(h)::text) FROM public.native_http_idempotency_receipts h) native_receipts`,
         )
       ).rows[0],
     );
-  const before = await count();
+  const before = await lifecycleSnapshot();
   for (const [i, value] of [undefined, null, "invalid", 9].entries()) {
     const body = value === undefined ? payload : { ...payload, recommendation: value };
     assert.equal((await post(id, body, `invalid-recommendation-0101-${i}`, etag)).status, 422);
   }
-  assert.equal(await count(), before);
+  assert.equal(await lifecycleSnapshot(), before);
   const first = await post(
     id,
     { ...payload, recommendation: "Kanskje" },
@@ -340,7 +362,7 @@ try {
   assert.ok(race.filter((r) => r.status === 200).length === 1);
   assert.ok(race.every((r) => [200, 409, 412].includes(r.status)));
   const saved = (await (await get("interview-recommendation-no")).json()).recommendation;
-  assert.ok(saved === "Ja" || saved === "Nei");
+  assert.equal(saved, race[0].status === 200 ? "Nei" : "Ja");
   // Ensure Nei has an independent exact round trip even when Ja won the concurrent race.
   if (saved !== "Nei") {
     const b = await get("interview-native-conduct-b-0063");
@@ -377,7 +399,7 @@ try {
     `UPDATE public.organization_memberships SET is_suspended=false WHERE membership_id='membership-native-conduct-leader-0063'`,
   );
   gates.push("suspended authority denies reads and stored receipt replay");
-  const authorizationBefore = await count();
+  const authorizationBefore = await lifecycleSnapshot();
 
   // Change current source authority, not authentication claims or an authorization stub.
   await pool.query(
@@ -424,14 +446,21 @@ try {
   await pool.query(
     `UPDATE public.organization_memberships SET team_id='team-native-conduct-0063' WHERE membership_id='membership-native-conduct-leader-0063'`,
   );
-  assert.equal(await count(), authorizationBefore);
+  assert.equal(await lifecycleSnapshot(), authorizationBefore);
   const applicantResponse = await fetch(`${api}/api/recruitment/invitation-response`, {
     headers: { "x-recruitment-invitation-capability": invitationCapability, origin: ui },
   });
   assert.equal(applicantResponse.status, 200);
   const applicantObservation = await applicantResponse.text();
-  assert.ok(!applicantObservation.includes("recommendation"));
+  assertNoRecommendation(JSON.parse(applicantObservation));
   assert.ok(!applicantObservation.includes("Kanskje"));
+  const applicationProjection = await fetch(
+    `${api}/api/applications/application-recommendation-maybe`,
+  );
+  assert.equal(applicationProjection.status, 200);
+  const applicationBody = await applicationProjection.text();
+  assertNoRecommendation(JSON.parse(applicationBody));
+  assert.ok(!applicationBody.includes("Kanskje"));
   gates.push(
     "wrong department denied; actual applicant capability projection excludes recommendation",
   );
@@ -440,7 +469,7 @@ try {
     "removed assignment and ended membership deny read/write/replay without lifecycle writes",
   );
 
-  const lifecycleBeforeSelf = await count();
+  const lifecycleBeforeSelf = await lifecycleSnapshot();
   assert.equal((await get("interview-recommendation-self")).status, 403);
   assert.equal(
     (
@@ -468,7 +497,33 @@ try {
     },
   );
   assert.equal(selfCancel.status, 403);
-  await link("no", "journey-conduct-leader-0063");
+  assert.deepEqual(await effectSnapshot(), effectsBefore);
+  // This separate actual onboarding action observes its applicant-facing projection.
+  const onboardingToken = `onboard_${randomBytes(32).toString("hex")}`;
+  secrets.push(onboardingToken);
+  await pool.query(
+    `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES('identity-recommendation-no','application-recommendation-no','applicant-recommendation-no',$1,CURRENT_TIMESTAMP+interval '1 day','Open','journey-conduct-leader-0063',CURRENT_TIMESTAMP)`,
+    [createHash("sha256").update(onboardingToken).digest("hex")],
+  );
+  await pool.query(
+    `INSERT INTO public.applicant_account_delivery(invitation_id,state,secret,recipient) VALUES('identity-recommendation-no','Pending',$1,'no@example.invalid')`,
+    [onboardingToken],
+  );
+  const onboardingProjection = await fetch(`${api}/api/onboarding/claim`, {
+    method: "POST",
+    headers: { cookie, origin: ui, "content-type": "application/json" },
+    body: JSON.stringify({ mode: "ExistingAccount", token: onboardingToken }),
+  });
+  assert.equal(onboardingProjection.status, 200);
+  assert.deepEqual(await onboardingProjection.json(), {
+    state: "Claimed",
+    departmentId: "department-native-conduct-0063",
+  });
+  const effectsAfterOnboarding = await effectSnapshot();
+  gates.push(
+    "actual application confirmation and onboarding claim projections exclude recommendation; recommendation produced no effect rows",
+  );
+
   assert.equal((await get("interview-recommendation-no")).status, 403);
   const winner = race.findIndex((r) => r.status === 200);
   assert.equal(
@@ -549,7 +604,7 @@ try {
   readLocker.release();
   heldIdentityClient = undefined;
   assert.equal((await waitingRead).status, 403);
-  assert.equal(await count(), lifecycleBeforeSelf);
+  assert.equal(await lifecycleSnapshot(), lifecycleBeforeSelf);
   gates.push(
     "known self denied before read/finalize/cancel and both receipt layers; different Person allowed; real waiting serializable snapshot fails409 then self-denial",
   );
@@ -612,7 +667,7 @@ try {
   assert.equal(lifecycle.length, rows.length - 1);
   assert.ok(lifecycle.every((r: any) => r.kind === "InterviewFinalized"));
   assert.equal(new Set(lifecycle.map((r: any) => r.interview_id)).size, lifecycle.length);
-  assert.deepEqual(await effectSnapshot(), effectsBefore);
+  assert.deepEqual(await effectSnapshot(), effectsAfterOnboarding);
   assert.deepEqual(errors, []);
   for (const secret of secrets) assert.ok(!JSON.stringify(logs).includes(secret));
   gates.push(
@@ -634,6 +689,13 @@ try {
       2,
     ),
   );
+  for (const entry of await readdir(artifacts, { withFileTypes: true })) {
+    if (entry.isFile() && !entry.name.endsWith(".png")) {
+      const text = await readFile(join(artifacts, entry.name), "utf8");
+      for (const secret of secrets)
+        assert.ok(!text.includes(secret), `retained artifact ${entry.name} contains a credential`);
+    }
+  }
   console.log(JSON.stringify({ result: "Passed", revision, artifacts, gates }));
 } catch (error) {
   let detail = error instanceof Error ? error.message : String(error);

@@ -1,3 +1,4 @@
+import { isKnownSelfInterview } from "../recruitment/applicant-identity.js";
 import { Effect, Schema } from "effect";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import {
@@ -165,6 +166,7 @@ export const REQUIREMENT_IDS = [
   "recruitment.interviewer-eligible",
   "recruitment.assigned-interviewer-or-leader",
   "recruitment.assigned-interviewer",
+  "recruitment.not-known-self",
   "recruitment.invitation-pending",
   "internal-evidence.enabled",
   "receipts.owner",
@@ -532,6 +534,18 @@ export const REQUIREMENT_TYPES = {
     GenericRequirementContextSchema,
     personListedBy("assignedInterviewerPersonIds"),
   ),
+  "recruitment.not-known-self": registration(
+    ["recruitment.interview-by-id"],
+    GenericRequirementContextSchema,
+    (_parameters, principal, context) => {
+      const linked = genericFacts(context).linkedApplicantPersonId;
+      return principal._tag === "Person" &&
+        (linked === null || Schema.is(PersonId)(linked)) &&
+        !isKnownSelfInterview(linked, principal.personId)
+        ? satisfied
+        : failed("KnownSelfOrMissingApplicantIdentity");
+    },
+  ),
   "recruitment.invitation-pending": registration(
     ["recruitment.invitation-response-by-capability"],
     InvitationRequirementContextSchema,
@@ -642,6 +656,7 @@ const resolverRequirements: Partial<
   "recruitment.interview-by-id": [
     "recruitment.assigned-interviewer-or-leader",
     "recruitment.assigned-interviewer",
+    "recruitment.not-known-self",
   ],
   "receipts.by-id": [
     "internal-evidence.enabled",

@@ -4,26 +4,31 @@ import { lockOnboardingApplicant } from "../onboarding/postgres.js";
 import type { DepartmentId, PersonId } from "../organization/schema.js";
 import { RecruitmentInterviewNotFound, RecruitmentScopeDenied } from "./errors.js";
 import type { RecruitmentInterviewId } from "./schema.js";
+import { isKnownSelfInterview } from "./applicant-identity.js";
 
-/** Caller holds a transaction. Applicant custody precedes interview/receipt locks.
- * Only the immutable0099 association establishes identity; absence remains unknown. */
-export const guardInterviewApplicantIdentity = (
-  interviewId: RecruitmentInterviewId,
-  personId: PersonId,
-) =>
+/** Canonical0099 identity fact shared by domain custody and native access metadata. */
+export const readInterviewApplicantIdentity = (interviewId: RecruitmentInterviewId) =>
   Database.use((sql) =>
     Effect.gen(function* () {
       const rows = yield* sql<{
         applicantId: string;
         departmentId: DepartmentId;
-      }>`SELECT a.applicant_id AS "applicantId",i.department_id AS "departmentId" FROM public.recruitment_interviews i JOIN public.admission_applications a USING(application_id) WHERE i.interview_id=${interviewId}`;
-      const row = rows[0];
-      if (!row) return yield* new RecruitmentInterviewNotFound({ interviewId });
-      yield* lockOnboardingApplicant(row.applicantId);
-      const links = yield* sql<{
-        personId: string;
-      }>`SELECT person_id AS "personId" FROM public.applicant_account_links WHERE applicant_id=${row.applicantId}`;
-      if (links[0]?.personId === personId)
-        return yield* new RecruitmentScopeDenied({ personId, departmentId: row.departmentId });
+        linkedApplicantPersonId: PersonId | null;
+      }>`SELECT a.applicant_id AS "applicantId",i.department_id AS "departmentId",l.person_id AS "linkedApplicantPersonId" FROM public.recruitment_interviews i JOIN public.admission_applications a USING(application_id) LEFT JOIN public.applicant_account_links l USING(applicant_id) WHERE i.interview_id=${interviewId}`;
+      if (!rows[0]) return yield* new RecruitmentInterviewNotFound({ interviewId });
+      return rows[0];
     }),
   );
+/** Caller holds a transaction. Applicant custody precedes interview/receipt locks. */
+export const guardInterviewApplicantIdentity = (
+  interviewId: RecruitmentInterviewId,
+  personId: PersonId,
+) =>
+  Effect.gen(function* () {
+    const source = yield* readInterviewApplicantIdentity(interviewId);
+    yield* lockOnboardingApplicant(source.applicantId);
+    const current = yield* readInterviewApplicantIdentity(interviewId);
+    if (isKnownSelfInterview(current.linkedApplicantPersonId, personId))
+      return yield* new RecruitmentScopeDenied({ personId, departmentId: current.departmentId });
+    return current;
+  });

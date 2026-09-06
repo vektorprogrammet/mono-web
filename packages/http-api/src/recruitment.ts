@@ -474,7 +474,7 @@ export const ReadInterviewConductEndpoint = HttpApiEndpoint.get(
       personNativeAccess({
         capability: "recruitment.conduct-interview",
         canonicalScopeResolver: "recruitment.interview-by-id",
-        requirements: ["recruitment.assigned-interviewer"],
+        requirements: ["recruitment.assigned-interviewer", "recruitment.not-known-self"],
         decisionTime: "SnapshotRead",
       }),
     ),
@@ -505,7 +505,7 @@ export const FinalizeInterviewEndpoint = HttpApiEndpoint.post(
       personNativeAccess({
         capability: "recruitment.conduct-interview",
         canonicalScopeResolver: "recruitment.interview-by-id",
-        requirements: ["recruitment.assigned-interviewer"],
+        requirements: ["recruitment.assigned-interviewer", "recruitment.not-known-self"],
         decisionTime: "Transaction",
       }),
     ),
@@ -533,7 +533,7 @@ export const CancelInterviewEndpoint = HttpApiEndpoint.post(
       personNativeAccess({
         capability: "recruitment.conduct-interview",
         canonicalScopeResolver: "recruitment.interview-by-id",
-        requirements: ["recruitment.assigned-interviewer"],
+        requirements: ["recruitment.assigned-interviewer", "recruitment.not-known-self"],
         decisionTime: "Transaction",
       }),
     ),
