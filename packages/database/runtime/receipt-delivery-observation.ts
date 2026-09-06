@@ -127,6 +127,9 @@ export const observeReceiptDelivery = async (options: {
   };
   try {
     await pool.query(
+      "INSERT INTO person_contact_profiles(person_id,email,phone) VALUES ('receipt-owner-0095','owner0095@example.invalid','90000000'),('receipt-foreign-0095','foreign0095@example.invalid','90000001')",
+    );
+    await pool.query(
       "INSERT INTO organization_teams(team_id,department_id,name) VALUES ('receipt0097-team','receipt-department-0095','Synthetic economy team')",
     );
     await pool.query(
