@@ -71,7 +71,10 @@ export const observeReceiptDelivery = async (options: {
       "receipt-department-0095": "finance0097@example.invalid",
     }),
   };
-  const operatorDrain = (receiptId: string, selectedEnv = env) =>
+  const operatorDrain = (
+    receiptId: string,
+    selectedEnv: Readonly<Record<string, string | undefined>> = env,
+  ) =>
     new Promise<number>((resolve, reject) => {
       const child = spawn("bun", ["run", "apps/backend/src/receipt/drain-main.ts", receiptId], {
         cwd: options.root,
