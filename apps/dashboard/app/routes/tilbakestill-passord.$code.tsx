@@ -5,6 +5,8 @@ import { setLegacySymfonyPassword } from "../server/legacy-symfony-password-reco
 import type { Route } from "./+types/tilbakestill-passord.$code";
 
 export async function action({ request, params }: Route.ActionArgs) {
+  if (process.env.PASSWORD_RECOVERY_ENGINE !== "legacy-symfony")
+    return { error: "Denne lenken tilhører en annen innloggingstjeneste.", success: false };
   const form = await request.formData();
   const password = form.get("password")?.toString() ?? "";
   const confirmPassword = form.get("confirmPassword")?.toString() ?? "";

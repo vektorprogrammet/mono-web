@@ -1,7 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, Link, useActionData } from "react-router";
-import { requestLegacySymfonyPasswordReset } from "../server/legacy-symfony-password-recovery.server";
+import {
+  createPasswordRecoveryClient,
+  requireNativePasswordRecovery,
+} from "../server/password-recovery.server";
 import type { Route } from "./+types/glemt-passord";
 
 export async function action({ request }: Route.ActionArgs) {
@@ -13,7 +16,8 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   try {
-    await requestLegacySymfonyPasswordReset(email);
+    requireNativePasswordRecovery();
+    await createPasswordRecoveryClient(request).requestPasswordReset(email);
     return { success: true, error: null };
   } catch {
     return { error: "Noe gikk galt. Vennligst prøv igjen.", success: false };
@@ -37,7 +41,8 @@ export default function GlemtPassord() {
         {actionData?.success ? (
           <div className="space-y-4">
             <p className="rounded bg-green-50 p-3 text-center text-green-700 text-sm">
-              Vi har sendt en e-post med instruksjoner for å tilbakestille passordet ditt.
+              Hvis kontoen finnes, vil du motta en e-post med instruksjoner for å tilbakestille
+              passordet.
             </p>
             <Link
               to="/login"

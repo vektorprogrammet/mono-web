@@ -24,6 +24,7 @@ import {
   type IdentityShape,
 } from "@vektorprogrammet/domain/identity";
 import { DatabasePgPool } from "./layers.js";
+import { makePasswordRecovery } from "./password-recovery.js";
 import { makeAuthEngine, type AuthEngineConfig } from "./auth-engine.js";
 import {
   exactRedirectAccepted,
@@ -775,7 +776,8 @@ export const AuthLive = (
   Layer.effectContext(
     Effect.gen(function* () {
       const pool = yield* DatabasePgPool;
-      const engine = makeAuthEngine(config, pool);
+      const recovery = makePasswordRecovery(pool, config);
+      const engine = makeAuthEngine(config, pool, recovery);
       const identity = Identity.of(identityShape(engine, pool, config));
       const identitySnapshot = IdentitySnapshot.of(makeIdentitySnapshotService(config));
       const oauthCredentialAuthority = OAuthCredentialAuthority.of(
@@ -791,7 +793,12 @@ export const AuthLive = (
       const oauthIntrospectionHandler = makeOAuthInternalIntrospectionHandler(engine, pool);
       const authEngine = AuthEngine.of({
         engine,
-        handler: auditedAuthHandler(engine, identity),
+        handler: (request, context) =>
+          recovery.handler(
+            (incoming) => auditedAuthHandler(engine, identity)(incoming, context),
+            request,
+            context,
+          ),
         oauthHandler,
         oauthIntrospectionHandler,
         exactRedirectAccepted: (clientId, redirectUri) =>

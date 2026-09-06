@@ -1,4 +1,5 @@
 import { betterAuth } from "better-auth";
+import type { makePasswordRecovery } from "./password-recovery.js";
 import { Pool } from "pg";
 import { makeOAuthPlugins, type OAuthProviderRuntimeConfig } from "./oauth-config.js";
 
@@ -29,8 +30,18 @@ export const makeAuthPool = (config: AuthEngineConfig) =>
     application_name: "vektorprogrammet-auth",
   });
 
-export const makeAuthEngineOptions = (config: AuthEngineConfig, database: Pool) => ({
+export const makeAuthEngineOptions = (
+  config: AuthEngineConfig,
+  database: Pool,
+  recovery?: ReturnType<typeof makePasswordRecovery>,
+) => ({
   secret: config.secret,
+  // Engine diagnostics can contain credential URLs or database parameters. Owned audit is authoritative.
+  logger: {
+    log: () => {
+      process.stderr.write("Identity engine diagnostic\n");
+    },
+  },
   baseURL: config.oauth.canonicalOrigin,
   basePath: "/api/auth",
   database,
@@ -40,6 +51,11 @@ export const makeAuthEngineOptions = (config: AuthEngineConfig, database: Pool) 
     enabled: true,
     disableSignUp: true,
     minPasswordLength: 12,
+    resetPasswordTokenExpiresIn: 60 * 60,
+    revokeSessionsOnPasswordReset: true,
+    ...(recovery
+      ? { sendResetPassword: recovery.sendResetPassword, onPasswordReset: recovery.onPasswordReset }
+      : {}),
   },
   session: {
     expiresIn: 60 * 60 * 24 * 7,
@@ -64,7 +80,10 @@ export const makeAuthEngineOptions = (config: AuthEngineConfig, database: Pool) 
   },
 });
 
-export const makeAuthEngine = (config: AuthEngineConfig, database: Pool = makeAuthPool(config)) =>
-  betterAuth(makeAuthEngineOptions(config, database));
+export const makeAuthEngine = (
+  config: AuthEngineConfig,
+  database: Pool = makeAuthPool(config),
+  recovery?: ReturnType<typeof makePasswordRecovery>,
+) => betterAuth(makeAuthEngineOptions(config, database, recovery));
 
 export type AuthEngine = ReturnType<typeof makeAuthEngine>;

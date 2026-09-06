@@ -87,6 +87,14 @@ export const decodeIdentitySession = Schema.decodeUnknownEffect(IdentitySession)
 
 export const IdentitySecurityEventKind = Schema.Literals([
   "sign-in-success",
+  "password-reset-request-accepted",
+  "password-reset-request-rejected",
+  "password-reset-mail-enqueue-failed",
+  "password-reset-mail-delivered",
+  "password-reset-mail-failed",
+  "password-reset-success",
+  "password-reset-failure",
+
   "sign-in-failure",
   "sign-out",
   "session-revoked-one",
@@ -101,6 +109,24 @@ export type IdentitySecurityEventKind = typeof IdentitySecurityEventKind.Type;
 
 export const IdentitySecurityOutcomeCode = Schema.Literals([
   "credential-accepted",
+  "mail-enqueued",
+  "identity-undisclosed",
+  "input-invalid",
+  "redirect-not-allowed",
+  "rate-limited",
+  "outbox-unavailable",
+  "provider-acknowledged",
+  "provider-rejected",
+  "provider-unavailable",
+  "delivery-timeout",
+  "verification-invalid",
+  "verification-expired",
+  "authority-mismatch",
+  "password-updated-sessions-revoked",
+  "invalid-token",
+  "password-policy-rejected",
+  "engine-failure",
+
   "credential-rejected",
   "current-session-ended",
   "owned-session-revoked",
