@@ -7,7 +7,6 @@
     "path": "STATE.md",
     "present": true,
     "status": "source-linked",
-    "sourceRevision": "5bb1a9a3b4f2c9207a10154a867330e7bd7bd9d0",
     "note": "A checked-in mission state now records ongoing local implementation. It does not establish production cutover or upgrade the historical capability evidence below."
   },
   "rows": [

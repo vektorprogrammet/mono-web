@@ -59,16 +59,12 @@
               "type": "string",
               "const": "source-linked"
             },
-            "sourceRevision": {
-              "type": "string",
-              "pattern": "^[a-f0-9]{40}$"
-            },
             "note": {
               "type": "string",
               "minLength": 1
             }
           },
-          "required": ["path", "present", "status", "sourceRevision", "note"],
+          "required": ["path", "present", "status", "note"],
           "additionalProperties": false
         }
       ]
