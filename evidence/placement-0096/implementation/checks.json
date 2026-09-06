@@ -39,6 +39,12 @@
       "internalOperations": 1,
       "docsFiles": 96,
       "catalog": "fresh; not semantic parity"
+    },
+    "schemaOwnership": {
+      "testsPassed": 2,
+      "source": "4c1773d4",
+      "scope": "Complete manifest with auth,public search_path, four public tables and zero auth shadows; audited lifecycle regression still passes",
+      "databaseTypecheck": "passed"
     }
   },
   "earlierFailures": {
@@ -47,7 +53,7 @@
   },
   "unsupported": [
     "Production deployment or data migration",
-    "Actual PostgreSQL/API/browser journey: separate acceptance worker owns pending verification",
+    "Actual PostgreSQL/API/browser final journey: separate acceptance worker owns verification; first runtime exposed0032 schema ownership defect repaired in4c1773d4.",
     "Actual notification effects: none introduced",
     "Full semantic legacy parity"
   ],
@@ -73,6 +79,9 @@
     "placement-api-check.log": "c09c9698d3238ee2e32a3e862924c2337d880b988cddc7d33d5f76c58f686d31",
     "placement-docs-check.log": "9741ef16853a3e882aaae5667d5095e325ca806c2758ef9bf096eaacc45b310f",
     "placement-capability-check.log": "b625c469a3cbf9a448521090d78f5a2734a04047f91d40883e583a3cfdaf918a",
-    "placement-frozen.log": "72358cf2e01bf87f458f2fbe995e27975998df3cf12e0941caa18de01c652b0b"
+    "placement-frozen.log": "72358cf2e01bf87f458f2fbe995e27975998df3cf12e0941caa18de01c652b0b",
+    "placement-schema-test.log": "b8df98e92d3d93a5d939004574429ca788e4996d06365f94b43787ab7e60af82",
+    "placement-schema-types.log": "8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92",
+    "placement-schema-format-check.log": "c6941909705998574ee91e93ceabff2e9a7fbe5c6c9758f903098e89a9f8cdec"
   }
 }
