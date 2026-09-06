@@ -26,6 +26,12 @@ product policy. Legacy recommendation reporting, authorized edits to completed
 interviews, co-interviewer privileges, applicant progress and completion receipts
 remain separate parity items; 0101 does not establish all of them.
 
+Finance source correction: legacy administrators can return rejected claims to
+Pending so owners can edit the same claim. [0102](../../design-specs/0102-reopen-rejected-receipt.md)
+restores that correction journey under the existing native scoped approval
+authority, amending the previous terminal-rejection contract. It adds no owner
+self-reopening or notification and does not reopen refunded/withdrawn claims.
+
 Each felt journey gets one frozen design-spec, isolated writer worktree and independently checked committed artifact. Use native agents. Serialize heavyweight execution across lanes. Reuse existing domain authorities, schemas, generated SDK, PostgreSQL and dashboard patterns. No stack replacement.
 
 Required gates: real browser/API/persistence journey and reload; negative authority and concurrency/retry paths; historical/file reconciliation where applicable; observed external effects or explicit historical suppression; exact source revision and cleanup evidence. Unit/static checks are distinct evidence. Reports must expose skipped or unavailable boundaries.
