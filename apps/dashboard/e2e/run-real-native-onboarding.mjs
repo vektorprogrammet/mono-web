@@ -25,7 +25,7 @@ const assertNoSecrets = (text) => {
 const sanitizeArtifacts = async (directory) => {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
-    if (entry.isDirectory()) await sanitizeArtifacts(path);
+    if (entry.isDirectory() && entry.name !== "postgres") await sanitizeArtifacts(path);
     else if (/\.(?:json|txt|md|log)$/.test(entry.name) && entry.name !== "manifest.json") {
       const original = await readFile(path, "utf8");
       const cleaned = safe(original);

@@ -87,8 +87,11 @@ export const drainOnboardingDelivery = (
         const acknowledged =
           yield* sql`UPDATE public.applicant_account_delivery SET state='Delivered',secret=NULL,envelope=NULL,claim_id=NULL,claimed_at=NULL WHERE invitation_id=${row.invitationId} AND claim_id=${claimId} AND state='Claimed' RETURNING invitation_id`;
         if (!acknowledged.length) return "BusyOrComplete" as const;
-      } else
-        yield* sql`UPDATE public.applicant_account_delivery SET state='Pending',claim_id=NULL,claimed_at=NULL WHERE invitation_id=${row.invitationId} AND claim_id=${claimId} AND state='Claimed'`;
+      } else {
+        const retried =
+          yield* sql`UPDATE public.applicant_account_delivery SET state='Pending',claim_id=NULL,claimed_at=NULL WHERE invitation_id=${row.invitationId} AND claim_id=${claimId} AND state='Claimed' RETURNING invitation_id`;
+        if (!retried.length) return "BusyOrComplete" as const;
+      }
       return delivered ? ("Delivered" as const) : ("Pending" as const);
     }),
   );

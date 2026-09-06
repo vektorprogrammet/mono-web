@@ -251,6 +251,7 @@ try {
       201,
     );
   const browserApplication = await submit(persons.applicant.email, "Onboarding");
+  let revokedReplayObserved = false;
   const issue = async (applicationId: string) => {
     const before = await board();
     const key = randomBytes(18).toString("hex");
@@ -260,6 +261,22 @@ try {
     const count = mail.size;
     await expectStatus(await request(boardPath, leader, body, before.etag, key), 200);
     assert.equal(mail.size, count);
+    if (!revokedReplayObserved) {
+      await pool.query(`UPDATE organization_memberships SET is_suspended=true WHERE person_id=$1`, [
+        leaderId,
+      ]);
+      try {
+        await expectStatus(await request(boardPath, leader, body, before.etag, key), 403);
+        await expectStatus(await request(boardPath, leader), 403);
+      } finally {
+        await pool.query(
+          `UPDATE organization_memberships SET is_suspended=false WHERE person_id=$1`,
+          [leaderId],
+        );
+      }
+      revokedReplayObserved = true;
+    }
+
     await expectStatus(
       await request(boardPath, leader, { applicationId, action: "Revoke" }, before.etag, key),
       409,
@@ -268,6 +285,14 @@ try {
   };
   await expectStatus(await request(boardPath, existing), 403);
   await expectStatus(await request(boardPath), 401);
+  await pool.query(
+    `INSERT INTO organization_departments(department_id,name,short_name,email,city,active,revision) VALUES('onboarding-wrong-dept','Other','Other','other@example.invalid','Other',true,0)`,
+  );
+  await expectStatus(
+    await request("/api/onboarding?departmentId=onboarding-wrong-dept", leader),
+    403,
+  );
+
   const existingApplication = await submit("onboarding-existing@example.invalid", "Existing");
   const prior = (
     await pool.query(
@@ -381,6 +406,50 @@ try {
     }),
     400,
   );
+  const rollbackApplication = await submit("onboarding-rollback@example.invalid", "Rollback");
+  const rollbackInvite = await issue(rollbackApplication.applicationId);
+  const rollbackToken = new URL(rollbackInvite.text.split(" ").at(-1)!).hash.slice(1);
+  await pool.query(
+    `CREATE FUNCTION public.reject_onboarding_test_credential() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF EXISTS(SELECT 1 FROM auth."user" WHERE id=NEW."userId" AND email='onboarding-rollback@example.invalid') THEN RAISE EXCEPTION 'synthetic credential write rejection'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_onboarding_test_credential BEFORE INSERT ON auth."account" FOR EACH ROW EXECUTE FUNCTION public.reject_onboarding_test_credential()`,
+  );
+  try {
+    await expectStatus(
+      await request("/api/onboarding/claim", undefined, {
+        mode: "NewAccount",
+        token: rollbackToken,
+        password: persons.applicant.password,
+      }),
+      500,
+    );
+    assert.equal(
+      (
+        await pool.query(
+          `SELECT count(*)::int AS count FROM person_contact_profiles WHERE email='onboarding-rollback@example.invalid'`,
+        )
+      ).rows[0].count,
+      0,
+    );
+    assert.equal(
+      (
+        await pool.query(
+          `SELECT count(*)::int AS count FROM auth."user" WHERE email='onboarding-rollback@example.invalid'`,
+        )
+      ).rows[0].count,
+      0,
+    );
+  } finally {
+    await pool.query(
+      `DROP TRIGGER reject_onboarding_test_credential ON auth."account"; DROP FUNCTION public.reject_onboarding_test_credential()`,
+    );
+  }
+  await expectStatus(
+    await request("/api/onboarding/claim", undefined, {
+      mode: "NewAccount",
+      token: rollbackToken,
+      password: persons.applicant.password,
+    }),
+    200,
+  );
   const expiring = await submit("onboarding-expiry@example.invalid", "Expiry");
   const expiryToken = "onboard_" + randomBytes(32).toString("hex");
   const expiryDigest = createHash("sha256").update(expiryToken).digest("hex");
@@ -489,6 +558,8 @@ try {
     gates: [
       "public application native authority",
       "scoped coordinator invitation and idempotency conflict",
+      "wrong department, inactive issuer and revoked receipt replay denied",
+      "real credential write failure rolls back account/profile/link/consumption",
       "existing claim preserves profile/credentials",
       "email collision rejected",
       "concurrent claim one account",

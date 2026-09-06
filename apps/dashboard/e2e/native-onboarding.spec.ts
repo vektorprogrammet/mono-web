@@ -89,12 +89,9 @@ test("0099 applicant claims an invited account then requests affiliation and rec
   await own.getByRole("button", { name: "Be om tilknytning" }).click();
   await expect(own).toHaveAttribute("data-pending", "false");
   await managerPage.goto(manifest.dashboardOrigin + placements);
-  const affiliation = managerPage
-    .getByRole("article")
-    .filter({
-      has: managerPage.getByRole("heading", { name: "Onboarding Applicant", exact: true }),
-    })
-    .filter({ has: managerPage.getByRole("button", { name: "Godkjenn tilknytning" }) });
+  const affiliation = managerPage.getByRole("article").filter({
+    has: managerPage.getByRole("heading", { name: "Onboarding Applicant", exact: true }),
+  });
   await affiliation.getByRole("button", { name: "Godkjenn tilknytning" }).click();
   await expect(affiliation.locator("form")).toHaveAttribute("data-pending", "false");
   const create = managerPage.getByRole("form", { name: "Ny skoleplassering" });
