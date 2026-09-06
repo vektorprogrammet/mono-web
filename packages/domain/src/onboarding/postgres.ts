@@ -93,15 +93,16 @@ export const claimOnboarding = <E, R>(input: {
           lastName: string;
           email: string;
           phone: string;
-        }>`SELECT i.invitation_id AS "invitationId",i.applicant_id AS "applicantId",a.department_id AS "departmentId",p.first_name AS "firstName",p.last_name AS "lastName",d.recipient AS email,p.phone FROM public.applicant_account_invitations i JOIN public.applicant_account_delivery d USING(invitation_id) JOIN public.admission_applicants p USING(applicant_id) JOIN public.admission_applications a USING(application_id) WHERE i.token_digest=${input.digest} AND i.state='Open' AND i.expires_at>${input.now}::timestamptz AND NOT EXISTS(SELECT 1 FROM public.applicant_account_links l WHERE l.applicant_id=i.applicant_id)`;
+          observedAt: string;
+        }>`SELECT i.invitation_id AS "invitationId",i.applicant_id AS "applicantId",a.department_id AS "departmentId",p.first_name AS "firstName",p.last_name AS "lastName",d.recipient AS email,p.phone,to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "observedAt" FROM public.applicant_account_invitations i JOIN public.applicant_account_delivery d USING(invitation_id) JOIN public.admission_applicants p USING(applicant_id) JOIN public.admission_applications a USING(application_id) WHERE i.token_digest=${input.digest} AND i.state='Open' AND i.expires_at>clock_timestamp() AND NOT EXISTS(SELECT 1 FROM public.applicant_account_links l WHERE l.applicant_id=i.applicant_id)`;
         const row = rows[0];
         if (!row) return yield* fail("onboarding.claim-invalid", 400);
         if (input.identity.mode === "NewAccount")
-          yield* input.provision({ ...row, ...input.identity, now: input.now });
-        yield* sql`INSERT INTO public.applicant_account_links VALUES(${row.applicantId},${input.identity.personId},${input.now},${row.invitationId})`;
+          yield* input.provision({ ...row, ...input.identity, now: row.observedAt });
+        yield* sql`INSERT INTO public.applicant_account_links VALUES(${row.applicantId},${input.identity.personId},${row.observedAt},${row.invitationId})`;
         yield* sql`UPDATE public.applicant_account_invitations SET state='Claimed' WHERE invitation_id=${row.invitationId}`;
         yield* sql`UPDATE public.applicant_account_delivery SET state='Cancelled',secret=NULL,envelope=NULL,claim_id=NULL,claimed_at=NULL WHERE invitation_id=${row.invitationId} AND state<>'Delivered'`;
-        yield* sql`INSERT INTO public.applicant_account_audit VALUES(${row.invitationId + ":claim"},${row.applicantId},${row.invitationId},${input.identity.personId},${input.identity.mode === "NewAccount" ? "NewAccountClaimed" : "ExistingAccountClaimed"},${input.now})`;
+        yield* sql`INSERT INTO public.applicant_account_audit VALUES(${row.invitationId + ":claim"},${row.applicantId},${row.invitationId},${input.identity.personId},${input.identity.mode === "NewAccount" ? "NewAccountClaimed" : "ExistingAccountClaimed"},${row.observedAt})`;
         return { state: "Claimed" as const, departmentId: row.departmentId };
       }),
     ),

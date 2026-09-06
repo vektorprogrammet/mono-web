@@ -42,6 +42,7 @@ export async function action({ request }: Route.ActionArgs) {
     });
     return privateData({
       ok: true,
+      commandId: String(form.get("commandId")),
       message: "Endringen er lagret. Leveringsstatus vises i oversikten.",
     });
   } catch {
@@ -61,10 +62,38 @@ function InvitationForm({
   etag: string;
 }) {
   const fetcher = useFetcher<typeof action>();
-  const [commandId] = useState(() => crypto.randomUUID());
+  const [commandId, setCommandId] = useState(() => crypto.randomUUID());
+  const [signature, setSignature] = useState("");
   const busy = fetcher.state !== "idle";
+  if (fetcher.data?.ok && "commandId" in fetcher.data && fetcher.data.commandId === commandId) {
+    setCommandId(crypto.randomUUID());
+    setSignature("");
+  }
   return (
-    <fetcher.Form method="post" data-pending={busy}>
+    <fetcher.Form
+      method="post"
+      data-pending={busy}
+      onSubmit={(event) => {
+        if (busy || event.currentTarget.dataset.pending === "true") {
+          event.preventDefault();
+          return;
+        }
+        event.currentTarget.dataset.pending = "true";
+        const submitter = (event.nativeEvent as SubmitEvent).submitter;
+        const next = JSON.stringify([
+          item.applicationId,
+          etag,
+          submitter instanceof HTMLButtonElement ? submitter.value : "",
+        ]);
+        if (next !== signature) {
+          const key = crypto.randomUUID();
+          const field = event.currentTarget.elements.namedItem("commandId");
+          if (field instanceof HTMLInputElement) field.value = key;
+          setCommandId(key);
+          setSignature(next);
+        }
+      }}
+    >
       <input type="hidden" name="departmentId" value={departmentId} />
       <input type="hidden" name="applicationId" value={item.applicationId} />
       <input type="hidden" name="etag" value={etag} />

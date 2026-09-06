@@ -109,6 +109,24 @@
       "path": "/api/schools"
     },
     {
+      "group": "onboarding",
+      "method": "POST",
+      "operationId": "onboarding.claim",
+      "path": "/api/onboarding/claim"
+    },
+    {
+      "group": "onboarding",
+      "method": "POST",
+      "operationId": "onboarding.command",
+      "path": "/api/onboarding"
+    },
+    {
+      "group": "onboarding",
+      "method": "GET",
+      "operationId": "onboarding.readBoard",
+      "path": "/api/onboarding"
+    },
+    {
       "group": "organization",
       "method": "POST",
       "operationId": "organization.createDepartment",

@@ -48,6 +48,9 @@ test("0099 applicant claims an invited account then requests affiliation and rec
   });
   await expect(card).toBeVisible();
   await axe(managerPage);
+  await card.getByRole("button", { name: "Trekk tilbake", exact: true }).click();
+  await expect(card.locator("form")).toHaveAttribute("data-pending", "false");
+  await expect(card.getByRole("status")).toContainText("Endringen er lagret");
   await card.getByRole("button", { name: "Inviter", exact: true }).click();
   await expect(card.locator("form")).toHaveAttribute("data-pending", "false");
   await expect(card).toContainText("Levering: Delivered");

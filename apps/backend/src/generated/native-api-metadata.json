@@ -1,8 +1,8 @@
 {
   "counts": {
-    "externalOperations": 65,
+    "externalOperations": 68,
     "internalOperations": 1,
-    "operations": 66
+    "operations": 69
   },
   "operations": [
     {
@@ -707,6 +707,131 @@
         "503"
       ],
       "summary": "List schools",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "ObjectCapability"
+        ],
+        "canonicalScopeResolver": "onboarding.claim",
+        "capabilities": {
+          "one": "onboarding.claim"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "CapabilityHolder"
+        ],
+        "requirements": []
+      },
+      "group": "onboarding",
+      "method": "POST",
+      "operationId": "onboarding.claim",
+      "path": "/api/onboarding/claim",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500"
+      ],
+      "summary": "Claim applicant account invitation",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "onboarding.application-department",
+        "capabilities": {
+          "one": "onboarding.manage"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "onboarding",
+      "method": "POST",
+      "operationId": "onboarding.command",
+      "path": "/api/onboarding",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500"
+      ],
+      "summary": "Invite applicant or revoke invitation",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "onboarding.application-department",
+        "capabilities": {
+          "one": "onboarding.manage"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "onboarding",
+      "method": "GET",
+      "operationId": "onboarding.readBoard",
+      "path": "/api/onboarding",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500"
+      ],
+      "summary": "Read applicant onboarding",
       "visibility": "external"
     },
     {

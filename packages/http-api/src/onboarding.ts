@@ -7,7 +7,7 @@ import {
 } from "@vektorprogrammet/domain/onboarding";
 import { makeAccessSpec, CapabilityTypeId } from "@vektorprogrammet/domain/authz";
 import { Schema } from "effect";
-import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, personNativeAccess } from "./access.js";
 import { PersonSecurity, operationAnnotations } from "./common.js";
 import {
@@ -111,4 +111,10 @@ export const ClaimOnboardingEndpoint = HttpApiEndpoint.post("claim", "/api/onboa
 export class OnboardingApi extends HttpApiGroup.make("onboarding")
   .add(ReadOnboardingEndpoint)
   .add(CommandOnboardingEndpoint)
-  .add(ClaimOnboardingEndpoint) {}
+  .add(ClaimOnboardingEndpoint)
+  .annotateMerge(
+    OpenApi.annotations({
+      title: "Applicant account onboarding",
+      description: "Explicit applicant identity proof and account linking.",
+    }),
+  ) {}

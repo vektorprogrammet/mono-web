@@ -193,8 +193,28 @@ export const projectVektorAccess = (spec: AccessSpec): VektorAccessProjection =>
 
 type CapabilityTypeValue = (typeof CAPABILITY_TYPE_IDS)[number];
 const capabilityTypeValue = (id: CapabilityTypeId): CapabilityTypeValue => id;
-const objectCapabilitySecurityScheme: Partial<Record<CapabilityTypeValue, string>> = {
+type BodyCapabilityProjection = {
+  readonly bodyPointer: string;
+  readonly required: true;
+  readonly conditionalCredential: {
+    readonly when: { readonly pointer: string; readonly equals: string };
+    readonly principalKind: "Person";
+    readonly mechanisms: ReadonlyArray<"BetterAuthCookie" | "OAuthUserBearer">;
+  };
+};
+const objectCapabilitySecurityScheme: Partial<
+  Record<CapabilityTypeValue, string | BodyCapabilityProjection>
+> = {
   "contact.submit": "contactBackend",
+  "onboarding.claim": {
+    bodyPointer: "/token",
+    required: true,
+    conditionalCredential: {
+      when: { pointer: "/mode", equals: "ExistingAccount" },
+      principalKind: "Person",
+      mechanisms: ["BetterAuthCookie", "OAuthUserBearer"],
+    },
+  },
   "recruitment.invitation-response": "invitationCapability",
 };
 export const assertAccessProjectionRegistryParity = (): void => {
@@ -210,7 +230,7 @@ export const assertAccessProjectionRegistryParity = (): void => {
   }
 };
 assertAccessProjectionRegistryParity();
-const securitySchemeFor = (mechanism: CredentialMechanism): string | undefined => {
+const securitySchemeFor = (mechanism: CredentialMechanism): string | null | undefined => {
   switch (mechanism._tag) {
     case "None":
       return undefined;
@@ -227,7 +247,7 @@ const securitySchemeFor = (mechanism: CredentialMechanism): string | undefined =
           `object capability ${mechanism.capabilityType} has no OpenAPI security scheme`,
         );
       }
-      return scheme;
+      return typeof scheme === "string" ? scheme : null;
     }
   }
 };
@@ -238,12 +258,12 @@ export const projectCredentialSecurity = (spec: AccessSpec): OpenApiSecurityProj
   if (spec.acceptedCredentials.length === 1 && spec.acceptedCredentials[0]?._tag === "None") {
     return [];
   }
-  return spec.acceptedCredentials.map((mechanism) => {
+  return spec.acceptedCredentials.flatMap((mechanism) => {
     const scheme = securitySchemeFor(mechanism);
     if (scheme === undefined) {
       throw new TypeError("None cannot be combined with another credential mechanism");
     }
-    return { [scheme]: [] };
+    return scheme === null ? [] : [{ [scheme]: [] }];
   });
 };
 
@@ -255,6 +275,26 @@ export const accessSpecAnnotations = (input: unknown): Context.Context<AccessSpe
       override: {
         "x-vektor-access": projectVektorAccess(spec),
         security: projectCredentialSecurity(spec),
+        ...Object.fromEntries(
+          spec.acceptedCredentials.flatMap((mechanism) => {
+            if (mechanism._tag !== "ObjectCapability") return [];
+            const projection =
+              objectCapabilitySecurityScheme[capabilityTypeValue(mechanism.capabilityType)];
+            return typeof projection === "object"
+              ? [
+                  [
+                    "x-vektor-body-capability",
+                    {
+                      type: mechanism.capabilityType,
+                      pointer: projection.bodyPointer,
+                      required: projection.required,
+                    },
+                  ],
+                  ["x-vektor-conditional-credential", projection.conditionalCredential],
+                ]
+              : [];
+          }),
+        ),
       },
     }),
   );

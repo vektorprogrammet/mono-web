@@ -328,7 +328,7 @@
                 "interviewer": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_48"
+                      "$ref": "#/components/schemas/Objects_67"
                     },
                     {
                       "type": "null"
@@ -338,7 +338,7 @@
                 "interviewSchema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_49"
+                      "$ref": "#/components/schemas/Objects_68"
                     },
                     {
                       "type": "null"
@@ -392,13 +392,13 @@
           },
           "interviewers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_48"
+              "$ref": "#/components/schemas/Objects_67"
             },
             "type": "array"
           },
           "interviewSchemas": {
             "items": {
-              "$ref": "#/components/schemas/Objects_49"
+              "$ref": "#/components/schemas/Objects_68"
             },
             "type": "array"
           }
@@ -519,7 +519,7 @@
         "properties": {
           "answers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_52"
+              "$ref": "#/components/schemas/Objects_71"
             },
             "type": "array"
           },
@@ -619,7 +619,7 @@
           "score": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Objects_53"
+                "$ref": "#/components/schemas/Objects_72"
               },
               {
                 "type": "null"
@@ -1250,12 +1250,12 @@
         "properties": {
           "answers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_52"
+              "$ref": "#/components/schemas/Objects_71"
             },
             "type": "array"
           },
           "score": {
-            "$ref": "#/components/schemas/Objects_53"
+            "$ref": "#/components/schemas/Objects_72"
           }
         },
         "required": [
@@ -3590,6 +3590,976 @@
       },
       "Objects_47": {
         "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "request.malformed"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The request is malformed."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              400
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Malformed request"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:request.malformed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_48": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "precondition.invalid"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "A conditional request header is malformed."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              400
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Invalid precondition"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:precondition.invalid"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_49": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "idempotency-key.invalid"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The Idempotency-Key header is invalid."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              400
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Invalid idempotency key"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:idempotency-key.invalid"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_5": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "substitute.inactive"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The application is not in the substitute pool."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              400
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Substitute inactive"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:substitute.inactive"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_50": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "onboarding.claim-invalid"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The invitation is invalid, expired or already used."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              400
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Invitation cannot be claimed"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:onboarding.claim-invalid"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_51": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "request.too-large"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The request body exceeds the permitted size."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              413
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Request too large"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:request.too-large"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_52": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "validation.failed"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The request contains invalid semantic values."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              422
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Validation failed"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:validation.failed"
+            ],
+            "type": "string"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/Objects_8"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail",
+          "validation"
+        ],
+        "type": "object"
+      },
+      "Objects_53": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "credential.invalid"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The supplied credential is invalid."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              401
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Invalid credential"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:credential.invalid"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_54": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "authority.denied"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The authenticated principal is not permitted to perform this operation."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              403
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Authority denied"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:authority.denied"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_55": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "resource.not-found"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The requested resource was not found."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              404
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Resource not found"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:resource.not-found"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_56": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "precondition.required"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "This operation requires an If-Match header."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              428
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Precondition required"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:precondition.required"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_57": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "precondition.failed"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The selected representation changed."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              412
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Precondition failed"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:precondition.failed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_58": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "idempotency.in-flight"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "A request with this idempotency identity is still in progress."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              409
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Idempotent request in progress"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:idempotency.in-flight"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_59": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "idempotency.digest-conflict"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "This idempotency key identifies a different semantic request."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              409
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Idempotency conflict"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:idempotency.digest-conflict"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_6": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "request.too-large"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The request body exceeds the permitted size."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              413
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Request too large"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:request.too-large"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_60": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "idempotency.response-expired"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The stored response for this idempotency identity has expired."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              409
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Idempotent response expired"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:idempotency.response-expired"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_61": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "transaction.conflict"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "Another transaction changed the selected state. Refresh before retrying."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              409
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Concurrent transaction conflict"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:transaction.conflict"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_62": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "onboarding.sign-in-required"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "Authenticate the existing account before linking this applicant."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              409
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Sign in to the existing account"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:onboarding.sign-in-required"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_63": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "onboarding.already-linked"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "This applicant already has an immutable account association."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              409
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Applicant already linked"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:onboarding.already-linked"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_64": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "internal.error"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The server encountered an unexpected error."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              500
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Internal error"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:internal.error"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_65": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "media-type.unsupported"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The request media type is not supported for this operation."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              415
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Unsupported media type"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:media-type.unsupported"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_66": {
+        "additionalProperties": false,
         "examples": [
           {
             "contactPerson": "Heidi Holm",
@@ -3690,7 +4660,7 @@
         ],
         "type": "object"
       },
-      "Objects_48": {
+      "Objects_67": {
         "additionalProperties": false,
         "properties": {
           "displayName": {
@@ -3711,7 +4681,7 @@
         ],
         "type": "object"
       },
-      "Objects_49": {
+      "Objects_68": {
         "additionalProperties": false,
         "properties": {
           "active": {
@@ -3754,53 +4724,7 @@
         ],
         "type": "object"
       },
-      "Objects_5": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "substitute.inactive"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The application is not in the substitute pool."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              400
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Substitute inactive"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:substitute.inactive"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_50": {
+      "Objects_69": {
         "additionalProperties": false,
         "properties": {
           "displayName": {
@@ -3829,7 +4753,57 @@
         ],
         "type": "object"
       },
-      "Objects_51": {
+      "Objects_7": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "validation.failed"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The request contains invalid semantic values."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              422
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Validation failed"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:validation.failed"
+            ],
+            "type": "string"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/Objects_8"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail",
+          "validation"
+        ],
+        "type": "object"
+      },
+      "Objects_70": {
         "additionalProperties": false,
         "properties": {
           "applicantId": {
@@ -3861,7 +4835,7 @@
         ],
         "type": "object"
       },
-      "Objects_52": {
+      "Objects_71": {
         "additionalProperties": false,
         "properties": {
           "answer": {
@@ -3887,7 +4861,7 @@
         ],
         "type": "object"
       },
-      "Objects_53": {
+      "Objects_72": {
         "additionalProperties": false,
         "properties": {
           "explanatoryPower": {
@@ -3907,7 +4881,7 @@
         ],
         "type": "object"
       },
-      "Objects_54": {
+      "Objects_73": {
         "additionalProperties": false,
         "properties": {
           "articleId": {
@@ -4010,102 +4984,6 @@
           "canRevise",
           "canPublish",
           "authorDisplayName"
-        ],
-        "type": "object"
-      },
-      "Objects_6": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "request.too-large"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The request body exceeds the permitted size."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              413
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Request too large"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:request.too-large"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_7": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "validation.failed"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The request contains invalid semantic values."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              422
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Validation failed"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:validation.failed"
-            ],
-            "type": "string"
-          },
-          "validation": {
-            "$ref": "#/components/schemas/Objects_8"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail",
-          "validation"
         ],
         "type": "object"
       },
@@ -4354,6 +5232,91 @@
           "status",
           "code",
           "detail"
+        ],
+        "type": "object"
+      },
+      "OnboardingResource": {
+        "additionalProperties": false,
+        "properties": {
+          "departmentId": {
+            "type": "string"
+          },
+          "etag": {
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "applicationId": {
+                  "type": "string"
+                },
+                "delivery": {
+                  "enum": [
+                    "Absent",
+                    "Pending",
+                    "Claimed",
+                    "Delivered",
+                    "Cancelled"
+                  ],
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "firstName": {
+                  "type": "string"
+                },
+                "invitationId": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "lastName": {
+                  "type": "string"
+                },
+                "state": {
+                  "enum": [
+                    "Absent",
+                    "Open",
+                    "Revoked",
+                    "Claimed",
+                    "Expired",
+                    "Linked"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "applicationId",
+                "firstName",
+                "lastName",
+                "invitationId",
+                "state",
+                "delivery",
+                "expiresAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "departmentId",
+          "items",
+          "etag"
         ],
         "type": "object"
       },
@@ -5827,7 +6790,7 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_51"
+                "$ref": "#/components/schemas/Objects_70"
               },
               "applicationId": {
                 "type": "string"
@@ -5839,7 +6802,7 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_50"
+                "$ref": "#/components/schemas/Objects_69"
               },
               "interviewId": {
                 "type": "string"
@@ -5884,7 +6847,7 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_51"
+                "$ref": "#/components/schemas/Objects_70"
               },
               "applicationId": {
                 "type": "string"
@@ -5896,7 +6859,7 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_50"
+                "$ref": "#/components/schemas/Objects_69"
               },
               "interviewId": {
                 "type": "string"
@@ -5945,7 +6908,7 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_51"
+                "$ref": "#/components/schemas/Objects_70"
               },
               "applicationId": {
                 "type": "string"
@@ -5957,7 +6920,7 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_50"
+                "$ref": "#/components/schemas/Objects_69"
               },
               "interviewId": {
                 "type": "string"
@@ -6016,7 +6979,7 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_51"
+                "$ref": "#/components/schemas/Objects_70"
               },
               "applicationId": {
                 "type": "string"
@@ -6028,7 +6991,7 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_50"
+                "$ref": "#/components/schemas/Objects_69"
               },
               "interviewId": {
                 "type": "string"
@@ -6084,13 +7047,13 @@
         "properties": {
           "activeSchools": {
             "items": {
-              "$ref": "#/components/schemas/Objects_47"
+              "$ref": "#/components/schemas/Objects_66"
             },
             "type": "array"
           },
           "inactiveSchools": {
             "items": {
-              "$ref": "#/components/schemas/Objects_47"
+              "$ref": "#/components/schemas/Objects_66"
             },
             "type": "array"
           }
@@ -15305,7 +16268,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Objects_54"
+                  "$ref": "#/components/schemas/Objects_73"
                 }
               }
             },
@@ -16194,7 +17157,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Objects_54"
+                  "$ref": "#/components/schemas/Objects_73"
                 }
               }
             },
@@ -26111,6 +27074,1462 @@
             "Anonymous"
           ],
           "requirements": []
+        },
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      }
+    },
+    "/api/onboarding": {
+      "get": {
+        "description": "Scoped applicant names and invitation states.",
+        "operationId": "onboarding.readBoard",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "departmentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingResource"
+                }
+              }
+            },
+            "description": "OnboardingResource",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_47"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_48"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_49"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_50"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/Objects_53"
+                        }
+                      ]
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionUnauthorizedProblem"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Closed RFC 9457 error union for SessionUnauthorizedProblem.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_3"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_4"
+                }
+              },
+              "www-authenticate": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_54"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_55"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_58"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_59"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_60"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_61"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_62"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_63"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "retry-after": {
+                "required": false,
+                "schema": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "1"
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_57"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_51"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_65"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_52"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_56"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_64"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieHeader": []
+          },
+          {
+            "oauthUserBearer": []
+          }
+        ],
+        "summary": "Read applicant onboarding",
+        "tags": [
+          "Applicant account onboarding"
+        ],
+        "x-vektor-access": {
+          "acceptedCredentials": [
+            "BetterAuthCookie",
+            "OAuthUserBearer"
+          ],
+          "canonicalScopeResolver": "onboarding.application-department",
+          "capabilities": {
+            "one": "onboarding.manage"
+          },
+          "concealment": {
+            "mode": "Reveal",
+            "stages": []
+          },
+          "decisionTime": "SnapshotRead",
+          "exposure": "External",
+          "principalKinds": [
+            "Person"
+          ],
+          "requirements": []
+        },
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      },
+      "post": {
+        "description": "No arbitrary recipient or target Person selector.",
+        "operationId": "onboarding.command",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "if-match",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "departmentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "enum": [
+                      "Issue",
+                      "Revoke",
+                      "RetryDelivery"
+                    ],
+                    "type": "string"
+                  },
+                  "applicationId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "applicationId",
+                  "action"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingResource"
+                }
+              }
+            },
+            "description": "OnboardingResource",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "etag": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_47"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_48"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_49"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_50"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/Objects_53"
+                        }
+                      ]
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionUnauthorizedProblem"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Closed RFC 9457 error union for SessionUnauthorizedProblem.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_3"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_4"
+                }
+              },
+              "www-authenticate": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_54"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_55"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_58"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_59"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_60"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_61"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_62"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_63"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "retry-after": {
+                "required": false,
+                "schema": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "1"
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_57"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_51"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_65"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_52"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_56"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_64"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieHeader": []
+          },
+          {
+            "oauthUserBearer": []
+          }
+        ],
+        "summary": "Invite applicant or revoke invitation",
+        "tags": [
+          "Applicant account onboarding"
+        ],
+        "x-vektor-access": {
+          "acceptedCredentials": [
+            "BetterAuthCookie",
+            "OAuthUserBearer"
+          ],
+          "canonicalScopeResolver": "onboarding.application-department",
+          "capabilities": {
+            "one": "onboarding.manage"
+          },
+          "concealment": {
+            "mode": "Reveal",
+            "stages": []
+          },
+          "decisionTime": "Transaction",
+          "exposure": "External",
+          "principalKinds": [
+            "Person"
+          ],
+          "requirements": []
+        },
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      }
+    },
+    "/api/onboarding/claim": {
+      "post": {
+        "description": "A purpose-specific token in the body is required; existing-account mode additionally requires an authenticated Person.",
+        "operationId": "onboarding.claim",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "mode": {
+                        "enum": [
+                          "NewAccount"
+                        ],
+                        "type": "string"
+                      },
+                      "password": {
+                        "allOf": [
+                          {
+                            "minLength": 12
+                          },
+                          {
+                            "maxLength": 128
+                          }
+                        ],
+                        "type": "string"
+                      },
+                      "token": {
+                        "allOf": [
+                          {
+                            "pattern": "^onboard_[a-f0-9]{64}$"
+                          }
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "mode",
+                      "token",
+                      "password"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "mode": {
+                        "enum": [
+                          "ExistingAccount"
+                        ],
+                        "type": "string"
+                      },
+                      "token": {
+                        "allOf": [
+                          {
+                            "pattern": "^onboard_[a-f0-9]{64}$"
+                          }
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "mode",
+                      "token"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "departmentId": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "enum": [
+                        "Claimed"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "departmentId"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_47"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_48"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_49"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_50"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_53"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              },
+              "www-authenticate": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_54"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_55"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_58"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_59"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_60"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_61"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_62"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_63"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "retry-after": {
+                "required": false,
+                "schema": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "1"
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_57"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_51"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_65"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_52"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_56"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_64"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "summary": "Claim applicant account invitation",
+        "tags": [
+          "Applicant account onboarding"
+        ],
+        "x-vektor-access": {
+          "acceptedCredentials": [
+            "ObjectCapability"
+          ],
+          "canonicalScopeResolver": "onboarding.claim",
+          "capabilities": {
+            "one": "onboarding.claim"
+          },
+          "concealment": {
+            "mode": "Reveal",
+            "stages": []
+          },
+          "decisionTime": "Transaction",
+          "exposure": "External",
+          "principalKinds": [
+            "CapabilityHolder"
+          ],
+          "requirements": []
+        },
+        "x-vektor-body-capability": {
+          "pointer": "/token",
+          "required": true,
+          "type": "onboarding.claim"
+        },
+        "x-vektor-conditional-credential": {
+          "mechanisms": [
+            "BetterAuthCookie",
+            "OAuthUserBearer"
+          ],
+          "principalKind": "Person",
+          "when": {
+            "equals": "ExistingAccount",
+            "pointer": "/mode"
+          }
         },
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
@@ -63958,6 +66377,10 @@
     {
       "description": "Explicit affiliation and existing-volunteer school placement.",
       "name": "Volunteer placement"
+    },
+    {
+      "description": "Explicit applicant identity proof and account linking.",
+      "name": "Applicant account onboarding"
     },
     {
       "description": "Public visitor contact via authenticated homepage SSR ingress.",

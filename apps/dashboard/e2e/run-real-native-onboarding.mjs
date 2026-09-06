@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, readdir } from "node:fs/promises";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -12,6 +12,29 @@ const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const manifestPath = process.env.ONBOARDING_JOURNEY_MANIFEST;
 assert.ok(manifestPath, "ONBOARDING_JOURNEY_MANIFEST is required");
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+const secrets = [manifest.mailboxToken, ...Object.values(manifest.persons).map((p) => p.password)];
+const safe = (text) => {
+  let value = text.replace(/onboard_[a-f0-9]{64}/g, "[REDACTED]");
+  for (const secret of secrets)
+    if (secret?.length > 4) value = value.split(secret).join("[REDACTED]");
+  return value;
+};
+const assertNoSecrets = (text) => {
+  if (safe(text) !== text) throw new Error("Retained artifacts contain credentials");
+};
+const sanitizeArtifacts = async (directory) => {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) await sanitizeArtifacts(path);
+    else if (/\.(?:json|txt|md|log)$/.test(entry.name) && entry.name !== "manifest.json") {
+      const original = await readFile(path, "utf8");
+      const cleaned = safe(original);
+      if (cleaned !== original) await writeFile(path, cleaned, { mode: 0o600 });
+      assertNoSecrets(cleaned);
+    }
+  }
+};
+
 for (const origin of [manifest.backendOrigin, manifest.dashboardOrigin]) {
   const url = new URL(origin);
   assert.equal(url.hostname, "127.0.0.1");
@@ -61,7 +84,7 @@ const run = (command, args, cwd) =>
     child.once("error", reject);
     child.once("exit", () => children.delete(child));
     child.once("exit", (code) => {
-      writeFile(logPath, output.replace(/onboard_[a-f0-9]{64}/g, "[REDACTED]"), {
+      writeFile(logPath, safe(output), {
         mode: 0o600,
       }).then(
         () =>
@@ -139,6 +162,7 @@ try {
       "test",
       "e2e/native-onboarding.spec.ts",
       "--trace=off",
+      "--output=" + join(manifest.artifacts, "playwright-output"),
       "--project=chromium",
       "--workers=1",
       "--retries=0",
@@ -147,14 +171,16 @@ try {
     dashboardRoot,
   );
 } catch (cause) {
-  failure = cause;
+  failure = new Error(safe(cause instanceof Error ? cause.message : "Browser journey failed"));
 } finally {
   await Promise.all([...children, dashboard].map(stop));
-  await writeFile(join(manifest.artifacts, "dashboard-runtime.log"), output, { mode: 0o600 });
+  await writeFile(join(manifest.artifacts, "dashboard-runtime.log"), safe(output), { mode: 0o600 });
 }
+await sanitizeArtifacts(manifest.artifacts);
 if (failure) throw failure;
 const evidencePath = join(manifest.artifacts, "browser-evidence.json");
 const evidence = JSON.parse(await readFile(evidencePath, "utf8"));
+assertNoSecrets(JSON.stringify(evidence));
 assert.equal(evidence.passed, true);
 await writeFile(
   evidencePath,

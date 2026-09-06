@@ -198,6 +198,30 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     person("placements.manage", "placements.explicit-department", [], "Transaction"),
   ],
   [
+    "GET",
+    "/api/onboarding",
+    "onboarding.readBoard",
+    person("onboarding.manage", "onboarding.application-department", [], "SnapshotRead"),
+  ],
+  [
+    "POST",
+    "/api/onboarding",
+    "onboarding.command",
+    person("onboarding.manage", "onboarding.application-department", [], "Transaction"),
+  ],
+  [
+    "POST",
+    "/api/onboarding/claim",
+    "onboarding.claim",
+    expectedAccess({
+      credentials: ["ObjectCapability"],
+      principals: ["CapabilityHolder"],
+      capability: "onboarding.claim",
+      resolver: "onboarding.claim",
+      decisionTime: "Transaction",
+    }),
+  ],
+  [
     "POST",
     "/api/contact-messages",
     "contact.submitContactMessage",
@@ -644,6 +668,7 @@ const createdMutationOperations = [
 ] as const;
 
 const entityMutationOperations = [
+  "onboarding.command",
   "placements.commandOwnAffiliation",
   "placements.commandBoard",
   "substitutes.activate",
@@ -677,6 +702,8 @@ const plainNoContentMutationOperations = [
 ] as const;
 
 const privateReadOperations = [
+  "onboarding.readBoard",
+  "onboarding.claim",
   "placements.listScopes",
   "placements.readOwnAffiliation",
   "placements.readBoard",
@@ -818,6 +845,34 @@ describe("native API reflection", () => {
     );
   });
 
+  it("documents mandatory body proof and conditional Person proof without inventing a header scheme", () => {
+    const spec = OpenApi.fromApi(ExternalNativeApi);
+    const claim = spec.paths["/api/onboarding/claim"]!.post! as unknown as Record<string, unknown>;
+    expect(claim.security).toEqual([]);
+    expect(claim["x-vektor-body-capability"]).toEqual({
+      type: "onboarding.claim",
+      pointer: "/token",
+      required: true,
+    });
+    expect(claim["x-vektor-conditional-credential"]).toEqual({
+      when: { pointer: "/mode", equals: "ExistingAccount" },
+      principalKind: "Person",
+      mechanisms: ["BetterAuthCookie", "OAuthUserBearer"],
+    });
+    expect(claim["x-vektor-access"]).toMatchObject({
+      acceptedCredentials: ["ObjectCapability"],
+      principalKinds: ["CapabilityHolder"],
+      capabilities: { one: "onboarding.claim" },
+    });
+    const body = claim.requestBody as {
+      content: Record<string, { schema: { anyOf: Array<{ required: Array<string> }> } }>;
+    };
+    expect(
+      body.content["application/json"]!.schema.anyOf.every((option) =>
+        option.required.includes("token"),
+      ),
+    ).toBe(true);
+  });
   it("keeps access projection registries aligned with the domain roots", () => {
     expect(() => assertAccessProjectionRegistryParity()).not.toThrow();
   });
@@ -956,6 +1011,7 @@ describe("native API reflection", () => {
       ["contact", "Public contact"],
       ["substitutes", "Substitute pool"],
       ["placements", "Volunteer placement"],
+      ["onboarding", "Applicant account onboarding"],
       ["admissions", "Admissions"],
       ["content", "Content and news"],
       ["directory", "Directories"],

@@ -105,3 +105,10 @@ older account-claim tokens for that Applicant. Explicit revocation targets only
 the selected application's invitation. Boards show that application's invitation
 and the applicant-global Linked fact; one department cannot revoke another
 application's invitation through a shared applicant record.
+
+The claim body token is an ObjectCapability in x-vektor-access and a required
+request-schema field. OpenAPI security schemes cannot represent body credentials;
+its standard security array is empty, which here means no standard scheme can
+express the credential (not anonymous authority). x-vektor-body-capability gives
+/token and x-vektor-conditional-credential requires authenticated Person identity
+when /mode is ExistingAccount. The backend enforces both proofs before linking.

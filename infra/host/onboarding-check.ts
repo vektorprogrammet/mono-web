@@ -1,4 +1,3 @@
-import { createPromiseClient } from "../../packages/sdk/src/promise.js";
 import { createServer as httpServer } from "node:http";
 /** 0099 real local API + browser acceptance. Reuses native identity seed and owned process lifecycle. */
 import assert from "node:assert/strict";
@@ -14,8 +13,6 @@ const root = new URL("../../", import.meta.url).pathname;
 const requireDatabase = createRequire(
   new URL("../../packages/database/package.json", import.meta.url),
 );
-const requireApi = createRequire(new URL("../../packages/http-api/package.json", import.meta.url));
-const { Schema } = await import(requireApi.resolve("effect"));
 const { Pool } = requireDatabase("pg");
 const run = (command: string, args: string[], env = process.env, timeout = 60_000) =>
   execFileSync(command, args, { cwd: root, env, encoding: "utf8", timeout });
@@ -29,6 +26,36 @@ assert.equal(run("git", ["status", "--porcelain"]).trim(), "", "requires committ
 const artifacts = await mkdtemp(join(tmpdir(), "vektor-onboarding-0099-"));
 const children: ReturnType<typeof spawn>[] = [];
 const outputs: string[] = [];
+const secrets = new Set<string>();
+const safe = (text: string) => {
+  let value = text.replace(/onboard_[a-f0-9]{64}/g, "[REDACTED]");
+  for (const secret of secrets)
+    if (secret.length > 4) value = value.split(secret).join("[REDACTED]");
+  return value;
+};
+const assertNoSecrets = (text: string) => {
+  if (safe(text) !== text) throw new Error("Retained evidence contains credentials");
+};
+const runBrowser = async (args: string[], env: NodeJS.ProcessEnv) => {
+  const child = spawn("bun", args, { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
+  children.push(child);
+  let output = "";
+  child.stdout?.on("data", (chunk) => (output += String(chunk)));
+  child.stderr?.on("data", (chunk) => (output += String(chunk)));
+  const timer = setTimeout(() => {
+    void stopPreviewScenarioBackend(child);
+  }, 300000);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      child.once("error", () => reject(new Error("Browser child failed to start")));
+      child.once("exit", (code) =>
+        code === 0 ? resolve() : reject(new Error("Browser journey failed: " + safe(output))),
+      );
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+};
 const start = (command: string, args: string[], env = process.env) => {
   const child = spawn(command, args, { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
   children.push(child);
@@ -52,6 +79,7 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 let pool: InstanceType<typeof Pool> | undefined;
 let evidence: Record<string, unknown> | undefined;
 const mailboxToken = randomBytes(32).toString("hex");
+secrets.add(mailboxToken);
 const mail = new Map<string, { deliveryId: string; text: string; to: string }>();
 let mailbox: ReturnType<typeof httpServer> | undefined;
 let attempts = 0;
@@ -65,6 +93,7 @@ try {
   run("initdb", ["-D", pgDir, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"]);
   start("postgres", ["-D", pgDir, "-p", String(pgPort), "-h", "127.0.0.1", "-k", artifacts]);
   const postgresUrl = `postgres://postgres@127.0.0.1:${pgPort}/postgres`;
+  secrets.add(postgresUrl);
   pool = new Pool({ connectionString: postgresUrl });
   for (let n = 0; ; n++) {
     try {
@@ -125,6 +154,7 @@ try {
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     JOURNEY_SEED_PG_URL: postgresUrl,
   };
+  secrets.add(environment.BETTER_AUTH_SECRET);
   for (const key of Object.keys(environment))
     if (
       key.startsWith("CONTACT_") ||
@@ -135,6 +165,7 @@ try {
   const departmentId = "department-native-journey-0049";
   const semesterId = "semester-native-journey-0049";
   const leaderId = "journey-rec-leader-0049";
+  secrets.add(environment.BETTER_AUTH_SECRET);
   const persons = {
     leader: { email: "lina.leader@example.invalid", password: "journey-secret-0123456789abcdef" },
     existing: {
@@ -146,6 +177,7 @@ try {
       password: "onboarding-browser-password-0099",
     },
   };
+  for (const person of Object.values(persons)) secrets.add(person.password);
   await pool.query(
     `DELETE FROM organization_global_administrator_grants;INSERT INTO schools_directory_schools(school_id,name,contact_person,email,phone,language,active,revision) OVERRIDING SYSTEM VALUE VALUES(995,'Onboarding school','Contact','school@example.invalid','12345678','Norwegian',true,0);INSERT INTO schools_directory_departments VALUES(995,'${departmentId}',0);`,
   );
@@ -343,6 +375,57 @@ try {
     }),
     400,
   );
+  const expiring = await submit("onboarding-expiry@example.invalid", "Expiry");
+  const expiryToken = "onboard_" + randomBytes(32).toString("hex");
+  const expiryDigest = createHash("sha256").update(expiryToken).digest("hex");
+  await pool.query(
+    `INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) SELECT 'expiry-race',application_id,applicant_id,$2,clock_timestamp()+interval '3 seconds','Open',$3,clock_timestamp()-interval '24 hours'+interval '3 seconds' FROM admission_applications WHERE application_id=$1`,
+    [expiring.applicationId, expiryDigest, leaderId],
+  );
+  await pool.query(
+    `INSERT INTO applicant_account_delivery(invitation_id,state,recipient) VALUES('expiry-race','Delivered','onboarding-expiry@example.invalid')`,
+  );
+  const holder = await pool.connect();
+  await holder.query("BEGIN");
+  await holder.query(
+    `SELECT p.applicant_id FROM admission_applicants p JOIN admission_applications a USING(applicant_id) WHERE a.application_id=$1 FOR UPDATE OF p`,
+    [expiring.applicationId],
+  );
+  try {
+    const delayed = request("/api/onboarding/claim", undefined, {
+      mode: "NewAccount",
+      token: expiryToken,
+      password: persons.applicant.password,
+    });
+    for (let n = 0; ; n++) {
+      const waiting = await pool.query(
+        `SELECT count(*)::int AS count FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%admission_applicants%'`,
+      );
+      if (waiting.rows[0].count > 0) break;
+      if (n > 100) throw new Error("Claim did not wait on applicant lock");
+      await delay(20);
+    }
+    for (;;) {
+      const expired = await pool.query(
+        `SELECT expires_at<clock_timestamp() AS expired FROM applicant_account_invitations WHERE invitation_id='expiry-race'`,
+      );
+      if (expired.rows[0].expired) break;
+      await delay(30);
+    }
+    await holder.query("COMMIT");
+    await expectStatus(await delayed, 400);
+  } finally {
+    await holder.query("ROLLBACK");
+    holder.release();
+  }
+  assert.equal(
+    (
+      await pool.query(
+        `SELECT count(*)::int AS count FROM auth."user" WHERE email='onboarding-expiry@example.invalid'`,
+      )
+    ).rows[0].count,
+    0,
+  );
   const manifest = {
     revision,
     backendOrigin,
@@ -360,12 +443,10 @@ try {
   await writeFile(manifestPath, JSON.stringify(manifest), { mode: 0o600 });
   let browserEvidence: unknown = null;
   if (mode === "--browser") {
-    run(
-      "bun",
-      ["apps/dashboard/e2e/run-real-native-onboarding.mjs"],
-      { ...environment, ONBOARDING_JOURNEY_MANIFEST: manifestPath },
-      300000,
-    );
+    await runBrowser(["apps/dashboard/e2e/run-real-native-onboarding.mjs"], {
+      ...environment,
+      ONBOARDING_JOURNEY_MANIFEST: manifestPath,
+    });
     browserEvidence = JSON.parse(await readFile(join(artifacts, "browser-evidence.json"), "utf8"));
     const observed = (
       await pool.query(
@@ -408,9 +489,12 @@ try {
       "failed delivery restart retry",
       "revoked and consumed token rejected",
       "terminal secret cleanup",
+      "claim rejects expiry crossed while waiting for applicant lock",
     ],
     scope: "synthetic loopback only",
   };
+} catch (error) {
+  throw new Error(safe(error instanceof Error ? error.message : "Onboarding runtime failed"));
 } finally {
   if (pool) await pool.end();
   for (const child of children.reverse()) await stopPreviewScenarioBackend(child);
@@ -418,6 +502,7 @@ try {
   await rm(join(artifacts, "postgres"), { recursive: true, force: true });
   await rm(join(artifacts, "manifest.json"), { force: true });
   if (evidence) {
+    assertNoSecrets(JSON.stringify(evidence));
     await writeFile(
       join(artifacts, "evidence.json"),
       JSON.stringify(

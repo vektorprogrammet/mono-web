@@ -13,13 +13,7 @@ export const OnboardingClaim = Schema.Union([
   Schema.Struct({
     mode: Schema.Literal("NewAccount"),
     token: OnboardingToken,
-    password: Schema.String.pipe(
-      Schema.check(
-        Schema.makeFilter((s: string) => s.length >= 12 && s.length <= 128, {
-          message: "12–128 characters",
-        }),
-      ),
-    ),
+    password: Schema.String.pipe(Schema.check(Schema.isMinLength(12), Schema.isMaxLength(128))),
   }),
   Schema.Struct({ mode: Schema.Literal("ExistingAccount"), token: OnboardingToken }),
 ]);
