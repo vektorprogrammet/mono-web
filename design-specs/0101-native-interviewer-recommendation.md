@@ -58,7 +58,7 @@ labels a recommendation as an admission or waitlist decision.
 | Historical absence | Existing immutable native conduct | Represent as absent/not recorded on reads; never backfill an invented assessment. |
 | New finalization | Existing Recruitment command | Required recommendation at decoded input and storage boundary; old rows remain readable. |
 | Person, affiliation, placement | Existing identity/Organization/placement authorities | Recommendation creates no account, role, affiliation or school placement and changes no eligibility rule. |
-| Access | Existing conduct authorization | Assigned active interviewer and current scope required before reads/writes/replay; no authority expansion. |
+| Access | Existing conduct authorization plus explicit self-identity restriction | Assigned active interviewer and current scope required before reads/writes/replay; a proven applicant/interviewer Person match is denied. |
 | Notification | None in this amendment | No mail, SMS, outbox or provider effect. Internal recommendation stays out of applicant-facing responses. |
 
 Reuse existing Effect Schemas, Model fields, conduct SQL transaction, immutable
@@ -69,6 +69,22 @@ finite state remains owned by Foldkit. No new runtime/library or framework swap.
 New insert validity must not be weakened to accommodate historical nulls. Use a
 migration-compatible representation that distinguishes historical absence from
 required new input; do not disable immutability constraints or silently default.
+
+### Explicit source-review amendment during implementation
+
+Legacy `InterviewController.php:58` and `:137` deny conducting or viewing one's
+own interview. Independent review found no native check or documented accepted
+exception. Restore that restriction using only the immutable 0099 association:
+interview → application → ApplicantId → linked PersonId. Reject a match before
+reading conduct or consulting either HTTP or domain command receipts. Share the
+canonical fact/guard; do not introduce email/name inference or compare unrelated
+identifier types. When a link is absent, identity is unknown; this does not prove
+that the applicant and interviewer differ.
+
+Read/lock the authoritative applicant consistently with onboarding claim custody
+so a concurrent newly established association cannot be silently ignored at the
+authorization boundary. This strengthens the previously incomplete native rule;
+it does not create coordinator/co-interviewer access or an admissions decision.
 
 ## Acceptance gates and falsifiers
 
@@ -81,6 +97,10 @@ required new input; do not disable immutability constraints or silently default.
   conduct. Rejected commands leave conduct/receipt/audit unchanged.
 - Wrong actor, wrong department, suspended/revoked authority and replay after
   authority removal cannot expose or change the recommendation.
+- An already-linked self-applicant cannot read/finalize/cancel their interview.
+  A self-link established after finalization also denies fresh reads and exact
+  HTTP/domain receipt replay; a different-Person link stays allowed. Exercise
+  concurrent link/command ordering through the shared applicant lock.
 - Duplicate replay is stable; changed payload with the same command identity and
   competing finalization cannot overwrite a stored recommendation.
 - Independent SQL observation confirms recommendation, answers, scores, audit,
