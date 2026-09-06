@@ -292,6 +292,18 @@ try {
   );
   await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "editable-mobile.png") });
   await auditPage(page, "editable-mobile");
+  // Viewport observations preserve fixed chrome; tall element captures can stitch it
+  // across fields that are visible when the actual viewport is scrolled.
+  for (const [selector, name] of [
+    ["#question-interview-schema-native-conduct-0063-q0", "editable-mobile-answer-viewport"],
+    ["#interviewer-recommendation", "editable-mobile-recommendation-viewport"],
+  ] as const) {
+    await page
+      .locator(selector)
+      .evaluate((element: HTMLElement) => element.scrollIntoView({ block: "center" }));
+    await page.locator(selector).focus();
+    await page.screenshot({ path: join(artifacts, `${name}.png`) });
+  }
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
   await page
