@@ -99,3 +99,9 @@ stopped backend can delay physical deletion; startup resumes cleanup. This is a
 bounded operational retention mechanism, not a database wall-clock deletion promise.
 The claim URL derives from OAUTH_DASHBOARD_ORIGIN and the fixed root-mounted
 /konto-aktivering route; this rehearsal requires DASHBOARD_MOUNT=/.
+
+Account-proof reissue is applicant-global: issuing a new invitation invalidates
+older account-claim tokens for that Applicant. Explicit revocation targets only
+the selected application's invitation. Boards show that application's invitation
+and the applicant-global Linked fact; one department cannot revoke another
+application's invitation through a shared applicant record.

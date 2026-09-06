@@ -31,7 +31,7 @@ export const readOnboardingBoard = (departmentId: DepartmentId) =>
   Database.use((sql) =>
     Effect.gen(function* () {
       const items =
-        yield* sql`SELECT a.application_id AS "applicationId",p.first_name AS "firstName",p.last_name AS "lastName",i.invitation_id AS "invitationId",CASE WHEN l.applicant_id IS NOT NULL THEN 'Linked' WHEN i.state='Open' AND i.expires_at<=transaction_timestamp() THEN 'Expired' ELSE COALESCE(i.state,'Absent') END AS state,COALESCE(d.state,'Absent') AS delivery,to_char(i.expires_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "expiresAt" FROM public.admission_applications a JOIN public.admission_applicants p USING(applicant_id) LEFT JOIN public.applicant_account_links l USING(applicant_id) LEFT JOIN LATERAL(SELECT * FROM public.applicant_account_invitations WHERE applicant_id=a.applicant_id ORDER BY generation DESC LIMIT 1)i ON true LEFT JOIN public.applicant_account_delivery d USING(invitation_id) WHERE a.department_id=${departmentId} ORDER BY a.submitted_at DESC,a.application_id`;
+        yield* sql`SELECT a.application_id AS "applicationId",p.first_name AS "firstName",p.last_name AS "lastName",i.invitation_id AS "invitationId",CASE WHEN l.applicant_id IS NOT NULL THEN 'Linked' WHEN i.state='Open' AND i.expires_at<=transaction_timestamp() THEN 'Expired' ELSE COALESCE(i.state,'Absent') END AS state,COALESCE(d.state,'Absent') AS delivery,to_char(i.expires_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "expiresAt" FROM public.admission_applications a JOIN public.admission_applicants p USING(applicant_id) LEFT JOIN public.applicant_account_links l USING(applicant_id) LEFT JOIN LATERAL(SELECT * FROM public.applicant_account_invitations WHERE application_id=a.application_id ORDER BY generation DESC LIMIT 1)i ON true LEFT JOIN public.applicant_account_delivery d ON d.invitation_id=i.invitation_id WHERE a.department_id=${departmentId} ORDER BY a.submitted_at DESC,a.application_id`;
       return { departmentId, items };
     }),
   );
@@ -57,7 +57,7 @@ export const commandOnboarding = (input: {
       if (linked.length) return yield* fail("onboarding.already-linked");
       const old = yield* sql<{
         invitationId: string;
-      }>`UPDATE public.applicant_account_invitations SET state='Revoked' WHERE applicant_id=${applicantId} AND state='Open' RETURNING invitation_id AS "invitationId"`;
+      }>`UPDATE public.applicant_account_invitations SET state='Revoked' WHERE applicant_id=${applicantId} AND state='Open' AND (${input.command.action}='Issue' OR application_id=${input.command.applicationId}) RETURNING invitation_id AS "invitationId"`;
       for (const row of old) {
         yield* sql`UPDATE public.applicant_account_delivery SET state='Cancelled',secret=NULL,envelope=NULL,claim_id=NULL,claimed_at=NULL WHERE invitation_id=${row.invitationId} AND state<>'Delivered'`;
         yield* sql`INSERT INTO public.applicant_account_audit VALUES(${input.invitationId + ":revoke:" + row.invitationId},${applicantId},${row.invitationId},${input.actor},'Revoked',${input.now})`;
