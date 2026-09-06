@@ -596,7 +596,7 @@ describe("receipt v0.2 HTTP contract", () => {
     const body = await readJson(response);
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(body).toEqual({
       items: [
         Schema.decodeUnknownSync(ReceiptListItem)({
