@@ -44,10 +44,12 @@ export async function action({ request }: Route.ActionArgs) {
 }
 export default function PasswordReset() {
   const { ready } = useLoaderData<typeof loader>();
-  const resetToken = useRef(typeof window === "undefined" ? null : new URL(window.location.href).searchParams.get("token"));
-  const action = useActionData<typeof action>();
+  const resetToken = useRef(
+    typeof window === "undefined" ? null : new URL(window.location.href).searchParams.get("token"),
+  );
+  const result = useActionData<typeof action>();
   const pending = useNavigation().state !== "idle";
-  const state = action?.state ?? (ready ? "Ready" : "InvalidOrExpired");
+  const state = result?.state ?? (ready ? "Ready" : "InvalidOrExpired");
   return (
     <main className="grid min-h-dvh place-items-center bg-gray-50">
       <section className="w-full max-w-sm space-y-4 rounded bg-white p-8">

@@ -109,12 +109,12 @@ try {
     HOST: "127.0.0.1",
     PORT: String(uiPort),
     NODE_ENV: "production",
-    DASHBOARD_MOUNT: "/dashboard/",
+    DASHBOARD_MOUNT: "/",
   };
   run("bun", ["apps/dashboard/e2e/native-recruitment-journey-seed.mjs"], env);
   start("bun", ["apps/backend/src/main.ts"], env);
   await wait(async () => {
-    const r = await fetch(`${canonicalOrigin}/api/auth/ok`);
+    const r = await fetch(`${canonicalOrigin}/health`);
     return r.ok;
   });
   const email = "lina.leader@example.invalid",
