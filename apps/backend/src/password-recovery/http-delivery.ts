@@ -45,26 +45,35 @@ export const makeHttpPasswordResetDelivery = (
   config: ReturnType<typeof passwordResetDeliveryConfig>,
 ): PasswordResetMailDeliveryShape => ({
   deliver: (request) =>
-    config === undefined
-      ? Effect.fail(new PasswordResetMailDeliveryError({ code: "provider-unavailable" }))
-      : deliverJson(
-          { sender: config.sender, ...request, expiresAt: request.expiresAt.toISOString() },
-          config,
-          fetch,
-          { "idempotency-key": request.effectId },
-        ).pipe(
-          Effect.map(() => ({ providerReference: request.effectId })),
-          Effect.mapError(
-            (error) =>
-              new PasswordResetMailDeliveryError({
-                code:
-                  error !== null &&
-                  typeof error === "object" &&
-                  "_tag" in error &&
-                  error._tag === "TimeoutError"
-                    ? "delivery-timeout"
+    Effect.suspend(() => {
+      if (config === undefined)
+        return Effect.fail(new PasswordResetMailDeliveryError({ code: "provider-unavailable" }));
+      let rejected = false;
+      return deliverJson(
+        { sender: config.sender, ...request, expiresAt: request.expiresAt.toISOString() },
+        config,
+        async (input, init) => {
+          const response = await fetch(input, init);
+          rejected = response.status >= 400 && response.status < 500;
+          return response;
+        },
+        { "idempotency-key": request.effectId },
+      ).pipe(
+        Effect.map(() => ({ providerReference: request.effectId })),
+        Effect.mapError(
+          (error) =>
+            new PasswordResetMailDeliveryError({
+              code:
+                error !== null &&
+                typeof error === "object" &&
+                "_tag" in error &&
+                error._tag === "TimeoutError"
+                  ? "delivery-timeout"
+                  : rejected
+                    ? "provider-rejected"
                     : "provider-unavailable",
-              }),
-          ),
+            }),
         ),
+      );
+    }),
 });

@@ -179,7 +179,7 @@ try {
     );
   run("bun", ["run", "build"], env, join(root, "packages/sdk"));
   run("bun", ["run", "build"], env, join(root, "apps/dashboard"));
-  start("bun", ["e2e/recovery-server.mjs"], env, join(root, "apps/dashboard"));
+  start("bun", ["server.mjs"], env, join(root, "apps/dashboard"));
   await wait(async () => (await fetch(`${dashboardOrigin}/glemt-passord`)).ok);
   browser = await chromium.launch({
     headless: true,

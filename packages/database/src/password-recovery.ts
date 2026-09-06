@@ -207,6 +207,14 @@ export const makePasswordRecovery = (pool: Pool, config: AuthEngineConfig) => {
           response.headers.set("referrer-policy", "no-referrer");
           return response;
         } catch {
+          if (resetting)
+            await audit(
+              pool,
+              "password-reset-failure",
+              "engine-failure",
+              state.subject,
+              context,
+            ).catch(() => undefined);
           return unavailable();
         }
       });
