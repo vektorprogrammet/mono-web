@@ -401,6 +401,24 @@ const stringLiteralValue = (raw: string): string | null => {
     .replace(/\\n/g, "\n");
 };
 
+// Parse with the existing TypeScript parser: a URL inside a conditional,
+// concatenation, Request object or interpolated template is not a known target.
+const fetchLiteralDestination = (raw: string | undefined): string => {
+  if (raw === undefined) return "";
+  const source = ts.createSourceFile("destination.ts", `(${raw})`, ts.ScriptTarget.Latest, true);
+  const statement = source.statements[0];
+  if (
+    statement === undefined ||
+    !ts.isExpressionStatement(statement) ||
+    !ts.isParenthesizedExpression(statement.expression)
+  )
+    return "";
+  const expression = statement.expression.expression;
+  return ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)
+    ? expression.text
+    : "";
+};
+
 interface LiteralCall {
   readonly args: readonly (string | null)[];
   readonly rawArgs: readonly string[];
@@ -5042,7 +5060,7 @@ const integrationCallsFor = (
     // body are request data and cannot establish an integration endpoint.
     const endpointArguments =
       callableName === "fetch"
-        ? (literalCall?.rawArgs[0] ?? "")
+        ? fetchLiteralDestination(literalCall?.rawArgs[0])
         : (literalCall?.rawArgs.join(",") ?? "");
     const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(endpointArguments);
     const endpointRaw = endpointMatch?.[0] ?? typeScriptBoundary?.backendOriginEndpoint ?? null;

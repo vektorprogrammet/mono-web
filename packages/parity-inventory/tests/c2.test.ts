@@ -3576,6 +3576,8 @@ test("fetch destination excludes Origin and body URLs while unsafe destinations 
         null,
         true,
       ],
+      ["fallback", 'fetch(destination ?? "https://fallback.example.test/path", {})', null, false],
+      ["template", "fetch(`https://${destination}/path`, {})", null, false],
     ] as const;
     for (const [name, expression] of cases)
       put(
