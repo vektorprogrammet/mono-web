@@ -253,6 +253,7 @@ try {
   assert.equal(await page.locator("#score-suitability").inputValue(), "8");
   const staleContext = await browser.newContext({ storageState: await context.storageState() });
   const stale = await staleContext.newPage();
+  stale.on("pageerror", () => errors.push("stale-pageerror"));
   await stale.goto(`${ui}/dashboard/intervjuer`);
   await open(stale, "Sofie Gjennomfører");
   await fill(stale);

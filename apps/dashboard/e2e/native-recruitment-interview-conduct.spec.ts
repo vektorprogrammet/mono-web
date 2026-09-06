@@ -88,6 +88,7 @@ const fillAnswersAndScores = async (page: Page) => {
   await page.locator("#score-explanatoryPower").selectOption("7");
   await page.locator("#score-roleModel").selectOption("8");
   await page.locator("#score-suitability").selectOption("9");
+  await page.locator("#interviewer-recommendation").selectOption("Ja");
 };
 
 const openConduct = async (page: Page, applicant: string) => {
@@ -145,7 +146,7 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
       await expect(
         page
           .getByRole("alert")
-          .filter({ hasText: "Svar på alle spørsmål og velg alle tre scorer." }),
+          .filter({ hasText: "Svar på alle spørsmål, velg alle tre scorer og en anbefaling." }),
       ).toBeVisible();
       expect(operations.length).toBe(beforeIncomplete);
       await fillAnswersAndScores(page);
@@ -217,9 +218,13 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
       await expect(
         stalePage
           .getByRole("alert")
-          .filter({ hasText: "Intervjuet er endret. Velg intervjuet på nytt." }),
+          .filter({
+            hasText:
+              "Intervjuet er endret. Utkastet er beholdt; åpne intervjuet på nytt for å hente gjeldende versjon.",
+          }),
       ).toBeVisible();
-      await expect(stalePage.locator("#fs-conduct")).toHaveCount(0);
+      await expect(stalePage.locator("#fs-conduct")).toHaveCount(1);
+      await expect(stalePage.locator("#interviewer-recommendation")).toHaveValue("Ja");
 
       const pageAxe = await new AxeBuilder({ page })
         .include('section[aria-labelledby="fs-page-title"]')
