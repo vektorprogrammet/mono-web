@@ -64,7 +64,7 @@ test("0096 existing volunteer requests affiliation and coordinator places them w
   test.skip(!manifest, "Requires the isolated native placement driver");
   test.setTimeout(150_000);
   const coordinator = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  const volunteer = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const volunteer = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const concurrent = await browser.newContext();
   const wrong = await browser.newContext();
   const anonymous = await browser.newContext();
@@ -85,6 +85,7 @@ test("0096 existing volunteer requests affiliation and coordinator places them w
       self.getByRole("link", { name: "Frivilligtilknytning og plassering", exact: true }),
     ).toHaveCount(1);
     await selectScope(self);
+    await self.setViewportSize({ width: 390, height: 844 });
     await expect(self.getByRole("form", { name: "Ny skoleplassering", exact: true })).toHaveCount(
       0,
     );
@@ -185,6 +186,11 @@ test("0096 existing volunteer requests affiliation and coordinator places them w
         (p: { placementId: string }) => p.placementId === first.placementId,
       ),
     ).toMatchObject({ day: "Wednesday", workdays: 7, revision: 3 });
+    await selectScope(other);
+    await expect(otherEntry.getByLabel("Antall undervisningsdager")).toHaveValue("7");
+    await expect(otherEntry.getByRole("combobox", { name: "Ukedag", exact: true })).toHaveValue(
+      "Wednesday",
+    );
     await fillPlacement(entry, "1", "Friday", "8");
     await entry.getByRole("button", { name: "Lagre plassering" }).click();
     await saved(entry);
