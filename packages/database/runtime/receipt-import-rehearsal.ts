@@ -689,7 +689,9 @@ try {
       backupSha256: digest(await readFile(join(artifacts, "baseline.dump"))),
     },
     scope:
-      "synthetic local fixtures; no password migration, notification delivery, production or cutover claim",
+      deliveryObservation === undefined
+        ? "synthetic historical import; zero notification attempts; no password migration, production or cutover claim"
+        : "synthetic historical import with zero notification attempts, followed by 0097 loopback transport acceptance; no real provider, human receipt, password migration, production or cutover claim",
   };
 } catch (cause) {
   await writeFile(
