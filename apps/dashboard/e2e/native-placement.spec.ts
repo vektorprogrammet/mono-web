@@ -150,7 +150,9 @@ test("0096 existing volunteer requests affiliation and coordinator places them w
     await create.getByRole("button", { name: "Opprett plassering" }).click();
     await saved(create);
     await page.reload();
-    const entry = page.getByRole("form", { name: "Plassering Irene Intervjuer 1", exact: true });
+    const entry = page.getByRole("form", {
+      name: /^Plassering \d+: Irene Intervjuer, Skole Beta, bolk 1,/,
+    });
     await expect(entry.getByLabel("Antall undervisningsdager")).toHaveValue("4");
     const first = (await readBoard(page)).placements.find(
       (p: { personId: string; block: string }) =>
