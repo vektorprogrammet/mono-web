@@ -54,7 +54,7 @@ const ready = async (test: () => Promise<boolean>) => {
   }
   throw new Error("Readiness failed");
 };
-let pool: any, browser: any, page: any;
+let pool: any, browser: any, page: any, heldIdentityClient: any;
 const gates: string[] = [];
 const secrets: string[] = [];
 try {
@@ -127,6 +127,28 @@ try {
     );
   };
   const effectsBefore = await effectSnapshot();
+  const link = async (suffix: string, personId: string, sql = pool) => {
+    const invitation = `identity-recommendation-${suffix}`;
+    await sql.query(
+      `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES($1,$2,$3,$4,CURRENT_TIMESTAMP+interval '1 day','Claimed','journey-conduct-leader-0063',CURRENT_TIMESTAMP)`,
+      [
+        invitation,
+        `application-recommendation-${suffix}`,
+        `applicant-recommendation-${suffix}`,
+        createHash("sha256").update(invitation).digest("hex"),
+      ],
+    );
+    await sql.query(
+      `INSERT INTO public.applicant_account_links VALUES($1,$2,CURRENT_TIMESTAMP,$3)`,
+      [`applicant-recommendation-${suffix}`, personId, invitation],
+    );
+  };
+  await pool.query(
+    `INSERT INTO public.person_profiles(person_id,first_name,last_name,revision) VALUES('recommendation-other-0101','Other','Interviewer',0)`,
+  );
+  await link("self", "journey-conduct-leader-0063");
+  await link("maybe", "recommendation-other-0101");
+
   const invitationCapability = randomBytes(32).toString("base64url");
   secrets.push(invitationCapability);
   await pool.query(
@@ -163,11 +185,11 @@ try {
   const errors: string[] = [];
   context.on("page", (p: any) => p.on("pageerror", () => errors.push("pageerror")));
   page = await context.newPage();
-  await page.goto(`${ui}/login?redirectTo=/dashboard/intervjuer`);
+  await page.goto(`${ui}/login`);
   await page.getByLabel("E-post", { exact: true }).fill(email);
   await page.getByLabel("Passord", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Logg inn", exact: true }).click();
-  await page.waitForURL(/\/dashboard\/intervjuer$/);
+  await page.waitForURL(/\/dashboard\/?$/);
   await page.goto(`${ui}/dashboard/intervjuer`);
   const cookies = await context.cookies();
   const cookie = cookies.map((c: any) => `${c.name}=${c.value}`).join("; ");
@@ -315,7 +337,8 @@ try {
       no.headers.get("etag")!,
     ),
   ]);
-  assert.deepEqual(race.map((r) => r.status).sort(), [200, 412]);
+  assert.ok(race.filter((r) => r.status === 200).length === 1);
+  assert.ok(race.every((r) => [200, 409, 412].includes(r.status)));
   const saved = (await (await get("interview-recommendation-no")).json()).recommendation;
   assert.ok(saved === "Ja" || saved === "Nei");
   // Ensure Nei has an independent exact round trip even when Ja won the concurrent race.
@@ -355,9 +378,7 @@ try {
   );
   gates.push("suspended authority denies reads and stored receipt replay");
   const authorizationBefore = await count();
-  await pool.query(
-    `INSERT INTO public.person_profiles(person_id,first_name,last_name,revision) VALUES('recommendation-other-0101','Other','Interviewer',0)`,
-  );
+
   // Change current source authority, not authentication claims or an authorization stub.
   await pool.query(
     `UPDATE public.recruitment_interviews SET interviewer_person_id='recommendation-other-0101' WHERE interview_id=$1`,
@@ -417,6 +438,97 @@ try {
 
   gates.push(
     "removed assignment and ended membership deny read/write/replay without lifecycle writes",
+  );
+
+  const lifecycleBeforeSelf = await count();
+  assert.equal((await get("interview-recommendation-self")).status, 403);
+  assert.equal(
+    (
+      await post(
+        "interview-recommendation-self",
+        { ...payload, recommendation: "Ja" },
+        "known-self-0101",
+        etag,
+      )
+    ).status,
+    403,
+  );
+  const selfCancel = await fetch(
+    `${api}/api/recruitment/interviews/interview-recommendation-self:cancel`,
+    {
+      method: "POST",
+      headers: {
+        cookie,
+        origin: ui,
+        "content-type": "application/json",
+        "if-match": etag,
+        "idempotency-key": "self-cancel-0101",
+      },
+      body: "{}",
+    },
+  );
+  assert.equal(selfCancel.status, 403);
+  await link("no", "journey-conduct-leader-0063");
+  assert.equal((await get("interview-recommendation-no")).status, 403);
+  const winner = race.findIndex((r) => r.status === 200);
+  assert.equal(
+    (
+      await post(
+        "interview-recommendation-no",
+        { ...payload, recommendation: winner === 0 ? "Nei" : "Ja" },
+        winner === 0 ? "recommendation-no-a-0101" : "recommendation-no-b-0101",
+        no.headers.get("etag")!,
+      )
+    ).status,
+    403,
+  );
+  run("bun", ["packages/database/runtime/recommendation-domain-replay.ts"], env);
+  const raceRead = await get("interview-recommendation-link-race");
+  assert.equal(raceRead.status, 200);
+  const locker = await pool.connect();
+  heldIdentityClient = locker;
+  await locker.query("BEGIN");
+  await locker.query(
+    `SELECT applicant_id FROM public.admission_applicants WHERE applicant_id='applicant-recommendation-link-race' FOR UPDATE`,
+  );
+  const lockerPid = (await locker.query("SELECT pg_backend_pid() pid")).rows[0].pid;
+  const waiting = post(
+    "interview-recommendation-link-race",
+    { ...payload, recommendation: "Ja" },
+    "identity-race-0101",
+    raceRead.headers.get("etag")!,
+  );
+  await ready(
+    async () =>
+      (
+        await pool.query(
+          `SELECT count(*)::int n FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid))`,
+          [lockerPid],
+        )
+      ).rows[0].n > 0,
+  );
+  await link("link-race", "journey-conduct-leader-0063", locker);
+  await locker.query("COMMIT");
+  locker.release();
+  heldIdentityClient = undefined;
+  const staleIdentity = await waiting;
+  assert.equal(staleIdentity.status, 409);
+  assert.equal((await staleIdentity.json()).code, "transaction.conflict");
+  assert.equal(
+    (
+      await post(
+        "interview-recommendation-link-race",
+        { ...payload, recommendation: "Ja" },
+        "identity-race-0101",
+        raceRead.headers.get("etag")!,
+      )
+    ).status,
+    403,
+  );
+  assert.equal((await get("interview-recommendation-link-race")).status, 403);
+  assert.equal(await count(), lifecycleBeforeSelf);
+  gates.push(
+    "known self denied before read/finalize/cancel and both receipt layers; different Person allowed; real waiting serializable snapshot fails409 then self-denial",
   );
   let immutable = false;
   try {
@@ -525,6 +637,10 @@ try {
   process.exitCode = 1;
 } finally {
   await browser?.close();
+  if (heldIdentityClient) {
+    await heldIdentityClient.query("ROLLBACK");
+    heldIdentityClient.release();
+  }
   await pool?.end();
   for (const child of children.reverse()) await stopPreviewScenarioBackend(child);
   await rm(join(artifacts, "postgres"), { recursive: true, force: true });

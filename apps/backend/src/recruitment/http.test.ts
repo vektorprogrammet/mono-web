@@ -343,3 +343,14 @@ describe("native recruitment HTTP boundary", () => {
     });
   });
 });
+
+it("preserves the native conflict protocol for PostgreSQL snapshot and deadlock failures", async () => {
+  for (const code of ["40001", "40P01"]) {
+    const response = recruitmentHttpErrorResponse({
+      _tag: "RecruitmentPersistenceError",
+      cause: { cause: { code } },
+    });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ code: "transaction.conflict" });
+  }
+});

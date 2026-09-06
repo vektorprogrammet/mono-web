@@ -129,7 +129,7 @@ export class InterviewQuestionsUnavailable extends Schema.TaggedError<InterviewQ
 
 export class RecruitmentPersistenceError extends Schema.TaggedError<RecruitmentPersistenceError>()(
   "RecruitmentPersistenceError",
-  { operation: Schema.String, message: Schema.String },
+  { operation: Schema.String, message: Schema.String, cause: Schema.optional(Schema.Unknown) },
 ) {}
 
 export class RecruitmentLifecycleCommandConflict extends Schema.TaggedError<RecruitmentLifecycleCommandConflict>()(

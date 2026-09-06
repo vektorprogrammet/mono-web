@@ -1,3 +1,4 @@
+import { guardInterviewApplicantIdentity } from "./conduct-identity.js";
 import { Admissions, type AdmissionsShape } from "../admissions/service.js";
 import { Database, type DatabaseShape } from "../database/service.js";
 import { Organization, type OrganizationShape } from "../organization/service.js";
@@ -97,6 +98,7 @@ interface CancellationRow {
 const persistenceError = (operation: string, cause?: unknown) =>
   new RecruitmentPersistenceError({
     operation,
+    cause,
     message:
       cause instanceof Error ? cause.message : String(cause ?? "recruitment persistence failed"),
   });
@@ -395,6 +397,10 @@ const authorizeAndLoad = (
 ) =>
   Effect.gen(function* () {
     const actorInput = yield* decode(RecruitmentActorSchema, context.actor, "recruitment actor");
+    yield* guardInterviewApplicantIdentity(
+      interviewId as RecruitmentInterviewId,
+      actorInput.personId,
+    ).pipe(Effect.provideService(Database, sql));
     const interview = yield* readInterview(sql, interviewId, lock);
     if (interview === undefined)
       return yield* new RecruitmentInterviewNotFound({ interviewId: interviewId as never });
@@ -488,17 +494,27 @@ export const readInterviewConduct = (
     const sql = yield* Database;
     const admissions = yield* Admissions;
     const organization = yield* Organization;
-    const loaded = yield* authorizeAndLoad(sql, organization, context, interviewId, false);
-    const state = yield* stateFor(
-      loaded.interview,
-      loaded.schedule,
-      loaded.invitation,
-      loaded.questions,
-      loaded.conduct,
-      loaded.cancellation,
-    );
-    const applicant = yield* readApplicant(admissions, loaded.interview.applicationId);
-    return yield* observation(state, applicant);
+    return yield* sql
+      .withTransaction(
+        Effect.gen(function* () {
+          const loaded = yield* authorizeAndLoad(sql, organization, context, interviewId, false);
+          const state = yield* stateFor(
+            loaded.interview,
+            loaded.schedule,
+            loaded.invitation,
+            loaded.questions,
+            loaded.conduct,
+            loaded.cancellation,
+          );
+          const applicant = yield* readApplicant(admissions, loaded.interview.applicationId);
+          return yield* observation(state, applicant);
+        }),
+      )
+      .pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("conduct observation", cause)),
+        ),
+      );
   });
 const finalizeInTransaction = (
   command: FinalizeInterviewCommand,
@@ -508,6 +524,9 @@ const finalizeInTransaction = (
   digest: string,
 ): Effect.Effect<FinalizeInterviewResult, RecruitmentFailure> =>
   Effect.gen(function* () {
+    yield* guardInterviewApplicantIdentity(command.interviewId, context.actor.personId).pipe(
+      Effect.provideService(Database, sql),
+    );
     yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.commandId}, 0))`;
     yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.interviewId}, 0))`;
     const loaded = yield* authorizeAndLoad(sql, organization, context, command.interviewId, true);
@@ -577,6 +596,9 @@ const cancelInTransaction = (
   digest: string,
 ): Effect.Effect<CancelInterviewResult, RecruitmentFailure> =>
   Effect.gen(function* () {
+    yield* guardInterviewApplicantIdentity(command.interviewId, context.actor.personId).pipe(
+      Effect.provideService(Database, sql),
+    );
     yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.commandId}, 0))`;
     yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.interviewId}, 0))`;
     const loaded = yield* authorizeAndLoad(sql, organization, context, command.interviewId, true);

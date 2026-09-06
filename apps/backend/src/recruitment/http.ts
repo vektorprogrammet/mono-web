@@ -1,3 +1,4 @@
+import { guardInterviewApplicantIdentity } from "@vektorprogrammet/domain/recruitment";
 import {
   AssignmentBoard,
   AssignApplicantEndpoint,
@@ -221,6 +222,17 @@ const errorResponse = (
   cause: unknown,
   unavailableCode: "recruitment.unavailable" | "dependency.unavailable" = "dependency.unavailable",
 ): Response => {
+  const sqlCode = (value: unknown, depth = 0): string | undefined =>
+    depth < 8 && typeof value === "object" && value !== null
+      ? "code" in value && typeof value.code === "string"
+        ? value.code
+        : "cause" in value
+          ? sqlCode(value.cause, depth + 1)
+          : undefined
+      : undefined;
+  const code = sqlCode(cause);
+  if (code === "40001" || code === "40P01")
+    return nativeProblemResponse("transaction.conflict", 409);
   if (cause instanceof HttpSemanticFailure) {
     return nativeProblemResponse(
       cause.code,
@@ -1255,6 +1267,7 @@ const lifecycleInterview = async (
       input,
       txRun,
     );
+    await txRun(guardInterviewApplicantIdentity(interviewId, authorization.actor.personId));
     return authorization;
   };
   if (operation === "Finalize") {
