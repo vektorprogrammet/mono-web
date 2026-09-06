@@ -406,6 +406,8 @@ export async function observeReceiptReopening(options: {
     await expect(approvalRow).toContainText("Corrected same claim 0102");
     await approvalRow.getByRole("button", { name: "Avvis", exact: true }).click();
     await checkAxe(approverPage, "approval accessibility");
+    await approverPage.getByRole("button", { name: "Bekreft avvisning", exact: true }).hover();
+    await checkAxe(approverPage, "destructive hover accessibility");
     const acceptedBefore = options.accepted();
     await approverPage.getByRole("button", { name: "Bekreft avvisning", exact: true }).click();
     await expect(
