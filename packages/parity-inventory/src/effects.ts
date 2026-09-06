@@ -403,7 +403,7 @@ const stringLiteralValue = (raw: string): string | null => {
 
 // Parse with the existing TypeScript parser: a URL inside a conditional,
 // concatenation, Request object or interpolated template is not a known target.
-const fetchLiteralDestination = (raw: string | undefined): string => {
+const literalDestination = (raw: string | undefined): string => {
   if (raw === undefined) return "";
   const source = ts.createSourceFile("destination.ts", `(${raw})`, ts.ScriptTarget.Latest, true);
   const statement = source.statements[0];
@@ -5056,12 +5056,11 @@ const integrationCallsFor = (
               candidate.offset >= callOffset &&
               candidate.offset <= callOffset + (effectCall?.chain.length ?? callableName.length),
           );
-    // Fetch's destination is its first argument. URLs in RequestInit headers or
-    // body are request data and cannot establish an integration endpoint.
-    const endpointArguments =
-      callableName === "fetch"
-        ? fetchLiteralDestination(literalCall?.rawArgs[0])
-        : (literalCall?.rawArgs.join(",") ?? "");
+    // URL-first HTTP calls take their destination from the first argument.
+    // Headers and body are request data, not integration endpoints.
+    const endpointArguments = /^(?:fetch|post|put|delete)$/.test(callableName ?? "")
+      ? literalDestination(literalCall?.rawArgs[0])
+      : (literalCall?.rawArgs.join(",") ?? "");
     const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(endpointArguments);
     const endpointRaw = endpointMatch?.[0] ?? typeScriptBoundary?.backendOriginEndpoint ?? null;
     const endpointRef = endpointRaw === null ? null : safeEndpoint(endpointRaw, reasons);

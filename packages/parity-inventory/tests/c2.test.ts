@@ -3553,11 +3553,11 @@ test("owner-null integration modules require positive loader reachability", asyn
   }
 });
 
-test("fetch destination excludes Origin and body URLs while unsafe destinations remain rejected", async () => {
+test("URL-first HTTP destinations exclude headers and body while unsafe destinations remain rejected", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-fetch-arguments-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-fetch-arguments-mono-");
   try {
-    const cases = [
+    const templates = [
       [
         "dynamic",
         'fetch(destination, { headers: { origin: "http://127.0.0.1:5174" }, body: "https://body.example.test/path" })',
@@ -3576,9 +3576,26 @@ test("fetch destination excludes Origin and body URLs while unsafe destinations 
         null,
         true,
       ],
+      [
+        "relative",
+        'fetch("/api/auth/request-password-reset", { redirectTo: "http://127.0.0.1:5174/tilbakestill-passord" })',
+        null,
+        false,
+      ],
       ["fallback", 'fetch(destination ?? "https://fallback.example.test/path", {})', null, false],
       ["template", "fetch(`https://${destination}/path`, {})", null, false],
     ] as const;
+    const cases = ["fetch", "post", "put", "delete"].flatMap((method) =>
+      templates.map(
+        ([name, expression, endpoint, unsafe]) =>
+          [
+            `${method}-${name}`,
+            expression.replace(/^fetch/, method === "fetch" ? method : `HttpClient.${method}`),
+            endpoint,
+            unsafe,
+          ] as const,
+      ),
+    );
     for (const [name, expression] of cases)
       put(
         monoRoot,
