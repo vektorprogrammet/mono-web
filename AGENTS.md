@@ -2,33 +2,15 @@
 
 Turborepo monorepo for Vektorprogrammet — Norwegian university tutoring program.
 
-## Migration Timeline
+## Migration authority
 
-```yaml
-A0:
-  operation: Migrate Controller methods to API Platform routes
-  requirements: []
-  effect: Decouples frontend Twig templates and Controller logic
-  constraint: API Platform exposes interface equivalent to Controller Methods
-A1:
-  operation: Add API SDK
-  requirements: [A0, A callable API Endpoint]
-  effect: Decouples API from backend
-  constraint": Constrain invalid states by hiding and invalidating illegal actions
-B0:
-  operation: "Connect new homepage"
-  requirements: A0
-B1:
-  operation: "Connect new dashboard"
-  requirements: A1
-C0:
-  operation: 
-  requirements: A1
-```
-
-1. Faithful migration from Controllers to API Platform (apps/server)
-2. Add SDK adhering to the state space constraints for API Platform
-3. Connect new frontend (homepage & dashboard) to API SDK
+Read [STATE.md](STATE.md) for active work and the accepted
+[continuation plan](docs/migration/continuation-plan.md) for sequencing and
+acceptance boundaries. Bind implementation to its file in `design-specs/`.
+The migration targets the native application; Symfony source establishes
+legacy behavior to assess, not a requirement to add another Symfony API layer.
+Current executable contracts, package manifests and exact-revision runtime
+evidence take precedence over historical stack examples below.
 
 ## Quick Reference
 
