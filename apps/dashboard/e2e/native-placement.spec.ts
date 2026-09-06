@@ -92,8 +92,22 @@ test("0096 existing volunteer requests affiliation and coordinator places them w
     await expect(self.getByText("Lina Lagleder", { exact: true })).toHaveCount(0);
     await axe(self, "no-team volunteer mobile self-request");
     const own = self.getByRole("form", { name: "Min tilknytning", exact: true });
-    await own.getByRole("button", { name: "Be om tilknytning" }).click();
+    let ownPosts = 0;
+    self.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        new URL(request.url()).pathname.endsWith("/assistenter.data")
+      )
+        ownPosts++;
+    });
+    await own
+      .getByRole("button", { name: "Be om tilknytning" })
+      .evaluate((button: HTMLButtonElement) => {
+        button.click();
+        button.click();
+      });
     await saved(own);
+    expect(ownPosts).toBe(1);
     await self.reload();
     await expect(self.getByText("Status: Venter på godkjenning", { exact: true })).toBeVisible();
     gates.push(

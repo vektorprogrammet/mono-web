@@ -4,7 +4,7 @@ import { PlacementScope, PlacementCommand } from "../../packages/domain/src/plac
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -109,8 +109,17 @@ try {
     INSERT INTO schools_directory_departments(school_id,department_id,revision) VALUES (961,'${departmentId}',0),(962,'${departmentId}',0),(963,'${wrongDepartmentId}',0),(964,'${departmentId}',0);
   `);
   const credentialSnapshot = async () =>
-    (await pool.query('SELECT id,"userId","providerId",password FROM auth.account ORDER BY id'))
-      .rows;
+    createHash("sha256")
+      .update(
+        JSON.stringify(
+          (
+            await pool.query(
+              'SELECT id,"userId","providerId",password FROM auth.account ORDER BY id',
+            )
+          ).rows,
+        ),
+      )
+      .digest("hex");
   const credentialsBefore = await credentialSnapshot();
   const peopleBefore = (await pool.query("SELECT * FROM person_profiles ORDER BY person_id")).rows;
   start("bun", ["run", "--cwd", "apps/backend", "start"], environment);
@@ -456,8 +465,12 @@ try {
           "SELECT action,actor_person_id FROM organization_volunteer_affiliation_audit WHERE person_id=$1 ORDER BY revision",
           [volunteerId],
         )
-      ).rows.map((r: { action: string }) => r.action),
-      ["Request", "Establish", "Revoke"],
+      ).rows,
+      [
+        { action: "Request", actor_person_id: volunteerId },
+        { action: "Establish", actor_person_id: leaderId },
+        { action: "Revoke", actor_person_id: leaderId },
+      ],
     );
   }
   assert.deepEqual(
