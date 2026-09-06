@@ -154,10 +154,8 @@ export const mutatePlacementBoard = (
         const overlaps =
           yield* sql`SELECT placement_id FROM assistant_placements WHERE active AND person_id=${personId} AND school_id=${command.schoolId} AND semester_id=${scope.semesterId} AND placement_id<>${placementId} AND block=${command.block}`;
         if (overlaps.length) return yield* fail("placement.overlap", 409);
-        yield* sql`DELETE FROM assistant_placements WHERE active AND placement_id=${placementId}`;
         yield* sql`INSERT INTO assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision) VALUES(${placementId},${personId},${scope.departmentId},${scope.semesterId},${command.schoolId},${command.day},${command.workdays},${command.block},true,${revision}) ON CONFLICT(placement_id) DO UPDATE SET school_id=EXCLUDED.school_id,day=EXCLUDED.day,workdays=EXCLUDED.workdays,block=EXCLUDED.block,revision=EXCLUDED.revision`;
       } else {
-        yield* sql`DELETE FROM assistant_placements WHERE active AND placement_id=${placementId}`;
         yield* sql`UPDATE assistant_placements SET active=false,revision=${revision} WHERE placement_id=${placementId}`;
       }
       yield* sql`INSERT INTO assistant_placement_audit(placement_id,revision,actor_person_id,occurred_at,action,snapshot) SELECT placement_id,revision,${actor},${now},${command.action},to_jsonb(p) FROM assistant_placements p WHERE placement_id=${placementId}`;
