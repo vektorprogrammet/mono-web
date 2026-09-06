@@ -770,7 +770,30 @@ const scanRoot = (
   const files: ScanFile[] = paths.map((path) => {
     const absolutePath = join(rootPath, path);
     const ignore = effectiveIgnoreRule(rootRef, path);
-    assertNoSymlinkPath(fileSystem, absolutePath);
+    // The mandated root convention alias is a tracked pointer, not another copy of
+    // instruction authority. Preserve its Git blob ("AGENTS.md") in the scan;
+    // AGENTS.md is independently scanned and hashed from the same revision.
+    if (
+      path === "CLAUDE.md" &&
+      before !== null &&
+      fileSystem.lstat(absolutePath).isSymbolicLink()
+    ) {
+      const target = join(rootPath, "AGENTS.md");
+      const pointer = gitBlob(commands, rootPath, before.revision, path);
+      if (
+        new TextDecoder().decode(pointer) !== "AGENTS.md" ||
+        !before.trackedPaths.has("AGENTS.md")
+      )
+        throw new Error("invalid convention alias: CLAUDE.md must point to tracked AGENTS.md");
+      assertNoSymlinkPath(fileSystem, target);
+      if (
+        !fileSystem.lstat(target).isFile() ||
+        fileSystem.realpath(absolutePath) !== resolve(target)
+      )
+        throw new Error("invalid convention alias: AGENTS.md must be the same-root regular target");
+    } else {
+      assertNoSymlinkPath(fileSystem, absolutePath);
+    }
     if (ignore !== null) {
       return {
         path,
