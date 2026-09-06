@@ -66,6 +66,36 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
   const member = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const wrong = await browser.newContext();
   const anonymous = await browser.newContext();
+  const contexts = [leader, other, member, wrong, anonymous];
+  const actionObservations: Array<{
+    url: string;
+    status: number;
+    request: string | null;
+    response: string;
+  }> = [];
+  const actionReads: Array<Promise<void>> = [];
+  for (const context of contexts) {
+    context.setDefaultTimeout(10_000);
+    context.on("page", (observedPage) =>
+      observedPage.on("response", (response) => {
+        if (
+          response.request().method() !== "POST" ||
+          !new URL(response.url()).pathname.endsWith("/vikarer.data")
+        )
+          return;
+        actionReads.push(
+          response.text().then((body) => {
+            actionObservations.push({
+              url: response.url(),
+              status: response.status(),
+              request: response.request().postData(),
+              response: body,
+            });
+          }),
+        );
+      }),
+    );
+  }
   const page = await leader.newPage();
   page.setDefaultTimeout(10_000);
   const gates: string[] = [];
@@ -145,7 +175,12 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
     ).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
     await card(page).getByRole("button", { name: "Lagre endringer" }).click();
-    await expect(card(page).getByRole("alert")).toContainText("Utkastet ditt er beholdt");
+    await expect(card(page).getByRole("alert")).toContainText(
+      "Opplysningene er endret siden du åpnet skjemaet",
+    );
+    await expect(
+      card(page).getByRole("button", { name: "Hent siste versjon", exact: true }),
+    ).toBeVisible();
     await expect(card(page).getByLabel("Studieår")).toHaveValue("4");
     await expect(
       card(page).getByRole("combobox", { name: "Undervisningsspråk", exact: true }),
@@ -156,6 +191,7 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
     await expect(card(page).getByRole("alert")).toBeInViewport({ ratio: 1 });
     await axe(page, "mobile stale rejected draft");
     const rejectedKey = await card(page).locator('input[name="commandId"]').inputValue();
+    expect(rejectedKey).not.toBe("");
     const retryResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
@@ -304,6 +340,7 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
       "read-only controls and real backend mutation denial; wrong-department scope denied; mobile accessibility",
     );
     expect(pageErrors).toEqual([]);
+    await Promise.all(actionReads);
     await writeFile(
       join(manifest.artifacts, "browser-evidence.json"),
       JSON.stringify(
@@ -328,12 +365,54 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
             },
           },
           pageErrors,
+          actionObservations,
         },
         null,
         2,
       ),
     );
+  } catch (cause) {
+    await Promise.allSettled(actionReads);
+    const captures: Array<{ url: string; artifact: string; error?: string }> = [];
+    for (const [contextIndex, context] of contexts.entries()) {
+      for (const [pageIndex, failedPage] of context.pages().entries()) {
+        if (failedPage.isClosed()) continue;
+        const artifact = `failure-${contextIndex}-${pageIndex}`;
+        try {
+          await writeFile(
+            join(manifest.artifacts, `${artifact}.yml`),
+            await failedPage.locator("body").ariaSnapshot({ timeout: 5000 }),
+            { mode: 0o600 },
+          );
+          await failedPage.screenshot({
+            path: join(manifest.artifacts, `${artifact}.png`),
+            fullPage: true,
+            timeout: 5000,
+          });
+          captures.push({ url: failedPage.url(), artifact });
+        } catch (captureError) {
+          captures.push({ url: failedPage.url(), artifact, error: String(captureError) });
+        }
+      }
+    }
+    await writeFile(
+      join(manifest.artifacts, "browser-failure.json"),
+      JSON.stringify(
+        {
+          revision: manifest.revision,
+          passed: false,
+          failure: String(cause),
+          gates,
+          actionObservations,
+          captures,
+        },
+        null,
+        2,
+      ),
+      { mode: 0o600 },
+    );
+    throw cause;
   } finally {
-    await Promise.all([leader, other, member, wrong, anonymous].map((context) => context.close()));
+    await Promise.all(contexts.map((context) => context.close()));
   }
 });
