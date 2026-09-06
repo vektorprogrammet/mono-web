@@ -119,8 +119,7 @@ test("0096 existing volunteer requests affiliation and coordinator places them w
     await expect(page.getByRole("combobox", { name: "Semester", exact: true })).toBeFocused();
     await selectScope(page);
     const affiliation = page.getByRole("form", {
-      name: "Tilknytning Irene Intervjuer",
-      exact: true,
+      name: /^Tilknytning \d+: Irene Intervjuer$/,
     });
     await affiliation.getByRole("button", { name: "Godkjenn tilknytning" }).click();
     await saved(affiliation);
@@ -176,8 +175,7 @@ test("0096 existing volunteer requests affiliation and coordinator places them w
     await signIn(other, manifest.persons.leader);
     await selectScope(other);
     const otherEntry = other.getByRole("form", {
-      name: "Plassering Irene Intervjuer 1",
-      exact: true,
+      name: /^Plassering \d+: Irene Intervjuer, Skole Beta, bolk 1,/,
     });
     await fillPlacement(entry, "1", "Wednesday", "7");
     await fillPlacement(otherEntry, "1", "Thursday", "6");
