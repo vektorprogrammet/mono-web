@@ -367,7 +367,7 @@ describe("0101 explicit recommendation draft", () => {
     const chosen = advance(update, initial, ChangedRecommendation({ value: "Kanskje" }));
     const draft = {
       ...chosen,
-      selectedInterviewId: rawInterview.interviewId,
+      selectedInterviewId: unscheduledBoard.interviews[0]!.interviewId,
       answers: [{ questionId: "question-1", answer: "My unchanged answer" }],
       isConducting: true,
       pendingConductAction: "Finalize" as const,
@@ -377,7 +377,7 @@ describe("0101 explicit recommendation draft", () => {
       FailedFinalize({
         requestId: draft.conductRequestId,
         generation: draft.conductGeneration,
-        interviewId: rawInterview.interviewId,
+        interviewId: unscheduledBoard.interviews[0]!.interviewId,
         failure: { _tag: "Conflict", message: "Changed remotely" },
       }),
     );
