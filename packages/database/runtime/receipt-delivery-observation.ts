@@ -127,6 +127,12 @@ export const observeReceiptDelivery = async (options: {
   };
   try {
     await pool.query(
+      "INSERT INTO organization_teams(team_id,department_id,name) VALUES ('receipt0097-team','receipt-department-0095','Synthetic economy team')",
+    );
+    await pool.query(
+      "INSERT INTO organization_memberships(membership_id,person_id,team_id,start_at,end_at,position_id,is_team_leader) VALUES ('receipt0097-owner-membership','receipt-owner-0095','receipt0097-team','2026-01-01',NULL,NULL,FALSE),('receipt0097-approver-membership','receipt-foreign-0095','receipt0097-team','2026-01-01',NULL,NULL,FALSE)",
+    );
+    await pool.query(
       `INSERT INTO economy_payment_authorities(payment_authority_id,person_id,department_id,payment_account_ciphertext,start_at,revision) VALUES ('receipt0097-submit','receipt-owner-0095','receipt-department-0095','synthetic:0097','2026-01-01',0)`,
     );
     await pool.query(
