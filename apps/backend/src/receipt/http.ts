@@ -1249,11 +1249,7 @@ const approvalList = async (
           receiptDate: receipt.receiptDate,
           status: receipt.status,
           revision: receipt.revision,
-          etag: deriveStrongETag({
-            representationKind: "ReceiptApprovalQueueItem",
-            resourceIdentity: receipt.receiptId,
-            version: receipt.revision,
-          }),
+          etag: receiptEtag(receipt.receiptId, receipt.revision),
         },
       ];
     });
@@ -1292,11 +1288,7 @@ const approvalList = async (
       receiptDate: row.receiptDate,
       status: row.status,
       revision: row.revision,
-      etag: deriveStrongETag({
-        representationKind: "ReceiptApprovalQueueItem",
-        resourceIdentity: row.receiptId,
-        version: row.revision,
-      }),
+      etag: receiptEtag(row.receiptId, row.revision),
     };
   });
   return jsonResponse({ items, totalItems: items.length }, 200, "private, no-store");

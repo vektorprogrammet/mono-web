@@ -922,6 +922,30 @@ describe("receipt v0.2 HTTP contract", () => {
     }
   });
 
+  it("uses the queue's canonical receipt ETag for approval and reopening commands", async () => {
+    for (const action of ["refund", "reopen"] as const) {
+      const row = pendingReceipt({
+        status: action === "reopen" ? "Rejected" : "Pending",
+        revision: 2,
+      });
+      const state = harness({ approvalRows: [row] });
+      const listed = await request(state.http, `/api/receipt-approval-queue?status=${row.status}`);
+      const body = await readJson(listed);
+      const item = (body.items as Array<{ etag: string }>)[0]!;
+      expect(item.etag).toBe(receiptEtag(receiptId, 2));
+      const accepted = await request(state.http, `/api/receipts/${receiptId}:${action}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": `${action}-from-queue-0102`,
+          "if-match": item.etag,
+        },
+        body: "{}",
+      });
+      expect(accepted.status).toBe(200);
+    }
+  });
+
   it("uses the frozen approval-queue path and passes one canonical authorization instant", async () => {
     const row = pendingReceipt({ revision: 2 });
     const state = harness({ approvalRows: [row] });
