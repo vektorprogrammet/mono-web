@@ -61,6 +61,23 @@ const recordGate = (...observations: string[]) => {
   console.log(JSON.stringify({ observed: observations }));
 };
 const secrets: string[] = [];
+const accessibility: Array<unknown> = [];
+const auditPage = async (page: any, state: string) => {
+  const violations = (await new AxeBuilder({ page }).analyze()).violations.map(
+    (violation: any) => ({
+      id: violation.id,
+      impact: violation.impact,
+      nodes: violation.nodes.map((node: any) => ({
+        target: node.target,
+        checks: node.any.map((check: any) => ({ id: check.id, data: check.data })),
+      })),
+    }),
+  );
+  accessibility.push({ state, violations });
+  let evidence = JSON.stringify(accessibility, null, 2);
+  for (const secret of secrets) evidence = evidence.replaceAll(secret, "[redacted]");
+  await writeFile(join(artifacts, "accessibility.json"), evidence);
+};
 const assertNoRecommendation = (value: unknown): void => {
   if (Array.isArray(value)) for (const item of value) assertNoRecommendation(item);
   else if (typeof value === "object" && value !== null)
@@ -244,11 +261,11 @@ try {
   await fill(page);
   assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "");
   await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "editable-desktop.png") });
-  assert.deepEqual((await new AxeBuilder({ page }).analyze()).violations, []);
+  await auditPage(page, "editable-desktop");
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
   await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "editable-mobile.png") });
-  assert.deepEqual((await new AxeBuilder({ page }).analyze()).violations, []);
+  await auditPage(page, "editable-mobile");
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
   await page
@@ -270,7 +287,7 @@ try {
   await page.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
   await page.getByRole("dialog").waitFor();
   await page.screenshot({ path: join(artifacts, "confirmation.png") });
-  assert.deepEqual((await new AxeBuilder({ page }).analyze()).violations, []);
+  await auditPage(page, "confirmation");
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Fullfør intervju", exact: true })
@@ -282,13 +299,13 @@ try {
   await page
     .locator(".fs-conduct")
     .screenshot({ path: join(artifacts, "recommendation-desktop.png") });
-  assert.deepEqual((await new AxeBuilder({ page }).analyze()).violations, []);
+  await auditPage(page, "finalized-desktop");
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
   await page
     .locator(".fs-conduct")
     .screenshot({ path: join(artifacts, "recommendation-mobile.png") });
-  assert.deepEqual((await new AxeBuilder({ page }).analyze()).violations, []);
+  await auditPage(page, "finalized-mobile");
   await page.setViewportSize({ width: 1280, height: 900 });
   await stale.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
   await stale
@@ -303,7 +320,7 @@ try {
     .waitFor();
   assert.equal(await stale.locator("#interviewer-recommendation").inputValue(), "Kanskje");
   await stale.locator(".fs-conduct").screenshot({ path: join(artifacts, "stale-draft.png") });
-  assert.deepEqual((await new AxeBuilder({ page: stale }).analyze()).violations, []);
+  await auditPage(stale, "stale-draft");
   await stale.close();
   await staleContext.close();
   recordGate(
@@ -646,10 +663,10 @@ try {
     "Ikke registrert",
   );
   await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "historical-desktop.png") });
-  assert.deepEqual((await new AxeBuilder({ page }).analyze()).violations, []);
+  await auditPage(page, "historical-desktop");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "historical-mobile.png") });
-  assert.deepEqual((await new AxeBuilder({ page }).analyze()).violations, []);
+  await auditPage(page, "historical-mobile");
   const rows = (
     await pool.query(
       `SELECT interview_id,recommendation,answers,explanatory_power,role_model,suitability FROM public.recruitment_interview_conducts ORDER BY interview_id`,
@@ -678,6 +695,10 @@ try {
   assert.equal(new Set(lifecycle.map((r: any) => r.interview_id)).size, lifecycle.length);
   assert.deepEqual(await effectSnapshot(), effectsAfterOnboarding);
   assert.deepEqual(errors, []);
+  assert.ok(
+    accessibility.every((result: any) => result.violations.length === 0),
+    "Accessibility violations retained in accessibility.json",
+  );
   for (const secret of secrets) assert.ok(!JSON.stringify(logs).includes(secret));
   recordGate(
     "historical immutable not-recorded display; direct storage constraints; desktop/mobile Axe; independent public-schema SQL",
