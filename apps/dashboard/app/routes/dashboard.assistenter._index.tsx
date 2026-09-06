@@ -229,7 +229,8 @@ function CommandForm({
         <legend className="sr-only">{label}</legend>
         {children}
       </fieldset>
-      {fetcher.data && (
+      {busy && <p role="status">Lagrer …</p>}
+      {!busy && fetcher.data && (
         <div
           role={fetcher.data.success ? "status" : "alert"}
           className="rounded-md border bg-muted p-3 text-sm"
