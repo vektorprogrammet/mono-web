@@ -754,6 +754,7 @@ const encodedEvidence = JSON.stringify(
   null,
   2,
 );
-assert.equal(safe(encodedEvidence), encodedEvidence, "retained evidence contains a credential");
+if (safe(encodedEvidence) !== encodedEvidence)
+  throw new Error("Retained evidence contains a credential");
 await writeFile(join(artifacts, "evidence.json"), encodedEvidence, { mode: 0o600 });
 console.log(`0095 passed: ${join(artifacts, "evidence.json")}`);
