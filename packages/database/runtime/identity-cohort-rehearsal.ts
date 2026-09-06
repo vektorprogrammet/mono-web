@@ -8,11 +8,10 @@ import { join, resolve } from "node:path";
 import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
 import { Pool } from "pg";
-import { betterAuth } from "better-auth";
 import { Effect, Redacted } from "effect";
 import { databaseHealth } from "@vektorprogrammet/domain/database";
 import { DatabaseLive } from "../src/layers.js";
-import { makeAuthEngineOptions, makeAuthPool, type AuthEngineConfig } from "../src/auth-engine.js";
+import { makeAuthEngine, makeAuthPool, type AuthEngineConfig } from "../src/auth-engine.js";
 import { makePasswordRecovery, drainPasswordResetMail } from "../src/password-recovery.js";
 import { identityRequestContext } from "../../../apps/backend/src/session-security.js";
 import {
@@ -20,11 +19,7 @@ import {
   passwordResetDeliveryConfig,
 } from "../../../apps/backend/src/password-recovery/http-delivery.js";
 import { importIdentityCohort, IdentityCohortFailure } from "../src/identity-cohort.js";
-import {
-  nativeAndLegacyPasswordCodec,
-  isNativePasswordHash,
-  verifyNativeOrLegacyPassword,
-} from "../src/password-codec.js";
+import { isNativePasswordHash, verifyNativeOrLegacyPassword } from "../src/password-codec.js";
 declare const Bun: {
   version: string;
   serve(options: {
@@ -358,11 +353,7 @@ try {
   const startEngine = (selected: AuthEngineConfig) => {
     authPool = makeAuthPool(selected);
     const recovery = makePasswordRecovery(authPool, selected);
-    const base = makeAuthEngineOptions(selected, authPool, recovery);
-    const engine = betterAuth({
-      ...base,
-      emailAndPassword: { ...base.emailAndPassword, password: nativeAndLegacyPasswordCodec },
-    });
+    const engine = makeAuthEngine(selected, authPool, recovery);
     server = Bun.serve({
       hostname: "127.0.0.1",
       port: authPort,
