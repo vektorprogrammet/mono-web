@@ -143,6 +143,17 @@ try {
   const password = "journey-conduct-secret-0123456789",
     email = "lina.conduct@example.invalid";
   secrets.push(password, email);
+  const credentialCheck = await fetch(`${api}/api/auth/sign-in/email`, {
+    method: "POST",
+    headers: { origin: ui, "content-type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!credentialCheck.ok) {
+    const failure = await credentialCheck.json();
+    throw new Error(`Native sign-in failed: ${credentialCheck.status} ${JSON.stringify(failure)}`);
+  }
+  await credentialCheck.body?.cancel();
+  gates.push("seeded native credentials accepted by real identity engine");
   browser = await chromium.launch({
     headless: true,
     executablePath:
@@ -152,11 +163,11 @@ try {
   const errors: string[] = [];
   context.on("page", (p: any) => p.on("pageerror", () => errors.push("pageerror")));
   page = await context.newPage();
-  await page.goto(`${ui}/login`);
+  await page.goto(`${ui}/login?redirectTo=/dashboard/intervjuer`);
   await page.getByLabel("E-post", { exact: true }).fill(email);
   await page.getByLabel("Passord", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Logg inn", exact: true }).click();
-  await page.waitForURL(/\/dashboard\/?$/);
+  await page.waitForURL(/\/dashboard\/intervjuer$/);
   await page.goto(`${ui}/dashboard/intervjuer`);
   const cookies = await context.cookies();
   const cookie = cookies.map((c: any) => `${c.name}=${c.value}`).join("; ");
@@ -491,6 +502,12 @@ try {
   console.log(JSON.stringify({ result: "Passed", revision, artifacts, gates }));
 } catch (error) {
   let detail = error instanceof Error ? error.message : String(error);
+  if (page)
+    detail += ` Current page: ${await page
+      .locator("body")
+      .innerText()
+      .catch(() => "unavailable")}`;
+
   for (const secret of secrets) detail = detail.replaceAll(secret, "[redacted]");
   console.error(
     JSON.stringify({
