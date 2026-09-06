@@ -298,7 +298,23 @@ try {
   };
   for (const attempt of ["initial stale edit", "unchanged rejected retry"]) {
     await assert.rejects(sdk.substitutes.edit(staleCommand), (error: unknown) => {
-      assert.ok(error !== null && typeof error === "object" && "code" in error, attempt);
+      const shape =
+        error !== null && typeof error === "object"
+          ? {
+              keys: Object.keys(error),
+              body:
+                "body" in error && error.body !== null && typeof error.body === "object"
+                  ? {
+                      keys: Object.keys(error.body),
+                      code: "code" in error.body ? error.body.code : null,
+                    }
+                  : null,
+            }
+          : { type: typeof error };
+      assert.ok(
+        error !== null && typeof error === "object" && "code" in error,
+        `${attempt}: ${JSON.stringify(shape)}`,
+      );
       assert.equal(error.code, "precondition.failed", attempt);
       return true;
     });
