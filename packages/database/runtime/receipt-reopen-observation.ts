@@ -14,6 +14,7 @@ export async function observeReceiptReopening(options: {
   cookie: string;
   approverCookie: string;
   root: string;
+  artifactDirectory: string;
   attempts: () => number;
   accepted: () => number;
   setDeliveryAvailable: (available: boolean) => void;
@@ -108,7 +109,7 @@ export async function observeReceiptReopening(options: {
         randomUUID(),
         '{"actor":{"approvalScope":"Global"}}',
       ),
-      400,
+      422,
     ],
   ] as const)
     assert.equal(response.status, expected, name);
@@ -146,7 +147,7 @@ export async function observeReceiptReopening(options: {
   const retryKey = randomUUID();
   assert.equal(
     (await request(target.id, "reopen", target.etag, approverCookie, retryKey)).status,
-    500,
+    503,
   );
   assert.deepEqual(await snapshot(target.id), before);
   await pool.query("DROP TRIGGER fail_reopen_0102 ON economy_receipt_audit");
@@ -302,6 +303,10 @@ export async function observeReceiptReopening(options: {
       (await new AxeBuilder({ page: approverPage }).analyze()).violations.map((v: any) => v.id),
       [],
     );
+    await approverPage.screenshot({
+      path: join(options.artifactDirectory, "0102-reopen-mobile.png"),
+      fullPage: true,
+    });
     const browserAttempts = options.attempts();
     await approverPage.getByRole("button", { name: "Bekreft gjenåpning", exact: true }).click();
     await expect(
@@ -327,6 +332,10 @@ export async function observeReceiptReopening(options: {
       (await new AxeBuilder({ page: ownerPage }).analyze()).violations.map((v: any) => v.id),
       [],
     );
+    await ownerPage.screenshot({
+      path: join(options.artifactDirectory, "0102-correction-mobile.png"),
+      fullPage: true,
+    });
     await edit.getByRole("button", { name: "Lagre endringer", exact: true }).click();
     await expect(ownedRow).toContainText("Corrected same claim 0102");
     await approverPage.goto(`${dashboardOrigin}/dashboard/utlegg?status=Pending`);
@@ -341,6 +350,17 @@ export async function observeReceiptReopening(options: {
     await ownerPage.reload();
     await expect(ownedRow.locator('[data-status="Rejected"]')).toBeVisible();
     await expect(ownedRow.getByRole("button", { name: "Rediger", exact: true })).toHaveCount(0);
+    await approverPage.setViewportSize({ width: 1440, height: 1000 });
+    await approverPage.goto(`${dashboardOrigin}/dashboard/utlegg?status=Rejected`);
+    await expect(approvalRow).toContainText("Corrected same claim 0102");
+    assert.deepEqual(
+      (await new AxeBuilder({ page: approverPage }).analyze()).violations.map((v: any) => v.id),
+      [],
+    );
+    await approverPage.screenshot({
+      path: join(options.artifactDirectory, "0102-rejected-desktop.png"),
+      fullPage: true,
+    });
     const final = await snapshot(browserTarget.id);
     assert.equal(final.receipt.receipt_id, browserTarget.id);
     assert.equal(final.receipt.amount_ore, "600");
@@ -367,7 +387,7 @@ export async function observeReceiptReopening(options: {
       finalAcknowledgedRejection: true,
       authorityAndTerminalDenials: true,
       exactReplayAndRevokedReplay: true,
-      concurrentSingleWinner: true,
+      concurrentSingleWinner: concurrentStatuses,
       persistenceFailureRollbackRetry: true,
       auditActions: final.audit.map((r: any) => r.action),
       scope: "synthetic loopback; transport acknowledgement, no human delivery or payment claim",

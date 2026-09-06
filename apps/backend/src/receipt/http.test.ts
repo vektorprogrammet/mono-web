@@ -269,7 +269,10 @@ const harness = (options: HarnessOptions = {}) => {
           paymentAccountCiphertext: "encrypted",
         });
       }
-      const approval = target._tag === "RefundReceipt" || target._tag === "RejectReceipt";
+      const approval =
+        target._tag === "RefundReceipt" ||
+        target._tag === "RejectReceipt" ||
+        target._tag === "ReopenRejectedReceipt";
       const source = (approval ? options.approvalRows : options.ownedRows)?.find(
         (row) => row.receiptId === target.receiptId,
       );
@@ -827,6 +830,33 @@ describe("receipt v0.2 HTTP contract", () => {
       detail: "The authenticated principal is not permitted to perform this operation.",
     });
     expect(state.authorizationChecks()).toEqual(["RefundReceipt", "RefundReceipt"]);
+    expect(state.commands).toHaveLength(1);
+    expect(state.nativeReceiptCount()).toBe(1);
+    expect(state.mutationTransactions()).toEqual({
+      commandTransactionIds: [1],
+      receiptWriteTransactionIds: [1],
+    });
+  });
+
+  it("denies a matching reopening replay after grant revocation without another transition", async () => {
+    const state = harness({ approvalRows: [{ ...pendingReceipt(), status: "Rejected" }] });
+    const pathname = `/api/receipts/${receiptId}:reopen`;
+    const idempotencyKey = "reopen-approval-revocation-key-0001";
+
+    const accepted = await actionRequest(state.http, pathname, idempotencyKey);
+    expect(accepted.status).toBe(200);
+    expect(state.commands).toHaveLength(1);
+    expect(state.authorizationChecks()).toEqual(["ReopenRejectedReceipt"]);
+
+    state.revokeAuthority("Approval");
+    const revokedReplay = await actionRequest(state.http, pathname, idempotencyKey);
+    await expectProblem(revokedReplay, {
+      code: "authority.denied",
+      title: "Authority denied",
+      status: 403,
+      detail: "The authenticated principal is not permitted to perform this operation.",
+    });
+    expect(state.authorizationChecks()).toEqual(["ReopenRejectedReceipt", "ReopenRejectedReceipt"]);
     expect(state.commands).toHaveLength(1);
     expect(state.nativeReceiptCount()).toBe(1);
     expect(state.mutationTransactions()).toEqual({

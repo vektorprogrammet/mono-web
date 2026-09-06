@@ -626,6 +626,7 @@ try {
       cookie,
       approverCookie: foreign,
       root,
+      artifactDirectory: artifacts,
       restart: async (nextEnv) => {
         if (backend) await stop(backend);
         backend = start("bun", ["run", "apps/backend/src/main.ts"], nextEnv);
@@ -726,7 +727,14 @@ try {
   await rm(storage, { recursive: true, force: true });
   if (process.env.RECEIPT_REOPEN_REHEARSAL === "1") {
     for (const entry of await readdir(artifacts)) {
-      if (entry !== "failure.json")
+      if (
+        ![
+          "failure.json",
+          "0102-reopen-mobile.png",
+          "0102-correction-mobile.png",
+          "0102-rejected-desktop.png",
+        ].includes(entry)
+      )
         await rm(join(artifacts, entry), { recursive: true, force: true });
     }
   }

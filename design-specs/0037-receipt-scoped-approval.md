@@ -1,5 +1,7 @@
 # Design spec 0037 — Scoped Receipt approval
 
+The rejected-is-terminal law below is superseded by [0102 — Reopen a rejected expense claim](0102-reopen-rejected-receipt.md). Refunded and Withdrawn remain terminal.
+
 > **Summary:** An authenticated active economy approver sees only Receipts authorized by their department or global approval scope, then refunds or rejects a `Pending` Receipt through the canonical SDK. The native Effect/PostgreSQL Receipt authority enforces scope, optimistic revision, terminal-state law, replay, and ordered notification/audit effects. One real browser journey proves accepted refund and rejection plus cross-department, stale, concurrent, unauthenticated, and terminal rejections without Symfony, provider, or production access.
 
 ## Metadata

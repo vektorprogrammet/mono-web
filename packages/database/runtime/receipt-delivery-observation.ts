@@ -13,6 +13,7 @@ export const observeReceiptDelivery = async (options: {
   cookie: string;
   approverCookie: string;
   root: string;
+  artifactDirectory: string;
   restart: (env: NodeJS.ProcessEnv) => Promise<void>;
 }) => {
   const { pool, origin, cookie, approverCookie } = options;
@@ -246,6 +247,7 @@ export const observeReceiptDelivery = async (options: {
             cookie,
             approverCookie,
             root: options.root,
+            artifactDirectory: options.artifactDirectory,
             attempts: () => attempts.length,
             accepted: () => accepted.size,
             setDeliveryAvailable: (available) => {
