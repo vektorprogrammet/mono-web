@@ -535,6 +535,7 @@ const questionView = (
             [
               ...inputAttrs,
               h.Id(`question-${question.questionId}`),
+              h.Class("fs-input min-h-28 resize-y"),
               h.Value(answerValue),
               h.OnInput((value) =>
                 ChangedAnswer({ questionId: question.questionId, answer: value }),
@@ -546,7 +547,7 @@ const questionView = (
       : question.kind === "check"
         ? question.alternatives.map((alternative, index) =>
             h.label(
-              [h.Class("fs-option")],
+              [h.Class("fs-option flex min-h-11 items-center gap-3 py-2")],
               [
                 h.input([
                   ...inputAttrs,
@@ -569,7 +570,7 @@ const questionView = (
           )
         : question.alternatives.map((alternative, index) =>
             h.label(
-              [h.Class("fs-option")],
+              [h.Class("fs-option flex min-h-11 items-center gap-3 py-2")],
               [
                 h.input([
                   ...inputAttrs,
@@ -586,10 +587,16 @@ const questionView = (
             ),
           );
   return h.fieldset(
-    [h.Class("fs-question"), h.AriaLabelledBy(`question-${question.questionId}-legend`)],
+    [
+      h.Class("fs-question fs-field min-w-0"),
+      h.AriaLabelledBy(`question-${question.questionId}-legend`),
+    ],
     [
       h.legend(
-        [h.Id(`question-${question.questionId}-legend`), h.Class("fs-question__prompt")],
+        [
+          h.Id(`question-${question.questionId}-legend`),
+          h.Class("fs-question__prompt fs-label mb-2"),
+        ],
         [`${question.ordinal + 1}. ${question.prompt}`],
       ),
       question.helpText === null ? h.empty : h.p([h.Class("fs-field-hint")], [question.helpText]),
@@ -601,19 +608,20 @@ const questionView = (
 
 const scoreView = (model: ReadyModel, isTerminal: boolean, h: HtmlBuilder<Message>): Html =>
   h.fieldset(
-    [h.Class("fs-score"), h.AriaLabelledBy("fs-score-legend")],
+    [h.Class("fs-score fs-field min-w-0"), h.AriaLabelledBy("fs-score-legend")],
     [
-      h.legend([h.Id("fs-score-legend")], ["Score"]),
+      h.legend([h.Id("fs-score-legend"), h.Class("fs-label mb-2")], ["Score"]),
       h.div(
-        [h.Class("fs-score__field")],
+        [h.Class("fs-score__field fs-field min-w-0")],
         [
           h.label(
-            [h.For("interviewer-recommendation")],
+            [h.For("interviewer-recommendation"), h.Class("fs-label")],
             ["Passer denne studenten til å være vektorassistent?"],
           ),
           h.select(
             [
               h.Id("interviewer-recommendation"),
+              h.Class("fs-input"),
               h.Value(model.recommendation ?? ""),
               h.Disabled(model.isConducting || isTerminal),
               h.OnChange((value) =>
@@ -638,12 +646,13 @@ const scoreView = (model: ReadyModel, isTerminal: boolean, h: HtmlBuilder<Messag
       ).map(([axis, label]) => {
         const field = model.score[axis];
         return h.div(
-          [h.Class("fs-score__field")],
+          [h.Class("fs-score__field fs-field min-w-0")],
           [
-            h.label([h.For(`score-${axis}`)], [label]),
+            h.label([h.For(`score-${axis}`), h.Class("fs-label")], [label]),
             h.select(
               [
                 h.Id(`score-${axis}`),
+                h.Class("fs-input"),
                 h.Value(field.value),
                 h.Disabled(model.isConducting || isTerminal),
                 h.OnChange((value) => ChangedScore({ axis, value })),
@@ -693,10 +702,10 @@ const conductSuccessView = (
         ? "Cancelled"
         : null;
   return h.section(
-    [h.Class("fs-conduct"), h.AriaLabelledBy("fs-conduct-title")],
+    [h.Class("fs-conduct fs-board mt-4 grid gap-6 p-4"), h.AriaLabelledBy("fs-conduct-title")],
     [
       h.div(
-        [h.Class("fs-conduct__heading")],
+        [h.Class("fs-conduct__heading fs-interview__header")],
         [
           h.div(
             [],
@@ -723,7 +732,7 @@ const conductSuccessView = (
         ],
       ),
       h.div(
-        [h.Class("fs-conduct__questions")],
+        [h.Class("fs-conduct__questions grid gap-6")],
         detail.questions.map((question) => questionView(question, model, terminal !== null, h)),
       ),
       terminal === null || detail.score !== null ? scoreView(model, terminal !== null, h) : h.empty,
