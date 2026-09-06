@@ -63,21 +63,21 @@ function ResolutionAction({ receipt, intent, failure, actionErrorId }: Resolutio
           {label}
         </Button>
       </AlertDialogTrigger>
-      <AlertDialogContent
-        aria-busy={busy}
-        aria-labelledby={titleId}
-        aria-describedby={descriptionId}
-      >
+      <AlertDialogContent aria-busy={busy}>
         <AlertDialogHeader>
-          <AlertDialogTitle id={titleId}>
-            {label} utlegg {receipt.visualId}?
+          <AlertDialogTitle>
+            <span id={titleId}>
+              {label} utlegg {receipt.visualId}?
+            </span>
           </AlertDialogTitle>
-          <AlertDialogDescription id={descriptionId}>
-            {refunding
-              ? `${receipt.amount} fra eier ${receipt.ownerPersonId} i avdeling ${receipt.departmentId} markeres som refundert. Handlingen kan ikke angres.`
-              : reopening
-                ? "Utlegget åpnes for korrigering. Eieren kan redigere det samme utlegget før ny behandling. Det sendes ingen e-post nå."
-                : `${receipt.amount} fra eier ${receipt.ownerPersonId} i avdeling ${receipt.departmentId} avvises. En godkjenner kan åpne det for korrigering senere.`}
+          <AlertDialogDescription>
+            <span id={descriptionId}>
+              {refunding
+                ? `${receipt.amount} fra eier ${receipt.ownerPersonId} i avdeling ${receipt.departmentId} markeres som refundert. Handlingen kan ikke angres.`
+                : reopening
+                  ? "Utlegget åpnes for korrigering. Eieren kan redigere det samme utlegget før ny behandling. Det sendes ingen e-post nå."
+                  : `${receipt.amount} fra eier ${receipt.ownerPersonId} i avdeling ${receipt.departmentId} avvises. En godkjenner kan åpne det for korrigering senere.`}
+            </span>
           </AlertDialogDescription>
         </AlertDialogHeader>
 
