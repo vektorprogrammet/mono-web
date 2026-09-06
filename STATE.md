@@ -6,11 +6,14 @@ Now:
 - Native migration continues from the completed local consolidation at `694cc34f`.
 - Implemented and observed with synthetic local resources: [0094 — substitute pool](design-specs/0094-native-substitute-pool.md), including the real dashboard/API/PostgreSQL journey.
 - Implemented and observed: [0095 — synthetic receipt import rehearsal](design-specs/0095-synthetic-receipt-import-rehearsal.md), including private owner-file reads, replay, quarantine and nonempty backup/restore.
+- Implemented and runtime-observed with synthetic local resources: [0096 — existing-volunteer placement](design-specs/0096-existing-volunteer-placement.md), including self-request, scoped establishment, historical placement, edits/removal and preserved audit history.
+- Implemented and runtime-observed: [0097 — acknowledged receipt delivery](design-specs/0097-receipt-notification-delivery.md), including immutable first-attempt envelopes, bounded retry, failure/restart and historical-import suppression.
+- [0098 — parity diagnostics](design-specs/0098-safe-parity-diagnostics.md) identifies rejected source safely and corrects fetch destination extraction. Generated catalog freshness is not semantic parity.
 - Runtime behavior and generated API contracts are authoritative; historical migration prose in the agent instructions is background, not current completion evidence.
 
 Next:
 - Keep exact-commit runtime evidence separate from implementation and production cutover claims.
-- Execute the accepted [continuation plan](docs/migration/continuation-plan.md): existing-volunteer affiliation/manual placement (0096) and acknowledged receipt notification delivery (0097), followed by explicit applicant/account onboarding.
+- Continue the accepted [continuation plan](docs/migration/continuation-plan.md) with explicit applicant-to-Person/account onboarding and native recovery/cohort migration. Reuse the existing 0054.2 recovery contract; distinguish local implementation from production delivery authority.
 - Rehearse receipt, private-file and identity reconciliation before any production cutover.
 
 Blocked:
