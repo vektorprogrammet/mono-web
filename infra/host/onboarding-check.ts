@@ -503,34 +503,22 @@ try {
   );
   // Expiry is enforced immediately; physical secret cleanup belongs to the backend lifetime.
   const cleanupApplication = await submit("onboarding-cleanup@example.invalid", "Cleanup");
-  rejectNext = true;
-  await expectStatus(
-    await request(
-      boardPath,
-      leader,
-      { applicationId: cleanupApplication.applicationId, action: "Issue" },
-      (await board()).etag,
-    ),
-    200,
-  );
-  const cleanupId = (
-    await pool.query(
-      "SELECT invitation_id FROM applicant_account_invitations WHERE application_id=$1 AND state='Open'",
-      [cleanupApplication.applicationId],
-    )
-  ).rows[0].invitation_id;
-  assert.equal(
-    (
-      await pool.query("SELECT state FROM applicant_account_delivery WHERE invitation_id=$1", [
-        cleanupId,
-      ])
-    ).rows[0].state,
-    "Pending",
-  );
   await stopPreviewScenarioBackend(backend);
+  // Seed an already-expired pending effect; invitation timestamps are immutable.
+  const cleanupId = "expiry-cleanup";
+  const cleanupToken = "onboard_" + randomBytes(32).toString("hex");
   await pool.query(
-    "UPDATE applicant_account_invitations SET issued_at=clock_timestamp()-interval '2 days', expires_at=clock_timestamp()-interval '1 second' WHERE invitation_id=$1",
-    [cleanupId],
+    `INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) SELECT $2,application_id,applicant_id,$3,clock_timestamp()-interval '1 second','Open',$4,clock_timestamp()-interval '24 hours 1 second' FROM admission_applications WHERE application_id=$1`,
+    [
+      cleanupApplication.applicationId,
+      cleanupId,
+      createHash("sha256").update(cleanupToken).digest("hex"),
+      leaderId,
+    ],
+  );
+  await pool.query(
+    `INSERT INTO applicant_account_delivery(invitation_id,state,recipient,secret,envelope) VALUES($1,'Pending','onboarding-cleanup@example.invalid',$2,'{}'::jsonb)`,
+    [cleanupId, cleanupToken],
   );
   await pool.query(`CREATE FUNCTION public.reject_onboarding_expiry_rehearsal() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic expiry cleanup failure'; END $$;
     CREATE TRIGGER reject_onboarding_expiry_rehearsal BEFORE UPDATE ON applicant_account_delivery FOR EACH ROW WHEN (OLD.state='Pending' AND NEW.state='Cancelled') EXECUTE FUNCTION public.reject_onboarding_expiry_rehearsal()`);
