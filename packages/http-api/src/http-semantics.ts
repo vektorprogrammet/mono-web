@@ -249,11 +249,36 @@ interface FrozenProblemDefinition {
 
 /** Exhaustive public registry. No title or detail is derived from a code. */
 export const NativeProblemRegistry = {
+  "affiliation.transition-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:affiliation.transition-invalid",
+    title: "Invalid affiliation transition",
+    status: 422,
+    detail: "The requested transition is not allowed from the current affiliation state.",
+  },
+  "affiliation.inactive": {
+    type: "urn:vektorprogrammet:problem:v0.2:affiliation.inactive",
+    title: "Inactive volunteer affiliation",
+    status: 422,
+    detail: "An active volunteer affiliation is required to create or edit a placement.",
+  },
+  "placement.overlap": {
+    type: "urn:vektorprogrammet:problem:v0.2:placement.overlap",
+    title: "Duplicate placement",
+    status: 409,
+    detail: "An active placement already exists for this person, school, semester and block.",
+  },
+  "placement.inactive": {
+    type: "urn:vektorprogrammet:problem:v0.2:placement.inactive",
+    title: "Removed placement",
+    status: 422,
+    detail: "The placement has already been removed.",
+  },
+
   "scope.invalid": {
     type: "urn:vektorprogrammet:problem:v0.2:scope.invalid",
-    title: "Invalid substitute scope",
+    title: "Invalid scope",
     status: 422,
-    detail: "The selected semester does not exist.",
+    detail: "The selected department, semester or school is not available in this scope.",
   },
   "substitute.already-active": {
     type: "urn:vektorprogrammet:problem:v0.2:substitute.already-active",

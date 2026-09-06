@@ -21,3 +21,13 @@ Run real PostgreSQL/backend/generated SDK/production dashboard/Chromium with syn
 ## Boundaries
 
 One isolated writer owns this spec. Do not edit original checkouts, another worktree, finance implementation or root roadmap/state. No applicant linking, automated scheduler, provider calls, real data, deployment or remote changes. Report reproduced defects and bounded amendments. Commit source by explicit paths and deliver commit IDs, commands/evidence and unresolved risks; stop owned processes after evidence retention.
+
+## Implementation amendment — authorized discovery and overlap (2026-09-06)
+
+Approved by integrating lead: a signed-in existing Person requests affiliation only for self; coordinators see pending requests only in departments they manage. Request→establish creates active affiliation; pending→reject/withdraw becomes inactive; active→revoke becomes inactive. An inactive person may request again; active/pending duplicate requests reject. Self withdrawal applies only to pending requests. Every transition retains actor/time/action provenance. No third-party nomination or global private-person search exists.
+
+Legacy source: `apps/server/src/App/Operations/Infrastructure/Entity/AssistantHistory.php` declares uniqueness on user/school/semester/block and explicitly preserves separate blocks; form supports both blocks together. Native preserves the exact legacy uniqueness tuple: person/school/semester/block value (1,2,Both). Separate1/2 and distinct Both rows remain representable; preventing semantic overlap between Both and1/2 would be an additional business restriction, deferred for an explicit operator decision. A partial SQL unique index over active placements prevents exact duplicates across department associations, including concurrent commands. Removal retains audited history but releases uniqueness.
+
+Conditional writes operate on a department/semester board snapshot; department serialization and SQL exact-block uniqueness make concurrent updates explicit. Own affiliation writes use the person's private affiliation snapshot. Department and semester stay explicit and immutable for an existing placement; edit changes school/day/workdays/blocks. Historical semesters remain selectable. Native accounts and credentials are preserved without activation effects.
+
+Prerequisite amendment: the dashboard shell still projected generated SDK failures from top-level `error.code`. Use the existing schema-checked problem decoder so a real no-team Person reaches the identity-only shell and the always-visible affiliation link. This fixes the same previously verified response-envelope boundary; no role requirement is weakened.

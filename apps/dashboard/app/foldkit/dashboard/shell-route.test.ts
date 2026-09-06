@@ -1,3 +1,4 @@
+import { NativeProblemRegistry } from "@vektorprogrammet/http-api";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -44,7 +45,9 @@ describe("parent dashboard authority gate", () => {
   });
 
   it("keeps an authenticated authority-denied actor in a shell with session identity", async () => {
-    mocks.profile.mockRejectedValueOnce({ code: "authority.denied" });
+    mocks.profile.mockRejectedValueOnce({
+      body: { code: "authority.denied", ...NativeProblemRegistry["authority.denied"] },
+    });
 
     await expect(load()).resolves.toEqual({
       user: { name: "Member Session", email: "member@example.invalid" },
@@ -74,7 +77,9 @@ describe("parent dashboard authority gate", () => {
   });
 
   it("redirects only an unauthorized profile request as expired", async () => {
-    mocks.profile.mockRejectedValueOnce({ code: "credential.invalid" });
+    mocks.profile.mockRejectedValueOnce({
+      body: { code: "credential.invalid", ...NativeProblemRegistry["credential.invalid"] },
+    });
 
     const failure = await load().catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(Response);

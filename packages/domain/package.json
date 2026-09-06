@@ -32,7 +32,8 @@
     "./evidence": "./src/tutor/evidence.ts",
     "./receipt/proof": "./src/receipt/proof-index.ts",
     "./contact": "./src/contact/index.ts",
-    "./substitutes": "./src/substitutes/index.ts"
+    "./substitutes": "./src/substitutes/index.ts",
+    "./placements": "./src/placements/index.ts"
   },
   "scripts": {
     "report": "bun run runtime/main.ts",

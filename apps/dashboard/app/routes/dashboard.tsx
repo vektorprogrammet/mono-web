@@ -498,6 +498,12 @@ export function DashboardShellLayout() {
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 </SidebarMenu>
+                <Link
+                  to={href("/assistenter")}
+                  className="rounded-md px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2"
+                >
+                  Frivilligtilknytning og plassering
+                </Link>
                 {shell.showOrganizationContext ? <NavLinks links={mainLinks} /> : null}
               </SidebarGroup>
               {shell.showOrganizationContext && effectiveIsAdmin && (

@@ -1,3 +1,4 @@
+import { nativeProblemFrom } from "../../lib/native-problem";
 import { createAuthenticatedClient } from "../../lib/api.server";
 import { expiredSessionRedirect, loadSessionIdentity, requireAuth } from "../../lib/auth.server";
 import type { DashboardShellData } from "./shell";
@@ -18,8 +19,7 @@ export async function loadDashboardShell(request: Request): Promise<DashboardShe
       hasOrganizationContext: true,
     };
   } catch (error) {
-    const code =
-      error !== null && typeof error === "object" && "code" in error ? error.code : undefined;
+    const code = nativeProblemFrom(error)?.code;
     if (code === "authority.denied") {
       return {
         user: await loadSessionIdentity(request),

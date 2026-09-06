@@ -283,6 +283,11 @@ export const databaseMigrationDefinitions = [
     name: "native-substitute-pool",
     url: new URL("../migrations/0031-native-substitute-pool.sql", import.meta.url),
   },
+  {
+    id: "32_native-volunteer-placement",
+    name: "native-volunteer-placement",
+    url: new URL("../migrations/0032-native-volunteer-placement.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>
