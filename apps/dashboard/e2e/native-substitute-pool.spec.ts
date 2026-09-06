@@ -28,8 +28,12 @@ const axe = async (page: Page, state: string) => {
   ).toEqual([]);
 };
 const selectHistorical = async (page: Page) => {
-  await page.getByLabel("Avdeling", { exact: true }).selectOption(manifest.departmentId);
-  await page.getByLabel("Semester", { exact: true }).selectOption(manifest.semesterId);
+  await page
+    .getByRole("combobox", { name: "Avdeling", exact: true })
+    .selectOption(manifest.departmentId);
+  await page
+    .getByRole("combobox", { name: "Semester", exact: true })
+    .selectOption(manifest.semesterId);
   await page.getByRole("button", { name: "Vis vikarer" }).click();
   await expect(page).toHaveURL(`${manifest.dashboardOrigin}${scopePath(manifest.semesterId)}`);
 };
@@ -37,9 +41,11 @@ const card = (page: Page) => page.getByRole("article", { name: "Sofie Søker", e
 const declare = async (page: Page, year = "3") => {
   for (const label of ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag"])
     await card(page)
-      .getByLabel(label, { exact: true })
+      .getByRole("combobox", { name: label, exact: true })
       .selectOption(label === "Mandag" ? "true" : "false");
-  await card(page).getByLabel("Undervisningsspråk").selectOption("Norwegian");
+  await card(page)
+    .getByRole("combobox", { name: "Undervisningsspråk", exact: true })
+    .selectOption("Norwegian");
   await card(page).getByLabel("Studieår").fill(year);
 };
 const readEntry = async (page: Page) => {
@@ -54,12 +60,14 @@ const readEntry = async (page: Page) => {
 test("0094 coordinator manages a real persisted substitute pool", async ({ browser }) => {
   test.skip(!manifest, "Requires the isolated native substitute lifecycle driver");
   test.setTimeout(150_000);
+
   const leader = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const other = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const member = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const wrong = await browser.newContext();
   const anonymous = await browser.newContext();
   const page = await leader.newPage();
+  page.setDefaultTimeout(10_000);
   const gates: string[] = [];
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -70,15 +78,19 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
     gates.push("anonymous browser is redirected to sign-in");
     await signIn(page, manifest.persons.leader);
     await axe(page, "explicit scope selection");
-    await page.getByLabel("Avdeling", { exact: true }).focus();
+    await page.getByRole("combobox", { name: "Avdeling", exact: true }).focus();
     await page.keyboard.press("Tab");
-    await expect(page.getByLabel("Semester", { exact: true })).toBeFocused();
+    await expect(page.getByRole("combobox", { name: "Semester", exact: true })).toBeFocused();
     await selectHistorical(page);
-    await page.getByLabel("Søker", { exact: true }).selectOption(manifest.applicationId);
-    await expect(card(page).getByLabel("Mandag", { exact: true })).toHaveValue("");
-    await expect(card(page).getByLabel("Undervisningsspråk")).toHaveValue("");
+    await page
+      .getByRole("combobox", { name: "Søker", exact: true })
+      .selectOption(manifest.applicationId);
+    await expect(card(page).getByRole("combobox", { name: "Mandag", exact: true })).toHaveValue("");
+    await expect(
+      card(page).getByRole("combobox", { name: "Undervisningsspråk", exact: true }),
+    ).toHaveValue("");
     await card(page).getByRole("button", { name: "Legg til som vikar" }).click();
-    await expect(card(page).getByLabel("Mandag", { exact: true })).toBeFocused();
+    await expect(card(page).getByRole("combobox", { name: "Mandag", exact: true })).toBeFocused();
     expect((await readEntry(page)).active).toBe(false);
     await declare(page);
     await axe(page, "explicit candidate preferences");
@@ -122,8 +134,10 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
     await signIn(concurrent, manifest.persons.leader);
     await concurrent.goto(`${manifest.dashboardOrigin}${scopePath(manifest.semesterId)}`);
     await card(page).getByLabel("Studieår").fill("4");
-    await card(page).getByLabel("Undervisningsspråk").selectOption("English");
-    await card(page).getByLabel("Tirsdag", { exact: true }).selectOption("true");
+    await card(page)
+      .getByRole("combobox", { name: "Undervisningsspråk", exact: true })
+      .selectOption("English");
+    await card(page).getByRole("combobox", { name: "Tirsdag", exact: true }).selectOption("true");
     await card(concurrent).getByLabel("Studieår").fill("5");
     await card(concurrent).getByRole("button", { name: "Lagre endringer" }).click();
     await expect(
@@ -133,8 +147,12 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
     await card(page).getByRole("button", { name: "Lagre endringer" }).click();
     await expect(card(page).getByRole("alert")).toContainText("Utkastet ditt er beholdt");
     await expect(card(page).getByLabel("Studieår")).toHaveValue("4");
-    await expect(card(page).getByLabel("Undervisningsspråk")).toHaveValue("English");
-    await expect(card(page).getByLabel("Tirsdag", { exact: true })).toHaveValue("true");
+    await expect(
+      card(page).getByRole("combobox", { name: "Undervisningsspråk", exact: true }),
+    ).toHaveValue("English");
+    await expect(card(page).getByRole("combobox", { name: "Tirsdag", exact: true })).toHaveValue(
+      "true",
+    );
     await expect(card(page).getByRole("alert")).toBeInViewport({ ratio: 1 });
     await axe(page, "mobile stale rejected draft");
     const rejectedKey = await card(page).locator('input[name="commandId"]').inputValue();
@@ -161,7 +179,9 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
     expect((await readEntry(page)).preferences.language).toBe("English");
     // Consecutive successes on the same mounted form must use the latest ETag and a new command.
     for (const available of ["true", "false"]) {
-      await card(page).getByLabel("Fredag", { exact: true }).selectOption(available);
+      await card(page)
+        .getByRole("combobox", { name: "Fredag", exact: true })
+        .selectOption(available);
       await card(page).getByRole("button", { name: "Lagre endringer" }).click();
       await expect
         .poll(async () => (await readEntry(page)).preferences.friday)
@@ -178,14 +198,16 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
     // A real concurrent removal moves the application out of the active list.
     // The rejected editor must retain its input without claiming or restoring activity.
     await concurrent.reload();
-    await card(page).getByLabel("Onsdag", { exact: true }).selectOption("true");
+    await card(page).getByRole("combobox", { name: "Onsdag", exact: true }).selectOption("true");
     await card(concurrent).getByRole("button", { name: "Fjern fra vikaroversikten" }).click();
     await expect(
       concurrent.getByRole("status").filter({ hasText: "Søknaden og opplysningene er bevart." }),
     ).toBeVisible();
     await card(page).getByRole("button", { name: "Lagre endringer" }).click();
     await expect(card(page).getByRole("alert")).toContainText("Søkeren er ikke lenger aktiv vikar");
-    await expect(card(page).getByLabel("Onsdag", { exact: true })).toHaveValue("true");
+    await expect(card(page).getByRole("combobox", { name: "Onsdag", exact: true })).toHaveValue(
+      "true",
+    );
     expect((await readEntry(page)).active).toBe(false);
     await expect(card(page).getByRole("button", { name: "Lagre endringer" })).toHaveCount(0);
     await card(page).getByRole("button", { name: "Hent siste versjon", exact: true }).click();
@@ -195,7 +217,7 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
       page.getByRole("status").filter({ hasText: "Vikaren er lagt til." }),
     ).toBeVisible();
     expect((await readEntry(page)).preferences.wednesday).toBe(true);
-    await card(page).getByLabel("Onsdag", { exact: true }).selectOption("false");
+    await card(page).getByRole("combobox", { name: "Onsdag", exact: true }).selectOption("false");
     await card(page).getByRole("button", { name: "Lagre endringer" }).click();
     await expect.poll(async () => (await readEntry(page)).preferences.wednesday).toBe(false);
     await expect(
@@ -215,8 +237,12 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
     expect(inactive.active).toBe(false);
     expect(inactive.yearOfStudy).toBe(4);
     expect(inactive.preferences.language).toBe("English");
-    await page.getByLabel("Søker", { exact: true }).selectOption(manifest.applicationId);
-    await expect(card(page).getByLabel("Tirsdag", { exact: true })).toHaveValue("true");
+    await page
+      .getByRole("combobox", { name: "Søker", exact: true })
+      .selectOption(manifest.applicationId);
+    await expect(card(page).getByRole("combobox", { name: "Tirsdag", exact: true })).toHaveValue(
+      "true",
+    );
     await card(page).getByRole("button", { name: "Legg til som vikar" }).click();
     await expect(
       page.getByRole("status").filter({ hasText: "Vikaren er lagt til." }),
@@ -248,7 +274,7 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
     await expect(readOnly.getByText(/Du har lesetilgang/)).toBeVisible();
     await expect(card(readOnly)).toBeVisible();
     await expect(readOnly.getByRole("button", { name: "Lagre endringer" })).toHaveCount(0);
-    await expect(readOnly.getByLabel("Søker", { exact: true })).toHaveCount(0);
+    await expect(readOnly.getByRole("combobox", { name: "Søker", exact: true })).toHaveCount(0);
     const selected = await readEntry(readOnly);
     const denied = await readOnly.request.post(
       `${manifest.backendOrigin}/api/substitutes/${manifest.applicationId}:deactivate`,
