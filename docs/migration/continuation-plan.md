@@ -26,6 +26,17 @@ product policy. Legacy recommendation reporting, authorized edits to completed
 interviews, co-interviewer privileges, applicant progress and completion receipts
 remain separate parity items; 0101 does not establish all of them.
 
+Reporting prerequisite, 2026-09-07: the legacy interviewed-applicant query selects
+one admission period and excludes applications with `previousParticipation`.
+Native applications currently have no equivalent fact. Restore an explicit
+per-application answer before claiming the same reporting population. Historical
+absence must remain unknown; accounts, affiliations and placements cannot supply
+the missing answer. Capture and coordinator reporting are separate design-specs.
+The report must preserve current department authority and exclude proven self
+assessments before deriving either rows or totals. Separate recommendation counts
+exist in an unused legacy partial; the live table establishes total rows and
+sortable recommendations/scores, not currently rendered per-choice counts.
+
 Finance source correction: legacy administrators can return rejected claims to
 Pending so owners can edit the same claim. [0102](../../design-specs/0102-reopen-rejected-receipt.md)
 restores that correction journey under the existing native scoped approval

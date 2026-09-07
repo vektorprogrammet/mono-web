@@ -18,6 +18,7 @@ Now:
 
 Next:
 
+- Restore the missing per-application previous-participation answer, with historical unknown preserved, before coordinator reporting: legacy's interviewed-applicant population excludes returning assistants. Source research and bounded contracts are being prepared; no inference from account links or affiliations is permitted.
 - Keep exact-commit runtime evidence separate from implementation and production cutover claims.
 - Continue the accepted [continuation plan](docs/migration/continuation-plan.md): coordinator recommendation reporting and authorized completed-interview edits, remaining recruitment/finance outcomes and semester workflows. A new coordinator admission-decision workflow remains a separate product choice. The implemented onboarding journey grants no assistant acceptance or automatic affiliation.
 - Rehearse receipt, private-file and identity reconciliation before any production cutover.
