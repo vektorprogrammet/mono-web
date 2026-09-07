@@ -551,6 +551,23 @@ export const RecruitmentReadSchedulingBoardProblem = problemUnion(
   ],
 );
 
+/** Problems for the dedicated completed-interview report. */
+export const RecruitmentReadInterviewReportProblem = problemUnion(
+  "RecruitmentReadInterviewReportProblem",
+  [
+    ["request.malformed", 400],
+    ["header.malformed", 400],
+    ["validation.failed", 422],
+    ["credential.missing", 401],
+    ["credential.invalid", 401],
+    ["authority.denied", 403],
+    ["origin.denied", 403],
+    ["transaction.conflict", 409],
+    ["internal.error", 500],
+    ["recruitment.unavailable", 503],
+  ],
+);
+
 /** Problems for `recruitment.createApplicationInterview`. */
 export const RecruitmentCreateApplicationInterviewProblem = problemUnion(
   "RecruitmentCreateApplicationInterviewProblem",

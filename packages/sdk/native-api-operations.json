@@ -309,6 +309,12 @@
     {
       "group": "recruitment",
       "method": "GET",
+      "operationId": "recruitment.readInterviewReport",
+      "path": "/api/recruitment/interview-report"
+    },
+    {
+      "group": "recruitment",
+      "method": "GET",
       "operationId": "recruitment.readInvitationResponse",
       "path": "/api/recruitment/invitation-response"
     },

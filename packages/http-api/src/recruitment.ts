@@ -7,6 +7,8 @@ import { AdmissionPeriodId } from "@vektorprogrammet/domain/admission-period";
 import { ApplicantIdSchema, PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
+  InterviewReport,
+  InterviewReportQuery,
   InterviewSchemaId,
   RecruitmentAssignmentBoardQuerySchema,
   RecruitmentAssignmentBoardSchema,
@@ -153,6 +155,7 @@ import {
   RecruitmentReadInterviewConductProblem,
   RecruitmentReadInvitationResponseProblem,
   RecruitmentReadSchedulingBoardProblem,
+  RecruitmentReadInterviewReportProblem,
   RecruitmentRejectInvitationProblem,
   RecruitmentRequestNewInvitationTimeProblem,
   RecruitmentScheduleInterviewProblem,
@@ -372,6 +375,35 @@ export const ReadAssignmentBoardEndpoint = HttpApiEndpoint.get(
     ),
   );
 
+/** Scoped completed conduct projection; raw conduct access remains separate. */
+export const ReadInterviewReportEndpoint = HttpApiEndpoint.get(
+  "readInterviewReport",
+  "/api/recruitment/interview-report",
+  {
+    query: InterviewReportQuery.fields,
+    success: privateReadResponse(InterviewReport),
+    error: endpointProblemResponses(RecruitmentReadInterviewReportProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "recruitment.read-interview-report",
+        canonicalScopeResolver: "recruitment.interview-report",
+        requirements: ["organization.single-department-leader"],
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
+  .annotateMerge(
+    operationAnnotations(
+      "Read completed interview report",
+      "Returns limited completed interview observations for an explicitly selected department admission period; proven self assessments are excluded.",
+    ),
+  );
+
 /** @since 0.1.0 @category Endpoints */
 export const ReadSchedulingBoardEndpoint = HttpApiEndpoint.get(
   "readSchedulingBoard",
@@ -556,6 +588,7 @@ export class RecruitmentApi extends HttpApiGroup.make("recruitment")
     RequestNewInvitationTimeEndpoint,
     ReadAssignmentBoardEndpoint,
     ReadSchedulingBoardEndpoint,
+    ReadInterviewReportEndpoint,
     AssignApplicantEndpoint,
     ScheduleInterviewEndpoint,
     ReadInterviewConductEndpoint,

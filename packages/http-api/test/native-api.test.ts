@@ -436,6 +436,17 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     ),
   ],
   [
+    "GET",
+    "/api/recruitment/interview-report",
+    "recruitment.readInterviewReport",
+    person(
+      "recruitment.read-interview-report",
+      "recruitment.interview-report",
+      ["organization.single-department-leader"],
+      "SnapshotRead",
+    ),
+  ],
+  [
     "POST",
     "/api/recruitment/applications/:applicationId/interviews",
     "recruitment.createApplicationInterview",

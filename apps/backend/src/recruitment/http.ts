@@ -1,3 +1,9 @@
+import {
+  readCompletedInterviewReport,
+  resolveInterviewReportLeader,
+  InterviewReportQuery,
+  InterviewReport,
+} from "@vektorprogrammet/domain/recruitment";
 import { guardInterviewApplicantIdentity } from "@vektorprogrammet/domain/recruitment";
 import {
   AssignmentBoard,
@@ -20,6 +26,7 @@ import {
   ReadInterviewConductEndpoint,
   ReadInvitationResponseEndpoint,
   ReadSchedulingBoardEndpoint,
+  ReadInterviewReportEndpoint,
   RecruitmentInterviewResource,
   RejectInvitationEndpoint,
   RequestNewInvitationTimeEndpoint,
@@ -160,6 +167,11 @@ export const RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS = {
     method: "GET",
     path: "/api/recruitment/application-assignments",
   },
+  readInterviewReport: {
+    operationId: "recruitment.readInterviewReport",
+    method: "GET",
+    path: "/api/recruitment/interview-report",
+  },
   readSchedulingBoard: {
     operationId: "recruitment.readSchedulingBoard",
     method: "GET",
@@ -199,6 +211,7 @@ export const RECRUITMENT_NATIVE_OPERATION_IDS = [
   RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS.requestNewInvitationTime.operationId,
   RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS.readAssignmentBoard.operationId,
   RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS.readSchedulingBoard.operationId,
+  RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS.readInterviewReport.operationId,
   RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS.createApplicationInterview.operationId,
   RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS.scheduleInterview.operationId,
   RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS.readInterviewConduct.operationId,
@@ -903,6 +916,37 @@ const readAssignmentBoard = async (
   });
 };
 
+const readInterviewReport = async (
+  request: Request,
+  input: RecruitmentApiHttpOptions,
+): Promise<Response> => {
+  const values = new URL(request.url).searchParams;
+  for (const key of values.keys())
+    if (values.getAll(key).length !== 1) throw new HttpSemanticFailure("request.malformed", 400);
+  const query = await strictDecode(InterviewReportQuery, Object.fromEntries(values), input.run);
+  const caller = await actorFor(request, input);
+  const now = input.config.now();
+  const actor = await input.run(resolveInterviewReportLeader(caller.personId, now));
+  await authorizePersonOperation({
+    spec: Option.getOrThrow(reflectAccessSpec(ReadInterviewReportEndpoint)),
+    request,
+    actor,
+    resolution: {
+      selection: "AllMatching",
+      contexts: [boardContext(actor, { departmentLeaderPersonIds: [actor.personId] }, now)],
+    },
+    grantScopes: [{ _tag: "Department", departmentId: actor.departmentId }],
+    authorizationInstant: now,
+    run: input.run,
+  });
+  const observation = await input.run(readCompletedInterviewReport(actor.personId, now, query));
+  const output = await strictOutput(InterviewReport, observation, input.run);
+  return new Response(JSON.stringify(output), {
+    status: 200,
+    headers: { "cache-control": PRIVATE_NO_STORE, "content-type": "application/json" },
+  });
+};
+
 const readSchedulingBoard = async (
   request: Request,
   input: RecruitmentApiHttpOptions,
@@ -1407,6 +1451,13 @@ export const RecruitmentApiHandlers = (input: RecruitmentApiHttpOptions) =>
   HttpApiBuilder.group(ExternalNativeApi, "recruitment", (handlers) =>
     Effect.succeed(
       handlers
+        .handleRaw("readInterviewReport", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => readInterviewReport(webRequest, input),
+            errorResponse,
+          ),
+        )
         .handleRaw("readInvitationResponse", ({ request }) =>
           toHttpApiResponse(
             request,

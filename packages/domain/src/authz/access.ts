@@ -56,6 +56,7 @@ export const CAPABILITY_TYPE_IDS = [
   "admissions.revise-period",
   "recruitment.invitation-response",
   "recruitment.read-interviews",
+  "recruitment.read-interview-report",
   "recruitment.schedule-interview",
   "recruitment.conduct-interview",
   "receipts.manage-owned",
@@ -219,6 +220,7 @@ export const SCOPE_RESOLVER_IDS = [
   "recruitment.invitation-response-by-capability",
   "recruitment.application-assignments",
   "recruitment.interviews",
+  "recruitment.interview-report",
   "recruitment.application-by-id",
   "recruitment.interview-by-id",
   "receipts.create",
@@ -505,7 +507,11 @@ export const REQUIREMENT_TYPES = {
     ownedByPerson,
   ),
   "organization.single-department-leader": registration(
-    ["recruitment.application-assignments", "recruitment.application-by-id"],
+    [
+      "recruitment.application-assignments",
+      "recruitment.application-by-id",
+      "recruitment.interview-report",
+    ],
     GenericRequirementContextSchema,
     personListedBy("departmentLeaderPersonIds"),
   ),
@@ -648,6 +654,7 @@ const resolverRequirements: Partial<
   "profile.current-person": ["profile.owner"],
   "recruitment.invitation-response-by-capability": ["recruitment.invitation-pending"],
   "recruitment.application-assignments": ["organization.single-department-leader"],
+  "recruitment.interview-report": ["organization.single-department-leader"],
   "recruitment.interviews": ["organization.single-department-member"],
   "recruitment.application-by-id": [
     "organization.single-department-leader",

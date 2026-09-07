@@ -39,6 +39,7 @@ export const admissionLinks = [
   memberLink("Tidligere assistenter", "/dashboard/tidligere-assistenter"),
   memberLink("Intervjufordeling", "/dashboard/intervjufordeling"),
   memberLink("Intervjuer", "/dashboard/intervjuer"),
+  leaderLink("Fullførte intervjuer", "/dashboard/intervjuer/rapport"),
   leaderLink("Søkerkontoer", "/dashboard/onboarding"),
 ] as const;
 

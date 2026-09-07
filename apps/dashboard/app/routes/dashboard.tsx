@@ -159,6 +159,10 @@ const mainLinks = [
         url: href("/intervjuer"),
       },
       {
+        title: "Fullførte intervjuer",
+        url: href("/intervjuer/rapport"),
+      },
+      {
         title: "Statistikk",
         url: href("/statistikk"),
       },

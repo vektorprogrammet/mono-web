@@ -49,6 +49,11 @@ describe("native recruitment HTTP boundary", () => {
         method: "GET",
         path: "/api/recruitment/application-assignments",
       },
+      readInterviewReport: {
+        operationId: "recruitment.readInterviewReport",
+        method: "GET",
+        path: "/api/recruitment/interview-report",
+      },
       readSchedulingBoard: {
         operationId: "recruitment.readSchedulingBoard",
         method: "GET",

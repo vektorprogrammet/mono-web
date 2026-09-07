@@ -1,8 +1,8 @@
 {
   "counts": {
-    "externalOperations": 69,
+    "externalOperations": 70,
     "internalOperations": 1,
-    "operations": 70
+    "operations": 71
   },
   "operations": [
     {
@@ -2128,6 +2128,48 @@
         "503"
       ],
       "summary": "Read interview conduct",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "recruitment.interview-report",
+        "capabilities": {
+          "one": "recruitment.read-interview-report"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "organization.single-department-leader"
+          }
+        ]
+      },
+      "group": "recruitment",
+      "method": "GET",
+      "operationId": "recruitment.readInterviewReport",
+      "path": "/api/recruitment/interview-report",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "409",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "Read completed interview report",
       "visibility": "external"
     },
     {
