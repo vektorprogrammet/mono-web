@@ -26,14 +26,18 @@ product policy. Legacy recommendation reporting, authorized edits to completed
 interviews, co-interviewer privileges, applicant progress and completion receipts
 remain separate parity items; 0101 does not establish all of them.
 
-Reporting prerequisite, 2026-09-07: the legacy interviewed-applicant query selects
+Reporting population, 2026-09-07: the legacy interviewed-applicant query selects
 one admission period and excludes applications with `previousParticipation`.
 Native applications currently have no equivalent stored flag. Legacy sets it
 through the authenticated returning-assistant workflow, not a public yes/no
 answer. Establish the creation-provenance mapping before claiming the same
 reporting population; do not add a self-report checkbox or infer application
-origin from an account link. Returning-assistant registration and coordinator
-reporting are distinct journeys. Historical origin requires traceable evidence.
+origin from an account link. Native public-submission audit proves submission
+origin, not absence of assistant history. [0103](../../design-specs/0103-coordinator-interview-report.md)
+therefore reports all completed native interviews in an explicit period, clearly
+labelled without a first-time-only equivalence claim. Returning-assistant
+registration/classification remains a distinct journey. Historical classification
+requires traceable evidence; no new checkbox or flag backfill is introduced.
 The report must preserve current department authority and exclude proven self
 assessments before deriving either rows or totals. Separate recommendation counts
 exist in an unused legacy partial; the live table establishes total rows and
