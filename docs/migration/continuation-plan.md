@@ -28,10 +28,12 @@ remain separate parity items; 0101 does not establish all of them.
 
 Reporting prerequisite, 2026-09-07: the legacy interviewed-applicant query selects
 one admission period and excludes applications with `previousParticipation`.
-Native applications currently have no equivalent fact. Restore an explicit
-per-application answer before claiming the same reporting population. Historical
-absence must remain unknown; accounts, affiliations and placements cannot supply
-the missing answer. Capture and coordinator reporting are separate design-specs.
+Native applications currently have no equivalent stored flag. Legacy sets it
+through the authenticated returning-assistant workflow, not a public yes/no
+answer. Establish the creation-provenance mapping before claiming the same
+reporting population; do not add a self-report checkbox or infer application
+origin from an account link. Returning-assistant registration and coordinator
+reporting are distinct journeys. Historical origin requires traceable evidence.
 The report must preserve current department authority and exclude proven self
 assessments before deriving either rows or totals. Separate recommendation counts
 exist in an unused legacy partial; the live table establishes total rows and
