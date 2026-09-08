@@ -179,6 +179,8 @@ export async function observeInterviewReport(o: Options) {
       "application_id='application-native-conduct-a-0063'",
       {
         application_id: application,
+        field_of_study_id:
+          f.key === "foreign" ? "report-other-field-0103" : "field-native-conduct-0063",
         applicant_id: applicant,
         admission_period_id:
           f.key === "closed" ? ids.closed : f.key === "foreign" ? ids.foreign : ids.period,
@@ -527,19 +529,61 @@ export async function observeInterviewReport(o: Options) {
     await submit();
     const expected = (await read({ admissionPeriodId: ids.period })).rows.length;
     await expect(page.getByRole("status")).toHaveText(`${expected} fullførte intervjuer`);
+    const assertRendered = async () => {
+      const query = Object.fromEntries(new URL(page.url()).searchParams);
+      const expectedRows = (await read(query)).rows;
+      const rendered = await page
+        .locator("tbody tr")
+        .evaluateAll((elements: any[]) =>
+          elements.map((element: any) =>
+            Array.from(element.querySelectorAll("th,td")).map((cell: any) =>
+              cell.textContent.trim(),
+            ),
+          ),
+        );
+      assert.equal(rendered.length, expectedRows.length);
+      for (let i = 0; i < expectedRows.length; i++) {
+        const r = expectedRows[i]!;
+        assert.deepEqual(
+          [rendered[i][0], ...rendered[i].slice(2)],
+          [
+            `${r.firstName} ${r.lastName}`,
+            r.recommendation ?? "Ikke registrert",
+            String(r.explanatoryPower),
+            String(r.roleModel),
+            String(r.suitability),
+            String(r.explanatoryPower + r.roleModel + r.suitability),
+          ],
+        );
+      }
+    };
+    await assertRendered();
     for (const [label, sort] of [
       ["Søker", "applicant"],
       ["Anbefaling", "recommendation"],
       ["Sum", "total"],
     ]) {
-      const control = page.getByRole("link", { name: label, exact: true });
-      await control.focus();
-      await page.keyboard.press("Enter");
-      await expect(page).toHaveURL(new RegExp(`sort=${sort}`));
-      await expect(control.locator("..")).toHaveAttribute("aria-sort", /ascending|descending/);
+      for (let n = 0; n < 2; n++) {
+        const control = page.getByRole("link", { name: label, exact: true });
+        await control.focus();
+        await page.keyboard.press("Enter");
+        await expect(page).toHaveURL(new RegExp(`sort=${sort}`));
+        await expect(page.locator('section[aria-labelledby="report-heading"]')).toHaveAttribute(
+          "aria-busy",
+          "false",
+        );
+        await expect(control.locator("..")).toHaveAttribute(
+          "aria-sort",
+          new URL(page.url()).searchParams.get("direction") === "desc" ? "descending" : "ascending",
+        );
+        await assertRendered();
+      }
     }
-    await page.getByLabel("Anbefaling", { exact: true }).selectOption("not-recorded");
+    await page.getByLabel("Anbefaling", { exact: true }).focus();
+    await page.keyboard.press("End");
+    await expect(page.getByLabel("Anbefaling", { exact: true })).toHaveValue("not-recorded");
     await submit();
+    await assertRendered();
     await expect(page.getByRole("status")).toHaveText("1 fullførte intervjuer");
     await expect(page.locator("tbody")).toContainText("Ikke registrert");
     const selectedUrl = page.url();
