@@ -32,7 +32,7 @@ import {
   useLocation,
   useRouteError,
 } from "react-router";
-import { dashboardShellVisibility } from "../foldkit/dashboard/shell";
+import { dashboardShellVisibility, visibleShellNavigationLinks } from "../foldkit/dashboard/shell";
 import { loadDashboardShell } from "../foldkit/dashboard/shell.server";
 import type { Route } from "./+types/dashboard";
 import { useTheme } from "../lib/theme";
@@ -161,6 +161,7 @@ const mainLinks = [
       {
         title: "Fullførte intervjuer",
         url: href("/intervjuer/rapport"),
+        coordinatorOnly: true,
       },
       {
         title: "Statistikk",
@@ -524,7 +525,14 @@ export function DashboardShellLayout() {
                 >
                   Frivilligtilknytning og plassering
                 </Link>
-                {shell.showOrganizationContext ? <NavLinks links={mainLinks} /> : null}
+                {shell.showOrganizationContext ? (
+                  <NavLinks
+                    links={mainLinks.map((group) => ({
+                      ...group,
+                      links: visibleShellNavigationLinks(group.links ?? [], isAdmin),
+                    }))}
+                  />
+                ) : null}
               </SidebarGroup>
               {shell.showOrganizationContext && effectiveIsAdmin && (
                 <SidebarGroup>

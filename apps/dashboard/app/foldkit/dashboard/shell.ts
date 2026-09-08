@@ -17,3 +17,12 @@ export const dashboardShellVisibility = (
   showOrganizationContext: hasOrganizationContext,
   mountChildRoutes: true,
 });
+
+/** Coarse navigation visibility only; each destination enforces current native authority. */
+export const visibleShellNavigationLinks = <T extends object>(
+  links: ReadonlyArray<T>,
+  coordinator: boolean,
+): T[] =>
+  links.filter(
+    (link) => !("coordinatorOnly" in link && link.coordinatorOnly === true) || coordinator,
+  );

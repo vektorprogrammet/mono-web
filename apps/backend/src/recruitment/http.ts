@@ -204,20 +204,9 @@ export const RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS = {
   },
 } as const;
 
-export const RECRUITMENT_NATIVE_OPERATION_IDS = [
-  RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS.readInvitationResponse.operationId,
-  RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS.confirmInvitation.operationId,
-  RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS.rejectInvitation.operationId,
-  RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS.requestNewInvitationTime.operationId,
-  RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS.readAssignmentBoard.operationId,
-  RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS.readSchedulingBoard.operationId,
-  RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS.readInterviewReport.operationId,
-  RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS.createApplicationInterview.operationId,
-  RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS.scheduleInterview.operationId,
-  RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS.readInterviewConduct.operationId,
-  RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS.finalizeInterview.operationId,
-  RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS.cancelInterview.operationId,
-] as const;
+export const RECRUITMENT_NATIVE_OPERATION_IDS = Object.values(
+  RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS,
+).map((registration) => registration.operationId);
 
 const NativeHttpCommandId = Schema.String.pipe(
   Schema.check(Schema.isPattern(/^httpv2_[A-Za-z0-9_-]+$/u)),

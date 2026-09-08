@@ -1,3 +1,4 @@
+import { visibleShellNavigationLinks } from "./shell";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,4 +48,18 @@ describe("dashboard navigation route integrity", () => {
       ).toBe(true);
     }
   });
+});
+
+it("keeps coordinator report navigation out of the ordinary member shell", () => {
+  const ordinary = { title: "Intervjuer", url: "/dashboard/intervjuer" };
+  const report = {
+    title: "Fullførte intervjuer",
+    url: "/dashboard/intervjuer/rapport",
+    coordinatorOnly: true,
+  };
+  expect(visibleShellNavigationLinks([ordinary, report], false)).toEqual([ordinary]);
+  expect(visibleShellNavigationLinks([ordinary, report], true)).toEqual([ordinary, report]);
+  expect(dashboardRouteSource).toMatch(
+    /title: "Fullførte intervjuer",\s*url: href\("\/intervjuer\/rapport"\),\s*coordinatorOnly: true/,
+  );
 });
