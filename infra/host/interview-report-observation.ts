@@ -245,7 +245,24 @@ export async function observeInterviewReport(o: Options) {
     });
   const read = async (query: Record<string, string> = {}): Promise<InterviewReport> => {
     const response = await get(query);
-    assert.equal(response.status, 200);
+    if (response.status !== 200) {
+      const problem = await response.json().catch(() => ({}));
+      const authority = (
+        await pool.query(
+          `SELECT m.membership_id,m.is_team_leader,m.is_suspended,m.end_at,t.team_id,t.active team_active,d.department_id,d.active department_active FROM public.organization_memberships m JOIN public.organization_teams t USING(team_id) JOIN public.organization_departments d USING(department_id) WHERE m.person_id=$1`,
+          [ids.person],
+        )
+      ).rows;
+      throw new Error(
+        JSON.stringify({
+          gate: "report read",
+          query,
+          status: response.status,
+          code: problem.code,
+          authority,
+        }),
+      );
+    }
     assert.match(response.headers.get("cache-control") ?? "", /no-store/);
     return Schema.decodeUnknownSync(InterviewReport)(await response.json(), {
       onExcessProperty: "error",
