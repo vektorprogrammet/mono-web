@@ -571,30 +571,25 @@ export async function observeInterviewReport(o: Options) {
     const assertRendered = async () => {
       const query = Object.fromEntries(new URL(page.url()).searchParams);
       const expectedRows = (await read(query)).rows;
-      const rendered = await page
-        .locator("tbody tr")
-        .evaluateAll((elements: any[]) =>
-          elements.map((element: any) =>
-            Array.from(element.querySelectorAll("th,td")).map((cell: any) =>
-              cell.textContent.trim(),
+      const expectedCells = expectedRows.map((r) => [
+        `${r.firstName} ${r.lastName}`,
+        r.recommendation ?? "Ikke registrert",
+        String(r.explanatoryPower),
+        String(r.roleModel),
+        String(r.suitability),
+        String(r.explanatoryPower + r.roleModel + r.suitability),
+      ]);
+      await expect
+        .poll(async () =>
+          page.locator("tbody tr").evaluateAll((elements: any[]) =>
+            elements.map((element: any) =>
+              Array.from(element.querySelectorAll("th,td"))
+                .filter((_, index) => index !== 1)
+                .map((cell: any) => cell.textContent.trim()),
             ),
           ),
-        );
-      assert.equal(rendered.length, expectedRows.length);
-      for (let i = 0; i < expectedRows.length; i++) {
-        const r = expectedRows[i]!;
-        assert.deepEqual(
-          [rendered[i][0], ...rendered[i].slice(2)],
-          [
-            `${r.firstName} ${r.lastName}`,
-            r.recommendation ?? "Ikke registrert",
-            String(r.explanatoryPower),
-            String(r.roleModel),
-            String(r.suitability),
-            String(r.explanatoryPower + r.roleModel + r.suitability),
-          ],
-        );
-      }
+        )
+        .toEqual(expectedCells);
     };
     await assertRendered();
     for (const [label, sort] of [
@@ -636,6 +631,14 @@ export async function observeInterviewReport(o: Options) {
     await page.getByLabel("Anbefaling", { exact: true }).focus();
     await o.auditPage(page, "report-mobile-focus");
     await page.screenshot({ path: join(o.artifacts, "report-mobile.png") });
+    const sumFocus = page.getByRole("link", { name: "Sum", exact: true });
+    await sumFocus.focus();
+    await sumFocus.scrollIntoViewIfNeeded();
+    await expect(sumFocus).toBeFocused();
+    const sumBounds = await sumFocus.boundingBox();
+    assert.ok(sumBounds && sumBounds.x >= 0 && sumBounds.x + sumBounds.width <= 390);
+    await o.auditPage(page, "report-mobile-sum-focus");
+    await page.screenshot({ path: join(o.artifacts, "report-mobile-sum.png") });
     await page.getByLabel("Anbefaling", { exact: true }).selectOption("all");
     await page.getByLabel("Opptaksperiode", { exact: true }).selectOption(ids.closed);
     await submit();
@@ -739,6 +742,25 @@ export async function observeInterviewReport(o: Options) {
     };
     await writeFile(join(o.artifacts, "report-evidence.json"), JSON.stringify(evidence, null, 2));
     return evidence;
+  } catch (error) {
+    const pages = context.pages();
+    const current = pages[pages.length - 1];
+    if (current) {
+      await current
+        .screenshot({ path: join(o.artifacts, "report-browser-failure.png") })
+        .catch(() => {});
+      let detail = JSON.stringify({
+        revision: o.revision,
+        gates,
+        error: error instanceof Error ? error.message : "report browser failure",
+        path: new URL(current.url()).pathname,
+        status: await current.getByRole("status").allTextContents(),
+        alerts: await current.getByRole("alert").allTextContents(),
+      });
+      for (const secret of o.secrets) detail = detail.replaceAll(secret, "[redacted]");
+      await writeFile(join(o.artifacts, "report-browser-failure.json"), detail);
+    }
+    throw error;
   } finally {
     await context.close();
   }
