@@ -598,11 +598,7 @@ export async function observeInterviewReport(o: Options) {
         .toEqual(expectedCells);
     };
     await assertRendered();
-    for (const [label, sort] of [
-      ["Søker", "applicant"],
-      ["Anbefaling", "recommendation"],
-      ["Sum", "total"],
-    ]) {
+    for (const label of ["Søker", "Anbefaling", "Sum"]) {
       for (let n = 0; n < 2; n++) {
         const control = page.getByRole("link", { name: label, exact: true });
         const expectedUrl = new URL(await control.getAttribute("href"), page.url()).href;
