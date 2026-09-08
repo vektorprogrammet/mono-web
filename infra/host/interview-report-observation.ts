@@ -675,8 +675,15 @@ export async function observeInterviewReport(o: Options) {
     const arrived = new Promise<void>((resolve) => {
       captured = resolve;
     });
-    await page.route("**/dashboard/intervjuer/rapport.data?**", async (route: any) => {
-      if (new URL(route.request().url()).searchParams.get("admissionPeriodId") === ids.closed) {
+    const observedNavigations: Array<{ path: string; period: string | null }> = [];
+    await page.route("**/*", async (route: any) => {
+      const requested = new URL(route.request().url());
+      if (requested.pathname.includes("rapport"))
+        observedNavigations.push({
+          path: requested.pathname,
+          period: requested.searchParams.get("admissionPeriodId"),
+        });
+      if (requested.searchParams.get("admissionPeriodId") === ids.closed) {
         const response = await route.fetch();
         captured();
         await hold;
@@ -689,7 +696,15 @@ export async function observeInterviewReport(o: Options) {
       await Promise.race([
         arrived,
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("superseded report request not intercepted")), 10000),
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  JSON.stringify({ gate: "superseded report request", observedNavigations }),
+                ),
+              ),
+            10000,
+          ),
         ),
       ]);
       await expect(page.getByRole("status")).toHaveText("Henter rapporten …");
@@ -702,7 +717,7 @@ export async function observeInterviewReport(o: Options) {
       await expect(page.getByRole("status")).toHaveText("0 fullførte intervjuer");
     } finally {
       release();
-      await page.unroute("**/dashboard/intervjuer/rapport.data?**");
+      await page.unroute("**/*");
     }
     assert.deepEqual(await snapshot(), baseline);
     assert.deepEqual(errors, []);
