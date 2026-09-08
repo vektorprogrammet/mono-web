@@ -123,6 +123,11 @@ export async function observeInterviewReport(o: Options) {
     department_id: ids.otherDepartment,
     name: "Other report",
   });
+  await clone(
+    "public.admission_period_fields_of_study",
+    "field_of_study_id='field-native-conduct-0063'",
+    { field_of_study_id: "report-other-field-0103", department_id: ids.otherDepartment },
+  );
   for (const [period, year, department] of [
     [ids.closed, 2024, ids.department],
     [ids.empty, 2023, ids.department],
@@ -162,6 +167,8 @@ export async function observeInterviewReport(o: Options) {
     const department = f.key === "foreign" ? ids.otherDepartment : ids.department;
     await clone("public.admission_applicants", "applicant_id='applicant-native-conduct-a-0063'", {
       applicant_id: applicant,
+      field_of_study_id:
+        f.key === "foreign" ? "report-other-field-0103" : "field-native-conduct-0063",
       email: `${f.key}.report@example.invalid`,
       normalized_email: `${f.key}.report@example.invalid`,
       first_name: "Report",
