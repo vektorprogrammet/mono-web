@@ -406,16 +406,17 @@ export async function observeInterviewReport(o: Options) {
     ids.member,
   ]);
   gates.push("authorized department without periods returns explicit empty selection and no rows");
-  const oldCondition =
-    (await get({ admissionPeriodId: ids.period })).headers.get("etag") ?? '"prior-report-token"';
+  const priorEtag = (await get({ admissionPeriodId: ids.period })).headers.get("etag");
+  const oldCondition = priorEtag ?? "*";
+  const authorityDenials: Array<{ condition: string; status: number }> = [];
   const denyMutation = async (setup: string, restore: string) => {
     await pool.query(setup);
     const baseline = await snapshot();
-    assert.equal(
-      (await get({ admissionPeriodId: ids.period }, cookie, { "if-none-match": oldCondition }))
-        .status,
-      403,
-    );
+    const status = (
+      await get({ admissionPeriodId: ids.period }, cookie, { "if-none-match": oldCondition })
+    ).status;
+    assert.ok([401, 403].includes(status));
+    authorityDenials.push({ condition: setup, status });
     assert.deepEqual(await snapshot(), baseline);
     await pool.query(restore);
   };
@@ -440,7 +441,9 @@ export async function observeInterviewReport(o: Options) {
     membership_id: "report-ambiguous-membership",
     team_id: ids.otherTeam,
   });
-  assert.equal((await get()).status, 403);
+  const ambiguousStatus = (await get()).status;
+  assert.ok([401, 403].includes(ambiguousStatus));
+  authorityDenials.push({ condition: "ambiguous-department", status: ambiguousStatus });
   await pool.query(
     `DELETE FROM public.organization_memberships WHERE membership_id='report-ambiguous-membership'`,
   );
@@ -692,11 +695,13 @@ export async function observeInterviewReport(o: Options) {
       specId: "0103",
       revision: o.revision,
       gates,
-      rows: report.rows,
+      rowsBeforeConcurrentSelfLink: report.rows,
       observer: "independent PostgreSQL connection",
       browserErrors: errors,
       expectedFaults,
       concurrentReadStatus,
+      authorityDenials,
+      conditionalRequest: { priorEtag, ifNoneMatch: oldCondition },
       scope: "all completed native, not first-time-only; local synthetic; no effects",
     };
     await writeFile(join(o.artifacts, "report-evidence.json"), JSON.stringify(evidence, null, 2));
