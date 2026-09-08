@@ -678,6 +678,47 @@ export async function observeInterviewReport(o: Options) {
     await page.getByLabel("Opptaksperiode", { exact: true }).selectOption(ids.period);
     await submit();
     let release!: () => void, captured!: () => void;
+    let settle!: (result: { fulfilled: boolean; fetchStatus: number | null }) => void;
+    let terminal!: (result: { kind: "finished" | "failed"; error: string | null }) => void;
+    let heldRequest: any;
+    const settled = new Promise<{ fulfilled: boolean; fetchStatus: number | null }>((resolve) => {
+      settle = resolve;
+    });
+    const terminated = new Promise<{ kind: "finished" | "failed"; error: string | null }>(
+      (resolve) => {
+        terminal = resolve;
+      },
+    );
+    const finished = (request: any) => {
+      if (request === heldRequest) terminal({ kind: "finished", error: null });
+    };
+    const failed = (request: any) => {
+      if (request === heldRequest)
+        terminal({ kind: "failed", error: request.failure()?.errorText ?? null });
+    };
+    page.on("requestfinished", finished);
+    page.on("requestfailed", failed);
+    const bounded = async <T>(promise: Promise<T>, gate: string): Promise<T> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          promise,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(gate)), 10000);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    let supersededResponse:
+      | {
+          fulfilled: boolean;
+          fetchStatus: number | null;
+          kind: "finished" | "failed";
+          error: string | null;
+        }
+      | undefined;
     const hold = new Promise<void>((resolve) => {
       release = resolve;
     });
@@ -693,10 +734,21 @@ export async function observeInterviewReport(o: Options) {
           period: requested.searchParams.get("admissionPeriodId"),
         });
       if (requested.searchParams.get("admissionPeriodId") === ids.closed) {
-        const response = await route.fetch();
-        captured();
-        await hold;
-        await route.fulfill({ response }).catch(() => {});
+        assert.equal(heldRequest, undefined, "only one superseded request may be held");
+        heldRequest = route.request();
+        let fetchStatus: number | null = null;
+        try {
+          const response = await route.fetch();
+          fetchStatus = response.status();
+          captured();
+          await hold;
+          await route.fulfill({ response });
+          settle({ fulfilled: true, fetchStatus });
+        } catch {
+          // A failed interception is accepted below only when this same browser
+          // request independently reports the router's expected abort.
+          settle({ fulfilled: false, fetchStatus });
+        }
       } else await route.continue();
     });
     try {
@@ -720,13 +772,31 @@ export async function observeInterviewReport(o: Options) {
       await expect(page.locator("tbody")).toHaveCount(0);
       await page.goBack();
       release();
+      const fulfillment = await bounded(settled, "superseded response fulfillment did not settle");
+      const termination = await bounded(terminated, "superseded browser request did not terminate");
+      supersededResponse = { ...fulfillment, ...termination };
+      assert.equal(fulfillment.fetchStatus, 200, "held response must be a real successful report");
+      if (termination.kind === "failed") assert.equal(termination.error, "net::ERR_ABORTED");
+      if (!fulfillment.fulfilled)
+        assert.deepEqual(termination, { kind: "failed", error: "net::ERR_ABORTED" });
+      await expect(page).toHaveURL(
+        `${ui}/dashboard/intervjuer/rapport?admissionPeriodId=${ids.empty}`,
+      );
+      await expect(page.locator("section[aria-busy]")).toHaveAttribute("aria-busy", "false");
       await expect(page.getByLabel("Opptaksperiode", { exact: true })).toHaveValue(ids.empty);
       await expect(page.getByRole("status")).toHaveText("0 fullførte intervjuer");
+      await expect(page.locator("tbody")).toHaveCount(0);
+      await expect(
+        page.getByText("Ingen fullførte intervjuer samsvarer med valgene."),
+      ).toBeVisible();
+      await page.screenshot({ path: join(o.artifacts, "report-superseded-settled.png") });
       await page.reload();
       await expect(page.getByRole("status")).toHaveText("0 fullførte intervjuer");
     } finally {
       release();
       await page.unroute("**/*");
+      page.off("requestfinished", finished);
+      page.off("requestfailed", failed);
     }
     assert.deepEqual(await snapshot(), baseline);
     assert.deepEqual(errors, []);
@@ -742,6 +812,7 @@ export async function observeInterviewReport(o: Options) {
       browserErrors: errors,
       expectedFaults,
       concurrentReadStatus,
+      supersededResponse,
       authorityDenials,
       conditionalRequest: { priorEtag, ifNoneMatch: oldCondition },
       scope: "all completed native, not first-time-only; local synthetic; no effects",
