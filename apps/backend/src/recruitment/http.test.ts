@@ -1,3 +1,15 @@
+import {
+  evaluateAccess,
+  makeGrant,
+  GrantId,
+  AuthorityRef,
+  AuthorityVersion,
+  AuthorizationInstant,
+  CredentialEvidenceRef,
+  DomainId,
+} from "@vektorprogrammet/domain/authz";
+import { ReadInterviewReportEndpoint, reflectAccessSpec } from "@vektorprogrammet/http-api";
+import { Option } from "effect";
 import { evaluateRequirement, RequirementId } from "@vektorprogrammet/domain/authz";
 import { PersonId, DepartmentId } from "@vektorprogrammet/domain/organization";
 import { RecruitmentInterviewId } from "@vektorprogrammet/domain/recruitment";
@@ -416,4 +428,54 @@ it("denies a suspended assigned member in the HTTP access context used before re
       ),
     )._tag,
   ).toBe("Satisfied");
+});
+
+it("authorizes the report collection for its current scoped leader and rejects missing leadership", () => {
+  const spec = Option.getOrThrow(reflectAccessSpec(ReadInterviewReportEndpoint));
+  if (spec.capabilities._tag !== "One") throw new Error("report requires one capability");
+  const personId = PersonId.make("report-access-leader");
+  const departmentId = DepartmentId.make("report-access-department");
+  const principal = { _tag: "Person" as const, personId };
+  const instant = AuthorizationInstant.make("2031-09-15T12:00:00.000Z");
+  const grant = makeGrant({
+    grantId: GrantId.make("report-access-grant"),
+    subject: principal,
+    capability: spec.capabilities.capability,
+    scope: { _tag: "Department", departmentId },
+    startAt: instant,
+    endAt: null,
+    requirements: [],
+    source: AuthorityRef.make("native-recruitment-actor"),
+    revision: 0,
+  });
+  const evaluate = (leaders: ReadonlyArray<typeof personId>) =>
+    evaluateAccess({
+      spec,
+      credential: {
+        _tag: "Accepted",
+        mechanism: { _tag: "BetterAuthCookie" },
+        principal,
+        evidenceRef: CredentialEvidenceRef.make("report-access-session"),
+      },
+      resolution: {
+        selection: "AllMatching",
+        contexts: [
+          {
+            domainId: DomainId.make("recruitment"),
+            departmentId,
+            resource: null,
+            facts: { departmentLeaderPersonIds: leaders },
+            authorityVersion: AuthorityVersion.make(instant),
+          },
+        ],
+      },
+      grants: [grant],
+      authorizationInstant: instant,
+    });
+  expect(evaluate([personId])._tag).toBe("Allow");
+  expect(evaluate([])).toMatchObject({
+    _tag: "Deny",
+    stage: "Requirement",
+    reason: "RequirementFailed",
+  });
 });
