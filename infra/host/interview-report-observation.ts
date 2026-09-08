@@ -70,12 +70,17 @@ type Options = {
   secrets: string[];
   revision: string;
   auditPage: (page: any, state: string) => Promise<void>;
+  recordGate: (...observations: string[]) => void;
 };
 export async function observeInterviewReport(o: Options) {
   const { pool, api, ui } = o;
   const require = createRequire(join(o.root, "apps/dashboard/package.json"));
   const { expect } = require("@playwright/test");
   const gates: string[] = [];
+  const record = (...observations: string[]) => {
+    gates.push(...observations);
+    o.recordGate(...observations);
+  };
   const clone = async (table: string, where: string, values: Record<string, unknown>) =>
     pool.query(
       `INSERT INTO ${table} SELECT (jsonb_populate_record(NULL::${table},to_jsonb(s)||$1::jsonb)).* FROM ${table} s WHERE ${where}`,
@@ -88,6 +93,10 @@ export async function observeInterviewReport(o: Options) {
     person_id: ids.person,
     first_name: "Report",
     last_name: "Coordinator",
+  });
+  await clone("public.person_contact_profiles", "person_id='journey-conduct-leader-0063'", {
+    person_id: ids.person,
+    email,
   });
   await clone('auth."user"', "id='journey-conduct-leader-0063'", {
     id: ids.person,
@@ -234,7 +243,7 @@ export async function observeInterviewReport(o: Options) {
     .join("; ");
   assert.ok(cookie);
   o.secrets.push(cookie, ...cookie.split("; ").map((v) => v.slice(v.indexOf("=") + 1)));
-  await signIn.body?.cancel();
+  assert.equal((await signIn.json()).user.id, ids.person);
   const get = (
     query: Record<string, string> = {},
     session = cookie,
@@ -388,7 +397,7 @@ export async function observeInterviewReport(o: Options) {
   ] as Array<Record<string, string>>)
     assert.ok([400, 422].includes((await get(bad)).status));
   assert.deepEqual(await snapshot(), before);
-  gates.push(
+  record(
     "real ordinary-interviewer conduct reported to non-assigned leader; exact population/projection/history/SQL and closed/empty periods; sort/filter/ties; no report writes; raw conduct remains denied",
   );
 
@@ -405,18 +414,21 @@ export async function observeInterviewReport(o: Options) {
     ids.team,
     ids.member,
   ]);
-  gates.push("authorized department without periods returns explicit empty selection and no rows");
+  record("authorized department without periods returns explicit empty selection and no rows");
   const priorEtag = (await get({ admissionPeriodId: ids.period })).headers.get("etag");
   const oldCondition = priorEtag ?? "*";
-  const authorityDenials: Array<{ condition: string; status: number }> = [];
+  const authorityDenials: Array<{ condition: string; status: number; code: string }> = [];
   const denyMutation = async (setup: string, restore: string) => {
     await pool.query(setup);
     const baseline = await snapshot();
-    const status = (
-      await get({ admissionPeriodId: ids.period }, cookie, { "if-none-match": oldCondition })
-    ).status;
+    const denial = await get({ admissionPeriodId: ids.period }, cookie, {
+      "if-none-match": oldCondition,
+    });
+    const status = denial.status;
     assert.ok([401, 403].includes(status));
-    authorityDenials.push({ condition: setup, status });
+    const code = (await denial.json()).code;
+    assert.ok(["authority.denied", "credential.invalid"].includes(code));
+    authorityDenials.push({ condition: setup, status, code });
     assert.deepEqual(await snapshot(), baseline);
     await pool.query(restore);
   };
@@ -441,9 +453,14 @@ export async function observeInterviewReport(o: Options) {
     membership_id: "report-ambiguous-membership",
     team_id: ids.otherTeam,
   });
-  const ambiguousStatus = (await get()).status;
+  const ambiguousResponse = await get();
+  const ambiguousStatus = ambiguousResponse.status;
   assert.ok([401, 403].includes(ambiguousStatus));
-  authorityDenials.push({ condition: "ambiguous-department", status: ambiguousStatus });
+  authorityDenials.push({
+    condition: "ambiguous-department",
+    status: ambiguousStatus,
+    code: (await ambiguousResponse.json()).code,
+  });
   await pool.query(
     `DELETE FROM public.organization_memberships WHERE membership_id='report-ambiguous-membership'`,
   );
@@ -458,7 +475,7 @@ export async function observeInterviewReport(o: Options) {
   await pool.query(
     `DELETE FROM public.organization_global_administrator_grants WHERE grant_id='report-admin-grant'`,
   );
-  gates.push(
+  record(
     "anonymous/member/admin-only/ambiguous/revoked/ended/suspended/inactive scope denied, including prior conditional token",
   );
 
@@ -505,7 +522,7 @@ export async function observeInterviewReport(o: Options) {
     await locker.query("ROLLBACK");
     locker.release();
   }
-  gates.push(
+  record(
     "known self excluded from every filter/count; absent/different links eligible; actual concurrent link/read custody excludes newly known self",
   );
 
@@ -587,9 +604,10 @@ export async function observeInterviewReport(o: Options) {
     ]) {
       for (let n = 0; n < 2; n++) {
         const control = page.getByRole("link", { name: label, exact: true });
+        const expectedUrl = new URL(await control.getAttribute("href"), page.url()).href;
         await control.focus();
         await page.keyboard.press("Enter");
-        await expect(page).toHaveURL(new RegExp(`sort=${sort}`));
+        await expect(page).toHaveURL(expectedUrl);
         await expect(page.locator('section[aria-labelledby="report-heading"]')).toHaveAttribute(
           "aria-busy",
           "false",
@@ -688,7 +706,7 @@ export async function observeInterviewReport(o: Options) {
     }
     assert.deepEqual(await snapshot(), baseline);
     assert.deepEqual(errors, []);
-    gates.push(
+    record(
       "production navigation/keyboard sorts/filter/count/reload, historical/empty period, desktop/mobile Axe and viewport; real SQL failure/retry and superseded-period navigation; no report writes",
     );
     const evidence = {

@@ -786,6 +786,7 @@ try {
         secrets,
         revision,
         auditPage,
+        recordGate,
       })
     : undefined;
   assert.ok(
