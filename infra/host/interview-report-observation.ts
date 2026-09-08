@@ -442,6 +442,7 @@ export async function observeInterviewReport(o: Options) {
     "anonymous/member/admin-only/ambiguous/revoked/ended/suspended/inactive scope denied, including prior conditional token",
   );
 
+  let concurrentReadStatus: number | undefined;
   const locker = await pool.connect();
   try {
     await locker.query("BEGIN");
@@ -467,6 +468,7 @@ export async function observeInterviewReport(o: Options) {
     await locker.query("COMMIT");
     const afterLink = await snapshot();
     const response = await waiting;
+    concurrentReadStatus = response.status;
     assert.ok([200, 409, 503].includes(response.status));
     if (response.status === 200)
       assert.ok(
@@ -677,6 +679,7 @@ export async function observeInterviewReport(o: Options) {
       observer: "independent PostgreSQL connection",
       browserErrors: errors,
       expectedFaults,
+      concurrentReadStatus,
       scope: "all completed native, not first-time-only; local synthetic; no effects",
     };
     await writeFile(join(o.artifacts, "report-evidence.json"), JSON.stringify(evidence, null, 2));
