@@ -219,7 +219,6 @@ export const SCOPE_RESOLVER_IDS = [
   "admissions.period-by-id",
   "recruitment.invitation-response-by-capability",
   "recruitment.application-assignments",
-  "recruitment.interview-report",
   "recruitment.interviews",
   "recruitment.interview-report",
   "recruitment.application-by-id",

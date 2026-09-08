@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import {
+  SCOPE_RESOLVER_IDS,
   APPROVE_RECEIPT_CAPABILITY,
   AuthorityRef,
   AuthorityVersion,
@@ -782,4 +783,8 @@ it("fails known-self or absent/malformed interview identity facts and permits ex
     );
     expect(result._tag).toBe(allowed ? "Satisfied" : "Failed");
   }
+});
+
+it("registers each canonical scope resolver exactly once", () => {
+  expect(new Set(SCOPE_RESOLVER_IDS).size).toBe(SCOPE_RESOLVER_IDS.length);
 });
