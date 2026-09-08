@@ -8,6 +8,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
+import {
+  observeInterviewReport,
+  validateInterviewReportFixture,
+} from "./interview-report-observation.js";
 import { stopPreviewScenarioBackend } from "./preview-scenario.js";
 const root = new URL("../../", import.meta.url).pathname;
 const dbRequire = createRequire(new URL("../../packages/database/package.json", import.meta.url));
@@ -28,6 +32,7 @@ const fixtureKeys = {
   linkRace: "identity-race-recommendation-0101",
 } as const;
 for (const key of Object.values(fixtureKeys)) Schema.decodeUnknownSync(IdempotencyKey)(key);
+if (process.argv.includes("--report")) validateInterviewReportFixture();
 if (process.argv.includes("--validate-fixture")) {
   // oxlint-effect-plugin allow(no-ambient-console): dev only: local fixture validation result.
   console.log("All recommendation fixture idempotency keys satisfy the canonical schema");
@@ -104,7 +109,7 @@ const assertNoRecommendation = (value: unknown): void => {
   if (Array.isArray(value)) for (const item of value) assertNoRecommendation(item);
   else if (typeof value === "object" && value !== null)
     for (const [key, item] of Object.entries(value)) {
-      assert.notEqual(key, "recommendation");
+      assert.ok(!["recommendation", "explanatoryPower", "roleModel", "suitability"].includes(key));
       assertNoRecommendation(item);
     }
 };
@@ -768,11 +773,31 @@ try {
   recordGate(
     "historical immutable not-recorded display; direct storage constraints; desktop/mobile Axe; independent public-schema SQL",
   );
+  const reportEvidence = process.argv.includes("--report")
+    ? await observeInterviewReport({
+        root,
+        pool,
+        browser,
+        api,
+        ui,
+        artifacts,
+        ordinaryCookie: cookie,
+        password,
+        secrets,
+        revision,
+        auditPage,
+      })
+    : undefined;
+  assert.ok(
+    accessibility.every((result: any) => result.violations.length === 0),
+    "Report accessibility violations retained",
+  );
   await writeFile(
     join(artifacts, "evidence.json"),
     JSON.stringify(
       {
         revision,
+        reportEvidence,
         gates,
         rows,
         lifecycle,

@@ -1,0 +1,636 @@
+/**0103 observer: reuse0101's real finalized conduct and owned production runtime. */
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
+import { join } from "node:path";
+import { writeFile } from "node:fs/promises";
+const { Schema } = createRequire(new URL("../../packages/database/package.json", import.meta.url))(
+  "effect",
+);
+import {
+  InterviewReport,
+  InterviewReportQuery,
+  InterviewReportRow,
+} from "../../packages/domain/src/recruitment/report.js";
+
+const ids = {
+  person: "report-coordinator-0103",
+  member: "report-coordinator-membership-0103",
+  department: "department-native-conduct-0063",
+  team: "team-native-conduct-0063",
+  period: "admission-period-native-conduct-0063",
+  closed: "report-closed-period-0103",
+  empty: "report-empty-period-0103",
+  foreign: "report-foreign-period-0103",
+  otherDepartment: "report-other-department-0103",
+  otherTeam: "report-other-team-0103",
+};
+const fixtures = [
+  { key: "low", recommendation: "Nei", scores: [1, 2, 0] },
+  { key: "tie-a", recommendation: "Ja", scores: [8, 8, 8] },
+  { key: "tie-b", recommendation: "Ja", scores: [8, 8, 8] },
+  { key: "known-self", recommendation: "Nei", scores: [10, 10, 10] },
+  { key: "race", recommendation: "Kanskje", scores: [4, 4, 4] },
+  { key: "closed", recommendation: "Ja", scores: [1, 1, 1] },
+  { key: "foreign", recommendation: "Nei", scores: [2, 2, 2] },
+] as const;
+export function validateInterviewReportFixture() {
+  for (const period of [ids.period, ids.closed, ids.empty, ids.foreign])
+    for (const recommendation of ["all", "Ja", "Kanskje", "Nei", "not-recorded"])
+      for (const sort of ["applicant", "recommendation", "total"])
+        for (const direction of ["asc", "desc"])
+          Schema.decodeUnknownSync(InterviewReportQuery)({
+            admissionPeriodId: period,
+            recommendation,
+            sort,
+            direction,
+          });
+  for (const f of fixtures)
+    Schema.decodeUnknownSync(InterviewReportRow)({
+      interviewId: `report-interview-${f.key}`,
+      firstName: "Report",
+      lastName: f.key,
+      completedAt: "2026-09-07T00:00:00.000Z",
+      recommendation: f.recommendation,
+      explanatoryPower: f.scores[0],
+      roleModel: f.scores[1],
+      suitability: f.scores[2],
+    });
+}
+
+type Options = {
+  root: string;
+  pool: any;
+  browser: any;
+  api: string;
+  ui: string;
+  artifacts: string;
+  ordinaryCookie: string;
+  password: string;
+  secrets: string[];
+  revision: string;
+  auditPage: (page: any, state: string) => Promise<void>;
+};
+export async function observeInterviewReport(o: Options) {
+  const { pool, api, ui } = o;
+  const require = createRequire(join(o.root, "apps/dashboard/package.json"));
+  const { expect } = require("@playwright/test");
+  const gates: string[] = [];
+  const clone = async (table: string, where: string, values: Record<string, unknown>) =>
+    pool.query(
+      `INSERT INTO ${table} SELECT (jsonb_populate_record(NULL::${table},to_jsonb(s)||$1::jsonb)).* FROM ${table} s WHERE ${where}`,
+      [JSON.stringify(values)],
+    );
+  // Synthetic credentials copy the installed engine's existing fixture hash, never product provisioning.
+  const email = "coordinator.report@example.invalid";
+  o.secrets.push(email);
+  await clone("public.person_profiles", "person_id='journey-conduct-leader-0063'", {
+    person_id: ids.person,
+    first_name: "Report",
+    last_name: "Coordinator",
+  });
+  await clone('auth."user"', "id='journey-conduct-leader-0063'", {
+    id: ids.person,
+    email,
+    name: "Report Coordinator",
+  });
+  await clone('auth."account"', "\"userId\"='journey-conduct-leader-0063'", {
+    id: "report-account-0103",
+    userId: ids.person,
+    accountId: ids.person,
+  });
+  await clone(
+    "public.organization_memberships",
+    "membership_id='membership-native-conduct-leader-0063'",
+    {
+      membership_id: ids.member,
+      person_id: ids.person,
+      is_team_leader: true,
+      position_id: "teamleader",
+    },
+  );
+  await clone("public.organization_departments", `department_id='${ids.department}'`, {
+    department_id: ids.otherDepartment,
+    name: "Other report department",
+    short_name: "Other0103",
+    email: "other.report@example.invalid",
+  });
+  await clone("public.organization_teams", `team_id='${ids.team}'`, {
+    team_id: ids.otherTeam,
+    department_id: ids.otherDepartment,
+  });
+  await clone("public.admission_period_departments", `department_id='${ids.department}'`, {
+    department_id: ids.otherDepartment,
+    name: "Other report",
+  });
+  for (const [period, year, department] of [
+    [ids.closed, 2024, ids.department],
+    [ids.empty, 2023, ids.department],
+    [ids.foreign, 2025, ids.otherDepartment],
+  ] as const) {
+    await clone("public.admission_period_semesters", "semester_id='semester-native-conduct-0063'", {
+      semester_id: `${period}-semester`,
+      start_at: `${year}-01-01T00:00:00Z`,
+      end_at: `${year}-12-31T23:59:59Z`,
+    });
+    await clone("public.admission_periods", `admission_period_id='${ids.period}'`, {
+      admission_period_id: period,
+      semester_id: `${period}-semester`,
+      department_id: department,
+      start_at: `${year}-02-01T00:00:00Z`,
+      end_at: `${year}-03-01T00:00:00Z`,
+    });
+  }
+  await clone("public.organization_departments", `department_id='${ids.department}'`, {
+    department_id: "report-empty-department",
+    name: "Empty report department",
+    short_name: "Empty0103",
+    email: "empty.report@example.invalid",
+  });
+  await clone("public.organization_teams", `team_id='${ids.team}'`, {
+    team_id: "report-empty-team",
+    department_id: "report-empty-department",
+  });
+  await clone("public.admission_period_departments", `department_id='${ids.department}'`, {
+    department_id: "report-empty-department",
+    name: "Empty report",
+  });
+  for (const f of fixtures) {
+    const applicant = `report-applicant-${f.key}`,
+      application = `report-application-${f.key}`,
+      interview = `report-interview-${f.key}`;
+    const department = f.key === "foreign" ? ids.otherDepartment : ids.department;
+    await clone("public.admission_applicants", "applicant_id='applicant-native-conduct-a-0063'", {
+      applicant_id: applicant,
+      email: `${f.key}.report@example.invalid`,
+      normalized_email: `${f.key}.report@example.invalid`,
+      first_name: "Report",
+      last_name: f.key.startsWith("tie-") ? "Tie" : f.key,
+    });
+    await clone(
+      "public.admission_applications",
+      "application_id='application-native-conduct-a-0063'",
+      {
+        application_id: application,
+        applicant_id: applicant,
+        admission_period_id:
+          f.key === "closed" ? ids.closed : f.key === "foreign" ? ids.foreign : ids.period,
+        department_id: department,
+      },
+    );
+    await clone("public.recruitment_interviews", "interview_id='interview-native-conduct-a-0063'", {
+      interview_id: interview,
+      application_id: application,
+      department_id: department,
+    });
+    await clone(
+      "public.recruitment_interview_conducts",
+      "interview_id='interview-native-conduct-a-0063'",
+      {
+        interview_id: interview,
+        recommendation: f.recommendation,
+        explanatory_power: f.scores[0],
+        role_model: f.scores[1],
+        suitability: f.scores[2],
+      },
+    );
+  }
+  const link = async (key: string, client = pool) => {
+    const invitation = `report-link-${key}`;
+    await client.query(
+      `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES($1,$2,$3,$4,CURRENT_TIMESTAMP+interval '1 day','Claimed',$5,CURRENT_TIMESTAMP)`,
+      [
+        invitation,
+        `report-application-${key}`,
+        `report-applicant-${key}`,
+        createHash("sha256").update(invitation).digest("hex"),
+        ids.person,
+      ],
+    );
+    await client.query(
+      `INSERT INTO public.applicant_account_links VALUES($1,$2,CURRENT_TIMESTAMP,$3)`,
+      [`report-applicant-${key}`, ids.person, invitation],
+    );
+  };
+  await link("known-self");
+  const signIn = await fetch(`${api}/api/auth/sign-in/email`, {
+    method: "POST",
+    headers: { origin: ui, "content-type": "application/json" },
+    body: JSON.stringify({ email, password: o.password }),
+  });
+  assert.equal(signIn.status, 200);
+  const cookie = signIn.headers
+    .getSetCookie()
+    .map((v) => v.split(";")[0])
+    .join("; ");
+  assert.ok(cookie);
+  o.secrets.push(cookie, ...cookie.split("; ").map((v) => v.slice(v.indexOf("=") + 1)));
+  await signIn.body?.cancel();
+  const get = (
+    query: Record<string, string> = {},
+    session = cookie,
+    extra: Record<string, string> = {},
+  ) =>
+    fetch(`${api}/api/recruitment/interview-report?${new URLSearchParams(query)}`, {
+      headers: { cookie: session, origin: ui, ...extra },
+    });
+  const read = async (query: Record<string, string> = {}): Promise<InterviewReport> => {
+    const response = await get(query);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("cache-control") ?? "", /no-store/);
+    return Schema.decodeUnknownSync(InterviewReport)(await response.json(), {
+      onExcessProperty: "error",
+    });
+  };
+  const snapshot = async () => {
+    const tables = (
+      await pool.query(
+        `SELECT schemaname,tablename FROM pg_tables WHERE schemaname IN ('public','auth') ORDER BY schemaname,tablename`,
+      )
+    ).rows;
+    const hashes = [];
+    for (const t of tables)
+      hashes.push([
+        `${t.schemaname}.${t.tablename}`,
+        (
+          await pool.query(
+            `SELECT md5(coalesce(string_agg(to_jsonb(t)::text,'|' ORDER BY to_jsonb(t)::text),'')) hash FROM "${t.schemaname}"."${t.tablename}" t`,
+          )
+        ).rows[0].hash,
+      ]);
+    return hashes;
+  };
+  const before = await snapshot();
+  const unselected = await read();
+  assert.equal(unselected.selectedPeriodId, null);
+  assert.equal(unselected.rows.length, 0);
+  assert.ok(unselected.periods.some((p) => p.id === ids.closed));
+  assert.ok(!unselected.periods.some((p) => p.id === ids.foreign));
+  const { createPromiseClient } = require("@vektorprogrammet/sdk");
+  const sdkResult = await createPromiseClient(api, {
+    cookie,
+    origin: ui,
+  }).recruitment.readInterviewReport({
+    query: Schema.decodeUnknownSync(InterviewReportQuery)({ admissionPeriodId: ids.period }),
+  });
+  const report: InterviewReport = Schema.decodeUnknownSync(InterviewReport)(sdkResult.body, {
+    onExcessProperty: "error",
+  });
+  const sqlRows = (
+    await pool.query(
+      `SELECT i.interview_id FROM public.recruitment_interviews i JOIN public.admission_applications a USING(application_id) JOIN public.recruitment_interview_conducts c USING(interview_id) LEFT JOIN public.applicant_account_links l USING(applicant_id) WHERE a.admission_period_id=$1 AND (l.person_id IS NULL OR l.person_id<>$2) ORDER BY i.interview_id`,
+      [ids.period, ids.person],
+    )
+  ).rows;
+  assert.deepEqual(
+    report.rows.map((r) => r.interviewId).sort(),
+    sqlRows.map((r: any) => r.interview_id),
+  );
+  assert.ok(report.rows.some((r) => r.recommendation === null));
+  for (const row of report.rows) {
+    assert.deepEqual(
+      Object.keys(row).sort(),
+      [
+        "interviewId",
+        "firstName",
+        "lastName",
+        "completedAt",
+        "recommendation",
+        "explanatoryPower",
+        "roleModel",
+        "suitability",
+      ].sort(),
+    );
+    const persisted = (
+      await pool.query(
+        `SELECT explanatory_power,role_model,suitability,recommendation FROM public.recruitment_interview_conducts WHERE interview_id=$1`,
+        [row.interviewId],
+      )
+    ).rows[0];
+    assert.deepEqual(
+      [row.explanatoryPower, row.roleModel, row.suitability, row.recommendation],
+      [
+        persisted.explanatory_power,
+        persisted.role_model,
+        persisted.suitability,
+        persisted.recommendation,
+      ],
+    );
+  }
+  for (const filter of ["Ja", "Kanskje", "Nei", "not-recorded"]) {
+    const filtered = await read({ admissionPeriodId: ids.period, recommendation: filter });
+    assert.deepEqual(
+      filtered.rows,
+      report.rows.filter((r) => (r.recommendation ?? "not-recorded") === filter),
+    );
+    assert.ok(filtered.rows.length > 0);
+  }
+  for (const sort of ["applicant", "recommendation", "total"])
+    for (const direction of ["asc", "desc"]) {
+      const rows = (await read({ admissionPeriodId: ids.period, sort, direction })).rows;
+      const values = rows.map((r) =>
+        sort === "total"
+          ? r.explanatoryPower + r.roleModel + r.suitability
+          : sort === "recommendation"
+            ? (r.recommendation ?? "Ikke registrert")
+            : `${r.lastName} ${r.firstName}`,
+      );
+      for (let i = 1; i < values.length; i++) {
+        assert.ok(
+          direction === "asc" ? values[i - 1]! <= values[i]! : values[i - 1]! >= values[i]!,
+        );
+        if (values[i - 1] === values[i]) assert.ok(rows[i - 1]!.interviewId < rows[i]!.interviewId);
+      }
+    }
+  assert.equal((await read({ admissionPeriodId: ids.closed })).rows.length, 1);
+  assert.equal((await read({ admissionPeriodId: ids.empty })).rows.length, 0);
+  assert.equal((await get({ admissionPeriodId: ids.foreign })).status, 403);
+  assert.equal((await get({}, "")).status, 401);
+  assert.equal((await get({}, o.ordinaryCookie)).status, 403);
+  assert.equal(
+    (
+      await fetch(`${api}/api/recruitment/interviews/interview-native-conduct-a-0063`, {
+        headers: { cookie, origin: ui },
+      })
+    ).status,
+    403,
+  );
+  for (const bad of [
+    { departmentId: ids.department },
+    { sort: "bogus" },
+    { recommendation: "" },
+  ] as Array<Record<string, string>>)
+    assert.ok([400, 422].includes((await get(bad)).status));
+  assert.deepEqual(await snapshot(), before);
+  gates.push(
+    "real ordinary-interviewer conduct reported to non-assigned leader; exact population/projection/history/SQL and closed/empty periods; sort/filter/ties; no report writes; raw conduct remains denied",
+  );
+
+  await pool.query(
+    `UPDATE public.organization_memberships SET team_id='report-empty-team' WHERE membership_id=$1`,
+    [ids.member],
+  );
+  const emptyDepartmentBefore = await snapshot();
+  const emptyDepartment = await read();
+  assert.deepEqual(emptyDepartment.periods, []);
+  assert.deepEqual(emptyDepartment.rows, []);
+  assert.deepEqual(await snapshot(), emptyDepartmentBefore);
+  await pool.query(`UPDATE public.organization_memberships SET team_id=$1 WHERE membership_id=$2`, [
+    ids.team,
+    ids.member,
+  ]);
+  gates.push("authorized department without periods returns explicit empty selection and no rows");
+  const oldCondition =
+    (await get({ admissionPeriodId: ids.period })).headers.get("etag") ?? '"prior-report-token"';
+  const denyMutation = async (setup: string, restore: string) => {
+    await pool.query(setup);
+    const baseline = await snapshot();
+    assert.equal(
+      (await get({ admissionPeriodId: ids.period }, cookie, { "if-none-match": oldCondition }))
+        .status,
+      403,
+    );
+    assert.deepEqual(await snapshot(), baseline);
+    await pool.query(restore);
+  };
+  for (const [field, bad, good] of [
+    ["is_suspended", "true", "false"],
+    ["end_at", "'2026-02-01'", "NULL"],
+    ["is_team_leader", "false", "true"],
+  ])
+    await denyMutation(
+      `UPDATE public.organization_memberships SET ${field}=${bad} WHERE membership_id='${ids.member}'`,
+      `UPDATE public.organization_memberships SET ${field}=${good} WHERE membership_id='${ids.member}'`,
+    );
+  await denyMutation(
+    `UPDATE public.organization_teams SET active=false WHERE team_id='${ids.team}'`,
+    `UPDATE public.organization_teams SET active=true WHERE team_id='${ids.team}'`,
+  );
+  await denyMutation(
+    `UPDATE public.organization_departments SET active=false WHERE department_id='${ids.department}'`,
+    `UPDATE public.organization_departments SET active=true WHERE department_id='${ids.department}'`,
+  );
+  await clone("public.organization_memberships", `membership_id='${ids.member}'`, {
+    membership_id: "report-ambiguous-membership",
+    team_id: ids.otherTeam,
+  });
+  assert.equal((await get()).status, 403);
+  await pool.query(
+    `DELETE FROM public.organization_memberships WHERE membership_id='report-ambiguous-membership'`,
+  );
+  await pool.query(
+    `INSERT INTO public.organization_global_administrator_grants(grant_id,person_id,start_at) VALUES('report-admin-grant',$1,'2026-01-01')`,
+    [ids.person],
+  );
+  await denyMutation(
+    `DELETE FROM public.organization_memberships WHERE membership_id='${ids.member}'`,
+    `INSERT INTO public.organization_memberships(membership_id,person_id,team_id,start_at,position_id,is_team_leader,is_suspended,revision) VALUES('${ids.member}','${ids.person}','${ids.team}','2026-01-01','teamleader',true,false,0)`,
+  );
+  await pool.query(
+    `DELETE FROM public.organization_global_administrator_grants WHERE grant_id='report-admin-grant'`,
+  );
+  gates.push(
+    "anonymous/member/admin-only/ambiguous/revoked/ended/suspended/inactive scope denied, including prior conditional token",
+  );
+
+  const locker = await pool.connect();
+  try {
+    await locker.query("BEGIN");
+    await locker.query(
+      `SELECT applicant_id FROM public.admission_applicants WHERE applicant_id='report-applicant-race' FOR UPDATE`,
+    );
+    const pid = (await locker.query("SELECT pg_backend_pid() pid")).rows[0].pid;
+    const waiting = get({ admissionPeriodId: ids.period });
+    let blocked = false;
+    for (let n = 0; n < 100; n++) {
+      blocked =
+        (
+          await pool.query(
+            `SELECT count(*)::int n FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid))`,
+            [pid],
+          )
+        ).rows[0].n > 0;
+      if (blocked) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.ok(blocked, "report held by authoritative applicant custody");
+    await link("race", locker);
+    await locker.query("COMMIT");
+    const afterLink = await snapshot();
+    const response = await waiting;
+    assert.ok([200, 409, 503].includes(response.status));
+    if (response.status === 200)
+      assert.ok(
+        !(await response.json()).rows.some((r: any) => r.interviewId === "report-interview-race"),
+      );
+    for (const filter of ["all", "Ja", "Nei", "Kanskje", "not-recorded"])
+      assert.ok(
+        !(await read({ admissionPeriodId: ids.period, recommendation: filter })).rows.some((r) =>
+          ["report-interview-race", "report-interview-known-self"].includes(r.interviewId),
+        ),
+      );
+    assert.deepEqual(await snapshot(), afterLink);
+  } finally {
+    await locker.query("ROLLBACK");
+    locker.release();
+  }
+  gates.push(
+    "known self excluded from every filter/count; absent/different links eligible; actual concurrent link/read custody excludes newly known self",
+  );
+
+  const context = await o.browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const errors: string[] = [];
+  const expectedFaults: string[] = [];
+  let intentionalReadFailure = false;
+  try {
+    for (const part of cookie.split("; ")) {
+      const n = part.indexOf("=");
+      await context.addCookies([
+        {
+          name: part.slice(0, n),
+          value: part.slice(n + 1),
+          url: ui,
+          httpOnly: true,
+          sameSite: "Lax",
+        },
+      ]);
+    }
+    const page = await context.newPage();
+    page.on("pageerror", () => errors.push("pageerror"));
+    page.on("console", (m: any) => {
+      if (m.type() === "error") {
+        if (intentionalReadFailure && /server responded with a status of 503/.test(m.text()))
+          expectedFaults.push("induced-report-503");
+        else errors.push("console-error");
+      }
+    });
+    const baseline = await snapshot();
+    await page.goto(`${ui}/dashboard/intervjuer`);
+    await page.getByRole("link", { name: "Fullførte intervjuer", exact: true }).click();
+    await expect(page.getByRole("status")).toContainText("Velg en opptaksperiode");
+    const submit = async () => {
+      await page.getByRole("button", { name: "Vis rapport", exact: true }).focus();
+      await page.keyboard.press("Enter");
+      await expect(page.locator('section[aria-labelledby="report-heading"]')).toHaveAttribute(
+        "aria-busy",
+        "false",
+      );
+    };
+    await page.getByLabel("Opptaksperiode", { exact: true }).selectOption(ids.period);
+    await submit();
+    const expected = (await read({ admissionPeriodId: ids.period })).rows.length;
+    await expect(page.getByRole("status")).toHaveText(`${expected} fullførte intervjuer`);
+    for (const [label, sort] of [
+      ["Søker", "applicant"],
+      ["Anbefaling", "recommendation"],
+      ["Sum", "total"],
+    ]) {
+      const control = page.getByRole("link", { name: label, exact: true });
+      await control.focus();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(new RegExp(`sort=${sort}`));
+      await expect(control.locator("..")).toHaveAttribute("aria-sort", /ascending|descending/);
+    }
+    await page.getByLabel("Anbefaling", { exact: true }).selectOption("not-recorded");
+    await submit();
+    await expect(page.getByRole("status")).toHaveText("1 fullførte intervjuer");
+    await expect(page.locator("tbody")).toContainText("Ikke registrert");
+    const selectedUrl = page.url();
+    await page.reload();
+    assert.equal(page.url(), selectedUrl);
+    await expect(page.getByLabel("Anbefaling", { exact: true })).toHaveValue("not-recorded");
+    await o.auditPage(page, "report-desktop-filtered");
+    await page.screenshot({ path: join(o.artifacts, "report-desktop.png") });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByLabel("Anbefaling", { exact: true }).focus();
+    await o.auditPage(page, "report-mobile-focus");
+    await page.screenshot({ path: join(o.artifacts, "report-mobile.png") });
+    await page.getByLabel("Anbefaling", { exact: true }).selectOption("all");
+    await page.getByLabel("Opptaksperiode", { exact: true }).selectOption(ids.closed);
+    await submit();
+    await expect(page.getByRole("status")).toHaveText("1 fullførte intervjuer");
+    await page.getByLabel("Opptaksperiode", { exact: true }).selectOption(ids.empty);
+    await submit();
+    await expect(page.getByRole("status")).toHaveText("0 fullførte intervjuer");
+    await expect(page.getByText("Ingen fullførte intervjuer samsvarer med valgene.")).toBeVisible();
+    // Actual backend SQL read failure, restored before retry. No mutation of stored conduct.
+    intentionalReadFailure = true;
+    await pool.query(
+      "ALTER TABLE public.recruitment_interview_conducts RENAME TO report_temporarily_unavailable_conducts",
+    );
+    try {
+      await page.getByLabel("Opptaksperiode", { exact: true }).selectOption(ids.period);
+      await page.getByRole("button", { name: "Vis rapport", exact: true }).click();
+      await expect(page.getByRole("alert")).toContainText("Rapporten kunne ikke hentes");
+      await expect(page.locator("tbody")).toHaveCount(0);
+      await o.auditPage(page, "report-failed-read");
+      await page.screenshot({ path: join(o.artifacts, "report-failure-mobile.png") });
+    } finally {
+      await pool.query(
+        "ALTER TABLE public.report_temporarily_unavailable_conducts RENAME TO recruitment_interview_conducts",
+      );
+    }
+    await page.getByRole("button", { name: "Prøv igjen", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText(`${expected} fullførte intervjuer`);
+    intentionalReadFailure = false;
+    // Browser back supersedes a pending period request; releasing its real response cannot relabel rows.
+    await page.goto(`${ui}/dashboard/intervjuer/rapport?admissionPeriodId=${ids.empty}`);
+    await page.getByLabel("Opptaksperiode", { exact: true }).selectOption(ids.period);
+    await submit();
+    let release!: () => void, captured!: () => void;
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const arrived = new Promise<void>((resolve) => {
+      captured = resolve;
+    });
+    await page.route("**/dashboard/intervjuer/rapport.data?**", async (route: any) => {
+      if (new URL(route.request().url()).searchParams.get("admissionPeriodId") === ids.closed) {
+        const response = await route.fetch();
+        captured();
+        await hold;
+        await route.fulfill({ response }).catch(() => {});
+      } else await route.continue();
+    });
+    try {
+      await page.getByLabel("Opptaksperiode", { exact: true }).selectOption(ids.closed);
+      await page.getByRole("button", { name: "Vis rapport", exact: true }).click();
+      await Promise.race([
+        arrived,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("superseded report request not intercepted")), 10000),
+        ),
+      ]);
+      await expect(page.getByRole("status")).toHaveText("Henter rapporten …");
+      await expect(page.locator("tbody")).toHaveCount(0);
+      await page.goBack();
+      release();
+      await expect(page.getByLabel("Opptaksperiode", { exact: true })).toHaveValue(ids.empty);
+      await expect(page.getByRole("status")).toHaveText("0 fullførte intervjuer");
+      await page.reload();
+      await expect(page.getByRole("status")).toHaveText("0 fullførte intervjuer");
+    } finally {
+      release();
+      await page.unroute("**/dashboard/intervjuer/rapport.data?**");
+    }
+    assert.deepEqual(await snapshot(), baseline);
+    assert.deepEqual(errors, []);
+    gates.push(
+      "production navigation/keyboard sorts/filter/count/reload, historical/empty period, desktop/mobile Axe and viewport; real SQL failure/retry and superseded-period navigation; no report writes",
+    );
+    const evidence = {
+      specId: "0103",
+      revision: o.revision,
+      gates,
+      rows: report.rows,
+      observer: "independent PostgreSQL connection",
+      browserErrors: errors,
+      expectedFaults,
+      scope: "all completed native, not first-time-only; local synthetic; no effects",
+    };
+    await writeFile(join(o.artifacts, "report-evidence.json"), JSON.stringify(evidence, null, 2));
+    return evidence;
+  } finally {
+    await context.close();
+  }
+}
