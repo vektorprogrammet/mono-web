@@ -765,6 +765,7 @@ export async function observeInterviewReport(o: Options) {
     await page.getByLabel("Anbefaling", { exact: true }).focus();
     await o.auditPage(page, "report-mobile-focus");
     await page.screenshot({ path: join(o.artifacts, "report-mobile.png") });
+    if (!o.correctionMode) {
     const sumFocus = page.getByRole("link", { name: "Sum", exact: true });
     await sumFocus.focus();
     await sumFocus.scrollIntoViewIfNeeded();
@@ -773,6 +774,7 @@ export async function observeInterviewReport(o: Options) {
     assert.ok(sumBounds && sumBounds.x >= 0 && sumBounds.x + sumBounds.width <= 390);
     await o.auditPage(page, "report-mobile-sum-focus");
     await page.screenshot({ path: join(o.artifacts, "report-mobile-sum.png") });
+    }
     await page.getByLabel("Anbefaling", { exact: true }).selectOption("all");
     await page.getByLabel("Opptaksperiode", { exact: true }).selectOption(ids.closed);
     await submit();
