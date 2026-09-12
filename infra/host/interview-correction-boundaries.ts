@@ -592,10 +592,42 @@ export async function assertInterviewCorrectionBoundaries(
 
   const current = await detail();
   const currentPayload = validPayload(current.body);
+  const currentAnswers = currentPayload.answers;
+  assert.ok(Array.isArray(currentAnswers) && currentAnswers.length >= 2, "invalid answer probes need two answers");
+  const answerRows = currentAnswers as ReadonlyArray<Readonly<Record<string, unknown>>>;
   const invalidCases: ReadonlyArray<readonly [string, unknown]> = [
     ["malformed-json", "{"],
-    ["unknown-property", { ...currentPayload, unexpected: true }],
-    ["revision-string", { ...currentPayload, expectedRevision: String(current.body.revision) }],
+    [
+      "unknown-question-same-cardinality",
+      {
+        ...currentPayload,
+        answers: answerRows.map((answer, index) =>
+          index === 0 ? { ...answer, questionId: freshId("unknown-question") } : answer,
+        ),
+      },
+    ],
+    [
+      "duplicate-question-same-cardinality",
+      {
+        ...currentPayload,
+        answers: answerRows.map((answer, index) =>
+          index === 1 ? { ...answer, questionId: answerRows[0].questionId } : answer,
+        ),
+      },
+    ],
+    [
+      "missing-answer",
+      {
+        ...currentPayload,
+        answers: answerRows.map((answer, index) =>
+          index === 0
+            ? Object.fromEntries(Object.entries(answer).filter(([key]) => key !== "answer"))
+            : answer,
+        ),
+      },
+    ],
+    ["invalid-recommendation", { ...currentPayload, recommendation: "Maybe" }],
+    ["fractional-score", { ...currentPayload, score: { ...currentPayload.score, roleModel: 1.5 } }],
     [
       "score-out-of-range",
       { ...currentPayload, score: { ...currentPayload.score, explanatoryPower: 11 } },
