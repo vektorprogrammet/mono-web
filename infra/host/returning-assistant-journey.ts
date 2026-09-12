@@ -692,12 +692,6 @@ export const runReturningAssistantBrowserJourney = async ({
       .waitFor({ state: "visible", timeout: 5_000 })
       .then(() => true)
       .catch(() => false);
-    form = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
-    await form.waitFor({ state: "visible" });
-    submit = form.locator('button[type="submit"]');
-    await submit.waitFor({ state: "visible" });
-    assert.equal(await submit.isEnabled(), true);
-    assert.equal(await form.getAttribute("data-pending"), "false");
     const firstRequest = trace.find((entry) => entry.phase === "first");
     assert.ok(firstRequest && Array.isArray(firstRequest.form));
     const assertRecoveredIntent = async () => {
@@ -713,17 +707,14 @@ export const runReturningAssistantBrowserJourney = async ({
       if (recoveredRevision !== firstExpectedRevision)
         throw new Error(`recovered base revision mismatch actual=${recoveredRevision} expected=${firstExpectedRevision}`);
     };
+    if (hasRecoveryControl) await recovery.click();
+    form = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
+    await form.waitFor({ state: "visible" });
+    submit = form.locator('button[type="submit"]');
+    await submit.waitFor({ state: "visible" });
+    assert.equal(await submit.isEnabled(), true);
+    assert.equal(await form.getAttribute("data-pending"), "false");
     await assertRecoveredIntent();
-    if (hasRecoveryControl) {
-      await recovery.click();
-      form = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
-      await form.waitFor({ state: "visible" });
-      submit = form.locator('button[type="submit"]');
-      await submit.waitFor({ state: "visible" });
-      assert.equal(await submit.isEnabled(), true);
-      assert.equal(await form.getAttribute("data-pending"), "false");
-      await assertRecoveredIntent();
-    }
     stage?.("returning:retry");
     stage?.("returning:mutation:retry:click");
     await submit.click();
