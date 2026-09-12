@@ -1542,6 +1542,25 @@ try {
     await page.goto(`${ui}/dashboard/intervjuer`);
     await open(page, "Sofie Gjennomfører");
   }
+  if (acceptedCorrectionReplay !== undefined && process.argv.includes("--correction-mode")) {
+    const boundaryResult = await assertInterviewCorrectionBoundaries({
+      pool,
+      api,
+      origin: ui,
+      cookie,
+      interviewId: "interview-recommendation-history",
+      actorPersonId: "journey-conduct-leader-0063",
+      otherPersonId: "recommendation-other-0101",
+      membershipId: "membership-native-conduct-leader-0063",
+      selfLinkRaceInterviewId: "interview-recommendation-link-race",
+      acceptedReplay: acceptedCorrectionReplay,
+      recordGate,
+    });
+    await writeFile(
+      join(artifacts, "correction-boundaries.json"),
+      JSON.stringify({ revision, ...boundaryResult }, null, 2),
+    );
+  }
   await fill(page);
   assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "");
   await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "editable-desktop.png") });
