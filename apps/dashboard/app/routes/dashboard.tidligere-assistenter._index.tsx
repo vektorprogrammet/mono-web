@@ -85,6 +85,7 @@ export async function action({ request }: Route.ActionArgs) {
       success: true as const,
       message: "Registreringen er lagret.",
       commandId,
+      admissionPeriodId: payload.admissionPeriodId,
       revision: result.body.observation.revision,
     });
   } catch (cause) {
@@ -245,18 +246,21 @@ export default function TidligereAssistenter() {
   const persistenceError = periodFormOverride.persistenceError ?? null;
   const [acceptedCommandId, setAcceptedCommandId] = useState("");
   if (fetcher.data?.success === true && fetcher.data.commandId !== acceptedCommandId) {
+    const acknowledgedPeriodId = fetcher.data.admissionPeriodId;
     if (typeof window !== "undefined" && options !== null) {
       try {
-        window.sessionStorage.removeItem(returningDraftStorageKey(options.personId, selectedId));
+        window.sessionStorage.removeItem(
+          returningDraftStorageKey(options.personId, acknowledgedPeriodId),
+        );
       } catch {
-        setPeriodFormOverride(selectedId, {
+        setPeriodFormOverride(acknowledgedPeriodId, {
           persistenceError:
             "Registreringen er lagret, men nettleseren kunne ikke fjerne gjenopprettingsutkastet.",
         });
       }
     }
     setAcceptedCommandId(fetcher.data.commandId);
-    setPeriodFormOverride(selectedId, {
+    setPeriodFormOverride(acknowledgedPeriodId, {
       draftRevision: fetcher.data.revision,
       commandId: "",
       commandDraft: "",
