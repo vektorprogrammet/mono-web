@@ -174,18 +174,25 @@ export const runReturningAssistantBrowserJourney = async ({
   const context = await browser.newContext();
   const responses: string[] = [];
   const returning = await context.newPage();
-  returning.on("response", (response) => {
-    if (response.url().includes("/api/")) responses.push(`${response.status()} ${response.url()}`);
-  });
   returning.on("request", (request) => {
     const url = new URL(request.url());
     if (url.pathname.includes("/dashboard/tidligere-assistenter") || url.pathname.includes("/api/returning-assistant/"))
       responses.push(`request ${request.method()} ${url.pathname}`);
   });
-  returning.on("response", (response) => {
+  returning.on("response", async (response) => {
     const url = new URL(response.url());
-    if (url.pathname.includes("/dashboard/tidligere-assistenter") || url.pathname.includes("/api/returning-assistant/"))
-      responses.push(`response ${response.status()} ${url.pathname}`);
+    if (!(url.pathname.includes("/dashboard/tidligere-assistenter") || url.pathname.includes("/api/returning-assistant/")))
+      return;
+    let code = "unknown";
+    if (url.pathname.endsWith(".data")) {
+      const body = await response.text().catch(() => "");
+      try {
+        const value: unknown = JSON.parse(body);
+        if (value !== null && typeof value === "object" && "code" in value && typeof value.code === "string")
+          code = value.code;
+      } catch {}
+    }
+    responses.push(`response ${response.status()} ${url.pathname} code=${code}`);
   });
   returning.on("pageerror", (error: Error) => errors.push(`returning:${error.message}`));
   const captureReturningFailure = async (phase: string, cause: unknown): Promise<never> => {
