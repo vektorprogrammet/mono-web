@@ -184,8 +184,28 @@ export const runReturningAssistantBrowserJourney = async ({
   await form.getByRole("combobox", { name: "Studieår" }).selectOption("2");
   await form.getByLabel("Mandag").check();
   await form.getByRole("combobox", { name: "Språk" }).selectOption("Norsk og engelsk");
-  await form.getByRole("button", { name: "Registrer for semesteret" }).click();
+  const submit = form.getByRole("button", { name: "Registrer for semesteret" });
+  let droppedResponse = false;
+  let firstCommandKey: string | undefined;
+  await returning.route(`${api}/api/returning-assistant/registrations`, async (route) => {
+    const commandKey = route.request().headers()["idempotency-key"];
+    assert.ok(commandKey);
+    if (droppedResponse) {
+      assert.equal(commandKey, firstCommandKey);
+      await route.continue();
+      return;
+    }
+    droppedResponse = true;
+    firstCommandKey = commandKey;
+    const response = await route.fetch();
+    await response.body();
+    await route.abort("failed");
+  });
+  await submit.click();
+  await returning.locator('form[aria-label="Registrer som tidligere assistent"][data-pending="false"]').waitFor();
+  await submit.click();
   await assertStatus(form, "Registreringen er lagret.");
+  await returning.unroute(`${api}/api/returning-assistant/registrations`);
   await returning.reload();
   const reloaded = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
   await expectValue(reloaded.getByRole("combobox", { name: "Studieår" }), "2");
