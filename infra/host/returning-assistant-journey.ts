@@ -192,6 +192,7 @@ export const runReturningAssistantBrowserJourney = async ({
 }) => {
   const context = await browser.newContext();
   const responses: string[] = [];
+  const trace: Array<Record<string, unknown>> = [];
   const returning = await context.newPage();
   returning.on("request", (request) => {
     const url = new URL(request.url());
@@ -231,6 +232,7 @@ export const runReturningAssistantBrowserJourney = async ({
     );
     await returning.screenshot({ path: join(artifacts, `returning-${phase}-failure.png`), fullPage: true });
     const kind = cause instanceof Error ? cause.name : typeof cause;
+    await writeFile(join(artifacts, "returning-registration-trace.json"), JSON.stringify(trace, null, 2));
     throw new Error(
       `returning ${phase} failed phase=browser-action kind=${kind} url=${returning.url()} responses=${responses.join(" | ")}`,
       { cause },
@@ -240,8 +242,15 @@ export const runReturningAssistantBrowserJourney = async ({
     const url = new URL(request.url());
     if (request.method() === "POST" && url.pathname === "/dashboard/tidligere-assistenter.data") {
       const body = new URLSearchParams(request.postData() ?? "");
+      const row = {
+        phase: "dashboard-post",
+        admissionPeriodId: body.get("admissionPeriodId"),
+        expectedRevision: body.get("expectedRevision"),
+        commandId: body.get("commandId"),
+      };
+      trace.push(row);
       responses.push(
-        `dashboard POST request period=${body.get("admissionPeriodId")} expectedRevision=${body.get("expectedRevision")} commandIdLength=${(body.get("commandId") ?? "").length}`,
+        `dashboard POST request period=${row.admissionPeriodId} expectedRevision=${row.expectedRevision} commandId=${row.commandId}`,
       );
     }
   });
@@ -307,10 +316,18 @@ export const runReturningAssistantBrowserJourney = async ({
     const formData = new URLSearchParams(route.request().postData() ?? "");
     const commandKey = formData.get("commandId");
     const expectedRevision = formData.get("expectedRevision");
+    const phase = droppedResponse ? "retry" : "first";
     const response = await route.fetch();
     const status = response.status();
+    trace.push({
+      phase,
+      admissionPeriodId: formData.get("admissionPeriodId"),
+      expectedRevision,
+      commandId: commandKey,
+      responseStatus: status,
+    });
     responses.push(
-      `intercepted POST /dashboard/tidligere-assistenter.data phase=${droppedResponse ? "retry" : "first"} status=${status}`,
+      `intercepted POST /dashboard/tidligere-assistenter.data phase=${phase} status=${status}`,
     );
     if (!droppedResponse) {
       droppedResponse = true;
@@ -340,11 +357,23 @@ export const runReturningAssistantBrowserJourney = async ({
   assert.equal(interceptedActions, 2);
   assert.equal(droppedResponse, true);
   assert.equal(routeFailure, undefined, routeFailure);
+  const captureCommitted = async (phase: string, periodId: string) => {
+    const committed = await pool.query(
+      `SELECT admission_period_id,revision,command_id
+       FROM public.admission_returning_registrations
+       WHERE person_id=$1 AND admission_period_id=$2
+       ORDER BY revision`,
+      [person.personId, periodId],
+    );
+    trace.push({ phase, sqlCommitted: committed.rows });
+    await writeFile(join(artifacts, "returning-registration-trace.json"), JSON.stringify(trace, null, 2));
+  };
   try {
     await assertStatus(form, "Registreringen er lagret.");
   } catch (cause) {
     await captureReturningFailure("submit-status", cause);
   }
+  await captureCommitted("new-period-after-retry", nextAdmissionPeriodId);
   await returning.unroute("**/dashboard/tidligere-assistenter.data");
   await returning.reload();
   const reloaded = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
@@ -374,6 +403,7 @@ export const runReturningAssistantBrowserJourney = async ({
   } catch (cause) {
     await captureReturningFailure("existing-registration-status", cause);
   }
+  await captureCommitted("existing-period-after-registration", admissionPeriodId);
 
   await returning.reload();
   const existing = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
@@ -390,6 +420,7 @@ export const runReturningAssistantBrowserJourney = async ({
   } catch (cause) {
     await captureReturningFailure("update-status", cause);
   }
+  await captureCommitted("existing-period-after-update", admissionPeriodId);
   await returning.reload();
   const updated = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
   await expectValue(updated.getByRole("combobox", { name: "Opptaksperiode" }), admissionPeriodId);
