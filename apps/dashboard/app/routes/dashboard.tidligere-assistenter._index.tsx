@@ -1,8 +1,9 @@
 import { ReturningAssistantRegistrationInputSchema } from "@vektorprogrammet/domain/application";
+import { PersonId } from "@vektorprogrammet/domain/organization";
 import { IdempotencyHeaders } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
 import { data, useFetcher, useLoaderData, useRouteError } from "react-router";
-import { useState, type FormEvent } from "react";
+import { useState, useSyncExternalStore, type FormEvent } from "react";
 import { Button } from "../components/ui/button";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
@@ -95,29 +96,35 @@ const groups = ["all", "block-1", "block-2"] as const;
 const returningRegistrationRoute = "/dashboard/tidligere-assistenter";
 const returningDraftStoragePrefix = "vektorprogrammet:returning-assistant-draft:";
 const ReturningDraftSchema = Schema.Struct({
-  personId: Schema.String,
+  personId: PersonId,
   route: Schema.Literal(returningRegistrationRoute),
-  admissionPeriodId: Schema.String,
-  entries: Schema.Array(Schema.Struct({ name: Schema.String, value: Schema.String })),
+  payload: ReturningAssistantRegistrationInputSchema,
   signature: Schema.String,
 });
+type ReturningPayload = typeof ReturningAssistantRegistrationInputSchema.Type;
 type SavedReturningDraft = typeof ReturningDraftSchema.Type;
+const ReturningDraftJsonSchema = Schema.fromJsonString(ReturningDraftSchema);
 
 const returningDraftStorageKey = (personId: string, admissionPeriodId: string) =>
   `${returningDraftStoragePrefix}${personId}:${returningRegistrationRoute}:${admissionPeriodId}`;
-
 const readReturningDrafts = (personId: string | undefined): SavedReturningDraft[] => {
   if (typeof window === "undefined" || personId === undefined) return [];
   const candidates: SavedReturningDraft[] = [];
+  const storageKeyPrefix = `${returningDraftStoragePrefix}${personId}:${returningRegistrationRoute}:`;
   for (let index = 0; index < window.sessionStorage.length; index += 1) {
     const key = window.sessionStorage.key(index);
-    if (key === null || !key.startsWith(returningDraftStoragePrefix)) continue;
+    if (key === null || !key.startsWith(storageKeyPrefix)) continue;
     try {
-      const value = Schema.decodeUnknownSync(ReturningDraftSchema)(
-        JSON.parse(window.sessionStorage.getItem(key) ?? "null"),
+      const value = Schema.decodeUnknownSync(ReturningDraftJsonSchema)(
+        window.sessionStorage.getItem(key) ?? "",
         { onExcessProperty: "error" },
       );
-      if (value.personId === personId && value.route === returningRegistrationRoute)
+      const admissionPeriodId = key.slice(storageKeyPrefix.length);
+      if (
+        value.personId === personId &&
+        value.route === returningRegistrationRoute &&
+        value.payload.admissionPeriodId === admissionPeriodId
+      )
         candidates.push(value);
     } catch {
       // Ignore stale or malformed browser storage. It must never become form state.
@@ -126,49 +133,69 @@ const readReturningDrafts = (personId: string | undefined): SavedReturningDraft[
   return candidates;
 };
 
-const draftValues = (draft: SavedReturningDraft | null): Map<string, readonly string[]> => {
-  const values = new Map<string, string[]>();
-  for (const { name, value } of draft?.entries ?? [])
-    values.set(name, [...(values.get(name) ?? []), value]);
-  return values;
-};
+const payloadFormValues = (payload: ReturningPayload): Map<string, readonly string[]> =>
+  new Map([
+    ["commandId", [payload.commandId]],
+    ["expectedRevision", [String(payload.expectedRevision)]],
+    ["admissionPeriodId", [payload.admissionPeriodId]],
+    ["yearOfStudy", [String(payload.yearOfStudy)]],
+    ["mondayUnavailable", payload.mondayUnavailable ? ["true"] : []],
+    ["tuesdayUnavailable", payload.tuesdayUnavailable ? ["true"] : []],
+    ["wednesdayUnavailable", payload.wednesdayUnavailable ? ["true"] : []],
+    ["thursdayUnavailable", payload.thursdayUnavailable ? ["true"] : []],
+    ["fridayUnavailable", payload.fridayUnavailable ? ["true"] : []],
+    ["positionWeeks", [String(payload.positionWeeks)]],
+    ["preferredGroup", [payload.preferredGroup]],
+    ["language", [payload.language]],
+    ["preferredSchool", [payload.preferredSchool ?? ""]],
+    ["teamInterest", payload.teamInterest ? ["true"] : []],
+    ["teamIds", payload.teamIds.map(String)],
+  ]);
+
+const subscribeHydration = () => () => {};
+const clientSnapshot = () => true;
+const serverSnapshot = () => false;
 
 export default function TidligereAssistenter() {
   const { options, error } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const busy = fetcher.state !== "idle";
-  const savedDrafts = useState(() => readReturningDrafts(options?.personId))[0];
+  const hydrated = useSyncExternalStore(subscribeHydration, clientSnapshot, serverSnapshot);
+  const savedDrafts = hydrated ? readReturningDrafts(options?.personId) : [];
   const savedDraft = savedDrafts.length === 1 ? savedDrafts[0] : null;
-  const savedValues = draftValues(savedDraft);
-  const initialPeriodId =
-    savedDraft?.admissionPeriodId ?? (savedDrafts.length === 0 ? options?.periods[0]?.period.id ?? "" : "");
-  const [selectedPeriodId, setSelectedPeriodId] = useState(initialPeriodId);
+  const savedPayload = savedDraft?.payload;
+  const [selectedPeriodOverride, setSelectedPeriodOverride] = useState<string>();
+  const selectedPeriodId =
+    selectedPeriodOverride ??
+    savedPayload?.admissionPeriodId ??
+    (savedDrafts.length === 0 ? options?.periods[0]?.period.id ?? "" : "");
   const selectedPeriod = options?.periods.find(({ period }) => period.id === selectedPeriodId);
   const current = selectedPeriod?.currentPreferences ?? null;
   const currentRevision = selectedPeriod?.currentRevision ?? 0;
   const selectedId = selectedPeriod?.period.id ?? selectedPeriodId;
-  const restoringDraft = savedDraft?.admissionPeriodId === selectedPeriodId;
+  const restoringDraft = savedPayload?.admissionPeriodId === selectedPeriodId;
+  const savedValues = restoringDraft && savedPayload !== undefined ? payloadFormValues(savedPayload) : null;
   const restoredValue = (name: string, fallback: string) =>
-    restoringDraft ? savedValues.get(name)?.[0] ?? fallback : fallback;
+    savedValues?.get(name)?.[0] ?? fallback;
   const restoredChecked = (name: string, fallback: boolean) =>
-    restoringDraft ? savedValues.get(name)?.includes("true") ?? false : fallback;
-  const [draftRevision, setDraftRevision] = useState(() =>
-    restoringDraft
-      ? Number(savedValues.get("expectedRevision")?.[0] ?? currentRevision)
-      : currentRevision,
-  );
-  const [commandId, setCommandId] = useState(() =>
-    restoringDraft ? savedValues.get("commandId")?.[0] ?? "" : "",
-  );
-  const [commandDraft, setCommandDraft] = useState(() => savedDraft?.signature ?? "");
+    savedValues?.get(name)?.includes("true") ?? fallback;
+  const restoredIncludes = (name: string, value: string, fallback: boolean) =>
+    savedValues?.get(name)?.includes(value) ?? fallback;
+  const [draftRevisionOverride, setDraftRevisionOverride] = useState<number>();
+  const draftRevision =
+    draftRevisionOverride ?? (restoringDraft ? savedPayload?.expectedRevision ?? currentRevision : currentRevision);
+  const [commandIdOverride, setCommandIdOverride] = useState<string>();
+  const commandId = commandIdOverride ?? (restoringDraft ? savedPayload?.commandId ?? "" : "");
+  const [commandDraftOverride, setCommandDraftOverride] = useState<string>();
+  const commandDraft = commandDraftOverride ?? (restoringDraft ? savedDraft?.signature ?? "" : "");
   const [acceptedCommandId, setAcceptedCommandId] = useState("");
   if (fetcher.data?.success === true && fetcher.data.commandId !== acceptedCommandId) {
     if (typeof window !== "undefined" && options !== null)
       window.sessionStorage.removeItem(returningDraftStorageKey(options.personId, selectedId));
     setAcceptedCommandId(fetcher.data.commandId);
-    setDraftRevision(fetcher.data.revision);
-    setCommandId("");
-    setCommandDraft("");
+    setDraftRevisionOverride(fetcher.data.revision);
+    setCommandIdOverride("");
+    setCommandDraftOverride("");
   }
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     if (busy || event.currentTarget.dataset.pending === "true") {
@@ -184,33 +211,48 @@ export default function TidligereAssistenter() {
     if (field instanceof HTMLInputElement && (!field.value || signature !== commandDraft)) {
       const key = crypto.randomUUID();
       field.value = key;
-      setCommandId(key);
-      setCommandDraft(signature);
+      setCommandIdOverride(key);
+      setCommandDraftOverride(signature);
     }
     if (typeof window !== "undefined" && options !== null) {
-      const savedEntries = [...new FormData(event.currentTarget)].map(([name, value]) => ({
-        name,
-        value: String(value),
-      }));
-      const admissionPeriodId = savedEntries.find(({ name }) => name === "admissionPeriodId")?.value;
-      if (admissionPeriodId !== undefined)
+      try {
+        const payloadForm = new FormData(event.currentTarget);
+        const payload = Schema.decodeUnknownSync(ReturningAssistantRegistrationInputSchema)({
+          commandId: String(payloadForm.get("commandId") || ""),
+          admissionPeriodId: payloadForm.get("admissionPeriodId"),
+          expectedRevision: Number(payloadForm.get("expectedRevision")),
+          yearOfStudy: Number(payloadForm.get("yearOfStudy")),
+          mondayUnavailable: boolField(payloadForm, "mondayUnavailable"),
+          tuesdayUnavailable: boolField(payloadForm, "tuesdayUnavailable"),
+          wednesdayUnavailable: boolField(payloadForm, "wednesdayUnavailable"),
+          thursdayUnavailable: boolField(payloadForm, "thursdayUnavailable"),
+          fridayUnavailable: boolField(payloadForm, "fridayUnavailable"),
+          positionWeeks: Number(payloadForm.get("positionWeeks")),
+          preferredGroup: payloadForm.get("preferredGroup"),
+          language: payloadForm.get("language"),
+          preferredSchool: payloadForm.get("preferredSchool") || null,
+          teamInterest: boolField(payloadForm, "teamInterest"),
+          teamIds: payloadForm.getAll("teamIds"),
+        });
         window.sessionStorage.setItem(
-          returningDraftStorageKey(options.personId, admissionPeriodId),
+          returningDraftStorageKey(options.personId, payload.admissionPeriodId),
           JSON.stringify({
             personId: options.personId,
             route: returningRegistrationRoute,
-            admissionPeriodId,
-            entries: savedEntries,
+            payload,
             signature,
           }),
         );
+      } catch {
+        // Do not persist a form that is not a valid canonical registration payload.
+      }
     }
   };
   const discardDraft = () => {
     if (typeof window !== "undefined")
       for (const draft of savedDrafts)
         window.sessionStorage.removeItem(
-          returningDraftStorageKey(draft.personId, draft.admissionPeriodId),
+          returningDraftStorageKey(draft.personId, draft.payload.admissionPeriodId),
         );
     window.location.reload();
   };
@@ -273,12 +315,12 @@ export default function TidligereAssistenter() {
               value={selectedId}
               onChange={(event) => {
                 const nextPeriodId = event.currentTarget.value;
-                setSelectedPeriodId(nextPeriodId);
-                setDraftRevision(
+                setSelectedPeriodOverride(nextPeriodId);
+                setDraftRevisionOverride(
                   options.periods.find(({ period }) => period.id === nextPeriodId)?.currentRevision ?? 0,
                 );
-                setCommandId("");
-                setCommandDraft("");
+                setCommandIdOverride("");
+                setCommandDraftOverride("");
               }}
               className="mt-1 block w-full rounded border p-2"
             >
@@ -349,7 +391,7 @@ export default function TidligereAssistenter() {
             {options.teams.length === 0 && <p>Ingen team er tilgjengelige i avdelingen.</p>}
             {options.teams.map((team) => (
               <label key={team.teamId} className="flex gap-2">
-                <input type="checkbox" name="teamIds" value={team.teamId} defaultChecked={restoringDraft ? savedValues.get("teamIds")?.includes(team.teamId) ?? false : current?.teamIds.includes(team.teamId) ?? false} />
+                <input type="checkbox" name="teamIds" value={team.teamId} defaultChecked={restoredIncludes("teamIds", team.teamId, current?.teamIds.includes(team.teamId) ?? false)} />
                 {team.name}
               </label>
             ))}
