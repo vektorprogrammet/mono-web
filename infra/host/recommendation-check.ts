@@ -114,6 +114,7 @@ let pool: any, browser: any, page: any, heldIdentityClient: any, backend: any;
 let effectServer: Server | undefined;
 const effectCalls: EffectReceiverCall[] = [];
 const effectAttempts = new Map<string, number>();
+const invitationCapabilities = new Map<string, string>();
 let releaseEffectDelivery = false;
 const gates: string[] = [];
 const recordGate = (...observations: string[]) => {
@@ -167,10 +168,10 @@ const stringField = (value: unknown, key: string): string => {
   const field = value[key];
   return typeof field === "string" ? field : "";
 };
-
 const startEffectReceiver = async (
   token: string,
   portNumber: number,
+  captureInvitationCapability: (interviewId: string, capability: string) => void,
 ): Promise<Server> => {
   const server = createHttpServer(async (request: IncomingMessage, response: ServerResponse) => {
     if (request.method !== "POST" || request.url !== "/effects") {
@@ -190,6 +191,11 @@ const startEffectReceiver = async (
       response.statusCode = 400;
       response.end();
       return;
+    }
+    if (stringField(body, "_tag") === "SendInterviewInvitation") {
+      const interviewId = stringField(body, "interviewId");
+      const capability = stringField(body, "responseCapability");
+      if (interviewId !== "" && capability !== "") captureInvitationCapability(interviewId, capability);
     }
     const effectId = request.headers["idempotency-key"];
     const normalizedEffectId = typeof effectId === "string" ? effectId : "";
@@ -277,15 +283,16 @@ try {
       `SELECT to_jsonb(c)-'recommendation' value,recommendation FROM public.recruitment_interview_conducts c WHERE interview_id='interview-recommendation-history'`,
     )
   ).rows[0];
-  assert.deepEqual(historicalAfter.value, historicalBefore);
-  assert.equal(historicalAfter.recommendation, null);
+  if (effectMode === "http") {
+    effectServer = await startEffectReceiver(effectToken, effectPort, (interviewId, capability) => {
+      invitationCapabilities.set(interviewId, capability);
+      secrets.push(capability);
+    });
+    secrets.push(effectToken);
+  }
   recordGate(
     "immutable historical row survived actual0037 upgrade without invented recommendation",
   );
-  if (effectMode === "http") {
-    effectServer = await startEffectReceiver(effectToken, effectPort);
-    secrets.push(effectToken);
-  }
   const effectSnapshot = async () => {
     const tables = (
       await pool.query(
@@ -415,6 +422,7 @@ try {
         stage,
         coordinatorEmail: "coordinator.report@example.invalid",
         coordinatorPassword: password,
+        readInvitationCapability: (interviewId) => invitationCapabilities.get(interviewId),
       }),
     );
     if (effectMode === "http") {

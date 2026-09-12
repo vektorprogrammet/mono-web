@@ -353,6 +353,7 @@ export const runReturningAssistantBrowserJourney = async ({
   stage,
   coordinatorEmail,
   coordinatorPassword,
+  readInvitationCapability,
 }: {
   readonly browser: Browser;
   readonly page: Page;
@@ -365,6 +366,7 @@ export const runReturningAssistantBrowserJourney = async ({
   readonly stage?: (name: string) => void;
   readonly coordinatorEmail: string;
   readonly coordinatorPassword: string;
+  readonly readInvitationCapability?: (interviewId: string) => string | undefined;
 }) => {
   const trace: Array<Record<string, unknown>> = [];
   try {
@@ -1228,6 +1230,7 @@ export const runReturningAssistantBrowserJourney = async ({
   const coordinatorContext = await browser.newContext();
   let assignmentStatus!: number;
   let assignmentBodyText!: string;
+  let nextInterviewId!: string;
   try {
     stage?.("returning:next-period-assignment:coordinator-login");
     const coordinatorPage = await coordinatorContext.newPage();
@@ -1246,64 +1249,187 @@ export const runReturningAssistantBrowserJourney = async ({
     });
     assignmentStatus = assignmentResponse.status();
     assignmentBodyText = await assignmentResponse.text();
+    if (assignmentStatus !== 201) {
+      const assignmentActorContext = await pool.query(
+        `SELECT
+           membership.person_id,
+           membership.team_id,
+           membership.start_at,
+           membership.end_at,
+           membership.is_team_leader,
+           membership.is_suspended,
+           team.department_id,
+           team.active AS team_active,
+           department.active AS department_active
+         FROM public.organization_memberships membership
+         JOIN public.organization_teams team USING (team_id)
+         JOIN public.organization_departments department USING (department_id)
+         WHERE membership.person_id=$1
+         ORDER BY membership.membership_id`,
+        ["report-coordinator-0103"],
+      );
+      trace.push({
+        phase: "assignment-failure",
+        status: assignmentStatus,
+        body: assignmentBodyText,
+        source:
+          "assignment preflight reads target actor/interviewer eligibility in apps/backend/src/recruitment/http.ts:1008-1052; domain assignment then checks current period and live membership in packages/domain/src/recruitment/postgres.ts:843-931",
+        actorContext: assignmentActorContext.rows,
+      });
+      throw new Error(`next assignment failed ${assignmentStatus} ${assignmentBodyText}`);
+    }
+    const assignmentBody = JSON.parse(assignmentBodyText) as {
+      interviewId?: string;
+      applicationId?: string;
+    };
+    assert.equal(assignmentBody.applicationId, nextApplicationId);
+    assert.equal(typeof assignmentBody.interviewId, "string");
+    nextInterviewId = assignmentBody.interviewId!;
+    const assignmentRow = await pool.query(
+      `SELECT interview_id,application_id,interviewer_person_id,revision
+       FROM public.recruitment_interviews
+       WHERE interview_id=$1`,
+      [nextInterviewId],
+    );
+    assert.deepEqual(assignmentRow.rows, [
+      {
+        interview_id: nextInterviewId,
+        application_id: nextApplicationId,
+        interviewer_person_id: "journey-conduct-leader-0063",
+        revision: 0,
+      },
+    ]);
+    stage?.("returning:next-period-schedule");
+    const assignedInterview = await coordinatorPage.request.get(
+      `${api}/api/recruitment/interviews/${encodeURIComponent(nextInterviewId)}`,
+      { headers: { origin: ui } },
+    );
+    const assignedInterviewText = await assignedInterview.text();
+    if (assignedInterview.status() !== 200) {
+      throw new Error(
+        `next interview read failed ${assignedInterview.status()} ${assignedInterviewText}`,
+      );
+    }
+    const assignedETag = assignedInterview.headers()["etag"];
+    assert.ok(assignedETag);
+    const scheduleResponse = await coordinatorPage.request.post(
+      `${api}/api/recruitment/interviews/${encodeURIComponent(nextInterviewId)}:schedule`,
+      {
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": "returning-next-schedule-0104",
+          "if-match": assignedETag,
+          origin: ui,
+        },
+        data: {
+          scheduledAt: "2026-09-20T10:00:00.000Z",
+          room: "Returning Room 0104",
+          campus: "Gløshaugen",
+          mapLink: "https://maps.example.invalid/returning-next-0104",
+          message: "Vi ser frem til intervjuet.",
+        },
+      },
+    );
+    const scheduleBodyText = await scheduleResponse.text();
+    if (scheduleResponse.status() !== 200) {
+      throw new Error(`next interview schedule failed ${scheduleResponse.status()} ${scheduleBodyText}`);
+    }
+    const scheduleBody = JSON.parse(scheduleBodyText) as {
+      interviewId: string;
+      responseState: string;
+      notificationState: string;
+      schedule: { scheduleRevision: number; scheduledAt: string };
+    };
+    assert.equal(scheduleBody.interviewId, nextInterviewId);
+    assert.equal(scheduleBody.responseState, "Pending");
+    assert.equal(scheduleBody.notificationState, "Pending");
+    assert.equal(scheduleBody.schedule.scheduleRevision, 1);
+    assert.equal(scheduleBody.schedule.scheduledAt, "2026-09-20T10:00:00.000Z");
+    trace.push({
+      phase: "returning:native-schedule",
+      actorPersonId: "report-coordinator-0103",
+      interviewId: nextInterviewId,
+      assignmentETag: assignedETag,
+      scheduleStatus: scheduleResponse.status(),
+      scheduledAt: scheduleBody.schedule.scheduledAt,
+      responseState: scheduleBody.responseState,
+    });
   } finally {
     await coordinatorContext.close();
   }
-  if (assignmentStatus !== 201) {
-    const assignmentActorContext = await pool.query(
-      `SELECT
-         membership.person_id,
-         membership.team_id,
-         membership.start_at,
-         membership.end_at,
-         membership.is_team_leader,
-         membership.is_suspended,
-         team.department_id,
-         team.active AS team_active,
-         department.active AS department_active
-       FROM public.organization_memberships membership
-       JOIN public.organization_teams team USING (team_id)
-       JOIN public.organization_departments department USING (department_id)
-       WHERE membership.person_id=$1
-       ORDER BY membership.membership_id`,
-      ["report-coordinator-0103"],
-    );
-    trace.push({
-      phase: "assignment-failure",
-      status: assignmentStatus,
-      body: assignmentBodyText,
-      source:
-        "assignment preflight reads target actor/interviewer eligibility in apps/backend/src/recruitment/http.ts:1008-1052; domain assignment then checks current period and live membership in packages/domain/src/recruitment/postgres.ts:843-931",
-      actorContext: assignmentActorContext.rows,
-    });
-    throw new Error(`next assignment failed ${assignmentStatus} ${assignmentBodyText}`);
+  const invitationCapabilityReader = readInvitationCapability;
+  assert.ok(invitationCapabilityReader);
+  let invitationCapability: string | undefined;
+  for (let attempt = 0; attempt < 120 && invitationCapability === undefined; attempt += 1) {
+    invitationCapability = invitationCapabilityReader(nextInterviewId);
+    if (invitationCapability === undefined) await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  const assignmentBody = JSON.parse(assignmentBodyText) as {
-    interviewId?: string;
-    applicationId?: string;
+  assert.ok(invitationCapability);
+  stage?.("returning:next-period-invitation");
+  const invitationHeaders = {
+    "x-recruitment-invitation-capability": invitationCapability,
+    origin: ui,
   };
-  assert.equal(assignmentBody.applicationId, nextApplicationId);
-  assert.equal(typeof assignmentBody.interviewId, "string");
-  const nextInterviewId = assignmentBody.interviewId!;
-  const assignmentRow = await pool.query(
-    `SELECT interview_id,application_id,interviewer_person_id,revision
-     FROM public.recruitment_interviews
-     WHERE interview_id=$1`,
-    [nextInterviewId],
+  const invitationPendingResponse = await page.request.get(
+    `${api}/api/recruitment/invitation-response`,
+    { headers: invitationHeaders },
   );
-  assert.deepEqual(assignmentRow.rows, [
+  const invitationPendingText = await invitationPendingResponse.text();
+  if (invitationPendingResponse.status() !== 200) {
+    throw new Error(
+      `next invitation read failed ${invitationPendingResponse.status()} ${invitationPendingText}`,
+    );
+  }
+  const invitationPending = JSON.parse(invitationPendingText) as {
+    scheduledAt: string;
+    room: string;
+    responseState: string;
+    responseMessage: string | null;
+  };
+  const invitationETag = invitationPendingResponse.headers()["etag"];
+  assert.ok(invitationETag);
+  assert.deepEqual(invitationPending, {
+    scheduledAt: "2026-09-20T10:00:00.000Z",
+    room: "Returning Room 0104",
+    responseState: "Pending",
+    responseMessage: null,
+  });
+  const invitationConfirmResponse = await page.request.post(
+    `${api}/api/recruitment/invitation-response:confirm`,
     {
-      interview_id: nextInterviewId,
-      application_id: nextApplicationId,
-      interviewer_person_id: "journey-conduct-leader-0063",
-      revision: 0,
+      headers: {
+        ...invitationHeaders,
+        "content-type": "application/json",
+        "idempotency-key": "returning-next-invitation-confirm-0104",
+        "if-match": invitationETag,
+      },
+      data: {},
     },
-  ]);
-  // Finalize an existing assigned native interview through its real API. The
-  // assignment above remains a separate coordinator operation; registration
-  // does not synthesize a schedule, invitation, or audit state.
-  const finalizedInterviewId = "interview-native-conduct-b-0063";
-  const conductPath = `${api}/api/recruitment/interviews/${finalizedInterviewId}`;
+  );
+  const invitationConfirmText = await invitationConfirmResponse.text();
+  if (invitationConfirmResponse.status() !== 204) {
+    throw new Error(
+      `next invitation confirmation failed ${invitationConfirmResponse.status()} ${invitationConfirmText}`,
+    );
+  }
+  const invitationAcceptedResponse = await page.request.get(
+    `${api}/api/recruitment/invitation-response`,
+    { headers: invitationHeaders },
+  );
+  assert.equal(invitationAcceptedResponse.status(), 200);
+  const invitationAccepted = JSON.parse(await invitationAcceptedResponse.text()) as {
+    responseState: string;
+    responseMessage: string | null;
+  };
+  assert.deepEqual(invitationAccepted, { responseState: "Accepted", responseMessage: null });
+  trace.push({
+    phase: "returning:native-invitation-accepted",
+    interviewId: nextInterviewId,
+    responseState: invitationAccepted.responseState,
+    confirmStatus: invitationConfirmResponse.status(),
+  });
+  stage?.("returning:next-period-finalization");
+  const conductPath = `${api}/api/recruitment/interviews/${encodeURIComponent(nextInterviewId)}`;
   const conductResponse = await page.request.get(conductPath, {
     headers: { origin: ui },
   });
@@ -1321,8 +1447,8 @@ export const runReturningAssistantBrowserJourney = async ({
     completionState: string;
     revision: number;
   };
-  assert.equal(conductBefore.interviewId, finalizedInterviewId);
-  assert.equal(conductBefore.applicationId, "application-native-conduct-b-0063");
+  assert.equal(conductBefore.interviewId, nextInterviewId);
+  assert.equal(conductBefore.applicationId, nextApplicationId);
   assert.equal(conductBefore.invitationResponse, "Accepted");
   assert.equal(conductBefore.completionState, "NotCompleted");
   assert.equal(conductBefore.revision, 1);
@@ -1365,7 +1491,7 @@ export const runReturningAssistantBrowserJourney = async ({
     completionState: string;
     cancellationState: string;
   };
-  assert.equal(finalizeBody.interviewId, finalizedInterviewId);
+  assert.equal(finalizeBody.interviewId, nextInterviewId);
   assert.match(finalizeBody.finalizedAt, /^\d{4}-\d{2}-\d{2}T/u);
   assert.equal(finalizeBody.completionState, "Completed");
   assert.equal(finalizeBody.cancellationState, "NotCancelled");
@@ -1390,7 +1516,7 @@ export const runReturningAssistantBrowserJourney = async ({
     phase: "returning:native-finalization",
     actorPersonId: "journey-conduct-leader-0063",
     interviewerPersonId: "journey-conduct-leader-0063",
-    interviewId: finalizedInterviewId,
+    interviewId: nextInterviewId,
     etagBefore: conductETag,
     questionSnapshotIds: conductBefore.questions.map((question) => question.questionId),
     finalizeStatus: finalizeResponse.status(),
@@ -1401,7 +1527,7 @@ export const runReturningAssistantBrowserJourney = async ({
     `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
      FROM public.recruitment_interview_conducts c
      WHERE c.interview_id=$1`,
-    [finalizedInterviewId],
+    [nextInterviewId],
   );
   assert.deepEqual(finalizedConduct.rows, [
     { recommendation: "Kanskje", explanatory_power: 9, role_model: 9, suitability: 9 },
@@ -1593,12 +1719,7 @@ export const runReturningAssistantBrowserJourney = async ({
   assert.match(currentOrdinary, /Ja/u);
   assert.match(currentOrdinary, /8/u);
   assert.match(currentOrdinary, /24/u);
-  const finalizedOrdinary = currentReportRows.find((row) => row.includes("Olav Konflikt"));
-  assert.ok(finalizedOrdinary);
-  assert.match(finalizedOrdinary, /Ukjent/u);
-  assert.match(finalizedOrdinary, /Kanskje/u);
-  assert.match(finalizedOrdinary, /9/u);
-  assert.match(finalizedOrdinary, /27/u);
+  assert.equal(currentReportRows.some((row) => row.includes("Olav Konflikt")), false);
   await page.reload();
   assert.equal(
     (await page.locator("tbody tr").evaluateAll((rows) =>
@@ -1609,19 +1730,20 @@ export const runReturningAssistantBrowserJourney = async ({
   await auditPage(page, "returning-report-existing-period");
   await page.screenshot({ path: join(artifacts, "returning-report-existing-period.png"), fullPage: true });
   const nextReportRows = await reportRows(nextAdmissionPeriodId);
-  assert.deepEqual(nextReportRows, []);
+  assert.equal(nextReportRows.length, 1);
+  const nextRita = nextReportRows[0];
+  assert.match(nextRita, /Rita Tilbake/u);
+  assert.match(nextRita, /Tilbakevendende/u);
+  assert.match(nextRita, /Kanskje/u);
+  assert.match(nextRita, /9/u);
+  assert.match(nextRita, /27/u);
   await page.reload();
   const reloadedNextRows = await page.locator("tbody tr").evaluateAll((rows) =>
     rows.map((row) => (row.textContent ?? "").replace(/\s+/gu, " ").trim()),
   );
   assert.deepEqual(reloadedNextRows, nextReportRows);
-  await auditPage(page, "returning-report-next-period-empty");
-  await page.screenshot({ path: join(artifacts, "returning-report-next-period-empty.png"), fullPage: true });
-  stage?.("returning:cleanup");
-  await returning.close();
-  await context.close();
-  await page.goto(`${ui}/dashboard/intervjuer`);
-  return { trace };
+  await auditPage(page, "returning-report-next-period-finalized");
+  await page.screenshot({ path: join(artifacts, "returning-report-next-period-finalized.png"), fullPage: true });
   } finally {
     // Retain the complete journey trace on both successful helper return and
     // failure, before the outer report/effect gates can run or fail.
