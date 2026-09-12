@@ -506,7 +506,10 @@ export async function assertInterviewCorrectionBoundaries(
     return { body: (await response.json()) as Detail, etag };
   };
   const raceSeed = await detailFor(selfLinkRaceInterviewId);
-  const raceSeedPayload = validPayload(raceSeed.body);
+  const raceSeedPayload = {
+    ...acceptedReplay.payload,
+    expectedRevision: raceSeed.body.revision,
+  };
   const raceSeedKey = freshId("correction-boundary-self-link-seed");
   const raceSeedResponse = await post(
     selfLinkRaceInterviewId,
