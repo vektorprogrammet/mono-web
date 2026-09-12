@@ -195,12 +195,21 @@ export const runReturningAssistantBrowserJourney = async ({
   const returning = await context.newPage();
   returning.on("request", (request) => {
     const url = new URL(request.url());
-    if (url.pathname.includes("/dashboard/tidligere-assistenter") || url.pathname.includes("/api/returning-assistant/"))
+    if (
+      url.pathname.includes("/dashboard/tidligere-assistenter")
+      || url.pathname.includes("/api/returning-assistant/")
+      || url.pathname.includes("/api/auth/")
+    ) {
       responses.push(`request ${request.method()} ${url.pathname}`);
+    }
   });
   returning.on("response", async (response) => {
     const url = new URL(response.url());
-    if (!(url.pathname.includes("/dashboard/tidligere-assistenter") || url.pathname.includes("/api/returning-assistant/")))
+    if (
+      !url.pathname.includes("/dashboard/tidligere-assistenter")
+      && !url.pathname.includes("/api/returning-assistant/")
+      && !url.pathname.includes("/api/auth/")
+    )
       return;
     let code = "unknown";
     if (url.pathname.endsWith(".data")) {
@@ -237,11 +246,15 @@ export const runReturningAssistantBrowserJourney = async ({
     }
   });
   const destination = "/dashboard/tidligere-assistenter";
-  await returning.goto(`${ui}/login?redirectTo=${encodeURIComponent(destination)}`);
-  await returning.getByLabel("E-post", { exact: true }).fill(person.email);
-  await returning.getByLabel("Passord", { exact: true }).fill(person.password);
-  await returning.getByRole("button", { name: "Logg inn", exact: true }).click();
-  await returning.waitForURL(/\/dashboard\/tidligere-assistenter$/);
+  try {
+    await returning.goto(`${ui}/login?redirectTo=${encodeURIComponent(destination)}`);
+    await returning.getByLabel("E-post", { exact: true }).fill(person.email);
+    await returning.getByLabel("Passord", { exact: true }).fill(person.password);
+    await returning.getByRole("button", { name: "Logg inn", exact: true }).click({ noWaitAfter: true });
+    await returning.waitForURL(/\/dashboard\/tidligere-assistenter$/);
+  } catch (cause) {
+    await captureReturningFailure("login", cause);
+  }
   const cookieHeader = (await context.cookies()).map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
   const optionsResponse = await context.request.get(`${api}/api/returning-assistant/options`, {
     headers: { origin: ui, accept: "application/json", cookie: cookieHeader },
