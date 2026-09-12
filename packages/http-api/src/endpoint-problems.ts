@@ -637,6 +637,7 @@ export const RecruitmentCreateApplicationInterviewProblem = problemUnion(
     ["dependency.unavailable", 503],
     ["idempotency.unavailable", 503],
     ["recruitment.application-not-found", 404],
+    ["application.ambiguous-period", 409],
     ["recruitment.interview-schema-not-found", 404],
     ["recruitment.application-already-assigned", 409],
     ["recruitment.interview-schema-inactive", 422],

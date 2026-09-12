@@ -1969,6 +1969,9 @@ try {
   await page.getByRole("link", { name: "Kontrollpanel", exact: true }).click();
   await page.waitForURL(/\/dashboard\/?$/);
   await page.getByRole("heading", { name: "Velkommen, Lina Lagleder", exact: true }).waitFor();
+  await pool.query(
+    `UPDATE public.organization_memberships SET is_team_leader=false,position_id='member' WHERE membership_id='membership-native-conduct-leader-0063'`,
+  );
   await runReturningAssistantBrowserJourney({
     browser,
     page,
@@ -1984,9 +1987,7 @@ try {
   recordGate(
     `returning registration route ${"/dashboard/tidligere-assistenter"} and report population ${returningAssistantFixture.admissionPeriodId}`,
   );
-  await pool.query(
-    `UPDATE public.organization_memberships SET is_team_leader=false,position_id='member' WHERE membership_id='membership-native-conduct-leader-0063'`,
-  );
+
   recordGate(
     "owned interview shell retains role-scoped onboarding and existing schema/dashboard navigation",
   );

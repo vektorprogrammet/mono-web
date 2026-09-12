@@ -309,6 +309,7 @@ describe("native recruitment HTTP boundary", () => {
     const cases = [
       ["RecruitmentInactiveActor", 403, "authority.denied"],
       ["RecruitmentAdmissionPeriodNotFound", 404, "recruitment.admission-period-not-found"],
+      ["RecruitmentAmbiguousAdmissionPeriod", 409, "application.ambiguous-period"],
       ["RecruitmentApplicationNotFound", 404, "recruitment.application-not-found"],
       ["RecruitmentInterviewSchemaNotFound", 404, "recruitment.interview-schema-not-found"],
       ["RecruitmentApplicationAlreadyAssigned", 409, "recruitment.application-already-assigned"],

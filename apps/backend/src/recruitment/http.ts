@@ -266,6 +266,8 @@ const errorResponse = (
       return nativeProblemResponse("authority.denied", 403);
     case "RecruitmentAdmissionPeriodNotFound":
       return nativeProblemResponse("recruitment.admission-period-not-found", 404);
+    case "RecruitmentAmbiguousAdmissionPeriod":
+      return nativeProblemResponse("application.ambiguous-period", 409);
     case "RecruitmentApplicationNotFound":
       return nativeProblemResponse("recruitment.application-not-found", 404);
     case "RecruitmentInterviewSchemaNotFound":
