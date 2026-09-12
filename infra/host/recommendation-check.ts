@@ -2058,13 +2058,14 @@ try {
       `SELECT c.interview_id,c.recommendation,a.kind,a.resulting_revision,r.command_id FROM public.recruitment_interview_conducts c JOIN public.recruitment_interview_lifecycle_audit a USING(interview_id) JOIN public.recruitment_interview_lifecycle_command_receipts r ON r.command_id=a.command_id ORDER BY c.interview_id`,
     )
   ).rows;
-  const lifecycleExpectedInterviewIds = rows
-    .map((row: any) => row.interview_id)
-    .filter(
-      (interviewId: string) =>
-        !["interview-recommendation-history", "interview-recommendation-link-race"].includes(interviewId),
-    )
-    .sort();
+  const lifecycleExpectedInterviewIds = [
+    "interview-correction-explicit-0105",
+    "interview-native-conduct-a-0063",
+    "interview-native-conduct-b-0063",
+    "interview-recommendation-maybe",
+    "interview-recommendation-no",
+    ...(process.argv.includes("--correction-mode") ? [] : ["interview-returning-0104"]),
+  ].sort();
   assert.deepEqual(
     lifecycle.map((row: any) => row.interview_id).sort(),
     lifecycleExpectedInterviewIds,
