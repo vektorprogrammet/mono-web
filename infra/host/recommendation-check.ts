@@ -1766,7 +1766,7 @@ try {
   await pool.query(
     `INSERT INTO public.recruitment_interview_conducts
        SELECT (jsonb_populate_record(NULL::public.recruitment_interview_conducts,
-         to_jsonb(c)||'{"interview_id":"interview-recommendation-link-race"}'::jsonb)).*
+         to_jsonb(c)||'{"interview_id":"interview-recommendation-link-race","interview_revision":1}'::jsonb)).*
        FROM public.recruitment_interview_conducts c
        WHERE c.interview_id='interview-native-conduct-a-0063'
        ON CONFLICT (interview_id) DO NOTHING`,

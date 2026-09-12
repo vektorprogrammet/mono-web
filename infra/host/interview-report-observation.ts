@@ -423,6 +423,53 @@ export async function observeInterviewReport(o: Options) {
   assert.equal((await get({ admissionPeriodId: ids.foreign })).status, 403);
   assert.equal((await get({}, "")).status, 401);
   assert.equal((await get({}, o.ordinaryCookie)).status, 403);
+  const assignedDetailResponse = await fetch(
+    `${api}/api/recruitment/interviews/interview-native-conduct-a-0063`,
+    { headers: { cookie: o.ordinaryCookie, origin: ui } },
+  );
+  assert.equal(assignedDetailResponse.status, 200, await assignedDetailResponse.clone().text());
+  const assignedDetail = (await assignedDetailResponse.json()) as {
+    readonly expectedRevision?: unknown;
+    readonly revision?: unknown;
+    readonly answers?: unknown;
+    readonly score?: unknown;
+    readonly recommendation?: unknown;
+  };
+  const assignedETag = assignedDetailResponse.headers.get("etag");
+  assert.equal(typeof assignedETag, "string");
+  assert.equal(typeof assignedDetail.revision, "number");
+  assert.ok(Array.isArray(assignedDetail.answers));
+  assert.ok(typeof assignedDetail.score === "object" && assignedDetail.score !== null);
+  assert.ok(["Ja", "Kanskje", "Nei"].includes(assignedDetail.recommendation as string));
+  const coordinatorDetailResponse = await fetch(
+    `${api}/api/recruitment/interviews/interview-native-conduct-a-0063`,
+    { headers: { cookie, origin: ui } },
+  );
+  assert.equal(coordinatorDetailResponse.status, 403, await coordinatorDetailResponse.text());
+  const coordinatorCorrectionResponse = await fetch(
+    `${api}/api/recruitment/interviews/interview-native-conduct-a-0063:correct`,
+    {
+      method: "POST",
+      headers: {
+        cookie,
+        origin: ui,
+        "content-type": "application/json",
+        "if-match": assignedETag as string,
+        "idempotency-key": "report-coordinator-correction-denied-0103",
+      },
+      body: JSON.stringify({
+        expectedRevision: assignedDetail.revision,
+        answers: assignedDetail.answers,
+        score: assignedDetail.score,
+        recommendation: assignedDetail.recommendation,
+      }),
+    },
+  );
+  assert.equal(coordinatorCorrectionResponse.status, 403, await coordinatorCorrectionResponse.text());
+  assert.deepEqual(await snapshot(), before);
+  record(
+    "report coordinator detail and correction deny for a non-assigned interview; no co-interviewer grant or writes",
+  );
   assert.equal(
     (
       await fetch(`${api}/api/recruitment/interviews/interview-native-conduct-a-0063`, {
