@@ -26,6 +26,11 @@ import {
   runReturningAssistantLoginProbe,
   seedReturningAssistant,
 } from "./returning-assistant-journey.ts";
+import {
+  assertInterviewCorrectionPre0039Preserved,
+  seedInterviewCorrectionPre0039Fixture,
+  type InterviewCorrectionPre0039Fixture,
+} from "./recommendation-preupgrade-fixture.ts";
 import { DatabaseLive } from "../../packages/database/src/index.js";
 import { AdmissionsLive } from "../../packages/domain/src/admissions/index.js";
 import { OrganizationLive } from "../../packages/domain/src/organization/index.js";
@@ -128,7 +133,7 @@ const ready = async (test: () => Promise<boolean>) => {
   }
   throw new Error("Readiness failed");
 };
-let pool: any, browser: any, page: any, heldIdentityClient: any, backend: any;
+let correctionPre0039Fixture: InterviewCorrectionPre0039Fixture | undefined;
 let effectServer: Server | undefined;
 const effectCalls: EffectReceiverCall[] = [];
 const effectAttempts = new Map<string, number>();
@@ -369,7 +374,6 @@ try {
     VITE_API_URL: api,
     DASHBOARD_MOUNT: "/",
     HOST: "127.0.0.1",
-    PORT: String(uiPort),
     NODE_ENV: "production",
   };
   secrets.push(env.BETTER_AUTH_SECRET);
@@ -381,14 +385,28 @@ try {
     )
   ).rows[0].value;
   recordGate("previous-schema history fixture migrated");
-  run("bun", ["apps/dashboard/e2e/native-conduct-journey-seed.mjs"], env);
+  correctionPre0039Fixture = await seedInterviewCorrectionPre0039Fixture({ pool });
+  recordGate("seeded 0105 pre-0039 correction rows from existing native base");
+  run(
+    "bun",
+    ["run", "identity:seed"],
+    {
+      ...env,
+      IDENTITY_SEED_PG_URL: pg,
+      IDENTITY_SEED_PERSONS: JSON.stringify([
+        {
+          personId: "journey-conduct-leader-0063",
+          firstName: "Lina",
+          lastName: "Lagleder",
+          email: "lina.conduct@example.invalid",
+          password: "journey-conduct-secret-0123456789",
+        },
+      ]),
+    },
+    join(root, "packages/database"),
+  );
   await seedReturningAssistant({ pool, run, env, root });
   await seedInterviewReportCoordinator({ pool, secrets });
-  const historicalAfter = (
-    await pool.query(
-      `SELECT to_jsonb(c)-'recommendation' value,recommendation FROM public.recruitment_interview_conducts c WHERE interview_id='interview-recommendation-history'`,
-    )
-  ).rows[0];
   if (effectMode === "http") {
     effectServer = await startEffectReceiver(effectToken, effectPort, (interviewId, capability) => {
       invitationCapabilities.set(interviewId, capability);
@@ -396,9 +414,6 @@ try {
     });
     secrets.push(effectToken);
   }
-  recordGate(
-    "immutable historical row survived actual0037 upgrade without invented recommendation",
-  );
   const effectSnapshot = async () => {
     const tables = (
       await pool.query(
@@ -448,6 +463,17 @@ try {
 
   backend = start("bun", ["apps/backend/src/main.ts"], env);
   await ready(async () => (await fetch(`${api}/health`)).ok);
+  const historicalAfter = (
+    await pool.query(
+      `SELECT to_jsonb(c)-'recommendation' value,recommendation FROM public.recruitment_interview_conducts c WHERE interview_id='interview-recommendation-history'`,
+    )
+  ).rows[0];
+  assert.deepEqual(historicalAfter.value, historicalBefore);
+  assert.equal(historicalAfter.recommendation, null);
+  recordGate("immutable historical row survived actual0037 upgrade without invented recommendation");
+  assert.ok(correctionPre0039Fixture);
+  await assertInterviewCorrectionPre0039Preserved(pool, correctionPre0039Fixture);
+  recordGate("0039 upgrade preserved original interview/schedule/invitation/conduct/lifecycle rows");
   run("bun", ["run", "build"], env, join(root, "packages/sdk"));
   run("bun", ["run", "build"], env, join(root, "apps/dashboard"));
   start("bun", ["server.mjs"], env, join(root, "apps/dashboard"));
