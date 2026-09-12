@@ -1,0 +1,848 @@
+{
+  "revision": "4b17590d1ba605f1153588b375bebd6ff93b5427",
+  "correctionStages": [
+    "historical-null completed detail opens",
+    "browser keyboard correction saves and refreshes detail",
+    "browser ordered original and correction history shows completion metadata after reload with keyboard/mobile/Axe evidence",
+    "stale correction rejects old base and preserves visible draft without persistence",
+    "lost correction response retries identical payload, base and idempotency key without duplicate persistence",
+    "second correction and reload preserve ordered history",
+    "SQL original conduct immutability and correction chain receipt audit linkage",
+    "old displayed body with newer opaque ETag rejects at correction boundary without writes",
+    "exact correction replay remains byte-stable after later correction",
+    "same-revision concurrent corrections have one winner and one no-write loser",
+    "corrections create no notification or application effects",
+    "authority revocation denies correction detail and replay before receipt reuse",
+    "ended membership denies correction detail and replay",
+    "synthetic audit failure rolls back correction assessment, aggregate, receipt and audit"
+  ],
+  "beforeBody": {
+    "interviewId": "interview-recommendation-history",
+    "applicationId": "application-recommendation-history",
+    "applicant": {
+      "applicantId": "applicant-recommendation-history",
+      "firstName": "history",
+      "lastName": "Recommendation"
+    },
+    "schedule": {
+      "interviewId": "interview-recommendation-history",
+      "scheduledAt": "2031-09-20T13:30:00.000Z",
+      "room": "K-0063A",
+      "campus": "Gløshaugen",
+      "mapLink": "https://maps.example.invalid/conduct-0063-a",
+      "message": "Velkommen til intervjuet.",
+      "scheduledByPersonId": "journey-conduct-leader-0063",
+      "committedAt": "2031-09-12T09:10:00.000Z",
+      "scheduleRevision": 1
+    },
+    "invitationResponse": "Accepted",
+    "questions": [
+      {
+        "interviewId": "interview-recommendation-history",
+        "questionId": "interview-schema-native-conduct-0063-q0",
+        "ordinal": 0,
+        "prompt": "Fortell kort om motivasjonen din.",
+        "helpText": null,
+        "kind": "text",
+        "alternatives": []
+      },
+      {
+        "interviewId": "interview-recommendation-history",
+        "questionId": "interview-schema-native-conduct-0063-q1",
+        "ordinal": 1,
+        "prompt": "Hvilket arbeidsområde interesserer deg mest?",
+        "helpText": "Velg ett område.",
+        "kind": "list",
+        "alternatives": [
+          "Produkt",
+          "Teknologi",
+          "Organisasjon"
+        ]
+      },
+      {
+        "interviewId": "interview-recommendation-history",
+        "questionId": "interview-schema-native-conduct-0063-q2",
+        "ordinal": 2,
+        "prompt": "Hvordan foretrekker du å lære?",
+        "helpText": null,
+        "kind": "radio",
+        "alternatives": [
+          "Praksis",
+          "Samtale",
+          "Lesing"
+        ]
+      },
+      {
+        "interviewId": "interview-recommendation-history",
+        "questionId": "interview-schema-native-conduct-0063-q3",
+        "ordinal": 3,
+        "prompt": "Hvilke styrker tar du med deg?",
+        "helpText": "Velg minst ett alternativ.",
+        "kind": "check",
+        "alternatives": [
+          "Samarbeid",
+          "Struktur",
+          "Nysgjerrighet"
+        ]
+      }
+    ],
+    "finalizedByPersonId": "journey-conduct-leader-0063",
+    "finalizedAt": "2026-09-12T19:53:02.823Z",
+    "answers": [],
+    "score": {
+      "explanatoryPower": 7,
+      "roleModel": 8,
+      "suitability": 9
+    },
+    "recommendation": null,
+    "completionState": "Completed",
+    "cancellationState": "NotCancelled",
+    "effectiveRevision": 1,
+    "history": [
+      {
+        "_tag": "Original",
+        "revision": 1,
+        "answers": [],
+        "score": {
+          "explanatoryPower": 7,
+          "roleModel": 8,
+          "suitability": 9
+        },
+        "recommendation": null,
+        "finalizedByPersonId": "journey-conduct-leader-0063",
+        "finalizedAt": "2026-09-12T19:53:02.823Z"
+      }
+    ],
+    "cancelledAt": null,
+    "revision": 1,
+    "canFinalize": false,
+    "canCancel": false
+  },
+  "afterFirst": {
+    "interviewId": "interview-recommendation-history",
+    "applicationId": "application-recommendation-history",
+    "applicant": {
+      "applicantId": "applicant-recommendation-history",
+      "firstName": "history",
+      "lastName": "Recommendation"
+    },
+    "schedule": {
+      "interviewId": "interview-recommendation-history",
+      "scheduledAt": "2031-09-20T13:30:00.000Z",
+      "room": "K-0063A",
+      "campus": "Gløshaugen",
+      "mapLink": "https://maps.example.invalid/conduct-0063-a",
+      "message": "Velkommen til intervjuet.",
+      "scheduledByPersonId": "journey-conduct-leader-0063",
+      "committedAt": "2031-09-12T09:10:00.000Z",
+      "scheduleRevision": 1
+    },
+    "invitationResponse": "Accepted",
+    "questions": [
+      {
+        "interviewId": "interview-recommendation-history",
+        "questionId": "interview-schema-native-conduct-0063-q0",
+        "ordinal": 0,
+        "prompt": "Fortell kort om motivasjonen din.",
+        "helpText": null,
+        "kind": "text",
+        "alternatives": []
+      },
+      {
+        "interviewId": "interview-recommendation-history",
+        "questionId": "interview-schema-native-conduct-0063-q1",
+        "ordinal": 1,
+        "prompt": "Hvilket arbeidsområde interesserer deg mest?",
+        "helpText": "Velg ett område.",
+        "kind": "list",
+        "alternatives": [
+          "Produkt",
+          "Teknologi",
+          "Organisasjon"
+        ]
+      },
+      {
+        "interviewId": "interview-recommendation-history",
+        "questionId": "interview-schema-native-conduct-0063-q2",
+        "ordinal": 2,
+        "prompt": "Hvordan foretrekker du å lære?",
+        "helpText": null,
+        "kind": "radio",
+        "alternatives": [
+          "Praksis",
+          "Samtale",
+          "Lesing"
+        ]
+      },
+      {
+        "interviewId": "interview-recommendation-history",
+        "questionId": "interview-schema-native-conduct-0063-q3",
+        "ordinal": 3,
+        "prompt": "Hvilke styrker tar du med deg?",
+        "helpText": "Velg minst ett alternativ.",
+        "kind": "check",
+        "alternatives": [
+          "Samarbeid",
+          "Struktur",
+          "Nysgjerrighet"
+        ]
+      }
+    ],
+    "finalizedByPersonId": "journey-conduct-leader-0063",
+    "finalizedAt": "2026-09-12T19:53:02.823Z",
+    "answers": [
+      {
+        "questionId": "interview-schema-native-conduct-0063-q0",
+        "answer": "Jeg vil forklare matematikk tydelig."
+      },
+      {
+        "questionId": "interview-schema-native-conduct-0063-q1",
+        "answer": "Teknologi"
+      },
+      {
+        "questionId": "interview-schema-native-conduct-0063-q2",
+        "answer": "Praksis"
+      },
+      {
+        "questionId": "interview-schema-native-conduct-0063-q3",
+        "answer": [
+          "Samarbeid"
+        ]
+      }
+    ],
+    "score": {
+      "explanatoryPower": 4,
+      "roleModel": 5,
+      "suitability": 6
+    },
+    "recommendation": "Ja",
+    "completionState": "Completed",
+    "cancellationState": "NotCancelled",
+    "effectiveRevision": 2,
+    "history": [
+      {
+        "_tag": "Original",
+        "revision": 1,
+        "answers": [],
+        "score": {
+          "explanatoryPower": 7,
+          "roleModel": 8,
+          "suitability": 9
+        },
+        "recommendation": null,
+        "finalizedByPersonId": "journey-conduct-leader-0063",
+        "finalizedAt": "2026-09-12T19:53:02.823Z"
+      },
+      {
+        "_tag": "Correction",
+        "revision": 2,
+        "predecessorRevision": 1,
+        "answers": [
+          {
+            "questionId": "interview-schema-native-conduct-0063-q0",
+            "answer": "Jeg vil forklare matematikk tydelig."
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q1",
+            "answer": "Teknologi"
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q2",
+            "answer": "Praksis"
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q3",
+            "answer": [
+              "Samarbeid"
+            ]
+          }
+        ],
+        "score": {
+          "explanatoryPower": 4,
+          "roleModel": 5,
+          "suitability": 6
+        },
+        "recommendation": "Ja",
+        "correctedByPersonId": "journey-conduct-leader-0063",
+        "correctedAt": "2026-09-12T19:53:35.362Z",
+        "commandId": "httpv2__NAJCwjRN5f5OaCiXClQaDMCj739Y-HNpqfqqEX8AeI"
+      }
+    ],
+    "cancelledAt": null,
+    "revision": 2,
+    "canFinalize": false,
+    "canCancel": false
+  },
+  "afterSecond": {
+    "interviewId": "interview-recommendation-history",
+    "applicationId": "application-recommendation-history",
+    "applicant": {
+      "applicantId": "applicant-recommendation-history",
+      "firstName": "history",
+      "lastName": "Recommendation"
+    },
+    "schedule": {
+      "interviewId": "interview-recommendation-history",
+      "scheduledAt": "2031-09-20T13:30:00.000Z",
+      "room": "K-0063A",
+      "campus": "Gløshaugen",
+      "mapLink": "https://maps.example.invalid/conduct-0063-a",
+      "message": "Velkommen til intervjuet.",
+      "scheduledByPersonId": "journey-conduct-leader-0063",
+      "committedAt": "2031-09-12T09:10:00.000Z",
+      "scheduleRevision": 1
+    },
+    "invitationResponse": "Accepted",
+    "questions": [
+      {
+        "interviewId": "interview-recommendation-history",
+        "questionId": "interview-schema-native-conduct-0063-q0",
+        "ordinal": 0,
+        "prompt": "Fortell kort om motivasjonen din.",
+        "helpText": null,
+        "kind": "text",
+        "alternatives": []
+      },
+      {
+        "interviewId": "interview-recommendation-history",
+        "questionId": "interview-schema-native-conduct-0063-q1",
+        "ordinal": 1,
+        "prompt": "Hvilket arbeidsområde interesserer deg mest?",
+        "helpText": "Velg ett område.",
+        "kind": "list",
+        "alternatives": [
+          "Produkt",
+          "Teknologi",
+          "Organisasjon"
+        ]
+      },
+      {
+        "interviewId": "interview-recommendation-history",
+        "questionId": "interview-schema-native-conduct-0063-q2",
+        "ordinal": 2,
+        "prompt": "Hvordan foretrekker du å lære?",
+        "helpText": null,
+        "kind": "radio",
+        "alternatives": [
+          "Praksis",
+          "Samtale",
+          "Lesing"
+        ]
+      },
+      {
+        "interviewId": "interview-recommendation-history",
+        "questionId": "interview-schema-native-conduct-0063-q3",
+        "ordinal": 3,
+        "prompt": "Hvilke styrker tar du med deg?",
+        "helpText": "Velg minst ett alternativ.",
+        "kind": "check",
+        "alternatives": [
+          "Samarbeid",
+          "Struktur",
+          "Nysgjerrighet"
+        ]
+      }
+    ],
+    "finalizedByPersonId": "journey-conduct-leader-0063",
+    "finalizedAt": "2026-09-12T19:53:02.823Z",
+    "answers": [
+      {
+        "questionId": "interview-schema-native-conduct-0063-q0",
+        "answer": "Et nytt tydelig svar."
+      },
+      {
+        "questionId": "interview-schema-native-conduct-0063-q1",
+        "answer": "Teknologi"
+      },
+      {
+        "questionId": "interview-schema-native-conduct-0063-q2",
+        "answer": "Praksis"
+      },
+      {
+        "questionId": "interview-schema-native-conduct-0063-q3",
+        "answer": [
+          "Samarbeid"
+        ]
+      }
+    ],
+    "score": {
+      "explanatoryPower": 9,
+      "roleModel": 5,
+      "suitability": 6
+    },
+    "recommendation": "Nei",
+    "completionState": "Completed",
+    "cancellationState": "NotCancelled",
+    "effectiveRevision": 3,
+    "history": [
+      {
+        "_tag": "Original",
+        "revision": 1,
+        "answers": [],
+        "score": {
+          "explanatoryPower": 7,
+          "roleModel": 8,
+          "suitability": 9
+        },
+        "recommendation": null,
+        "finalizedByPersonId": "journey-conduct-leader-0063",
+        "finalizedAt": "2026-09-12T19:53:02.823Z"
+      },
+      {
+        "_tag": "Correction",
+        "revision": 2,
+        "predecessorRevision": 1,
+        "answers": [
+          {
+            "questionId": "interview-schema-native-conduct-0063-q0",
+            "answer": "Jeg vil forklare matematikk tydelig."
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q1",
+            "answer": "Teknologi"
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q2",
+            "answer": "Praksis"
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q3",
+            "answer": [
+              "Samarbeid"
+            ]
+          }
+        ],
+        "score": {
+          "explanatoryPower": 4,
+          "roleModel": 5,
+          "suitability": 6
+        },
+        "recommendation": "Ja",
+        "correctedByPersonId": "journey-conduct-leader-0063",
+        "correctedAt": "2026-09-12T19:53:35.362Z",
+        "commandId": "httpv2__NAJCwjRN5f5OaCiXClQaDMCj739Y-HNpqfqqEX8AeI"
+      },
+      {
+        "_tag": "Correction",
+        "revision": 3,
+        "predecessorRevision": 2,
+        "answers": [
+          {
+            "questionId": "interview-schema-native-conduct-0063-q0",
+            "answer": "Et nytt tydelig svar."
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q1",
+            "answer": "Teknologi"
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q2",
+            "answer": "Praksis"
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q3",
+            "answer": [
+              "Samarbeid"
+            ]
+          }
+        ],
+        "score": {
+          "explanatoryPower": 9,
+          "roleModel": 5,
+          "suitability": 6
+        },
+        "recommendation": "Nei",
+        "correctedByPersonId": "journey-conduct-leader-0063",
+        "correctedAt": "2026-09-12T19:53:36.795Z",
+        "commandId": "httpv2_Av_k9KAD06RWPu1Qq8Vx82e357IYYNQ0-BPrMsxc9lQ"
+      }
+    ],
+    "cancelledAt": null,
+    "revision": 3,
+    "canFinalize": false,
+    "canCancel": false
+  },
+  "finalDetail": {
+    "interviewId": "interview-recommendation-history",
+    "applicationId": "application-recommendation-history",
+    "applicant": {
+      "applicantId": "applicant-recommendation-history",
+      "firstName": "history",
+      "lastName": "Recommendation"
+    },
+    "schedule": {
+      "interviewId": "interview-recommendation-history",
+      "scheduledAt": "2031-09-20T13:30:00.000Z",
+      "room": "K-0063A",
+      "campus": "Gløshaugen",
+      "mapLink": "https://maps.example.invalid/conduct-0063-a",
+      "message": "Velkommen til intervjuet.",
+      "scheduledByPersonId": "journey-conduct-leader-0063",
+      "committedAt": "2031-09-12T09:10:00.000Z",
+      "scheduleRevision": 1
+    },
+    "invitationResponse": "Accepted",
+    "questions": [
+      {
+        "interviewId": "interview-recommendation-history",
+        "questionId": "interview-schema-native-conduct-0063-q0",
+        "ordinal": 0,
+        "prompt": "Fortell kort om motivasjonen din.",
+        "helpText": null,
+        "kind": "text",
+        "alternatives": []
+      },
+      {
+        "interviewId": "interview-recommendation-history",
+        "questionId": "interview-schema-native-conduct-0063-q1",
+        "ordinal": 1,
+        "prompt": "Hvilket arbeidsområde interesserer deg mest?",
+        "helpText": "Velg ett område.",
+        "kind": "list",
+        "alternatives": [
+          "Produkt",
+          "Teknologi",
+          "Organisasjon"
+        ]
+      },
+      {
+        "interviewId": "interview-recommendation-history",
+        "questionId": "interview-schema-native-conduct-0063-q2",
+        "ordinal": 2,
+        "prompt": "Hvordan foretrekker du å lære?",
+        "helpText": null,
+        "kind": "radio",
+        "alternatives": [
+          "Praksis",
+          "Samtale",
+          "Lesing"
+        ]
+      },
+      {
+        "interviewId": "interview-recommendation-history",
+        "questionId": "interview-schema-native-conduct-0063-q3",
+        "ordinal": 3,
+        "prompt": "Hvilke styrker tar du med deg?",
+        "helpText": "Velg minst ett alternativ.",
+        "kind": "check",
+        "alternatives": [
+          "Samarbeid",
+          "Struktur",
+          "Nysgjerrighet"
+        ]
+      }
+    ],
+    "finalizedByPersonId": "journey-conduct-leader-0063",
+    "finalizedAt": "2026-09-12T19:53:02.823Z",
+    "answers": [
+      {
+        "questionId": "interview-schema-native-conduct-0063-q0",
+        "answer": "API correction answer"
+      },
+      {
+        "questionId": "interview-schema-native-conduct-0063-q1",
+        "answer": "Teknologi"
+      },
+      {
+        "questionId": "interview-schema-native-conduct-0063-q2",
+        "answer": "Praksis"
+      },
+      {
+        "questionId": "interview-schema-native-conduct-0063-q3",
+        "answer": [
+          "Samarbeid"
+        ]
+      }
+    ],
+    "score": {
+      "explanatoryPower": 7,
+      "roleModel": 8,
+      "suitability": 9
+    },
+    "recommendation": "Ja",
+    "completionState": "Completed",
+    "cancellationState": "NotCancelled",
+    "effectiveRevision": 6,
+    "history": [
+      {
+        "_tag": "Original",
+        "revision": 1,
+        "answers": [],
+        "score": {
+          "explanatoryPower": 7,
+          "roleModel": 8,
+          "suitability": 9
+        },
+        "recommendation": null,
+        "finalizedByPersonId": "journey-conduct-leader-0063",
+        "finalizedAt": "2026-09-12T19:53:02.823Z"
+      },
+      {
+        "_tag": "Correction",
+        "revision": 2,
+        "predecessorRevision": 1,
+        "answers": [
+          {
+            "questionId": "interview-schema-native-conduct-0063-q0",
+            "answer": "Jeg vil forklare matematikk tydelig."
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q1",
+            "answer": "Teknologi"
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q2",
+            "answer": "Praksis"
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q3",
+            "answer": [
+              "Samarbeid"
+            ]
+          }
+        ],
+        "score": {
+          "explanatoryPower": 4,
+          "roleModel": 5,
+          "suitability": 6
+        },
+        "recommendation": "Ja",
+        "correctedByPersonId": "journey-conduct-leader-0063",
+        "correctedAt": "2026-09-12T19:53:35.362Z",
+        "commandId": "httpv2__NAJCwjRN5f5OaCiXClQaDMCj739Y-HNpqfqqEX8AeI"
+      },
+      {
+        "_tag": "Correction",
+        "revision": 3,
+        "predecessorRevision": 2,
+        "answers": [
+          {
+            "questionId": "interview-schema-native-conduct-0063-q0",
+            "answer": "Et nytt tydelig svar."
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q1",
+            "answer": "Teknologi"
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q2",
+            "answer": "Praksis"
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q3",
+            "answer": [
+              "Samarbeid"
+            ]
+          }
+        ],
+        "score": {
+          "explanatoryPower": 9,
+          "roleModel": 5,
+          "suitability": 6
+        },
+        "recommendation": "Nei",
+        "correctedByPersonId": "journey-conduct-leader-0063",
+        "correctedAt": "2026-09-12T19:53:36.795Z",
+        "commandId": "httpv2_Av_k9KAD06RWPu1Qq8Vx82e357IYYNQ0-BPrMsxc9lQ"
+      },
+      {
+        "_tag": "Correction",
+        "revision": 4,
+        "predecessorRevision": 3,
+        "answers": [
+          {
+            "questionId": "interview-schema-native-conduct-0063-q0",
+            "answer": "API correction answer"
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q1",
+            "answer": "Teknologi"
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q2",
+            "answer": "Praksis"
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q3",
+            "answer": [
+              "Samarbeid"
+            ]
+          }
+        ],
+        "score": {
+          "explanatoryPower": 7,
+          "roleModel": 8,
+          "suitability": 9
+        },
+        "recommendation": "Kanskje",
+        "correctedByPersonId": "journey-conduct-leader-0063",
+        "correctedAt": "2026-09-12T19:53:40.424Z",
+        "commandId": "httpv2_RVRHiLZk7ZXM6oJ43XwNIpUNc2r_ScNFEpH2R0JoWZs"
+      },
+      {
+        "_tag": "Correction",
+        "revision": 5,
+        "predecessorRevision": 4,
+        "answers": [
+          {
+            "questionId": "interview-schema-native-conduct-0063-q0",
+            "answer": "API correction answer"
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q1",
+            "answer": "Teknologi"
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q2",
+            "answer": "Praksis"
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q3",
+            "answer": [
+              "Samarbeid"
+            ]
+          }
+        ],
+        "score": {
+          "explanatoryPower": 7,
+          "roleModel": 8,
+          "suitability": 9
+        },
+        "recommendation": "Nei",
+        "correctedByPersonId": "journey-conduct-leader-0063",
+        "correctedAt": "2026-09-12T19:53:40.488Z",
+        "commandId": "httpv2_YtB8Yd-BGmZN9mI0XWo5mK2fr0U-fEeVpZzWJvGjt9M"
+      },
+      {
+        "_tag": "Correction",
+        "revision": 6,
+        "predecessorRevision": 5,
+        "answers": [
+          {
+            "questionId": "interview-schema-native-conduct-0063-q0",
+            "answer": "API correction answer"
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q1",
+            "answer": "Teknologi"
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q2",
+            "answer": "Praksis"
+          },
+          {
+            "questionId": "interview-schema-native-conduct-0063-q3",
+            "answer": [
+              "Samarbeid"
+            ]
+          }
+        ],
+        "score": {
+          "explanatoryPower": 7,
+          "roleModel": 8,
+          "suitability": 9
+        },
+        "recommendation": "Ja",
+        "correctedByPersonId": "journey-conduct-leader-0063",
+        "correctedAt": "2026-09-12T19:53:40.559Z",
+        "commandId": "httpv2_bBVyqWN9wjtVoX43QeBddP_buXRPxPfry7gWpkhWXk0"
+      }
+    ],
+    "cancelledAt": null,
+    "revision": 6,
+    "canFinalize": false,
+    "canCancel": false
+  },
+  "failedSaveRetry": [
+    {
+      "phase": "failed-save",
+      "payload": {
+        "operation": "correctInterviewAssessment",
+        "params": {
+          "interviewId": "interview-recommendation-history"
+        },
+        "headers": {
+          "idempotency-key": "d1ac5a2756308af1fa74e758d06d8a4f1bb0e2d3638d78d7f5399f2572965730-4",
+          "if-match": "\"vkr2.u2YJ9A51X5TX5u_mu6O_MZE6uftyrr7OApH6DV155nQ\""
+        },
+        "payload": {
+          "expectedRevision": 2,
+          "answers": [
+            {
+              "questionId": "interview-schema-native-conduct-0063-q1",
+              "answer": "Teknologi"
+            },
+            {
+              "questionId": "interview-schema-native-conduct-0063-q2",
+              "answer": "Praksis"
+            },
+            {
+              "questionId": "interview-schema-native-conduct-0063-q3",
+              "answer": [
+                "Samarbeid"
+              ]
+            },
+            {
+              "questionId": "interview-schema-native-conduct-0063-q0",
+              "answer": "Et nytt tydelig svar."
+            }
+          ],
+          "score": {
+            "explanatoryPower": 9,
+            "roleModel": 5,
+            "suitability": 6
+          },
+          "recommendation": "Nei"
+        }
+      },
+      "ifMatch": "\"vkr2.u2YJ9A51X5TX5u_mu6O_MZE6uftyrr7OApH6DV155nQ\"",
+      "idempotencyKey": "d1ac5a2756308af1fa74e758d06d8a4f1bb0e2d3638d78d7f5399f2572965730-4",
+      "fetchedStatus": 200
+    },
+    {
+      "phase": "retry",
+      "payload": {
+        "operation": "correctInterviewAssessment",
+        "params": {
+          "interviewId": "interview-recommendation-history"
+        },
+        "headers": {
+          "idempotency-key": "d1ac5a2756308af1fa74e758d06d8a4f1bb0e2d3638d78d7f5399f2572965730-4",
+          "if-match": "\"vkr2.u2YJ9A51X5TX5u_mu6O_MZE6uftyrr7OApH6DV155nQ\""
+        },
+        "payload": {
+          "expectedRevision": 2,
+          "answers": [
+            {
+              "questionId": "interview-schema-native-conduct-0063-q1",
+              "answer": "Teknologi"
+            },
+            {
+              "questionId": "interview-schema-native-conduct-0063-q2",
+              "answer": "Praksis"
+            },
+            {
+              "questionId": "interview-schema-native-conduct-0063-q3",
+              "answer": [
+                "Samarbeid"
+              ]
+            },
+            {
+              "questionId": "interview-schema-native-conduct-0063-q0",
+              "answer": "Et nytt tydelig svar."
+            }
+          ],
+          "score": {
+            "explanatoryPower": 9,
+            "roleModel": 5,
+            "suitability": 6
+          },
+          "recommendation": "Nei"
+        }
+      },
+      "ifMatch": "\"vkr2.u2YJ9A51X5TX5u_mu6O_MZE6uftyrr7OApH6DV155nQ\"",
+      "idempotencyKey": "d1ac5a2756308af1fa74e758d06d8a4f1bb0e2d3638d78d7f5399f2572965730-4",
+      "fetchedStatus": 200
+    }
+  ]
+}

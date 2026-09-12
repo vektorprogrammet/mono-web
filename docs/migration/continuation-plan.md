@@ -57,6 +57,8 @@ This closes the native registration implementation gap. Historical first-time
 classification and exact legacy reporting population remain separate because
 public-submission provenance does not prove absence of prior service.
 
+Completed-interview corrections, 2026-09-12: [0105](../../design-specs/0105-authorized-completed-interview-corrections.md) delivers a bounded correction journey for the current active assigned interviewer at final runtime revision `4b17590d1ba605f1153588b375bebd6ff93b5427`. It keeps the completed interview and original conduct immutable, appends linear replacement assessments, and requires fresh authority and applicant custody before detail, history, correction, or exact replay. The Foldkit detail shows original completion time/finalizer and ordered read-only Original/Correction history, including historical `NULL` recommendation display. Domain, database, SDK and strict changed-harness checks passed; the integrated browser/API/PostgreSQL evidence and checksums are recorded in the [acceptance manifest](../../evidence/functional-parity/0105/acceptance-manifest.json). This does not reopen interviews, grant coordinator or co-interviewer access, change application or identity data, or send notifications.
+
 Finance source correction: legacy administrators can return rejected claims to
 Pending so owners can edit the same claim. [0102](../../design-specs/0102-reopen-rejected-receipt.md)
 restores that correction journey under the existing native scoped approval

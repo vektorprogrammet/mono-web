@@ -1,0 +1,462 @@
+{
+  "revision": "4b17590d1ba605f1153588b375bebd6ff93b5427",
+  "reportEvidence": {
+    "specId": "0103",
+    "revision": "4b17590d1ba605f1153588b375bebd6ff93b5427",
+    "gates": [
+      "report coordinator detail and correction deny for a non-assigned interview; no co-interviewer grant or writes",
+      "real ordinary-interviewer conduct reported to non-assigned leader; exact population/projection/history/SQL and closed/empty periods; sort/filter/ties; no report writes; raw conduct remains denied",
+      "authorized department without periods returns explicit empty selection and no rows",
+      "anonymous/member/admin-only/ambiguous/revoked/ended/suspended/inactive scope denied, including prior conditional token",
+      "known self excluded from every filter/count; absent/different links eligible; actual concurrent link/read custody excludes newly known self",
+      "production navigation/keyboard sorts/filter/count/reload, historical/empty period, desktop/mobile Axe and viewport; real SQL failure/retry and superseded-period navigation; no report writes"
+    ],
+    "rowsBeforeConcurrentSelfLink": [
+      {
+        "interviewId": "interview-correction-explicit-0105",
+        "firstName": "Correction explicit",
+        "lastName": "Gjennomfører",
+        "completedAt": "2031-09-14T10:00:00.000Z",
+        "recommendation": "Ja",
+        "participation": "Unknown",
+        "explanatoryPower": 4,
+        "roleModel": 5,
+        "suitability": 6
+      },
+      {
+        "interviewId": "interview-native-conduct-a-0063",
+        "firstName": "Sofie",
+        "lastName": "Gjennomfører",
+        "completedAt": "2026-09-12T19:53:44.909Z",
+        "recommendation": "Ja",
+        "participation": "Unknown",
+        "explanatoryPower": 8,
+        "roleModel": 8,
+        "suitability": 8
+      },
+      {
+        "interviewId": "interview-native-conduct-b-0063",
+        "firstName": "Olav",
+        "lastName": "Konflikt",
+        "completedAt": "2026-09-12T19:53:47.975Z",
+        "recommendation": "Nei",
+        "participation": "Unknown",
+        "explanatoryPower": 7,
+        "roleModel": 8,
+        "suitability": 9
+      },
+      {
+        "interviewId": "interview-recommendation-history",
+        "firstName": "history",
+        "lastName": "Recommendation",
+        "completedAt": "2026-09-12T19:53:02.823Z",
+        "recommendation": "Ja",
+        "participation": "Unknown",
+        "explanatoryPower": 7,
+        "roleModel": 8,
+        "suitability": 9
+      },
+      {
+        "interviewId": "interview-recommendation-link-race",
+        "firstName": "link-race",
+        "lastName": "Recommendation",
+        "completedAt": "2026-09-12T19:53:44.909Z",
+        "recommendation": "Kanskje",
+        "participation": "Unknown",
+        "explanatoryPower": 7,
+        "roleModel": 8,
+        "suitability": 9
+      },
+      {
+        "interviewId": "interview-recommendation-maybe",
+        "firstName": "maybe",
+        "lastName": "Recommendation",
+        "completedAt": "2026-09-12T19:53:47.854Z",
+        "recommendation": "Kanskje",
+        "participation": "Unknown",
+        "explanatoryPower": 7,
+        "roleModel": 8,
+        "suitability": 9
+      },
+      {
+        "interviewId": "interview-recommendation-no",
+        "firstName": "no",
+        "lastName": "Recommendation",
+        "completedAt": "2026-09-12T19:53:47.913Z",
+        "recommendation": "Ja",
+        "participation": "Unknown",
+        "explanatoryPower": 7,
+        "roleModel": 8,
+        "suitability": 9
+      },
+      {
+        "interviewId": "report-interview-tie-a",
+        "firstName": "Report",
+        "lastName": "Tie",
+        "completedAt": "2026-09-12T19:53:44.909Z",
+        "recommendation": "Ja",
+        "participation": "Unknown",
+        "explanatoryPower": 8,
+        "roleModel": 8,
+        "suitability": 8
+      },
+      {
+        "interviewId": "report-interview-tie-b",
+        "firstName": "Report",
+        "lastName": "Tie",
+        "completedAt": "2026-09-12T19:53:44.909Z",
+        "recommendation": "Ja",
+        "participation": "Unknown",
+        "explanatoryPower": 8,
+        "roleModel": 8,
+        "suitability": 8
+      },
+      {
+        "interviewId": "interview-returning-0104",
+        "firstName": "Rita",
+        "lastName": "Tilbake",
+        "completedAt": "2026-08-22T10:00:00.000Z",
+        "recommendation": "Ja",
+        "participation": "Unknown",
+        "explanatoryPower": 8,
+        "roleModel": 8,
+        "suitability": 8
+      },
+      {
+        "interviewId": "report-interview-low",
+        "firstName": "Report",
+        "lastName": "low",
+        "completedAt": "2026-09-12T19:53:44.909Z",
+        "recommendation": "Nei",
+        "participation": "Unknown",
+        "explanatoryPower": 1,
+        "roleModel": 2,
+        "suitability": 0
+      },
+      {
+        "interviewId": "report-interview-race",
+        "firstName": "Report",
+        "lastName": "race",
+        "completedAt": "2026-09-12T19:53:44.909Z",
+        "recommendation": "Kanskje",
+        "participation": "Unknown",
+        "explanatoryPower": 4,
+        "roleModel": 4,
+        "suitability": 4
+      }
+    ],
+    "observer": "independent PostgreSQL connection",
+    "browserErrors": [],
+    "expectedFaults": [
+      "induced-report-503"
+    ],
+    "concurrentReadStatus": 200,
+    "supersededResponse": {
+      "fulfilled": true,
+      "fetchStatus": 200,
+      "kind": "failed",
+      "error": "net::ERR_ABORTED"
+    },
+    "authorityDenials": [
+      {
+        "condition": "UPDATE public.organization_memberships SET is_suspended=true WHERE membership_id='report-coordinator-membership-0103'",
+        "status": 401,
+        "code": "credential.invalid"
+      },
+      {
+        "condition": "UPDATE public.organization_memberships SET end_at='2026-02-01' WHERE membership_id='report-coordinator-membership-0103'",
+        "status": 401,
+        "code": "credential.invalid"
+      },
+      {
+        "condition": "UPDATE public.organization_memberships SET is_team_leader=false WHERE membership_id='report-coordinator-membership-0103'",
+        "status": 403,
+        "code": "authority.denied"
+      },
+      {
+        "condition": "UPDATE public.organization_teams SET active=false WHERE team_id='team-native-conduct-0063'",
+        "status": 401,
+        "code": "credential.invalid"
+      },
+      {
+        "condition": "UPDATE public.organization_departments SET active=false WHERE department_id='department-native-conduct-0063'",
+        "status": 401,
+        "code": "credential.invalid"
+      },
+      {
+        "condition": "ambiguous-department",
+        "status": 401,
+        "code": "credential.invalid"
+      },
+      {
+        "condition": "DELETE FROM public.organization_memberships WHERE membership_id='report-coordinator-membership-0103'",
+        "status": 401,
+        "code": "credential.invalid"
+      }
+    ],
+    "conditionalRequest": {
+      "priorEtag": null,
+      "ifNoneMatch": "*"
+    },
+    "scope": "all completed native, not first-time-only; local synthetic; no effects"
+  },
+  "gates": [
+    "disposable PostgreSQL is ready",
+    "previous-schema history fixture migrated",
+    "seeded 0105 pre-0039 correction rows from existing native base",
+    "immutable historical row survived actual0037 upgrade without invented recommendation",
+    "0039 upgrade preserved original interview/schedule/invitation/conduct/lifecycle rows",
+    "seeded native credentials accepted by real identity engine",
+    "direct SQL correction integrity rejects immutable mutations, invalid predecessor, aggregate mismatch, and cross-command receipt/audit tuples without writes",
+    "ordinary assigned member: required choice, keyboard finalization, reload and exact stale-correction conflict retention",
+    "missing/null/unknown/numeric rejected without effects; all choices roundtrip; exact replay and conflicting/concurrent writes fenced",
+    "suspended authority denies reads and stored receipt replay",
+    "anonymous detail and correction deny with no native receipt or domain writes",
+    "wrong interviewer assignment denies detail and correction",
+    "native authority models an assigned interviewer only; no synthetic unassigned or co-interviewer role is introduced",
+    "ended membership denies detail and correction",
+    "suspended membership denies detail and correction",
+    "actual actor-session deletion denies detail and correction, then restores exact session rows",
+    "inactive department denies detail and correction",
+    "wrong department denies detail and correction",
+    "genuine accepted self-link fixture correction is denied or transaction-conflicted after committed self-link; fresh read and exact replay deny",
+    "malformed JSON, missing answer/question entry, and strict schema failures map to 400/422; each leaves exact state unchanged",
+    "same idempotency key with a different payload returns digest conflict without any owned write",
+    "each aggregate, assessment, domain-receipt, and audit failure trigger fired and rolled back all domain and native HTTP receipt rows",
+    "different-person applicant link is a committed teardown-owned fixture and remains readable without correction writes",
+    "wrong department denied; actual applicant capability projection excludes recommendation",
+    "removed assignment and ended membership deny read/write/replay without lifecycle writes",
+    "actual application confirmation and onboarding claim projections exclude recommendation; recommendation produced no effect rows",
+    "known self denied before read/finalize/cancel and both receipt layers; different Person allowed; real waiting serializable snapshot fails409 then self-denial",
+    "owned interview shell retains role-scoped onboarding and existing schema/dashboard navigation",
+    "historical immutable not-recorded display; direct storage constraints; desktop/mobile Axe; independent public-schema SQL",
+    "report coordinator detail and correction deny for a non-assigned interview; no co-interviewer grant or writes",
+    "real ordinary-interviewer conduct reported to non-assigned leader; exact population/projection/history/SQL and closed/empty periods; sort/filter/ties; no report writes; raw conduct remains denied",
+    "authorized department without periods returns explicit empty selection and no rows",
+    "anonymous/member/admin-only/ambiguous/revoked/ended/suspended/inactive scope denied, including prior conditional token",
+    "known self excluded from every filter/count; absent/different links eligible; actual concurrent link/read custody excludes newly known self",
+    "production navigation/keyboard sorts/filter/count/reload, historical/empty period, desktop/mobile Axe and viewport; real SQL failure/retry and superseded-period navigation; no report writes"
+  ],
+  "rows": [
+    {
+      "interview_id": "interview-correction-explicit-0105",
+      "recommendation": "Ja",
+      "answers": [
+        {
+          "answer": "Original correction fixture answer.",
+          "questionId": "interview-schema-native-conduct-0063-q0"
+        },
+        {
+          "answer": [
+            "Teknologi"
+          ],
+          "questionId": "interview-schema-native-conduct-0063-q1"
+        },
+        {
+          "answer": "Praksis",
+          "questionId": "interview-schema-native-conduct-0063-q2"
+        },
+        {
+          "answer": [
+            "Samarbeid"
+          ],
+          "questionId": "interview-schema-native-conduct-0063-q3"
+        }
+      ],
+      "explanatory_power": 4,
+      "role_model": 5,
+      "suitability": 6
+    },
+    {
+      "interview_id": "interview-native-conduct-a-0063",
+      "recommendation": "Ja",
+      "answers": [
+        {
+          "answer": "Jeg vil forklare matematikk tydelig.",
+          "questionId": "interview-schema-native-conduct-0063-q0"
+        },
+        {
+          "answer": "Teknologi",
+          "questionId": "interview-schema-native-conduct-0063-q1"
+        },
+        {
+          "answer": "Praksis",
+          "questionId": "interview-schema-native-conduct-0063-q2"
+        },
+        {
+          "answer": [
+            "Samarbeid"
+          ],
+          "questionId": "interview-schema-native-conduct-0063-q3"
+        }
+      ],
+      "explanatory_power": 8,
+      "role_model": 8,
+      "suitability": 8
+    },
+    {
+      "interview_id": "interview-native-conduct-b-0063",
+      "recommendation": "Nei",
+      "answers": [
+        {
+          "answer": "Et tydelig svar",
+          "questionId": "interview-schema-native-conduct-0063-q0"
+        },
+        {
+          "answer": "Teknologi",
+          "questionId": "interview-schema-native-conduct-0063-q1"
+        },
+        {
+          "answer": "Praksis",
+          "questionId": "interview-schema-native-conduct-0063-q2"
+        },
+        {
+          "answer": [
+            "Samarbeid"
+          ],
+          "questionId": "interview-schema-native-conduct-0063-q3"
+        }
+      ],
+      "explanatory_power": 7,
+      "role_model": 8,
+      "suitability": 9
+    },
+    {
+      "interview_id": "interview-recommendation-history",
+      "recommendation": null,
+      "answers": [],
+      "explanatory_power": 7,
+      "role_model": 8,
+      "suitability": 9
+    },
+    {
+      "interview_id": "interview-recommendation-link-race",
+      "recommendation": "Ja",
+      "answers": [
+        {
+          "answer": "Jeg vil forklare matematikk tydelig.",
+          "questionId": "interview-schema-native-conduct-0063-q0"
+        },
+        {
+          "answer": "Teknologi",
+          "questionId": "interview-schema-native-conduct-0063-q1"
+        },
+        {
+          "answer": "Praksis",
+          "questionId": "interview-schema-native-conduct-0063-q2"
+        },
+        {
+          "answer": [
+            "Samarbeid"
+          ],
+          "questionId": "interview-schema-native-conduct-0063-q3"
+        }
+      ],
+      "explanatory_power": 8,
+      "role_model": 8,
+      "suitability": 8
+    },
+    {
+      "interview_id": "interview-recommendation-maybe",
+      "recommendation": "Kanskje",
+      "answers": [
+        {
+          "answer": "Et tydelig svar",
+          "questionId": "interview-schema-native-conduct-0063-q0"
+        },
+        {
+          "answer": "Teknologi",
+          "questionId": "interview-schema-native-conduct-0063-q1"
+        },
+        {
+          "answer": "Praksis",
+          "questionId": "interview-schema-native-conduct-0063-q2"
+        },
+        {
+          "answer": [
+            "Samarbeid"
+          ],
+          "questionId": "interview-schema-native-conduct-0063-q3"
+        }
+      ],
+      "explanatory_power": 7,
+      "role_model": 8,
+      "suitability": 9
+    },
+    {
+      "interview_id": "interview-recommendation-no",
+      "recommendation": "Ja",
+      "answers": [
+        {
+          "answer": "Et tydelig svar",
+          "questionId": "interview-schema-native-conduct-0063-q0"
+        },
+        {
+          "answer": "Teknologi",
+          "questionId": "interview-schema-native-conduct-0063-q1"
+        },
+        {
+          "answer": "Praksis",
+          "questionId": "interview-schema-native-conduct-0063-q2"
+        },
+        {
+          "answer": [
+            "Samarbeid"
+          ],
+          "questionId": "interview-schema-native-conduct-0063-q3"
+        }
+      ],
+      "explanatory_power": 7,
+      "role_model": 8,
+      "suitability": 9
+    },
+    {
+      "interview_id": "interview-returning-0104",
+      "recommendation": "Ja",
+      "answers": [],
+      "explanatory_power": 8,
+      "role_model": 8,
+      "suitability": 8
+    }
+  ],
+  "lifecycle": [
+    {
+      "interview_id": "interview-correction-explicit-0105",
+      "recommendation": "Ja",
+      "kind": "InterviewFinalized",
+      "resulting_revision": 2,
+      "command_id": "conduct-correction-explicit-finalize-0105"
+    },
+    {
+      "interview_id": "interview-native-conduct-a-0063",
+      "recommendation": "Ja",
+      "kind": "InterviewFinalized",
+      "resulting_revision": 2,
+      "command_id": "httpv2_p4lxKGUYweB5sVh7jvTOlNmHkxNnlKyZHxGAOWcnGK4"
+    },
+    {
+      "interview_id": "interview-native-conduct-b-0063",
+      "recommendation": "Nei",
+      "kind": "InterviewFinalized",
+      "resulting_revision": 2,
+      "command_id": "httpv2_jd3IUNuoVrspYuVENIx3EFOrV7Nw4GyeIOzmtBu9JOU"
+    },
+    {
+      "interview_id": "interview-recommendation-maybe",
+      "recommendation": "Kanskje",
+      "kind": "InterviewFinalized",
+      "resulting_revision": 2,
+      "command_id": "httpv2_Qgko8GJ933tPl-7yNc3uVHbaQiNnChOn70E6l_quKtk"
+    },
+    {
+      "interview_id": "interview-recommendation-no",
+      "recommendation": "Ja",
+      "kind": "InterviewFinalized",
+      "resulting_revision": 2,
+      "command_id": "httpv2_0dtq-1XAUI1_ZCx1BTnS3i5-YwZb1h2-WMJg_mQjAIw"
+    }
+  ],
+  "pageErrors": [],
+  "observer": "independent PostgreSQL connection",
+  "noNotificationEffects": true
+}

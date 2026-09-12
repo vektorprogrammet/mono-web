@@ -1,0 +1,109 @@
+{
+  "specId": "0105",
+  "result": "Passed",
+  "revision": "4b17590d1ba605f1153588b375bebd6ff93b5427",
+  "command": "bun infra/host/recommendation-check.ts --correction-mode --report",
+  "artifactDirectory": "/tmp/vektor-recommendation-0101-qNCL0G",
+  "evidenceDirectory": "evidence/functional-parity/0105",
+  "checksums": "evidence/functional-parity/0105/SHA256SUMS",
+  "gates": [
+    "disposable PostgreSQL and browser runtime completed on the clean final executable-source revision",
+    "previous-schema history fixture migrated through actual 0037 and 0039 upgrade without rewriting original conduct",
+    "authorized assigned interviewer completed keyboard correction, reload, second correction and exact ordered Original/Correction history display",
+    "Original history entry preserved historical-null recommendation, original scores, original completion time and finalizer, and displayed no editable controls",
+    "Correction history entries displayed actor, timestamp, revision, answers, scores and recommendations in order; desktop/mobile screenshots and Axe checks passed",
+    "stale simultaneous correction, lost response replay, receipt/audit rollback, authority revocation, applicant custody race, report projection and no-effect boundaries passed",
+    "report filtering, sorting, totals, empty not-recorded filter reset and SQL failure/retry passed without detail/history leakage"
+  ],
+  "packageValidation": {
+    "packages": [
+      {
+        "package": "packages/domain",
+        "command": "bun --cwd packages/domain check-types && bun --cwd packages/domain test",
+        "exitCode": 0,
+        "typecheck": "tsc --noEmit",
+        "tests": { "files": 46, "passed": 243, "failed": 0, "skipped": 0 }
+      },
+      {
+        "package": "packages/database",
+        "command": "bun --cwd packages/database check-types && bun --cwd packages/database test",
+        "exitCode": 0,
+        "typecheck": "tsc --noEmit",
+        "tests": { "files": 20, "passed": 121, "failed": 0, "skipped": 4, "total": 125 }
+      },
+      {
+        "package": "packages/sdk",
+        "command": "bun --cwd packages/sdk check-types && bun --cwd packages/sdk test",
+        "exitCode": 0,
+        "typecheck": "tsc -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+        "tests": { "files": 2, "passed": 3, "failed": 0, "skipped": 0 }
+      },
+      {
+        "package": "packages/http-api",
+        "command": "bun --cwd packages/http-api check-types && bun --cwd packages/http-api test",
+        "exitCode": 0,
+        "typecheck": "tsc --noEmit",
+        "tests": { "files": 2, "passed": 15, "failed": 0, "skipped": 0 }
+      },
+      {
+        "package": "apps/backend",
+        "command": "bun --cwd apps/backend check-types && bun --cwd apps/backend test",
+        "exitCode": 0,
+        "typecheck": "tsc --noEmit",
+        "tests": { "files": 21, "passed": 162, "failed": 0, "skipped": 0 }
+      },
+      {
+        "package": "apps/dashboard",
+        "command": "bun --cwd apps/dashboard check-types && bun --cwd apps/dashboard test",
+        "exitCode": 0,
+        "typecheck": "react-router typegen && tsc --noEmit",
+        "tests": { "files": 48, "passed": 260, "failed": 0, "skipped": 0 },
+        "previewBundle": { "productionMarkers": 0, "positiveControlMarkers": 12 }
+      }
+    ],
+    "changedHarness": {
+      "command": "bun ./node_modules/typescript/bin/tsc --noEmit -p .harness-tsconfig.tmp.json",
+      "exitCode": 0,
+      "temporaryConfig": {
+        "files": ["infra/host/recommendation-check.ts", "infra/host/interview-report-observation.ts"],
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "playwrightTypes": "apps/dashboard/node_modules/@playwright/test/index.d.ts"
+      },
+      "output": "no diagnostics"
+    }
+  },
+  "freshness": [
+    "packages/http-api generate:check passed (73 external + 1 internal operations current)",
+    "docs:generate:check passed (generated docs current, 97 files)",
+    "capability-parity:verify passed (capability_parity_current)",
+    "oxfmt --check passed for all final changed source, harness, style and API-test files"
+  ],
+  "skippedOrUnavailable": [
+    "No production data, credentials, provider, remote push, deployment or cutover was used",
+    "No external notification transport was used; the runtime asserted no notification or application effects",
+    "No global parity claim is made beyond the explicitly recorded capability-parity freshness check"
+  ],
+  "sourceEquivalence": {
+    "runtimeRevision": "4b17590d1ba605f1153588b375bebd6ff93b5427",
+    "finalExecutableSourceRevision": "4b17590d1ba605f1153588b375bebd6ff93b5427",
+    "verified": true,
+    "verification": "The final runtime ran from a clean checkout at runtimeRevision after the typed fixture and harness fixes. After runtime, only the listed documentation and evidence paths were restored; no executable source changed.",
+    "postRuntimePathCategories": {
+      "documentation": [
+        "STATE.md",
+        "docs/migration/continuation-plan.md"
+      ],
+      "evidence": [
+        "evidence/functional-parity/0105/acceptance-manifest.json",
+        "evidence/functional-parity/0105/SHA256SUMS",
+        "evidence/functional-parity/0105/accessibility.json",
+        "evidence/functional-parity/0105/correction-boundaries.json",
+        "evidence/functional-parity/0105/correction-targeted-evidence.json",
+        "evidence/functional-parity/0105/evidence.json",
+        "evidence/functional-parity/0105/report-evidence.json",
+        "evidence/functional-parity/0105/*.png"
+      ]
+    }
+  }
+}
