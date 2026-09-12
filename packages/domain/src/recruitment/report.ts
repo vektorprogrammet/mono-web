@@ -36,6 +36,7 @@ export const InterviewReportRow = Schema.Struct({
   participation: Schema.Literals(["Returning", "Unknown"]),
   ...RecruitmentInterviewScoreSchema.fields,
 });
+export type InterviewReportRow = typeof InterviewReportRow.Type;
 const compareText = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
 export const InterviewReport = Schema.Struct({
   departmentId: DepartmentId,

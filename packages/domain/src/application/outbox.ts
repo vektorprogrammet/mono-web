@@ -18,6 +18,7 @@ interface ClaimedOutboxRow {
   readonly ordinal: number;
   readonly attempts: number;
   readonly payload_json: unknown;
+  readonly origin: string;
 }
 
 interface CanonicalOutboxIdentityRow {
@@ -27,6 +28,7 @@ interface CanonicalOutboxIdentityRow {
   readonly receipt_application_id: string;
   readonly audit_application_id: string;
   readonly audit_applicant_id: string;
+  readonly linked_person_id: string | null;
 }
 
 interface CountRow {
@@ -86,16 +88,17 @@ export const claimNextPublicApplicationOutbox = (
           AND status = 'Processing'
           AND claim_id = ${claimId}
       `.pipe(Effect.asVoid);
-    return yield* sql
-      .withTransaction(
-        Effect.gen(function* () {
-          const rows = yield* sql<ClaimedOutboxRow>`
-            WITH candidate AS (
+    return yield* sql.withTransaction(
+      Effect.gen(function* () {
+        const rows = yield* sql<ClaimedOutboxRow>`
               SELECT outbox.effect_id
               FROM admission_application_outbox AS outbox
-              INNER JOIN admission_application_command_receipts AS receipt
-                ON receipt.command_id = outbox.command_id
+              LEFT JOIN admission_application_command_receipts AS public_receipt
+                ON public_receipt.command_id = outbox.command_id
+              LEFT JOIN admission_returning_command_receipts AS returning_receipt
+                ON returning_receipt.command_id = outbox.command_id
               WHERE outbox.status IN ('Pending', 'Failed')
+                AND (public_receipt.command_id IS NOT NULL OR returning_receipt.command_id IS NOT NULL)
                 AND NOT EXISTS (
                   SELECT 1
                   FROM admission_application_outbox AS predecessor
@@ -103,7 +106,9 @@ export const claimNextPublicApplicationOutbox = (
                     AND predecessor.ordinal < outbox.ordinal
                     AND predecessor.status <> 'Delivered'
                 )
-              ORDER BY outbox.attempts, receipt.committed_at, outbox.command_id, outbox.ordinal
+              ORDER BY outbox.attempts,
+                COALESCE(public_receipt.committed_at, returning_receipt.committed_at),
+                outbox.command_id, outbox.ordinal
               FOR UPDATE OF outbox SKIP LOCKED
               LIMIT 1
             )
@@ -117,7 +122,7 @@ export const claimNextPublicApplicationOutbox = (
             WHERE claimed.effect_id = candidate.effect_id
             RETURNING claimed.effect_id, claimed.effect_type, claimed.application_id,
               claimed.applicant_id, claimed.command_id, claimed.ordinal, claimed.attempts,
-              claimed.payload_json
+              claimed.payload_json, claimed.origin
           `;
           const row = rows[0];
           if (row === undefined) return undefined;
@@ -145,28 +150,53 @@ export const claimNextPublicApplicationOutbox = (
             request._tag !== row.effect_type ||
             request.applicationId !== row.application_id ||
             request.applicantId !== row.applicant_id ||
-            request.commandId !== row.command_id
+            request.commandId !== row.command_id ||
+            (row.origin === "ReturningAssistant"
+              ? request.origin !== "ReturningAssistant"
+              : request.origin !== undefined)
           ) {
             yield* quarantine(row.effect_id, "InvalidPublicApplicationEffectEnvelope");
             return undefined;
           }
-          const identities = yield* sql<CanonicalOutboxIdentityRow>`
-            SELECT applicant.email,
-              application.activation_digest AS application_activation_digest,
-              application.department_id,
-              receipt.application_id AS receipt_application_id,
-              audit.application_id AS audit_application_id,
-              audit.applicant_id AS audit_applicant_id
-            FROM admission_applicants AS applicant
-            INNER JOIN admission_applications AS application
-              ON application.applicant_id = applicant.applicant_id
-            INNER JOIN admission_application_command_receipts AS receipt
-              ON receipt.command_id = ${row.command_id}
-            INNER JOIN admission_application_audit AS audit
-              ON audit.command_id = receipt.command_id
-            WHERE applicant.applicant_id = ${row.applicant_id}
-              AND application.application_id = ${row.application_id}
-          `;
+          let identities: ReadonlyArray<CanonicalOutboxIdentityRow>;
+          if (row.origin === "ReturningAssistant") {
+            identities = yield* sql<CanonicalOutboxIdentityRow>`
+              SELECT applicant.email,
+                NULL::text AS application_activation_digest,
+                registration.department_id,
+                registration.application_id AS receipt_application_id,
+                registration.application_id AS audit_application_id,
+                registration.applicant_id AS audit_applicant_id,
+                registration.person_id AS linked_person_id
+              FROM admission_returning_command_receipts AS receipt
+              INNER JOIN admission_returning_registrations AS registration
+                ON registration.registration_id = receipt.registration_id
+              INNER JOIN admission_applicants AS applicant
+                ON applicant.applicant_id = registration.applicant_id
+              WHERE receipt.command_id = ${row.command_id}
+                AND registration.application_id = ${row.application_id}
+                AND registration.applicant_id = ${row.applicant_id}
+            `;
+          } else {
+            identities = yield* sql<CanonicalOutboxIdentityRow>`
+              SELECT applicant.email,
+                application.activation_digest AS application_activation_digest,
+                application.department_id,
+                receipt.application_id AS receipt_application_id,
+                audit.application_id AS audit_application_id,
+                audit.applicant_id AS audit_applicant_id,
+                NULL::text AS linked_person_id
+              FROM admission_applicants AS applicant
+              INNER JOIN admission_applications AS application
+                ON application.applicant_id = applicant.applicant_id
+              INNER JOIN admission_application_command_receipts AS receipt
+                ON receipt.command_id = ${row.command_id}
+              INNER JOIN admission_application_audit AS audit
+                ON audit.command_id = receipt.command_id
+              WHERE applicant.applicant_id = ${row.applicant_id}
+                AND application.application_id = ${row.application_id}
+            `;
+          }
           const identity = identities[0];
           if (identity === undefined) {
             yield* quarantine(row.effect_id, "InvalidPublicApplicationEffectAuthority");
@@ -175,7 +205,11 @@ export const claimNextPublicApplicationOutbox = (
           const transactionMatchesCanonicalState =
             identity.receipt_application_id === row.application_id &&
             identity.audit_application_id === row.application_id &&
-            identity.audit_applicant_id === row.applicant_id;
+            identity.audit_applicant_id === row.applicant_id &&
+            (row.origin !== "ReturningAssistant" ||
+              (identity.linked_person_id !== null &&
+                request.personId === identity.linked_person_id &&
+                request.origin === "ReturningAssistant"));
           const requestMatchesCanonicalState =
             request._tag === "SendApplicantActivationOrConfirmation"
               ? request.email === identity.email &&

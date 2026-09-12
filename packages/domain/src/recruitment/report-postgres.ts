@@ -94,20 +94,17 @@ export const readCompletedInterviewReport = (
           p.first_name AS "firstName", p.last_name AS "lastName",
           to_char(c.finalized_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "completedAt",
           c.recommendation,
-          CASE WHEN rr.application_id IS NULL THEN 'Unknown' ELSE 'Returning' END AS participation,
+          CASE WHEN EXISTS (
+            SELECT 1
+            FROM public.admission_returning_registrations AS returning_registration
+            WHERE returning_registration.application_id = i.application_id
+          ) THEN 'Returning' ELSE 'Unknown' END AS participation,
           c.explanatory_power AS "explanatoryPower", c.role_model AS "roleModel", c.suitability
         FROM public.recruitment_interviews i
         JOIN public.admission_applications a USING(application_id)
         JOIN public.admission_applicants p USING(applicant_id)
         JOIN public.recruitment_interview_conducts c USING(interview_id)
         LEFT JOIN public.applicant_account_links l USING(applicant_id)
-        LEFT JOIN LATERAL (
-          SELECT r.application_id
-          FROM public.admission_returning_registrations r
-          WHERE r.application_id=i.application_id
-          ORDER BY r.revision DESC
-          LIMIT 1
-        ) rr ON true
         WHERE a.department_id=${actor.departmentId} AND i.department_id=${actor.departmentId}
           AND a.admission_period_id=${query.admissionPeriodId}`;
             const candidateIds = new Set(candidates.map((row) => row.interviewId));

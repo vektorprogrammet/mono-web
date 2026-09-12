@@ -8,7 +8,10 @@ import {
   PublicApplicationEmailSchema,
   PublicApplicationIdSchema,
   type Applicant,
+  type ApplicantId,
   type PublicApplication,
+  type PublicApplicationCommandId,
+  type PublicApplicationId,
   type PublicApplicationSubmitInput,
   type SubmitPublicApplicationCommand,
 } from "./schema.js";
@@ -18,8 +21,10 @@ const EffectBase = {
   commandId: PublicApplicationCommandIdSchema,
   applicationId: PublicApplicationIdSchema,
   applicantId: ApplicantIdSchema,
+  origin: Schema.optional(Schema.Literal("ReturningAssistant")),
+  registrationId: Schema.optional(Schema.String),
+  personId: Schema.optional(Schema.String),
 };
-
 export const PublicApplicationEffectKindSchema = Schema.Literals([
   "SendApplicantActivationOrConfirmation",
   "CreateAdmissionSubscription",
@@ -40,7 +45,7 @@ export const PublicApplicationOutboxRequestSchema = Schema.TaggedUnion({
   },
   WriteApplicationAudit: {
     ...EffectBase,
-    action: Schema.Literals(["PublicApplicationSubmitted"]),
+    action: Schema.Literals(["PublicApplicationSubmitted", "ReturningAssistantRegistered"]),
   },
 });
 export type PublicApplicationOutboxRequest = typeof PublicApplicationOutboxRequestSchema.Type;
@@ -155,6 +160,55 @@ export const makePublicApplicationOutboxRequests = (
     action: "PublicApplicationSubmitted",
   };
   return [activation, subscription, audit];
+};
+
+export interface ReturningAssistantOutboxInput {
+  readonly commandId: PublicApplicationCommandId;
+  readonly applicationId: PublicApplicationId;
+  readonly applicantId: ApplicantId;
+  readonly email: string;
+  readonly departmentId: DepartmentId;
+  readonly registrationId: string;
+  readonly personId: string;
+}
+export const makeReturningAssistantOutboxRequests = (
+  input: ReturningAssistantOutboxInput,
+): ReadonlyArray<PublicApplicationOutboxRequest> => {
+  const shared = {
+    commandId: input.commandId,
+    applicationId: input.applicationId,
+    applicantId: input.applicantId,
+    origin: "ReturningAssistant" as const,
+    registrationId: input.registrationId,
+    personId: input.personId,
+  };
+  return [
+    {
+      _tag: "SendApplicantActivationOrConfirmation" as const,
+      effectId: PublicApplicationEffectIdSchema.make(
+        `returning-assistant:${input.registrationId}:confirmation`,
+      ),
+      ...shared,
+      email: input.email,
+    },
+    {
+      _tag: "CreateAdmissionSubscription" as const,
+      effectId: PublicApplicationEffectIdSchema.make(
+        `returning-assistant:${input.registrationId}:subscription`,
+      ),
+      ...shared,
+      email: input.email,
+      departmentId: input.departmentId,
+    },
+    {
+      _tag: "WriteApplicationAudit" as const,
+      effectId: PublicApplicationEffectIdSchema.make(
+        `returning-assistant:${input.registrationId}:audit`,
+      ),
+      ...shared,
+      action: "ReturningAssistantRegistered" as const,
+    },
+  ];
 };
 
 export const makeRecordingPublicApplicationEffectInterpreter =
