@@ -276,6 +276,17 @@ describe("Foldkit scheduling conduct view", () => {
     expect(cancelledControls.every((node) => hasAttribute(node, "Disabled", true))).toBe(true);
     expect(cancelledNodes.some((node) => node.tag === "select")).toBe(false);
   });
+  it("disables every conduct control while a successful detail refresh is pending", () => {
+    const pending = {
+      ...terminalModel("Completed"),
+      conduct: ConductData.Refreshing({ data: detailFor("Completed") }),
+    } satisfies ReadyModel;
+    const controls = descendants(view(pending, htmlBuilder) as unknown as RenderedNode).filter((node) =>
+      ["textarea", "input", "select"].includes(node.tag),
+    );
+    expect(controls).toHaveLength(7);
+    expect(controls.every((node) => hasAttribute(node, "Disabled", true))).toBe(true);
+  });
   it("associates the native text answer with its visible label and question legend", () => {
     const rendered = view(terminalModel("Completed"), htmlBuilder) as unknown as RenderedNode;
     const nodes = descendants(rendered);

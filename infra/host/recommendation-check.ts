@@ -386,7 +386,7 @@ try {
   );
   const historicalBefore = (
     await pool.query(
-      `SELECT to_jsonb(c) value FROM public.recruitment_interview_conducts c WHERE interview_id='interview-recommendation-history'`,
+      `SELECT to_jsonb(c)-'recommendation' value FROM public.recruitment_interview_conducts c WHERE interview_id='interview-recommendation-history'`,
     )
   ).rows[0].value;
   recordGate("previous-schema history fixture migrated");
