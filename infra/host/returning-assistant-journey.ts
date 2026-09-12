@@ -179,11 +179,20 @@ export const runReturningAssistantBrowserJourney = async ({
   await returning.getByLabel("Passord", { exact: true }).fill(person.password);
   await returning.getByRole("button", { name: "Logg inn", exact: true }).click();
   await returning.waitForURL(/\/dashboard\/tidligere-assistenter$/);
-  const form = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
-  await form.getByRole("combobox", { name: "Opptaksperiode" }).selectOption(admissionPeriodId);
-  await form.getByRole("combobox", { name: "Studieår" }).selectOption("2");
-  await form.getByLabel("Mandag").check();
-  await form.getByRole("combobox", { name: "Språk" }).selectOption("Norsk og engelsk");
+  let form: Locator;
+  try {
+    form = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
+    await form.getByRole("combobox", { name: "Opptaksperiode" }).selectOption(admissionPeriodId);
+    await form.getByRole("combobox", { name: "Studieår" }).selectOption("2");
+    await form.getByLabel("Mandag").check();
+    await form.getByRole("combobox", { name: "Språk" }).selectOption("Norsk og engelsk");
+  } catch (cause) {
+    const body = await returning.locator("body").innerText().catch(() => "unavailable");
+    throw new Error(
+      `returning route ${returning.url()} body: ${body.slice(0, 2000)}`,
+      { cause },
+    );
+  }
   const submit = form.getByRole("button", { name: "Registrer for semesteret" });
   let droppedResponse = false;
   let firstCommandKey: string | undefined;
