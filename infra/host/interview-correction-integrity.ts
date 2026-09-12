@@ -28,7 +28,7 @@ type DatabaseError = Readonly<{
 
 const freshId = (prefix: string) => `${prefix}-${randomBytes(12).toString("hex")}`;
 
-const queryRows = async (client: Pool | PoolClient, text: string, values: readonly unknown[] = []) =>
+const queryRows = async (client: Pool | PoolClient, text: string, values: unknown[] = []) =>
   (await client.query(text, values)).rows as Row[];
 
 const readSnapshot = async (pool: Pool, interviewId: string): Promise<PersistedSnapshot> => ({
@@ -84,14 +84,16 @@ const readCorrectionSeed = async (pool: Pool, interviewId: string): Promise<Corr
     [interviewId],
   );
   assert.equal(rows.length, 1, "the integrity helper requires an existing correction");
-  const row = rows[0];
+  const row = rows[0]!;
   assert.equal(typeof row.predecessorRevision, "number");
   assert.equal(typeof row.resultingRevision, "number");
   assert.ok(Array.isArray(row.answers), "the existing correction must contain answer JSON");
   assert.equal(typeof row.explanatoryPower, "number");
   assert.equal(typeof row.roleModel, "number");
   assert.equal(typeof row.suitability, "number");
-  assert.ok(row.recommendation === "Ja" || row.recommendation === "Kanskje" || row.recommendation === "Nei");
+  assert.ok(
+    row.recommendation === "Ja" || row.recommendation === "Kanskje" || row.recommendation === "Nei",
+  );
   assert.equal(typeof row.correctedByPersonId, "string");
   return row as unknown as CorrectionSeed;
 };
@@ -107,8 +109,8 @@ const readCommandIds = async (pool: Pool, interviewId: string) => {
     [interviewId],
   );
   assert.equal(rows.length, 1);
-  assert.equal(typeof rows[0].commandId, "string");
-  return rows[0].commandId as string;
+  assert.equal(typeof rows[0]!.commandId, "string");
+  return rows[0]!.commandId as string;
 };
 
 const assertRejectedAndUnchanged = async (
@@ -140,7 +142,11 @@ const assertRejectedAndUnchanged = async (
   if (expected.message !== undefined) {
     assert.match(String(failure.message), expected.message, `${label} hit the wrong rejection`);
   }
-  assert.deepEqual(await readSnapshot(pool, interviewId), before, `${label} changed persisted state`);
+  assert.deepEqual(
+    await readSnapshot(pool, interviewId),
+    before,
+    `${label} changed persisted state`,
+  );
 };
 
 const insertAssessment = async (
@@ -200,14 +206,17 @@ const insertReceipt = async (
     [commandId, interviewId, predecessorRevision, resultingRevision],
   );
 };
-export async function assertInterviewCorrectionIntegrity(pool: Pool, interviewId: string): Promise<void> {
+export async function assertInterviewCorrectionIntegrity(
+  pool: Pool,
+  interviewId: string,
+): Promise<void> {
   const seed = await readCorrectionSeed(pool, interviewId);
   const commandId = await readCommandIds(pool, interviewId);
   const currentRevision = seed.resultingRevision;
   const candidateRevision = currentRevision + 1;
   const baseline = await readSnapshot(pool, interviewId);
   assert.equal(baseline.aggregate.length, 1, "the corrected interview aggregate must exist");
-  assert.equal(baseline.aggregate[0].revision, currentRevision);
+  assert.equal(baseline.aggregate[0]!.revision, currentRevision);
   await assertRejectedAndUnchanged(
     pool,
     interviewId,
@@ -324,7 +333,14 @@ export async function assertInterviewCorrectionIntegrity(pool: Pool, interviewId
     async (client) => {
       const candidateCommandId = freshId("integrity-receipt");
       await alignAggregateForCandidate(client, interviewId, candidateRevision);
-      await insertAssessment(client, interviewId, seed, candidateCommandId, currentRevision, candidateRevision);
+      await insertAssessment(
+        client,
+        interviewId,
+        seed,
+        candidateCommandId,
+        currentRevision,
+        candidateRevision,
+      );
       await insertReceipt(
         client,
         candidateCommandId,
@@ -343,8 +359,21 @@ export async function assertInterviewCorrectionIntegrity(pool: Pool, interviewId
     async (client) => {
       const candidateCommandId = freshId("integrity-audit");
       await alignAggregateForCandidate(client, interviewId, candidateRevision);
-      await insertAssessment(client, interviewId, seed, candidateCommandId, currentRevision, candidateRevision);
-      await insertReceipt(client, candidateCommandId, interviewId, currentRevision, candidateRevision);
+      await insertAssessment(
+        client,
+        interviewId,
+        seed,
+        candidateCommandId,
+        currentRevision,
+        candidateRevision,
+      );
+      await insertReceipt(
+        client,
+        candidateCommandId,
+        interviewId,
+        currentRevision,
+        candidateRevision,
+      );
       await client.query(
         `INSERT INTO public.recruitment_interview_correction_audit
           (command_id, interview_id, actor_person_id, predecessor_revision,

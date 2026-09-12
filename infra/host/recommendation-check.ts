@@ -196,7 +196,7 @@ const readRequestText = async (request: IncomingMessage): Promise<string> => {
 
 const stringField = (value: unknown, key: string): string => {
   if (value === null || typeof value !== "object" || !(key in value)) return "";
-  const field = value[key];
+  const field = (value as Record<string, unknown>)[key];
   return typeof field === "string" ? field : "";
 };
 const startEffectReceiver = async (
@@ -584,8 +584,6 @@ try {
             now: () => new Date().toISOString(),
           });
           assert.equal(result._tag, "Delivered");
-          if (result._tag !== "Delivered")
-            throw new Error(`recruitment invitation delivery ${result._tag}`);
           const outbox = await pool.query(
             "SELECT status,attempts FROM public.recruitment_invitation_outbox WHERE effect_id=$1",
             [result.claim.effectId],
@@ -839,22 +837,31 @@ try {
         .map((entry) => entry.gate),
     );
     const reportGates = Array.isArray(reportEvidence?.gates) ? reportEvidence.gates : [];
-    const returningFalsifierManifest = [
-      ["anonymous", "anonymous-options"],
-      ["no-history/team-only", "no-placement-despite-affiliation"],
-      ["missing-linkedPerson", "missing-applicant-person-link"],
-      ["multiple-linkedPerson", "multiple-applicant-person-links"],
-      ["ambiguous-study-mapping", "ambiguous-study-mapping-structural-primary-key"],
-      ["invalid/inactive-study-mapping", "inactive-study-mapping"],
-      ["wrong-team", "cross-department-team"],
-      ["closed-period", "closed-period"],
+    const returningFalsifierManifest: Array<{
+      falsifier: string;
+      gate: string;
+      status: "observed" | "missing";
+    }> = (
       [
-        "retained inactive placement in different historical department/semester",
-        "retained-inactive-cross-department-placement",
-      ],
-      ["original-app-receipt-activation-conduct", "preserved-original-receipt-activation-conduct"],
-      ["new-period-no-new-interview", "new-period-no-new-interview"],
-    ].map(([falsifier, gate]) => ({
+        ["anonymous", "anonymous-options"],
+        ["no-history/team-only", "no-placement-despite-affiliation"],
+        ["missing-linkedPerson", "missing-applicant-person-link"],
+        ["multiple-linkedPerson", "multiple-applicant-person-links"],
+        ["ambiguous-study-mapping", "ambiguous-study-mapping-structural-primary-key"],
+        ["invalid/inactive-study-mapping", "inactive-study-mapping"],
+        ["wrong-team", "cross-department-team"],
+        ["closed-period", "closed-period"],
+        [
+          "retained inactive placement in different historical department/semester",
+          "retained-inactive-cross-department-placement",
+        ],
+        [
+          "original-app-receipt-activation-conduct",
+          "preserved-original-receipt-activation-conduct",
+        ],
+        ["new-period-no-new-interview", "new-period-no-new-interview"],
+      ] as const
+    ).map(([falsifier, gate]) => ({
       falsifier,
       gate,
       status: observedReturningGates.has(gate) ? "observed" : "missing",
@@ -1189,7 +1196,7 @@ try {
       ...correctionAttempts[0],
       phase: "retry",
     });
-    assert.equal(correctionAttempts[0].fetchedStatus, 200);
+    assert.equal(correctionAttempts[0]!.fetchedStatus, 200);
     await page.locator("#interviewer-recommendation").waitFor({ state: "visible" });
     await page.unroute("**/recruitment", correctionRoute);
     await page.reload();

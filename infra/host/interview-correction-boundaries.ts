@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 
-
 export type InterviewCorrectionReplayRequest = Readonly<{
   key: string;
   etag: string;
@@ -86,7 +85,11 @@ export async function assertInterviewCorrectionBoundaries(
       ORDER BY i.interview_id`,
     [[interviewId, selfLinkRaceInterviewId]],
   );
-  assert.equal(identityRows.rows.length, 2, "correction fixtures must expose primary and race interviews");
+  assert.equal(
+    identityRows.rows.length,
+    2,
+    "correction fixtures must expose primary and race interviews",
+  );
   const identityById = new Map(
     identityRows.rows.map((row) => [row.interviewId as string, row as Row]),
   );
@@ -366,14 +369,18 @@ export async function assertInterviewCorrectionBoundaries(
   );
   record("wrong interviewer assignment denies detail and correction");
 
-  record("native authority models an assigned interviewer only; no synthetic unassigned or co-interviewer role is introduced");
-  const originalMembership = (await readRows(
-    `SELECT membership_id, person_id, team_id, deleted_team_name, start_at, end_at,
+  record(
+    "native authority models an assigned interviewer only; no synthetic unassigned or co-interviewer role is introduced",
+  );
+  const originalMembership = (
+    await readRows(
+      `SELECT membership_id, person_id, team_id, deleted_team_name, start_at, end_at,
             position_id, is_team_leader, is_suspended, revision
        FROM public.organization_memberships
       WHERE membership_id=$1`,
-    [membershipId],
-  ))[0];
+      [membershipId],
+    )
+  )[0];
   assert.ok(originalMembership);
   await withMutation(
     (client) =>
@@ -455,24 +462,33 @@ export async function assertInterviewCorrectionBoundaries(
     },
     () => denied("revoked-credential", 401, cookie, initial.body, initial.etag),
   );
-  record("actual actor-session deletion denies detail and correction, then restores exact session rows");
+  record(
+    "actual actor-session deletion denies detail and correction, then restores exact session rows",
+  );
 
-  const originalDepartment = (await readRows(
-    `SELECT department_id, name, short_name, email, address, city, latitude,
+  const originalDepartment = (
+    await readRows(
+      `SELECT department_id, name, short_name, email, address, city, latitude,
             longitude, slack_channel, logo_path, active, revision
        FROM public.organization_departments
       WHERE department_id=$1`,
-    [identity.departmentId],
-  ))[0];
+      [identity.departmentId],
+    )
+  )[0];
   assert.ok(originalDepartment);
   await withMutation(
     (client) =>
       client
-        .query(`UPDATE public.organization_departments SET active=false WHERE department_id=$1`, [identity.departmentId])
+        .query(`UPDATE public.organization_departments SET active=false WHERE department_id=$1`, [
+          identity.departmentId,
+        ])
         .then(() => undefined),
     (client) =>
       client
-        .query(`UPDATE public.organization_departments SET active=$1 WHERE department_id=$2`, [originalDepartment.active, identity.departmentId])
+        .query(`UPDATE public.organization_departments SET active=$1 WHERE department_id=$2`, [
+          originalDepartment.active,
+          identity.departmentId,
+        ])
         .then(() => undefined),
     () => denied("inactive-department", 403, cookie, initial.body, initial.etag),
   );
@@ -481,22 +497,21 @@ export async function assertInterviewCorrectionBoundaries(
   await withMutation(
     (client) =>
       client
-        .query(
-          `UPDATE public.recruitment_interviews SET department_id=$1 WHERE interview_id=$2`,
-          [differentDepartment, interviewId],
-        )
+        .query(`UPDATE public.recruitment_interviews SET department_id=$1 WHERE interview_id=$2`, [
+          differentDepartment,
+          interviewId,
+        ])
         .then(() => undefined),
     (client) =>
       client
-        .query(
-          `UPDATE public.recruitment_interviews SET department_id=$1 WHERE interview_id=$2`,
-          [originalInterview.departmentId, interviewId],
-        )
+        .query(`UPDATE public.recruitment_interviews SET department_id=$1 WHERE interview_id=$2`, [
+          originalInterview.departmentId,
+          interviewId,
+        ])
         .then(() => undefined),
     () => denied("wrong-department", 403, cookie, initial.body, initial.etag),
   );
   record("wrong department denies detail and correction");
-
 
   const detailFor = async (id: string): Promise<{ body: Detail; etag: string }> => {
     const response = await get(id);
@@ -609,12 +624,17 @@ export async function assertInterviewCorrectionBoundaries(
     await locker.query("ROLLBACK").catch(() => undefined);
     locker.release();
   }
-  record("genuine accepted self-link fixture correction is denied or transaction-conflicted after committed self-link; fresh read and exact replay deny");
+  record(
+    "genuine accepted self-link fixture correction is denied or transaction-conflicted after committed self-link; fresh read and exact replay deny",
+  );
 
   const current = await detail();
   const currentPayload = validPayload(current.body);
   const currentAnswers = currentPayload.answers;
-  assert.ok(Array.isArray(currentAnswers) && currentAnswers.length >= 2, "invalid answer probes need two answers");
+  assert.ok(
+    Array.isArray(currentAnswers) && currentAnswers.length >= 2,
+    "invalid answer probes need two answers",
+  );
   const answerRows = currentAnswers as ReadonlyArray<Readonly<Record<string, unknown>>>;
   const invalidCases: ReadonlyArray<readonly [string, unknown]> = [
     ["malformed-json", "{"],
@@ -632,7 +652,7 @@ export async function assertInterviewCorrectionBoundaries(
       {
         ...currentPayload,
         answers: answerRows.map((answer, index) =>
-          index === 1 ? { ...answer, questionId: answerRows[0].questionId } : answer,
+          index === 1 ? { ...answer, questionId: answerRows[0]!.questionId } : answer,
         ),
       },
     ],
@@ -676,7 +696,9 @@ export async function assertInterviewCorrectionBoundaries(
     assert.equal(response.status, name === "malformed-json" ? 400 : 422, await response.text());
     await assertSnapshot(before, `invalid ${name}`);
   }
-  record("malformed JSON, missing answer/question entry, and strict schema failures map to 400/422; each leaves exact state unchanged");
+  record(
+    "malformed JSON, missing answer/question entry, and strict schema failures map to 400/422; each leaves exact state unchanged",
+  );
   const sameKeyBefore = await snapshot();
   const conflictingPayload = {
     ...currentPayload,
@@ -691,7 +713,9 @@ export async function assertInterviewCorrectionBoundaries(
   status("same-key-different-payload", sameKeyResponse.status);
   assert.equal(sameKeyResponse.status, 409, await sameKeyResponse.text());
   await assertSnapshot(sameKeyBefore, "same-key different payload");
-  record("same idempotency key with a different payload returns digest conflict without any owned write");
+  record(
+    "same idempotency key with a different payload returns digest conflict without any owned write",
+  );
   const rollbackSuffix = randomBytes(8).toString("hex");
   const rollbackSequence = `test_correction_failure_${rollbackSuffix}_seq`;
   const rollbackControl = `test_correction_failure_${rollbackSuffix}_control`;
@@ -754,7 +778,10 @@ export async function assertInterviewCorrectionBoundaries(
         freshId(`correction-boundary-rollback-${name}`),
       );
       status(`rollback:${name}`, response.status);
-      const failureBody = (await response.json()) as { readonly code?: unknown; readonly status?: unknown };
+      const failureBody = (await response.json()) as {
+        readonly code?: unknown;
+        readonly status?: unknown;
+      };
       assert.equal(response.status, 503, JSON.stringify(failureBody));
       assert.equal(failureBody.code, "dependency.unavailable", JSON.stringify(failureBody));
       const marker = await pool.query(
@@ -768,7 +795,9 @@ export async function assertInterviewCorrectionBoundaries(
       );
       await assertSnapshot(before, `rollback after ${name}`);
     }
-    record("each aggregate, assessment, domain-receipt, and audit failure trigger fired and rolled back all domain and native HTTP receipt rows");
+    record(
+      "each aggregate, assessment, domain-receipt, and audit failure trigger fired and rolled back all domain and native HTTP receipt rows",
+    );
   } finally {
     const cleanup = await pool.connect();
     try {
@@ -817,6 +846,8 @@ export async function assertInterviewCorrectionBoundaries(
   const differentRead = await get(interviewId);
   status("different-linked-person:read", differentRead.status);
   assert.equal(differentRead.status, 200, await differentRead.text());
-  record("different-person applicant link is a committed teardown-owned fixture and remains readable without correction writes");
+  record(
+    "different-person applicant link is a committed teardown-owned fixture and remains readable without correction writes",
+  );
   return { gates, statuses };
 }

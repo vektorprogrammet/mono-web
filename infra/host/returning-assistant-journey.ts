@@ -2214,7 +2214,7 @@ export const runReturningAssistantBrowserJourney = async ({
       });
       const nextReportRows = await reportRows(nextAdmissionPeriodId);
       assert.equal(nextReportRows.length, 1);
-      const nextRita = nextReportRows[0];
+      const nextRita = nextReportRows[0]!;
       assert.match(nextRita, /Rita Tilbake/u);
       assert.match(nextRita, /Tilbakevendende/u);
       assert.match(nextRita, /Kanskje/u);
