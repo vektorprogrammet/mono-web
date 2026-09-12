@@ -23,6 +23,13 @@ const fieldOfStudyId = "field-native-conduct-0063";
 const applicantId = "applicant-returning-0104";
 const applicationId = "application-returning-0104";
 const invitationId = "invitation-returning-0104";
+const originalPublicCommandId = "public-original-returning-0104";
+const originalActivationDigest = createHash("sha256")
+  .update("historical-public-activation-returning-0104")
+  .digest("hex");
+const originalPublicCommandDigest = createHash("sha256")
+  .update(originalPublicCommandId)
+  .digest("hex");
 const placementId = `placement-${"f".repeat(64)}`;
 const teamId = "team-native-conduct-0063";
 const foreignDepartmentId = "department-returning-foreign-0104";
@@ -156,13 +163,41 @@ export const seedReturningAssistant = async ({
     );
     await seedQuery("applicant", 
       `INSERT INTO public.admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study,activation_digest)
-       VALUES($1,'rita.returning@example.invalid','rita.returning@example.invalid','Rita','Tilbake','90000104',0,$2,2,NULL) ON CONFLICT DO NOTHING`,
-      [applicantId, fieldOfStudyId],
+       VALUES($1,'rita.returning@example.invalid','rita.returning@example.invalid','Rita','Tilbake','90000104',0,$2,2,$3) ON CONFLICT DO NOTHING`,
+      [applicantId, fieldOfStudyId, originalActivationDigest],
     );
     await seedQuery("application", 
       `INSERT INTO public.admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at,revision)
        VALUES($1,$2,$3,$4,$5,2,'2026-08-20T10:00:00Z',0) ON CONFLICT DO NOTHING`,
       [applicationId, applicantId, admissionPeriodId, departmentId, fieldOfStudyId],
+    );
+    await seedQuery(
+      "original public receipt",
+      `INSERT INTO public.admission_application_command_receipts(
+         command_id,command_sha256,command_json,observation_json,application_id,committed_at
+       ) VALUES(
+         $1,$2,
+         jsonb_build_object('commandId',$1,'applicantId',$3,'admissionPeriodId',$4,'departmentId',$5,'fieldOfStudyId',$6,'yearOfStudy',2),
+         jsonb_build_object('_tag','PublicApplicationSubmitted','applicationId',$7,'revision',0),
+         $7,'2026-08-20T10:00:00Z'
+       ) ON CONFLICT DO NOTHING`,
+      [
+        originalPublicCommandId,
+        originalPublicCommandDigest,
+        applicantId,
+        admissionPeriodId,
+        departmentId,
+        fieldOfStudyId,
+        applicationId,
+      ],
+    );
+    await seedQuery(
+      "original public audit",
+      `INSERT INTO public.admission_application_audit(
+         command_id,application_id,applicant_id,action,application_revision,occurred_at
+       ) VALUES($1,$2,$3,'PublicApplicationSubmitted',0,'2026-08-20T10:00:00Z')
+       ON CONFLICT DO NOTHING`,
+      [originalPublicCommandId, applicationId, applicantId],
     );
     await seedQuery("invitation", 
       `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at)
@@ -588,18 +623,32 @@ export const runReturningAssistantBrowserJourney = async ({
          FROM public.admission_application_command_receipts receipt
          WHERE receipt.application_id=application.application_id
        ), '[]'::jsonb) AS public_receipts,
-       COALESCE((
-         SELECT jsonb_agg(to_jsonb(conduct) ORDER BY conduct.interview_id)
-         FROM public.recruitment_interviews interview
-         JOIN public.recruitment_interview_conducts conduct USING(interview_id)
-         WHERE interview.application_id=application.application_id
-       ), '[]'::jsonb) AS conducts
+      COALESCE((
+        SELECT jsonb_agg(to_jsonb(audit) ORDER BY audit.command_id)
+        FROM public.admission_application_audit audit
+        WHERE audit.application_id=application.application_id
+      ), '[]'::jsonb) AS public_audit,
+      COALESCE((
+        SELECT jsonb_agg(to_jsonb(conduct) ORDER BY conduct.interview_id)
+        FROM public.recruitment_interviews interview
+        JOIN public.recruitment_interview_conducts conduct USING(interview_id)
+        WHERE interview.application_id=application.application_id
+      ), '[]'::jsonb) AS conducts
      FROM public.admission_applications application
      JOIN public.admission_applicants applicant USING(applicant_id)
      WHERE application.application_id=$1`,
     [applicationId],
   );
   assert.equal(originalCustody.rows.length, 1);
+  const originalCustodyRow = originalCustody.rows[0] as {
+    activation_digest: string;
+    public_receipts: ReadonlyArray<unknown>;
+    public_audit: ReadonlyArray<unknown>;
+  };
+  assert.notEqual(originalCustodyRow.activation_digest, null);
+  assert.notEqual(originalCustodyRow.activation_digest, "");
+  assert.ok(originalCustodyRow.public_receipts.length > 0);
+  assert.ok(originalCustodyRow.public_audit.length > 0);
   let form = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
   stage?.("returning:form");
   try {
@@ -1039,17 +1088,25 @@ export const runReturningAssistantBrowserJourney = async ({
          FROM public.admission_application_command_receipts receipt
          WHERE receipt.application_id=application.application_id
        ), '[]'::jsonb) AS public_receipts,
-       COALESCE((
-         SELECT jsonb_agg(to_jsonb(conduct) ORDER BY conduct.interview_id)
-         FROM public.recruitment_interviews interview
-         JOIN public.recruitment_interview_conducts conduct USING(interview_id)
-         WHERE interview.application_id=application.application_id
-       ), '[]'::jsonb) AS conducts
+      COALESCE((
+        SELECT jsonb_agg(to_jsonb(audit) ORDER BY audit.command_id)
+        FROM public.admission_application_audit audit
+        WHERE audit.application_id=application.application_id
+      ), '[]'::jsonb) AS public_audit,
+      COALESCE((
+        SELECT jsonb_agg(to_jsonb(conduct) ORDER BY conduct.interview_id)
+        FROM public.recruitment_interviews interview
+        JOIN public.recruitment_interview_conducts conduct USING(interview_id)
+        WHERE interview.application_id=application.application_id
+      ), '[]'::jsonb) AS conducts
      FROM public.admission_applications application
      JOIN public.admission_applicants applicant USING(applicant_id)
      WHERE application.application_id=$1`,
     [applicationId],
   );
+  assert.equal(finalCustody.rows[0]?.activation_digest, originalActivationDigest);
+  assert.ok((finalCustody.rows[0]?.public_receipts as ReadonlyArray<unknown>).length > 0);
+  assert.ok((finalCustody.rows[0]?.public_audit as ReadonlyArray<unknown>).length > 0);
   assert.deepEqual(finalCustody.rows, originalCustody.rows);
   trace.push({ phase: "negative-gate", gate: "preserved-original-receipt-activation-conduct", status: "observed" });
   const nextInterviews = await pool.query(
