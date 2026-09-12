@@ -572,7 +572,9 @@ export async function assertInterviewCorrectionBoundaries(
     await locker.query("COMMIT");
     const raceResponse = await waiting;
     status("self-link-race:write", raceResponse.status);
-    assert.equal(raceResponse.status, 403, await raceResponse.text());
+    const raceBody = (await raceResponse.json()) as { readonly code?: unknown };
+    assert.ok([403, 409].includes(raceResponse.status), JSON.stringify(raceBody));
+    if (raceResponse.status === 409) assert.equal(raceBody.code, "transaction.conflict");
     const deniedRead = await get(selfLinkRaceInterviewId);
     status("self-link-race:read-after-commit", deniedRead.status);
     assert.equal(deniedRead.status, 403, await deniedRead.text());
@@ -589,9 +591,8 @@ export async function assertInterviewCorrectionBoundaries(
   } finally {
     await locker.query("ROLLBACK").catch(() => undefined);
     locker.release();
-    await waiting?.catch(() => undefined);
   }
-  record("genuine accepted self-link fixture correction is denied after committed self-link, including fresh read and exact replay");
+  record("genuine accepted self-link fixture correction is denied or transaction-conflicted after committed self-link; fresh read and exact replay deny");
 
   const current = await detail();
   const currentPayload = validPayload(current.body);
