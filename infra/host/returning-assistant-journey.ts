@@ -1145,7 +1145,14 @@ export const runReturningAssistantBrowserJourney = async ({
       },
     }),
   ]);
-  assert.deepEqual(concurrent.map((response) => response.status()).sort((a, b) => a - b), [201, 412]);
+  const concurrentDetails = await Promise.all(
+    concurrent.map(async (response) => ({ status: response.status(), body: await response.text() })),
+  );
+  assert.deepEqual(
+    concurrentDetails.map(({ status }) => status).sort((left, right) => left - right),
+    [201, 412],
+    JSON.stringify(concurrentDetails),
+  );
   const concurrentRows = await pool.query(
     "SELECT revision FROM public.admission_returning_registrations WHERE person_id=$1 AND admission_period_id=$2 ORDER BY revision",
     [person.personId, admissionPeriodId],
