@@ -957,7 +957,7 @@ try {
     const afterFirst = await (await get(correctionId)).json();
     assert.equal(afterFirst.recommendation, "Ja");
     assert.deepEqual(afterFirst.answers, [
-      { questionId: "interview-schema-native-conduct-0063-q0", answer: "Jeg liker å bygge gode løsninger sammen med andre." },
+      { questionId: "interview-schema-native-conduct-0063-q0", answer: "Jeg vil forklare matematikk tydelig." },
       { questionId: "interview-schema-native-conduct-0063-q1", answer: "Teknologi" },
       { questionId: "interview-schema-native-conduct-0063-q2", answer: "Praksis" },
       {
