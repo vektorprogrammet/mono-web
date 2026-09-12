@@ -15,15 +15,20 @@ import {
   type PublicApplicationSubmitInput,
   type SubmitPublicApplicationCommand,
 } from "./schema.js";
-import { DepartmentId } from "../organization/schema.js";
-const EffectBase = {
+import { DepartmentId, PersonId } from "../organization/schema.js";
+import { ReturningRegistrationIdSchema } from "./returning.js";
+
+const PublicEffectBase = {
   effectId: PublicApplicationEffectIdSchema,
   commandId: PublicApplicationCommandIdSchema,
   applicationId: PublicApplicationIdSchema,
   applicantId: ApplicantIdSchema,
-  origin: Schema.optional(Schema.Literal("ReturningAssistant")),
-  registrationId: Schema.optional(Schema.String),
-  personId: Schema.optional(Schema.String),
+};
+const ReturningEffectBase = {
+  ...PublicEffectBase,
+  origin: Schema.Literal("ReturningAssistant"),
+  registrationId: ReturningRegistrationIdSchema,
+  personId: PersonId,
 };
 export const PublicApplicationEffectKindSchema = Schema.Literals([
   "SendApplicantActivationOrConfirmation",
@@ -32,22 +37,41 @@ export const PublicApplicationEffectKindSchema = Schema.Literals([
 ]);
 export type PublicApplicationEffectKind = typeof PublicApplicationEffectKindSchema.Type;
 
-export const PublicApplicationOutboxRequestSchema = Schema.TaggedUnion({
+const PublicApplicationOutboxRequestSchemaInternal = Schema.TaggedUnion({
   SendApplicantActivationOrConfirmation: {
-    ...EffectBase,
+    ...PublicEffectBase,
     email: PublicApplicationEmailSchema,
     activationToken: Schema.optional(PublicApplicationActivationTokenSchema),
   },
   CreateAdmissionSubscription: {
-    ...EffectBase,
+    ...PublicEffectBase,
     email: PublicApplicationEmailSchema,
     departmentId: DepartmentId,
   },
   WriteApplicationAudit: {
-    ...EffectBase,
-    action: Schema.Literals(["PublicApplicationSubmitted", "ReturningAssistantRegistered"]),
+    ...PublicEffectBase,
+    action: Schema.Literal("PublicApplicationSubmitted"),
   },
 });
+const ReturningAssistantOutboxRequestSchema = Schema.TaggedUnion({
+  SendApplicantActivationOrConfirmation: {
+    ...ReturningEffectBase,
+    email: PublicApplicationEmailSchema,
+  },
+  CreateAdmissionSubscription: {
+    ...ReturningEffectBase,
+    email: PublicApplicationEmailSchema,
+    departmentId: DepartmentId,
+  },
+  WriteApplicationAudit: {
+    ...ReturningEffectBase,
+    action: Schema.Literal("ReturningAssistantRegistered"),
+  },
+});
+export const PublicApplicationOutboxRequestSchema = Schema.Union([
+  PublicApplicationOutboxRequestSchemaInternal,
+  ReturningAssistantOutboxRequestSchema,
+]);
 export type PublicApplicationOutboxRequest = typeof PublicApplicationOutboxRequestSchema.Type;
 
 export const PublicApplicationEffectEvidenceSchema = Schema.Struct({
@@ -169,7 +193,7 @@ export interface ReturningAssistantOutboxInput {
   readonly email: string;
   readonly departmentId: DepartmentId;
   readonly registrationId: string;
-  readonly personId: string;
+  readonly personId: PersonId;
 }
 export const makeReturningAssistantOutboxRequests = (
   input: ReturningAssistantOutboxInput,
@@ -179,7 +203,7 @@ export const makeReturningAssistantOutboxRequests = (
     applicationId: input.applicationId,
     applicantId: input.applicantId,
     origin: "ReturningAssistant" as const,
-    registrationId: input.registrationId,
+    registrationId: ReturningRegistrationIdSchema.make(input.registrationId),
     personId: input.personId,
   };
   return [

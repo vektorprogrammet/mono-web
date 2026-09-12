@@ -46,6 +46,7 @@ export type ReturningAssistantRegistrationInput = typeof ReturningAssistantRegis
 export const ReturningAssistantPeriodOptionSchema = Schema.Struct({
   period: AdmissionPeriodProjectionSchema,
   semesterName: Schema.String,
+  currentRevision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
 });
 export type ReturningAssistantPeriodOption = typeof ReturningAssistantPeriodOptionSchema.Type;
 export const ReturningAssistantOptionsSchema = Schema.Struct({
@@ -55,7 +56,6 @@ export const ReturningAssistantOptionsSchema = Schema.Struct({
   fieldOfStudyId: AdmissionFieldOfStudyId,
   periods: Schema.Array(ReturningAssistantPeriodOptionSchema),
   teams: Schema.Array(Schema.Struct({ teamId: TeamId, name: Schema.String })),
-  currentRevision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
 });
 export type ReturningAssistantOptions = typeof ReturningAssistantOptionsSchema.Type;
 
@@ -108,9 +108,8 @@ export type ReturningAssistantError =
   | ReturningAssistantPersistenceError;
 
 export interface ReturningAssistantShape {
-  readonly readOptions: (input: { readonly personId: PersonId; readonly now: string }) => Effect.Effect<ReturningAssistantOptions, ReturningAssistantError>;
-  readonly register: (input: unknown, context: { readonly personId: PersonId; readonly now: string }) => Effect.Effect<{
-    readonly observation: ReturningAssistantObservation;
+  readonly readOptions: (input: { readonly personId: PersonId; readonly now: string | (() => string) }) => Effect.Effect<ReturningAssistantOptions, ReturningAssistantError>;
+  readonly register: (input: unknown, context: { readonly personId: PersonId; readonly now: string | (() => string) }) => Effect.Effect<{
     readonly replayed: boolean;
     readonly outboxCount: number;
   }, ReturningAssistantError>;

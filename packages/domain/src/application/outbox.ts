@@ -141,6 +141,7 @@ export const claimNextPublicApplicationOutbox = (
             return undefined;
           }
           const request = decoded.request;
+          const requestOrigin = "origin" in request ? request.origin : undefined;
           const effectTypeMatchesOrdinal =
             (row.ordinal === 0 && row.effect_type === "SendApplicantActivationOrConfirmation") ||
             (row.ordinal === 1 && row.effect_type === "CreateAdmissionSubscription") ||
@@ -153,8 +154,8 @@ export const claimNextPublicApplicationOutbox = (
             request.applicantId !== row.applicant_id ||
             request.commandId !== row.command_id ||
             (row.origin === "ReturningAssistant"
-              ? request.origin !== "ReturningAssistant"
-              : request.origin !== undefined)
+              ? requestOrigin !== "ReturningAssistant"
+              : requestOrigin !== undefined)
           ) {
             yield* quarantine(row.effect_id, "InvalidPublicApplicationEffectEnvelope");
             return undefined;
@@ -206,6 +207,8 @@ export const claimNextPublicApplicationOutbox = (
             yield* quarantine(row.effect_id, "InvalidPublicApplicationEffectAuthority");
             return undefined;
           }
+          const requestPersonId = "personId" in request ? request.personId : undefined;
+          const requestRegistrationId = "registrationId" in request ? request.registrationId : undefined;
           const transactionMatchesCanonicalState =
             identity.receipt_application_id === row.application_id &&
             identity.audit_application_id === row.application_id &&
@@ -213,13 +216,13 @@ export const claimNextPublicApplicationOutbox = (
             (row.origin !== "ReturningAssistant" ||
               (identity.linked_person_id !== null &&
                 identity.linked_registration_id !== null &&
-                request.personId === identity.linked_person_id &&
-                request.registrationId === identity.linked_registration_id &&
-                request.origin === "ReturningAssistant"));
+                requestPersonId === identity.linked_person_id &&
+                requestRegistrationId === identity.linked_registration_id &&
+                requestOrigin === "ReturningAssistant"));
           const requestMatchesCanonicalState =
             request._tag === "SendApplicantActivationOrConfirmation"
               ? request.email === identity.email &&
-                (request.activationToken === undefined
+                (!("activationToken" in request) || request.activationToken === undefined
                   ? identity.application_activation_digest === null
                   : publicApplicationActivationDigest(request.activationToken) ===
                     identity.application_activation_digest)
