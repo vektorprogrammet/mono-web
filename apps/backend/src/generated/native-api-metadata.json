@@ -258,7 +258,10 @@
         "404",
         "409",
         "412",
+        "413",
+        "415",
         "422",
+        "500",
         "503"
       ],
       "summary": "Register returning assistant",

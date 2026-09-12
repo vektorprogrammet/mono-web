@@ -115,9 +115,9 @@ export const seedReturningAssistant = async ({
        VALUES($1,$2,$3,$4,$5,'Monday',4,'1',true,1) ON CONFLICT DO NOTHING`,
       [placementId, person.personId, departmentId, semesterId, school.rows[0].school_id],
     );
-    await seedQuery("placement audit", 
+    await seedQuery("placement audit",
       `INSERT INTO public.assistant_placement_audit(placement_id,revision,actor_person_id,occurred_at,action,snapshot)
-       VALUES($1,1,$2,'2026-01-04T00:00:00Z','Create',jsonb_build_object('placementId',$1,'personId',$2,'departmentId',$3,'semesterId',$4,'schoolId',$5,'day','Monday','workdays',4,'block','1','active',true,'revision',1)) ON CONFLICT DO NOTHING`,
+       VALUES($1::text,1,$2::text,'2026-01-04T00:00:00Z','Create',jsonb_build_object('placementId',$1::text,'personId',$2::text,'departmentId',$3::text,'semesterId',$4::text,'schoolId',$5::text,'day','Monday','workdays',4,'block','1','active',true,'revision',1)) ON CONFLICT DO NOTHING`,
       [placementId, person.personId, departmentId, semesterId, school.rows[0].school_id],
     );
     await seedQuery("interview", 

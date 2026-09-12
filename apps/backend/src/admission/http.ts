@@ -279,6 +279,10 @@ const registerReturningAssistant = async (
   input: AdmissionApiHttpOptions,
 ): Promise<Response> => {
   requireNoQuery(request);
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!/^application\/json(?:\s*;|$)/iu.test(contentType)) {
+    throw new HttpSemanticFailure("media-type.unsupported", 415);
+  }
   const payload = await decodeJson(
     request,
     ReturningAssistantRegistrationInputSchema,
