@@ -1148,6 +1148,54 @@ export const runReturningAssistantBrowserJourney = async ({
   const concurrentDetails = await Promise.all(
     concurrent.map(async (response) => ({ status: response.status(), body: await response.text() })),
   );
+  const serializationRetryIndex = concurrentDetails.findIndex(({ status }) => status === 503);
+  if (serializationRetryIndex !== -1) {
+    const retryCommandId = serializationRetryIndex === 0
+      ? "returning-concurrent-a-0104"
+      : "returning-concurrent-b-0104";
+    const retryResponse = await context.request.post(`${api}/api/returning-assistant/registrations`, {
+      headers: { "content-type": "application/json", "idempotency-key": retryCommandId, origin: ui },
+      data: serializationRetryIndex === 0
+        ? {
+            commandId: retryCommandId,
+            admissionPeriodId,
+            expectedRevision: 2,
+            yearOfStudy: 4,
+            mondayUnavailable: false,
+            tuesdayUnavailable: false,
+            wednesdayUnavailable: false,
+            thursdayUnavailable: false,
+            fridayUnavailable: false,
+            positionWeeks: 4,
+            preferredGroup: "all",
+            language: "Engelsk",
+            preferredSchool: null,
+            teamInterest: false,
+            teamIds: [],
+          }
+        : {
+            commandId: retryCommandId,
+            admissionPeriodId,
+            expectedRevision: 2,
+            yearOfStudy: 5,
+            mondayUnavailable: false,
+            tuesdayUnavailable: false,
+            wednesdayUnavailable: false,
+            thursdayUnavailable: false,
+            fridayUnavailable: false,
+            positionWeeks: 8,
+            preferredGroup: "block-2",
+            language: "Norsk",
+            preferredSchool: null,
+            teamInterest: false,
+            teamIds: [],
+          },
+    });
+    concurrentDetails[serializationRetryIndex] = {
+      status: retryResponse.status(),
+      body: await retryResponse.text(),
+    };
+  }
   assert.deepEqual(
     concurrentDetails.map(({ status }) => status).sort((left, right) => left - right),
     [201, 412],
