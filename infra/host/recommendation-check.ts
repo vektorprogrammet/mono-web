@@ -1929,10 +1929,10 @@ try {
   }
   await page.reload();
   await open(page, "history Recommendation");
-  assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "");
+  assert.equal(await page.locator("#interviewer-recommendation").inputValue(), finalDetail.recommendation);
   assert.equal(
     await page.locator("#interviewer-recommendation option:checked").textContent(),
-    "Ikke registrert",
+    finalDetail.recommendation,
   );
   await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "historical-desktop.png") });
   await auditPage(page, "historical-desktop");
