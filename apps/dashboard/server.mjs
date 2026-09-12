@@ -42,8 +42,10 @@ const server = Bun.serve({
     }
     try {
       return await handler(request);
-    } catch {
-      process.stderr.write("Dashboard request failed\n");
+    } catch (cause) {
+      process.stderr.write(
+        `Dashboard request failed: ${cause instanceof Error ? cause.stack ?? cause.message : String(cause)}\n`,
+      );
       return new Response("Tjenesten er midlertidig utilgjengelig.", {
         status: 503,
         headers: { "cache-control": "no-store" },
