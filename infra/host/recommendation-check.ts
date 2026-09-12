@@ -999,7 +999,7 @@ try {
       expectedRevision: detail.revision,
       answers: [
         { questionId: "interview-schema-native-conduct-0063-q0", answer: "API correction answer" },
-        { questionId: "interview-schema-native-conduct-0063-q1", answer: ["Teknologi"] },
+        { questionId: "interview-schema-native-conduct-0063-q1", answer: "Teknologi" },
         { questionId: "interview-schema-native-conduct-0063-q2", answer: "Praksis" },
         { questionId: "interview-schema-native-conduct-0063-q3", answer: ["Samarbeid"] },
       ],
