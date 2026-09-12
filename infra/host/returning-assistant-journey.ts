@@ -1103,6 +1103,54 @@ export const runReturningAssistantBrowserJourney = async ({
     recommendation: "Ja",
     total: 24,
   });
+  const concurrent = await Promise.all([
+    context.request.post(`${api}/api/returning-assistant/registrations`, {
+      headers: { "content-type": "application/json", "idempotency-key": "returning-concurrent-a-0104", origin: ui },
+      data: {
+        commandId: "returning-concurrent-a-0104",
+        admissionPeriodId,
+        expectedRevision: 2,
+        yearOfStudy: 4,
+        mondayUnavailable: false,
+        tuesdayUnavailable: false,
+        wednesdayUnavailable: false,
+        thursdayUnavailable: false,
+        fridayUnavailable: false,
+        positionWeeks: 4,
+        preferredGroup: "all",
+        language: "Engelsk",
+        preferredSchool: null,
+        teamInterest: false,
+        teamIds: [],
+      },
+    }),
+    context.request.post(`${api}/api/returning-assistant/registrations`, {
+      headers: { "content-type": "application/json", "idempotency-key": "returning-concurrent-b-0104", origin: ui },
+      data: {
+        commandId: "returning-concurrent-b-0104",
+        admissionPeriodId,
+        expectedRevision: 2,
+        yearOfStudy: 5,
+        mondayUnavailable: false,
+        tuesdayUnavailable: false,
+        wednesdayUnavailable: false,
+        thursdayUnavailable: false,
+        fridayUnavailable: false,
+        positionWeeks: 8,
+        preferredGroup: "block-2",
+        language: "Norsk",
+        preferredSchool: null,
+        teamInterest: false,
+        teamIds: [],
+      },
+    }),
+  ]);
+  assert.deepEqual(concurrent.map((response) => response.status()).sort((a, b) => a - b), [201, 412]);
+  const concurrentRows = await pool.query(
+    "SELECT revision FROM public.admission_returning_registrations WHERE person_id=$1 AND admission_period_id=$2 ORDER BY revision",
+    [person.personId, admissionPeriodId],
+  );
+  assert.deepEqual(concurrentRows.rows, [{ revision: 1 }, { revision: 2 }, { revision: 3 }]);
   stage?.("returning:next-period-assignment");
   const nextApplication = await pool.query(
     `SELECT application_id
@@ -1399,6 +1447,7 @@ export const runReturningAssistantBrowserJourney = async ({
   const invitationPending = JSON.parse(invitationPendingText) as {
     scheduledAt: string;
     room: string;
+    campus: string;
     responseState: string;
     responseMessage: string | null;
   };
@@ -1407,6 +1456,7 @@ export const runReturningAssistantBrowserJourney = async ({
   assert.deepEqual(invitationPending, {
     scheduledAt: "2026-09-20T10:00:00.000Z",
     room: "Returning Room 0104",
+    campus: "Gløshaugen",
     responseState: "Pending",
     responseMessage: null,
   });
@@ -1645,54 +1695,6 @@ export const runReturningAssistantBrowserJourney = async ({
       [nextAdmissionPeriodId],
     );
   }
-  const concurrent = await Promise.all([
-    context.request.post(`${api}/api/returning-assistant/registrations`, {
-      headers: { "content-type": "application/json", "idempotency-key": "returning-concurrent-a-0104", origin: ui },
-      data: {
-        commandId: "returning-concurrent-a-0104",
-        admissionPeriodId,
-        expectedRevision: 2,
-        yearOfStudy: 4,
-        mondayUnavailable: false,
-        tuesdayUnavailable: false,
-        wednesdayUnavailable: false,
-        thursdayUnavailable: false,
-        fridayUnavailable: false,
-        positionWeeks: 4,
-        preferredGroup: "all",
-        language: "Engelsk",
-        preferredSchool: null,
-        teamInterest: false,
-        teamIds: [],
-      },
-    }),
-    context.request.post(`${api}/api/returning-assistant/registrations`, {
-      headers: { "content-type": "application/json", "idempotency-key": "returning-concurrent-b-0104", origin: ui },
-      data: {
-        commandId: "returning-concurrent-b-0104",
-        admissionPeriodId,
-        expectedRevision: 2,
-        yearOfStudy: 5,
-        mondayUnavailable: false,
-        tuesdayUnavailable: false,
-        wednesdayUnavailable: false,
-        thursdayUnavailable: false,
-        fridayUnavailable: false,
-        positionWeeks: 8,
-        preferredGroup: "block-2",
-        language: "Norsk",
-        preferredSchool: null,
-        teamInterest: false,
-        teamIds: [],
-      },
-    }),
-  ]);
-  assert.deepEqual(concurrent.map((response) => response.status()).sort((a, b) => a - b), [201, 412]);
-  const concurrentRows = await pool.query(
-    "SELECT revision FROM public.admission_returning_registrations WHERE person_id=$1 AND admission_period_id=$2 ORDER BY revision",
-    [person.personId, admissionPeriodId],
-  );
-  assert.deepEqual(concurrentRows.rows, [{ revision: 1 }, { revision: 2 }, { revision: 3 }]);
   const returningOutbox = await pool.query(
     "SELECT effect_id,status,attempts FROM public.admission_application_outbox WHERE origin='ReturningAssistant' ORDER BY effect_id",
   );
