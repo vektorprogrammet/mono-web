@@ -1539,10 +1539,19 @@ export const runReturningAssistantBrowserJourney = async ({
   );
   assert.equal(invitationAcceptedResponse.status(), 200);
   const invitationAccepted = JSON.parse(await invitationAcceptedResponse.text()) as {
+    scheduledAt: string;
+    room: string;
+    campus: string;
     responseState: string;
     responseMessage: string | null;
   };
-  assert.deepEqual(invitationAccepted, { responseState: "Accepted", responseMessage: null });
+  assert.deepEqual(invitationAccepted, {
+    scheduledAt: "2026-09-20T10:00:00.000Z",
+    room: "Returning Room 0104",
+    campus: "Gløshaugen",
+    responseState: "Accepted",
+    responseMessage: null,
+  });
   trace.push({
     phase: "returning:native-invitation-accepted",
     interviewId: nextInterviewId,
