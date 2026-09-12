@@ -814,8 +814,56 @@ export const runReturningAssistantBrowserJourney = async ({
   await returning.reload();
   const updated = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
   await expectValue(updated.getByRole("combobox", { name: "Opptaksperiode" }), admissionPeriodId);
-  await expectValue(updated.getByRole("combobox", { name: "Studieår" }), "3");
-  await expectValue(updated.getByRole("combobox", { name: "Språk" }), "Engelsk");
+  stage?.("returning:period-history");
+  const periodSelector = updated.getByRole("combobox", { name: "Opptaksperiode" });
+  await periodSelector.selectOption(nextAdmissionPeriodId);
+  let periodForm = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
+  await periodForm.waitFor({ state: "visible" });
+  await expectValue(periodForm.getByRole("combobox", { name: "Opptaksperiode" }), nextAdmissionPeriodId);
+  await expectValue(periodForm.locator('input[name="expectedRevision"]'), "1");
+  await expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "4");
+  await expectValue(periodForm.getByRole("combobox", { name: "Stillingslengde" }), "8");
+  await periodSelector.selectOption(admissionPeriodId);
+  periodForm = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
+  await periodForm.waitFor({ state: "visible" });
+  await expectValue(periodForm.getByRole("combobox", { name: "Opptaksperiode" }), admissionPeriodId);
+  await expectValue(periodForm.locator('input[name="expectedRevision"]'), "2");
+  await expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "3");
+  await expectValue(periodForm.getByRole("combobox", { name: "Språk" }), "Engelsk");
+  await returning.goBack();
+  periodForm = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
+  await periodForm.waitFor({ state: "visible" });
+  await expectValue(periodForm.getByRole("combobox", { name: "Opptaksperiode" }), nextAdmissionPeriodId);
+  await expectValue(periodForm.locator('input[name="expectedRevision"]'), "1");
+  await expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "4");
+  await returning.goForward();
+  periodForm = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
+  await periodForm.waitFor({ state: "visible" });
+  await expectValue(periodForm.getByRole("combobox", { name: "Opptaksperiode" }), admissionPeriodId);
+  await expectValue(periodForm.locator('input[name="expectedRevision"]'), "2");
+  await expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "3");
+  await returning.goBack();
+  periodForm = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
+  await periodForm.waitFor({ state: "visible" });
+  await periodForm.getByRole("combobox", { name: "Studieår" }).selectOption("5");
+  await periodForm.getByRole("button", { name: "Lagre endringer" }).click();
+  await assertStatus(periodForm, "Registreringen er lagret.");
+  const nextPeriodPost = [...trace].reverse().find((entry) => entry.phase === "dashboard-post" && entry.admissionPeriodId === nextAdmissionPeriodId);
+  assert.deepEqual(nextPeriodPost, {
+    phase: "dashboard-post",
+    admissionPeriodId: nextAdmissionPeriodId,
+    expectedRevision: "1",
+    commandId: nextPeriodPost?.commandId,
+  });
+  const nextPeriodRevision = await pool.query(
+    `SELECT revision,year_of_study
+     FROM public.admission_returning_registrations
+     WHERE person_id=$1 AND admission_period_id=$2
+     ORDER BY revision DESC
+     LIMIT 1`,
+    [person.personId, nextAdmissionPeriodId],
+  );
+  assert.deepEqual(nextPeriodRevision.rows, [{ revision: 2, year_of_study: 5 }]);
   await auditPage(returning, "returning-registration");
   const finalCustody = await pool.query(
     `SELECT
