@@ -1481,6 +1481,13 @@ export const runReturningAssistantBrowserJourney = async ({
       data: assignmentPayload,
     });
     const ambiguousBodyText = await ambiguousAssignment.text();
+    trace.push({
+      phase: "assignment-response",
+      status: ambiguousAssignment.status(),
+      body: ambiguousBodyText,
+      actorContextBefore: assignmentActorContextBefore.rows,
+      periodContextBefore: assignmentPeriodContextBefore.rows,
+    });
     assert.equal(ambiguousAssignment.status(), 403, ambiguousBodyText);
     const ambiguousBody = JSON.parse(ambiguousBodyText) as {
       readonly code?: unknown;
