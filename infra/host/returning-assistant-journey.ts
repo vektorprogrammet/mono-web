@@ -170,8 +170,11 @@ export const runReturningAssistantBrowserJourney = async ({
   readonly auditPage: (page: Page, state: string) => Promise<void>;
   readonly errors: string[];
 }) => {
-  const context = await browser.newContext();
+  const responses: string[] = [];
   const returning = await context.newPage();
+  returning.on("response", (response) => {
+    if (response.url().includes("/api/")) responses.push(`${response.status()} ${response.url()}`);
+  });
   returning.on("pageerror", (error: Error) => errors.push(`returning:${error.message}`));
   const destination = "/dashboard/tidligere-assistenter";
   await returning.goto(`${ui}/login?redirectTo=${encodeURIComponent(destination)}`);
@@ -189,7 +192,7 @@ export const runReturningAssistantBrowserJourney = async ({
   } catch (cause) {
     const body = await returning.locator("body").innerText().catch(() => "unavailable");
     throw new Error(
-      `returning route ${returning.url()} body: ${body.slice(0, 2000)}`,
+      `returning route ${returning.url()} responses: ${responses.join(" | ")} body: ${body.slice(0, 2000)}`,
       { cause },
     );
   }

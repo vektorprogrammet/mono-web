@@ -860,21 +860,20 @@ try {
       .innerText()
       .catch(() => "unavailable")}`;
 
-  for (const secret of secrets) detail = detail.replaceAll(secret, "[redacted]");
+  const safe = (value: string) =>
+    secrets.reduce((result, secret) => result.replaceAll(secret, "[redacted]"), value);
+  detail = safe(detail);
+  const failureEvidence = {
+    result: "Failed",
+    revision,
+    gates,
+    detail: detail.slice(0, 2000),
+    logs: logs.map(safe),
+  };
+  await writeFile(join(artifacts, "failure.json"), JSON.stringify(failureEvidence, null, 2));
+  await writeFile(join(artifacts, "runtime.log"), `${logs.map(safe).join("")}${detail}\n`);
   // oxlint-effect-plugin allow(no-ambient-console): dev only: redacted local rehearsal failure evidence.
-  console.error(
-    JSON.stringify({
-      result: "Failed",
-      gates,
-      detail: detail.slice(0, 2000),
-      logs: logs
-        .slice(-6)
-        .map((line) =>
-          secrets.reduce((safe, secret) => safe.replaceAll(secret, "[redacted]"), line),
-        ),
-      artifacts,
-    }),
-  );
+  console.error(JSON.stringify({ ...failureEvidence, artifacts }));
   process.exitCode = 1;
 } finally {
   await browser?.close();
