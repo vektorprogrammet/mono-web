@@ -365,6 +365,7 @@ export const runReturningAssistantBrowserJourney = async ({
   stage?.("returning:browser.newContext");
   const context = await browser.newContext();
   const responses: string[] = [];
+  const trace: Array<Record<string, unknown>> = [];
   stage?.("returning:browser.newPage");
   const returning = await context.newPage();
   returning.on("request", (request) => {
