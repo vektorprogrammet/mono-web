@@ -170,14 +170,6 @@ const errorResponse = (cause: unknown): Response => {
     case "ReturningAssistantCommandConflict":
       return nativeProblemResponse("idempotency.digest-conflict", 409);
     case "ReturningAssistantPersistenceError":
-      const operation =
-        cause !== null &&
-        typeof cause === "object" &&
-        "operation" in cause &&
-        typeof cause.operation === "string"
-          ? cause.operation
-          : "unknown";
-      console.error(`returning assistant persistence failure: ${operation}`);
       return nativeProblemResponse("returning.unavailable", 503);
     case "FieldOfStudyNotFound":
     case "FieldOfStudyInactive":
