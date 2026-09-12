@@ -1,8 +1,8 @@
 import { ReturningAssistantRegistrationInputSchema } from "@vektorprogrammet/domain/application";
 import { IdempotencyHeaders } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
-import { data, Form, useActionData, useLoaderData, useNavigation } from "react-router";
-import { useEffect, useState, type FormEvent } from "react";
+import { data, useFetcher, useLoaderData } from "react-router";
+import { useState, type FormEvent } from "react";
 import { Button } from "../components/ui/button";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
@@ -94,9 +94,8 @@ const groups = ["all", "block-1", "block-2"] as const;
 
 export default function TidligereAssistenter() {
   const { options, error } = useLoaderData<typeof loader>();
-  const actionResult = useActionData<typeof action>();
-  const navigation = useNavigation();
-  const busy = navigation.state !== "idle";
+  const fetcher = useFetcher<typeof action>();
+  const busy = fetcher.state !== "idle";
   const [selectedPeriodId, setSelectedPeriodId] = useState(options?.periods[0]?.period.id ?? "");
   const selectedPeriod = options?.periods.find(({ period }) => period.id === selectedPeriodId)
     ?? options?.periods[0];
@@ -105,23 +104,29 @@ export default function TidligereAssistenter() {
   const selectedId = selectedPeriod?.period.id ?? "";
   const [draftRevision, setDraftRevision] = useState(currentRevision);
   const [commandId, setCommandId] = useState("");
-  const [signature, setSignature] = useState("");
-  useEffect(() => {
-    if (actionResult?.success !== true) return;
-    setDraftRevision(actionResult.revision);
+  const [commandDraft, setCommandDraft] = useState("");
+  const [acceptedCommandId, setAcceptedCommandId] = useState("");
+  if (fetcher.data?.success === true && fetcher.data.commandId !== acceptedCommandId) {
+    setAcceptedCommandId(fetcher.data.commandId);
+    setDraftRevision(fetcher.data.revision);
     setCommandId("");
-    setSignature("");
-  }, [actionResult]);
+    setCommandDraft("");
+  }
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+    if (busy || event.currentTarget.dataset.pending === "true") {
+      event.preventDefault();
+      return;
+    }
+    event.currentTarget.dataset.pending = "true";
     const draft = new FormData(event.currentTarget);
     draft.delete("commandId");
-    const nextSignature = JSON.stringify([...draft]);
+    const signature = JSON.stringify([...draft]);
     const field = event.currentTarget.elements.namedItem("commandId");
-    if (field instanceof HTMLInputElement && (!field.value || nextSignature !== signature)) {
-      const nextCommandId = crypto.randomUUID();
-      field.value = nextCommandId;
-      setCommandId(nextCommandId);
-      setSignature(nextSignature);
+    if (field instanceof HTMLInputElement && (!field.value || signature !== commandDraft)) {
+      const key = crypto.randomUUID();
+      field.value = key;
+      setCommandId(key);
+      setCommandDraft(signature);
     }
   };
   if (error || options === null) {
@@ -145,7 +150,7 @@ export default function TidligereAssistenter() {
           <div><dt className="font-medium">Studium</dt><dd>{options.fieldOfStudyId}</dd></div>
         </dl>
       </header>
-      <Form key={selectedId} method="post" onSubmit={onSubmit} className="space-y-6" aria-label="Registrer som tidligere assistent">
+      <fetcher.Form key={selectedId} method="post" onSubmit={onSubmit} data-pending={busy ? "true" : "false"} className="space-y-6" aria-label="Registrer som tidligere assistent">
         <input type="hidden" name="commandId" value={commandId} readOnly />
         <input type="hidden" name="expectedRevision" value={draftRevision} readOnly />
         <fieldset disabled={busy} className="space-y-4">
@@ -161,7 +166,8 @@ export default function TidligereAssistenter() {
                 setDraftRevision(
                   options.periods.find(({ period }) => period.id === nextPeriodId)?.currentRevision ?? 0,
                 );
-                setSignature("");
+                setCommandId("");
+                setCommandDraft("");
               }}
               className="mt-1 block w-full rounded border p-2"
             >
@@ -239,13 +245,13 @@ export default function TidligereAssistenter() {
           </fieldset>
         </fieldset>
         <Button type="submit" disabled={busy}>{busy ? "Lagrer …" : current === null ? "Registrer for semesteret" : "Lagre endringer"}</Button>
-        {actionResult && <p role={actionResult.success ? "status" : "alert"}>{actionResult.message}</p>}
-        {actionResult?.success === false && actionResult.code === "returning.revision-conflict" && (
+        {fetcher.data && <p role={fetcher.data.success ? "status" : "alert"}>{fetcher.data.message}</p>}
+        {fetcher.data?.success === false && fetcher.data.code === "returning.revision-conflict" && (
           <Button type="button" onClick={() => window.location.reload()}>
             Last inn siste alternativer
           </Button>
         )}
-      </Form>
+      </fetcher.Form>
     </main>
   );
 }

@@ -49,6 +49,18 @@ export const seedReturningAssistant = async ({
     BETTER_AUTH_SECRET: env.BETTER_AUTH_SECRET,
   }, join(root, "packages/database"));
   const client = await pool.connect();
+  const seedQuery = async (label: string, text: string, values?: unknown[]) => {
+    try {
+      return values === undefined
+        ? await client.query(text)
+        : await client.query(text, values as any[]);
+    } catch (cause) {
+      throw new Error(
+        `returning seed ${label}: ${cause instanceof Error ? cause.message : String(cause)}`,
+        { cause },
+      );
+    }
+  };
   try {
     await client.query("BEGIN");
     await client.query(
