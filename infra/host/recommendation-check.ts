@@ -854,6 +854,17 @@ try {
     error instanceof Error
       ? (error.stack?.split("\n").slice(0, 5).join("\n") ?? error.message)
       : String(error);
+  const activeQueries = pool
+    ? await pool
+        .query(
+          `SELECT pid,state,wait_event_type,wait_event,left(query,240) AS query
+           FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()
+           ORDER BY pid`,
+        )
+        .then((result: { rows: unknown[] }) => result.rows)
+        .catch(() => [])
+    : [];
+  detail += ` Active PostgreSQL queries: ${JSON.stringify(activeQueries)}`;
   if (page)
     detail += ` Current page: ${await page
       .locator("body")
