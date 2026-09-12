@@ -909,14 +909,17 @@ try {
         .getByRole("button", { name: "Rett intervju", exact: true })
         .last()
         .click();
+      const responsePromise = page.waitForResponse((response: { url(): string }) =>
+        response.url().includes(":correct"),
+      );
       await page
         .getByRole("dialog")
         .getByRole("button", { name: "Rett intervju", exact: true })
         .press("Enter");
-      await page
-        .locator("#interviewer-recommendation")
-        .waitFor({ state: "visible" });
-      await assert.equal(await page.locator("#interviewer-recommendation").inputValue(), recommendation);
+      const response = await responsePromise;
+      if (!response.ok()) throw new Error(`correction response ${response.status()}: ${await response.text()}`);
+      await page.locator("#interviewer-recommendation").waitFor({ state: "visible" });
+      assert.equal(await page.locator("#interviewer-recommendation").inputValue(), recommendation);
     };
     const before = await get(correctionId);
     assert.equal(before.status, 200);
