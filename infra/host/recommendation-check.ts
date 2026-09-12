@@ -1776,6 +1776,7 @@ try {
        WHERE c.interview_id='interview-native-conduct-a-0063'
        ON CONFLICT (interview_id) DO NOTHING`,
   );
+  const lifecycleBeforeCorrections = await lifecycleSnapshot();
   if (acceptedCorrectionReplay !== undefined && process.argv.includes("--correction-mode")) {
     const boundaryResult = await assertInterviewCorrectionBoundaries({
       pool,
@@ -2058,7 +2059,7 @@ try {
       `SELECT c.interview_id,c.recommendation,a.kind,a.resulting_revision,r.command_id FROM public.recruitment_interview_conducts c JOIN public.recruitment_interview_lifecycle_audit a USING(interview_id) JOIN public.recruitment_interview_lifecycle_command_receipts r ON r.command_id=a.command_id ORDER BY c.interview_id`,
     )
   ).rows;
-  const beforeLifecycle = JSON.parse(before) as {
+  const beforeLifecycle = JSON.parse(lifecycleBeforeCorrections) as {
     readonly conducts: unknown;
     readonly receipts: ReadonlyArray<{
       readonly command_id: string;
