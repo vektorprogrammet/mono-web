@@ -412,6 +412,7 @@ try {
         auditPage,
         errors,
         stage,
+        registrationOnly: process.argv.includes("--returning-registration-only"),
       }),
     );
     if (effectMode === "http") {

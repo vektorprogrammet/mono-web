@@ -351,6 +351,7 @@ export const runReturningAssistantBrowserJourney = async ({
   auditPage,
   errors,
   stage,
+  registrationOnly = false,
 }: {
   readonly browser: Browser;
   readonly page: Page;
@@ -361,6 +362,7 @@ export const runReturningAssistantBrowserJourney = async ({
   readonly auditPage: (page: Page, state: string) => Promise<void>;
   readonly errors: string[];
   readonly stage?: (name: string) => void;
+  readonly registrationOnly?: boolean;
 }) => {
   const trace: Array<Record<string, unknown>> = [];
   try {
@@ -908,21 +910,106 @@ export const runReturningAssistantBrowserJourney = async ({
   await expectValue(periodForm.getByRole("combobox", { name: "Opptaksperiode" }), nextAdmissionPeriodId);
   await expectValue(periodForm.locator('input[name="expectedRevision"]'), "1");
   await expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "4");
-  const finalPost = await waitForDashboardAction(nextAdmissionPeriodId, async () => {
-    await periodForm.getByRole("combobox", { name: "Studieår" }).selectOption("5");
+  stage?.("returning:registration-conflict");
+  assert.equal(await periodForm.locator('input[name="expectedRevision"]').inputValue(), "1");
+  assert.equal(await periodForm.locator('input[name="commandId"]').inputValue(), "");
+  await periodForm.getByRole("combobox", { name: "Studieår" }).selectOption("5");
+  const staleContext = await browser.newContext({ storageState: await context.storageState() });
+  const staleReturning = await staleContext.newPage();
+  try {
+    await staleReturning.goto(
+      `${ui}/dashboard/tidligere-assistenter?admissionPeriodId=${encodeURIComponent(nextAdmissionPeriodId)}`,
+    );
+    const staleForm = staleReturning.getByRole("form", { name: "Registrer som tidligere assistent" });
+    await staleForm.waitFor({ state: "visible" });
+    assert.equal(
+      await staleForm.locator('input[name="expectedRevision"]').inputValue(),
+      "1",
+    );
+    await staleForm.getByRole("combobox", { name: "Studieår" }).selectOption("5");
+    const staleSaveResponsePromise = staleReturning.waitForResponse(
+      (response) => {
+        const url = new URL(response.url());
+        if (
+          response.request().method() !== "POST"
+          || !["/dashboard/tidligere-assistenter", "/dashboard/tidligere-assistenter.data"].includes(url.pathname)
+        )
+          return false;
+        return new URLSearchParams(response.request().postData() ?? "").get("admissionPeriodId") === nextAdmissionPeriodId;
+      },
+      { timeout: 30_000 },
+    );
+    await staleForm.getByRole("button", { name: "Lagre endringer" }).click();
+    const staleSaveResponse = await staleSaveResponsePromise;
+    await staleSaveResponse.finished();
+    assert.equal(staleSaveResponse.status(), 200);
+    const staleSavePost = new URLSearchParams(staleSaveResponse.request().postData() ?? "");
+    assert.equal(staleSavePost.get("expectedRevision"), "1");
+    assert.equal(typeof staleSavePost.get("commandId"), "string");
+    assert.notEqual(staleSavePost.get("commandId"), "");
+    const afterStaleSave = await pool.query(
+      `SELECT revision,year_of_study
+       FROM public.admission_returning_registrations
+       WHERE person_id=$1 AND admission_period_id=$2
+       ORDER BY revision DESC
+       LIMIT 1`,
+      [person.personId, nextAdmissionPeriodId],
+    );
+    assert.deepEqual(afterStaleSave.rows, [{ revision: 2, year_of_study: 5 }]);
+    const staleDraftResponsePromise = returning.waitForResponse(
+      (response) => {
+        const url = new URL(response.url());
+        if (
+          response.request().method() !== "POST"
+          || !["/dashboard/tidligere-assistenter", "/dashboard/tidligere-assistenter.data"].includes(url.pathname)
+        )
+          return false;
+        return new URLSearchParams(response.request().postData() ?? "").get("admissionPeriodId") === nextAdmissionPeriodId;
+      },
+      { timeout: 30_000 },
+    );
     await waitForActionReady(periodForm);
     await periodForm.getByRole("button", { name: "Lagre endringer" }).click();
-  });
-  assert.equal(finalPost.admissionPeriodId, nextAdmissionPeriodId);
-  await assertStatus(periodForm, "Registreringen er lagret.");
-  const nextPeriodPost = [...trace]
-    .reverse()
-    .find((entry) => entry.phase === "dashboard-post" && entry.admissionPeriodId === nextAdmissionPeriodId);
-  assert.ok(nextPeriodPost);
-  assert.equal(nextPeriodPost.expectedRevision, "1");
-  assert.ok(nextPeriodPost.commandId);
-  const nextPeriodForm = nextPeriodPost.form as Array<readonly [string, string]>;
-  assert.equal(nextPeriodForm.find(([name]) => name === "yearOfStudy")?.[1], "5");
+    const staleDraftResponse = await staleDraftResponsePromise;
+    await staleDraftResponse.finished();
+    assert.equal(staleDraftResponse.status(), 412);
+    const staleDraftPost = new URLSearchParams(staleDraftResponse.request().postData() ?? "");
+    const staleDraftCommandId = staleDraftPost.get("commandId");
+    assert.equal(staleDraftPost.get("expectedRevision"), "1");
+    assert.equal(typeof staleDraftCommandId, "string");
+    assert.notEqual(staleDraftCommandId, "");
+    assert.notEqual(staleDraftCommandId, staleSavePost.get("commandId"));
+    await periodForm.getByRole("alert").filter({ hasText: "Alternativene er endret." }).waitFor();
+    assert.equal(await periodForm.locator('input[name="expectedRevision"]').inputValue(), "1");
+    assert.equal(await periodForm.getByRole("combobox", { name: "Studieår" }).inputValue(), "5");
+    assert.equal(await periodForm.locator('input[name="commandId"]').inputValue(), staleDraftCommandId);
+    trace.push({
+      phase: "negative-gate",
+      gate: "returning-stale-draft",
+      status: 412,
+      expectedRevision: staleDraftPost.get("expectedRevision"),
+      commandId: staleDraftPost.get("commandId"),
+      draftYearOfStudy: await periodForm.getByRole("combobox", { name: "Studieår" }).inputValue(),
+    });
+    await periodForm.getByRole("button", { name: "Forkast lagret utkast" }).click();
+    await returning.waitForLoadState("domcontentloaded");
+    periodForm = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
+    await periodForm.waitFor({ state: "visible" });
+    await expectValue(periodForm.locator('input[name="expectedRevision"]'), "2");
+    await expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "5");
+    const recoveredCommandId = await periodForm.locator('input[name="commandId"]').inputValue();
+    assert.equal(recoveredCommandId, "");
+    const recoveredPost = await waitForDashboardAction(nextAdmissionPeriodId, async () => {
+      await waitForActionReady(periodForm);
+      await periodForm.getByRole("button", { name: "Lagre endringer" }).click();
+    });
+    assert.equal(recoveredPost.expectedRevision, "2");
+    assert.notEqual(recoveredPost.commandId, staleDraftPost.get("commandId"));
+    await assertStatus(periodForm, "Registreringen er lagret.");
+  } finally {
+    await staleReturning.close();
+    await staleContext.close();
+  }
   const nextPeriodRevision = await pool.query(
     `SELECT revision,year_of_study
      FROM public.admission_returning_registrations
@@ -931,7 +1018,7 @@ export const runReturningAssistantBrowserJourney = async ({
      LIMIT 1`,
     [person.personId, nextAdmissionPeriodId],
   );
-  assert.deepEqual(nextPeriodRevision.rows, [{ revision: 2, year_of_study: 5 }]);
+  assert.deepEqual(nextPeriodRevision.rows, [{ revision: 3, year_of_study: 5 }]);
   await auditPage(returning, "returning-registration");
   const finalCustody = await pool.query(
     `SELECT
@@ -965,6 +1052,13 @@ export const runReturningAssistantBrowserJourney = async ({
   );
   assert.deepEqual(nextInterviews.rows, [{ count: 0 }]);
   trace.push({ phase: "negative-gate", gate: "new-period-no-new-interview", status: "observed" });
+  if (registrationOnly) {
+    stage?.("returning:registration-only-complete");
+    await returning.close();
+    await context.close();
+    await page.goto(`${ui}/dashboard/intervjuer`);
+    return { trace };
+  }
   const ordinaryConduct = await pool.query(
     `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
      FROM public.recruitment_interview_conducts c
@@ -1016,21 +1110,67 @@ export const runReturningAssistantBrowserJourney = async ({
   );
   assert.equal(nextApplication.rows.length, 1);
   const nextApplicationId = nextApplication.rows[0].application_id as string;
-  const assignmentCommandId = "returning-next-assignment-0104";
-  const assignment = await page.request.post(
-    `${api}/api/recruitment/applications/${encodeURIComponent(nextApplicationId)}/interviews`,
-    {
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": assignmentCommandId,
-        origin: ui,
-      },
-      data: {
-        interviewerPersonId: "journey-conduct-leader-0063",
-        interviewSchemaId: "interview-schema-native-conduct-0063",
-      },
+  const assignmentPayload = {
+    interviewerPersonId: "journey-conduct-leader-0063",
+    interviewSchemaId: "interview-schema-native-conduct-0063",
+  };
+  const assignmentPath = `${api}/api/recruitment/applications/${encodeURIComponent(nextApplicationId)}/interviews`;
+  const ambiguousAssignment = await page.request.post(assignmentPath, {
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": "returning-next-assignment-ambiguous-0104",
+      origin: ui,
     },
+    data: assignmentPayload,
+  });
+  const ambiguousBodyText = await ambiguousAssignment.text();
+  assert.equal(ambiguousAssignment.status(), 403);
+  const ambiguousBody = JSON.parse(ambiguousBodyText) as {
+    readonly code?: unknown;
+    readonly status?: unknown;
+  };
+  assert.equal(ambiguousBody.code, "authority.denied");
+  const assignmentPeriodContext = await pool.query(
+    `SELECT
+       p.admission_period_id,
+       p.start_at,
+       p.end_at,
+       s.start_at AS semester_start_at,
+       s.end_at AS semester_end_at,
+       p.start_at <= statement_timestamp() AND statement_timestamp() < p.end_at
+         AND s.start_at <= statement_timestamp() AND statement_timestamp() < s.end_at AS eligible_now
+     FROM public.admission_periods p
+     JOIN public.admission_period_semesters s USING (semester_id)
+     WHERE p.department_id=$1
+     ORDER BY p.admission_period_id`,
+    [departmentId],
   );
+  trace.push({
+    phase: "negative-gate",
+    gate: "next-assignment-requires-one-open-period",
+    status: 403,
+    problemCode: ambiguousBody.code,
+    problemStatus: ambiguousBody.status,
+    body: ambiguousBodyText,
+    source:
+      "assignmentInTransaction currentPeriod scope check (packages/domain/src/recruitment/postgres.ts:850-857) maps RecruitmentScopeDenied to authority.denied (apps/backend/src/recruitment/http.ts:251-255)",
+    periodContext: assignmentPeriodContext.rows,
+  });
+  // Model the legitimate semester transition: the old period ends at a valid
+  // instant and remains closed while the next period becomes authoritative.
+  await pool.query(
+    "UPDATE public.admission_periods SET end_at='2026-09-12T00:00:00Z' WHERE admission_period_id=$1",
+    [admissionPeriodId],
+  );
+  const assignmentCommandId = "returning-next-assignment-0104";
+  const assignment = await page.request.post(assignmentPath, {
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": assignmentCommandId,
+      origin: ui,
+    },
+    data: assignmentPayload,
+  });
   assert.equal(assignment.status(), 201);
   const assignmentBody = (await assignment.json()) as {
     interviewId?: string;
@@ -1084,8 +1224,8 @@ export const runReturningAssistantBrowserJourney = async ({
   for (const axis of ["explanatoryPower", "roleModel", "suitability"])
     await page.locator(`#score-${axis}`).selectOption("9");
   await page.locator("#interviewer-recommendation").selectOption("Kanskje");
-  const staleContext = await browser.newContext({ storageState: await page.context().storageState() });
-  const stalePage = await staleContext.newPage();
+  const conductStaleContext = await browser.newContext({ storageState: await page.context().storageState() });
+  const stalePage = await conductStaleContext.newPage();
   try {
     await stalePage.goto(`${ui}/dashboard/intervjuer`);
     await stalePage.getByRole("heading", { name: "Planlegg intervjuer", exact: true }).waitFor();
@@ -1122,7 +1262,7 @@ export const runReturningAssistantBrowserJourney = async ({
       .waitFor();
     await stalePage.reload();
   } finally {
-    await staleContext.close();
+    await conductStaleContext.close();
   }
   const nextConduct = await pool.query(
     `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
@@ -1154,6 +1294,7 @@ export const runReturningAssistantBrowserJourney = async ({
     { admission_period_id: admissionPeriodId, revision: 2, year_of_study: 3, monday_unavailable: false, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: false, friday_unavailable: false, position_weeks: 4, preferred_group: "all", language: "Engelsk", preferred_school: null, team_interest: false, team_ids: [] },
     { admission_period_id: nextAdmissionPeriodId, revision: 1, year_of_study: 4, monday_unavailable: true, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: true, friday_unavailable: false, position_weeks: 8, preferred_group: "block-1", language: "Norsk og engelsk", preferred_school: "Returning School", team_interest: true, team_ids: [teamId] },
     { admission_period_id: nextAdmissionPeriodId, revision: 2, year_of_study: 5, monday_unavailable: true, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: true, friday_unavailable: false, position_weeks: 8, preferred_group: "block-1", language: "Norsk og engelsk", preferred_school: "Returning School", team_interest: true, team_ids: [teamId] },
+    { admission_period_id: nextAdmissionPeriodId, revision: 3, year_of_study: 5, monday_unavailable: true, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: true, friday_unavailable: false, position_weeks: 8, preferred_group: "block-1", language: "Norsk og engelsk", preferred_school: "Returning School", team_interest: true, team_ids: [teamId] },
   ]);
   const provenance = await pool.query(
     `SELECT DISTINCT
