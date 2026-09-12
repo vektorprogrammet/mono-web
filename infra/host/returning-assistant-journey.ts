@@ -1309,17 +1309,18 @@ export const runReturningAssistantBrowserJourney = async ({
     [nextInterviewId],
   );
   await pool.query(
-    `INSERT INTO public.recruitment_invitations
-       (invitation_id,interview_id,schedule_revision,capability_sha256,response_state,created_at,
-        response_message,responded_at,response_revision,superseded_at)
-     VALUES('invitation-returning-next-0104',$1,1,repeat('c',64),'Accepted',
-       '2026-09-09T10:00:00Z',NULL,'2026-09-09T12:00:00Z',1,NULL)`,
-    [nextInterviewId],
-  );
-  await pool.query(
-    `INSERT INTO public.recruitment_invitation_response_audit
+    `WITH invitation AS (
+       INSERT INTO public.recruitment_invitations
+         (invitation_id,interview_id,schedule_revision,capability_sha256,response_state,created_at,
+          response_message,responded_at,response_revision,superseded_at)
+       VALUES('invitation-returning-next-0104',$1,1,repeat('c',64),'Accepted',
+         '2026-09-09T10:00:00Z',NULL,'2026-09-09T12:00:00Z',1,NULL)
+       RETURNING invitation_id,interview_id,schedule_revision,response_revision,response_state,response_message,responded_at
+     )
+     INSERT INTO public.recruitment_invitation_response_audit
        (invitation_id,interview_id,schedule_revision,response_revision,response_state,response_message,responded_at)
-     VALUES('invitation-returning-next-0104',$1,1,1,'Accepted',NULL,'2026-09-09T12:00:00Z')`,
+     SELECT invitation_id,interview_id,schedule_revision,response_revision,response_state,response_message,responded_at
+     FROM invitation`,
     [nextInterviewId],
   );
   await page.goto(`${ui}/dashboard/intervjuer`);
