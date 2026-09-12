@@ -1305,13 +1305,19 @@ export const runReturningAssistantBrowserJourney = async ({
     `INSERT INTO public.recruitment_interview_schedules
        (interview_id,scheduled_at,room,campus,map_link,message,scheduled_by_person_id,committed_at,schedule_revision)
      VALUES($1,'2026-09-10T10:00:00Z','K-0104','Gløshaugen','https://maps.example.invalid/returning-0104',
-       'Velkommen til intervjuet.','journey-conduct-leader-0063','2026-09-09T10:00:00Z',1);
-    INSERT INTO public.recruitment_invitations
+       'Velkommen til intervjuet.','journey-conduct-leader-0063','2026-09-09T10:00:00Z',1)`,
+    [nextInterviewId],
+  );
+  await pool.query(
+    `INSERT INTO public.recruitment_invitations
        (invitation_id,interview_id,schedule_revision,capability_sha256,response_state,created_at,
         response_message,responded_at,response_revision,superseded_at)
      VALUES('invitation-returning-next-0104',$1,1,repeat('c',64),'Accepted',
-       '2026-09-09T10:00:00Z',NULL,'2026-09-09T12:00:00Z',1,NULL);
-    INSERT INTO public.recruitment_invitation_response_audit
+       '2026-09-09T10:00:00Z',NULL,'2026-09-09T12:00:00Z',1,NULL)`,
+    [nextInterviewId],
+  );
+  await pool.query(
+    `INSERT INTO public.recruitment_invitation_response_audit
        (invitation_id,interview_id,schedule_revision,response_revision,response_state,response_message,responded_at)
      VALUES('invitation-returning-next-0104',$1,1,1,'Accepted',NULL,'2026-09-09T12:00:00Z')`,
     [nextInterviewId],
