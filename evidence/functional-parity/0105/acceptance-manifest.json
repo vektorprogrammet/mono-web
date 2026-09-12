@@ -102,7 +102,22 @@
         "evidence/functional-parity/0105/correction-targeted-evidence.json",
         "evidence/functional-parity/0105/evidence.json",
         "evidence/functional-parity/0105/report-evidence.json",
-        "evidence/functional-parity/0105/*.png"
+        "evidence/functional-parity/0105/confirmation.png",
+        "evidence/functional-parity/0105/correction-history-desktop.png",
+        "evidence/functional-parity/0105/correction-history-mobile.png",
+        "evidence/functional-parity/0105/editable-desktop.png",
+        "evidence/functional-parity/0105/editable-mobile-answer-viewport.png",
+        "evidence/functional-parity/0105/editable-mobile-recommendation-viewport.png",
+        "evidence/functional-parity/0105/editable-mobile.png",
+        "evidence/functional-parity/0105/historical-desktop.png",
+        "evidence/functional-parity/0105/historical-mobile.png",
+        "evidence/functional-parity/0105/recommendation-desktop.png",
+        "evidence/functional-parity/0105/recommendation-mobile.png",
+        "evidence/functional-parity/0105/report-desktop.png",
+        "evidence/functional-parity/0105/report-failure-mobile.png",
+        "evidence/functional-parity/0105/report-mobile-sum.png",
+        "evidence/functional-parity/0105/report-mobile.png",
+        "evidence/functional-parity/0105/report-superseded-settled.png"
       ]
     }
   }
