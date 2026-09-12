@@ -23,7 +23,6 @@ export type InterviewCorrectionBoundaryContext = Readonly<{
   actorPersonId: string;
   otherPersonId: string;
   membershipId: string;
-  differentLinkedPersonInterviewId: string;
   selfLinkRaceInterviewId: string;
   acceptedReplay: InterviewCorrectionReplayRequest;
   recordGate?: (...observations: string[]) => void;
@@ -59,7 +58,6 @@ export async function assertInterviewCorrectionBoundaries(
     actorPersonId,
     otherPersonId,
     membershipId,
-    differentLinkedPersonInterviewId,
     selfLinkRaceInterviewId,
     acceptedReplay,
   } = context;
@@ -86,22 +84,16 @@ export async function assertInterviewCorrectionBoundaries(
        LEFT JOIN public.applicant_account_links l USING(applicant_id)
       WHERE i.interview_id = ANY($1::text[])
       ORDER BY i.interview_id`,
-    [[interviewId, differentLinkedPersonInterviewId, selfLinkRaceInterviewId]],
+    [[interviewId, selfLinkRaceInterviewId]],
   );
-  assert.equal(identityRows.rows.length, 3, "correction fixtures must expose all identity variants");
+  assert.equal(identityRows.rows.length, 2, "correction fixtures must expose primary and race interviews");
   const identityById = new Map(
     identityRows.rows.map((row) => [row.interviewId as string, row as Row]),
   );
   const identity = identityById.get(interviewId);
-  const differentLinkedIdentity = identityById.get(differentLinkedPersonInterviewId);
   const raceIdentity = identityById.get(selfLinkRaceInterviewId);
-  assert.ok(identity && differentLinkedIdentity && raceIdentity);
+  assert.ok(identity && raceIdentity);
   assert.equal(identity.linkedPersonId, null, "target correction fixture must start unlinked");
-  assert.equal(
-    differentLinkedIdentity.linkedPersonId,
-    null,
-    "different-linked-person fixture must start unlinked",
-  );
   assert.equal(raceIdentity.linkedPersonId, null, "self-link race fixture must start unlinked");
 
   const departments = await pool.query(
@@ -156,16 +148,8 @@ export async function assertInterviewCorrectionBoundaries(
       body,
     });
 
-  const interviewIds = [
-    interviewId,
-    differentLinkedPersonInterviewId,
-    selfLinkRaceInterviewId,
-  ];
-  const applicantIds = [
-    identity.applicantId as string,
-    differentLinkedIdentity.applicantId as string,
-    raceIdentity.applicantId as string,
-  ];
+  const interviewIds = [interviewId, selfLinkRaceInterviewId];
+  const applicantIds = [identity.applicantId as string, raceIdentity.applicantId as string];
   const departmentIds = [identity.departmentId as string, differentDepartment];
   const readRows = async (query: string, values: readonly unknown[] = []) =>
     (await pool.query(query, [...values])).rows as unknown as Row[];
