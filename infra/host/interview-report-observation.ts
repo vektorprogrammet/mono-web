@@ -74,23 +74,24 @@ type Options = {
   auditPage: (page: any, state: string) => Promise<void>;
   recordGate: (...observations: string[]) => void;
 };
-export async function observeInterviewReport(o: Options) {
-  const { pool, api, ui } = o;
-  const require = createRequire(join(o.root, "apps/dashboard/package.json"));
-  const { expect } = require("@playwright/test");
-  const gates: string[] = [];
-  const record = (...observations: string[]) => {
-    gates.push(...observations);
-    o.recordGate(...observations);
-  };
+export async function seedInterviewReportCoordinator(o: {
+  pool: any;
+  secrets: string[];
+}) {
+  const { pool, secrets } = o;
   const clone = async (table: string, where: string, values: Record<string, unknown>) =>
     pool.query(
-      `INSERT INTO ${table} SELECT (jsonb_populate_record(NULL::${table},to_jsonb(s)||$1::jsonb)).* FROM ${table} s WHERE ${where}`,
+      `INSERT INTO ${table} SELECT (jsonb_populate_record(NULL::${table},to_jsonb(s)||$1::jsonb)).* FROM ${table} s WHERE ${where} ON CONFLICT DO NOTHING`,
       [JSON.stringify(values)],
     );
-  // Synthetic credentials copy the installed engine's existing fixture hash, never product provisioning.
+  const ids = {
+    person: "report-coordinator-0103",
+    member: "report-coordinator-membership-0103",
+    department: "department-native-conduct-0063",
+    team: "team-native-conduct-0063",
+  } as const;
   const email = "coordinator.report@example.invalid";
-  o.secrets.push(email);
+  if (!secrets.includes(email)) secrets.push(email);
   await clone("public.person_profiles", "person_id='journey-conduct-leader-0063'", {
     person_id: ids.person,
     first_name: "Report",
@@ -120,6 +121,38 @@ export async function observeInterviewReport(o: Options) {
       position_id: "teamleader",
     },
   );
+}
+
+type Options = {
+  root: string;
+  pool: any;
+  browser: any;
+  api: string;
+  ui: string;
+  artifacts: string;
+  ordinaryCookie: string;
+  password: string;
+  secrets: string[];
+  revision: string;
+  auditPage: (page: any, state: string) => Promise<void>;
+  recordGate: (...observations: string[]) => void;
+};
+export async function observeInterviewReport(o: Options) {
+  const { pool, api, ui } = o;
+  const require = createRequire(join(o.root, "apps/dashboard/package.json"));
+  const { expect } = require("@playwright/test");
+  const gates: string[] = [];
+  const record = (...observations: string[]) => {
+    gates.push(...observations);
+    o.recordGate(...observations);
+  };
+  await seedInterviewReportCoordinator({ pool, secrets: o.secrets });
+  const email = "coordinator.report@example.invalid";
+  const clone = async (table: string, where: string, values: Record<string, unknown>) =>
+    pool.query(
+      `INSERT INTO ${table} SELECT (jsonb_populate_record(NULL::${table},to_jsonb(s)||$1::jsonb)).* FROM ${table} s WHERE ${where}`,
+      [JSON.stringify(values)],
+    );
   await clone("public.organization_departments", `department_id='${ids.department}'`, {
     department_id: ids.otherDepartment,
     name: "Other report department",

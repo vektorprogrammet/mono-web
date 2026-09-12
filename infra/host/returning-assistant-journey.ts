@@ -351,6 +351,8 @@ export const runReturningAssistantBrowserJourney = async ({
   auditPage,
   errors,
   stage,
+  coordinatorEmail,
+  coordinatorPassword,
 }: {
   readonly browser: Browser;
   readonly page: Page;
@@ -361,6 +363,8 @@ export const runReturningAssistantBrowserJourney = async ({
   readonly auditPage: (page: Page, state: string) => Promise<void>;
   readonly errors: string[];
   readonly stage?: (name: string) => void;
+  readonly coordinatorEmail: string;
+  readonly coordinatorPassword: string;
 }) => {
   const trace: Array<Record<string, unknown>> = [];
   try {
@@ -1153,17 +1157,99 @@ export const runReturningAssistantBrowserJourney = async ({
     "UPDATE public.admission_periods SET end_at='2026-09-12T00:00:00Z' WHERE admission_period_id=$1",
     [admissionPeriodId],
   );
-  const assignmentCommandId = "returning-next-assignment-0104";
-  const assignment = await page.request.post(assignmentPath, {
-    headers: {
-      "content-type": "application/json",
-      "idempotency-key": assignmentCommandId,
-      origin: ui,
+  const postClosePeriodContext = await pool.query(
+    `SELECT
+       p.admission_period_id,
+       p.start_at,
+       p.end_at,
+       s.start_at AS semester_start_at,
+       s.end_at AS semester_end_at,
+       p.start_at <= statement_timestamp() AND statement_timestamp() < p.end_at
+         AND s.start_at <= statement_timestamp() AND statement_timestamp() < s.end_at AS eligible_now
+     FROM public.admission_periods p
+     JOIN public.admission_period_semesters s USING (semester_id)
+     WHERE p.department_id=$1
+     ORDER BY p.admission_period_id`,
+    [departmentId],
+  );
+  assert.deepEqual(
+    postClosePeriodContext.rows.map((row: { admission_period_id: string; eligible_now: boolean }) => ({
+      admission_period_id: row.admission_period_id,
+      eligible_now: row.eligible_now,
+    })),
+    [
+      { admission_period_id: admissionPeriodId, eligible_now: false },
+      { admission_period_id: nextAdmissionPeriodId, eligible_now: true },
+    ],
+  );
+  const resolvedCoordinator = await pool.query(
+    `SELECT
+       membership.person_id,
+       membership.team_id,
+       membership.is_team_leader,
+       membership.is_suspended,
+       team.department_id,
+       team.active AS team_active,
+       department.active AS department_active
+     FROM public.organization_memberships membership
+     JOIN public.organization_teams team USING (team_id)
+     JOIN public.organization_departments department USING (department_id)
+     WHERE membership.person_id=$1
+       AND membership.start_at <= statement_timestamp()
+       AND (membership.end_at IS NULL OR statement_timestamp() < membership.end_at)
+       AND membership.is_team_leader
+       AND NOT membership.is_suspended
+       AND team.active
+       AND department.active
+     ORDER BY membership.membership_id`,
+    ["report-coordinator-0103"],
+  );
+  assert.deepEqual(resolvedCoordinator.rows, [
+    {
+      person_id: "report-coordinator-0103",
+      team_id: teamId,
+      is_team_leader: true,
+      is_suspended: false,
+      department_id: departmentId,
+      team_active: true,
+      department_active: true,
     },
-    data: assignmentPayload,
+  ]);
+  trace.push({
+    phase: "assignment-authority-resolved",
+    coordinatorPersonId: "report-coordinator-0103",
+    coordinatorEmail,
+    coordinatorRole: "DepartmentLeader",
+    assignedInterviewerPersonId: assignmentPayload.interviewerPersonId,
+    coordinatorContext: resolvedCoordinator.rows,
+    postClosePeriodContext: postClosePeriodContext.rows,
   });
-  const assignmentBodyText = await assignment.text();
-  if (assignment.status() !== 201) {
+  const assignmentCommandId = "returning-next-assignment-0104";
+  const coordinatorContext = await browser.newContext();
+  let assignmentStatus!: number;
+  let assignmentBodyText!: string;
+  try {
+    stage?.("returning:next-period-assignment:coordinator-login");
+    const coordinatorPage = await coordinatorContext.newPage();
+    await coordinatorPage.goto(`${ui}/login`);
+    await coordinatorPage.getByLabel("E-post", { exact: true }).fill(coordinatorEmail);
+    await coordinatorPage.getByLabel("Passord", { exact: true }).fill(coordinatorPassword);
+    await coordinatorPage.getByRole("button", { name: "Logg inn", exact: true }).click();
+    await coordinatorPage.waitForURL(/\/dashboard\/?$/);
+    const assignmentResponse = await coordinatorPage.request.post(assignmentPath, {
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": assignmentCommandId,
+        origin: ui,
+      },
+      data: assignmentPayload,
+    });
+    assignmentStatus = assignmentResponse.status();
+    assignmentBodyText = await assignmentResponse.text();
+  } finally {
+    await coordinatorContext.close();
+  }
+  if (assignmentStatus !== 201) {
     const assignmentActorContext = await pool.query(
       `SELECT
          membership.person_id,
@@ -1180,17 +1266,17 @@ export const runReturningAssistantBrowserJourney = async ({
        JOIN public.organization_departments department USING (department_id)
        WHERE membership.person_id=$1
        ORDER BY membership.membership_id`,
-      ["journey-conduct-leader-0063"],
+      ["report-coordinator-0103"],
     );
     trace.push({
       phase: "assignment-failure",
-      status: assignment.status(),
+      status: assignmentStatus,
       body: assignmentBodyText,
       source:
         "assignment preflight reads target actor/interviewer eligibility in apps/backend/src/recruitment/http.ts:1008-1052; domain assignment then checks current period and live membership in packages/domain/src/recruitment/postgres.ts:843-931",
       actorContext: assignmentActorContext.rows,
     });
-    throw new Error(`next assignment failed ${assignment.status()} ${assignmentBodyText}`);
+    throw new Error(`next assignment failed ${assignmentStatus} ${assignmentBodyText}`);
   }
   const assignmentBody = JSON.parse(assignmentBodyText) as {
     interviewId?: string;
@@ -1481,9 +1567,10 @@ export const runReturningAssistantBrowserJourney = async ({
   await context.close();
   await page.goto(`${ui}/dashboard/intervjuer`);
   return { trace };
-  } catch (cause) {
+  } finally {
+    // Retain the complete journey trace on both successful helper return and
+    // failure, before the outer report/effect gates can run or fail.
     await writeFile(join(artifacts, "returning-registration-trace.json"), JSON.stringify(trace, null, 2));
-    throw cause;
   }
 };
 

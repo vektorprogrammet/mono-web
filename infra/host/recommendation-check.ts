@@ -16,6 +16,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
 import {
   observeInterviewReport,
+  seedInterviewReportCoordinator,
   validateInterviewReportFixture,
 } from "./interview-report-observation.js";
 import { stopPreviewScenarioBackend } from "./preview-scenario.js";
@@ -269,8 +270,8 @@ try {
   ).rows[0].value;
   recordGate("previous-schema history fixture migrated");
   run("bun", ["apps/dashboard/e2e/native-conduct-journey-seed.mjs"], env);
-  recordGate("native interview schema fixture seeded");
   await seedReturningAssistant({ pool, run, env, root });
+  await seedInterviewReportCoordinator({ pool, secrets });
   const historicalAfter = (
     await pool.query(
       `SELECT to_jsonb(c)-'recommendation' value,recommendation FROM public.recruitment_interview_conducts c WHERE interview_id='interview-recommendation-history'`,
@@ -412,6 +413,8 @@ try {
         auditPage,
         errors,
         stage,
+        coordinatorEmail: "coordinator.report@example.invalid",
+        coordinatorPassword: password,
       }),
     );
     if (effectMode === "http") {
@@ -481,6 +484,17 @@ try {
       assert.equal(heldFailedRows.length, expectedOutboxCount);
       assert.ok(hasExactReturningEffectShape(heldFailedRows));
       assert.ok(heldFailedRows.every((row) => row.status === "Failed"));
+      const preRestartEffectCalls = effectCalls.slice();
+      assert.ok(preRestartEffectCalls.some((call) => call.status === 503));
+      const preRestartEffectIds = new Set(
+        preRestartEffectCalls
+          .filter((call) => call.status === 503)
+          .map((call) => call.effectId),
+      );
+      assert.ok(
+        heldFailedRows.every((row) => preRestartEffectIds.has(row.effect_id)),
+        "each failed returning effect reached the loopback receiver before restart",
+      );
       recordGate(
         `returning notification/subscription/audit loopback failure held until deliberate restart (${acceptedReturningRegistrations.rows.length} registrations × ${expectedEffectTypes.length} effects)`,
       );
@@ -500,14 +514,32 @@ try {
       assert.equal(deliveredRows.length, expectedOutboxCount);
       assert.ok(hasExactReturningEffectShape(deliveredRows));
       assert.ok(deliveredRows.every((row) => row.status === "Delivered"));
-      assert.equal(effectCalls.length, expectedOutboxCount * 2);
+      const expectedEffectsById = new Map(
+        deliveredRows.map((row) => [row.effect_id, row]),
+      );
+      assert.ok(
+        effectCalls.every((call) => {
+          const outboxRow = expectedEffectsById.get(call.effectId);
+          return (
+            outboxRow !== undefined
+            && call.commandId === outboxRow.command_id
+            && call.origin === outboxRow.origin
+            && call.kind === outboxRow.effect_type
+          );
+        }),
+        "effect receiver observed only the immutable expected envelopes",
+      );
       for (const outboxRow of deliveredRows) {
-        const calls = effectCalls
-          .filter((call) => call.effectId === outboxRow.effect_id)
-          .sort((left, right) => left.attempt - right.attempt);
-        assert.deepEqual(calls.map((call) => [call.attempt, call.status]), [[1, 503], [2, 204]]);
-        assert.equal(calls[0]?.commandId, outboxRow.command_id);
-        assert.equal(calls[0]?.kind, outboxRow.effect_type);
+        const calls = effectCalls.filter((call) => call.effectId === outboxRow.effect_id);
+        const acknowledgements = calls.filter((call) => call.status === 204);
+        assert.equal(acknowledgements.length, 1);
+        assert.equal(acknowledgements[0]?.commandId, outboxRow.command_id);
+        assert.equal(acknowledgements[0]?.origin, outboxRow.origin);
+        assert.equal(acknowledgements[0]?.kind, outboxRow.effect_type);
+        assert.ok(
+          calls.some((call) => call.status === 503),
+          `effect ${outboxRow.effect_id} had a pre-restart failure`,
+        );
       }
       await writeFile(
         join(artifacts, "returning-effect-evidence.json"),
@@ -516,6 +548,7 @@ try {
             outbox: deliveredRows,
             registrations: acceptedReturningRegistrations.rows,
             calls: effectCalls,
+            preRestartCalls: preRestartEffectCalls,
             restart: true,
           },
           null,
@@ -1076,6 +1109,8 @@ try {
     ui,
     artifacts,
     auditPage,
+    coordinatorEmail: "coordinator.report@example.invalid",
+    coordinatorPassword: password,
     errors,
   });
   recordGate(
