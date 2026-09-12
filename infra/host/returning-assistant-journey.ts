@@ -170,6 +170,7 @@ export const runReturningAssistantBrowserJourney = async ({
   readonly auditPage: (page: Page, state: string) => Promise<void>;
   readonly errors: string[];
 }) => {
+  const context = await browser.newContext();
   const responses: string[] = [];
   const returning = await context.newPage();
   returning.on("response", (response) => {
