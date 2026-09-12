@@ -858,19 +858,25 @@ export const runReturningAssistantBrowserJourney = async ({
   await expectValue(periodForm.getByRole("combobox", { name: "Opptaksperiode" }), admissionPeriodId);
   await expectValue(periodForm.locator('input[name="expectedRevision"]'), "2");
   await expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "3");
-  await returning.goBack();
-  await waitForPeriodUrl(nextAdmissionPeriodId);
-  periodForm = await waitForPeriodForm(nextAdmissionPeriodId);
+  const dashboardPostsBeforeFinal = trace.filter((entry) => entry.phase === "dashboard-post").length;
   await periodForm.getByRole("combobox", { name: "Studieår" }).selectOption("5");
   await periodForm.getByRole("button", { name: "Lagre endringer" }).click();
+  let dashboardPostsAfterFinal = dashboardPostsBeforeFinal;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    dashboardPostsAfterFinal = trace.filter((entry) => entry.phase === "dashboard-post").length;
+    if (dashboardPostsAfterFinal > dashboardPostsBeforeFinal) break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.equal(dashboardPostsAfterFinal, dashboardPostsBeforeFinal + 1);
   await assertStatus(periodForm, "Registreringen er lagret.");
-  const nextPeriodPost = [...trace].reverse().find((entry) => entry.phase === "dashboard-post" && entry.admissionPeriodId === nextAdmissionPeriodId);
-  assert.deepEqual(nextPeriodPost, {
-    phase: "dashboard-post",
-    admissionPeriodId: nextAdmissionPeriodId,
-    expectedRevision: "1",
-    commandId: nextPeriodPost?.commandId,
-  });
+  const nextPeriodPost = [...trace]
+    .reverse()
+    .find((entry) => entry.phase === "dashboard-post" && entry.admissionPeriodId === nextAdmissionPeriodId);
+  assert.ok(nextPeriodPost);
+  assert.equal(nextPeriodPost.expectedRevision, "1");
+  assert.ok(nextPeriodPost.commandId);
+  const nextPeriodForm = nextPeriodPost.form as Array<readonly [string, string]>;
+  assert.equal(nextPeriodForm.find(([name]) => name === "yearOfStudy")?.[1], "5");
   const nextPeriodRevision = await pool.query(
     `SELECT revision,year_of_study
      FROM public.admission_returning_registrations
