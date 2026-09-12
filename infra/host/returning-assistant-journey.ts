@@ -1130,5 +1130,8 @@ const assertStatus = async (form: Locator, expected: string) => {
   await form.getByRole("status").filter({ hasText: expected }).waitFor();
 };
 const expectValue = async (field: Locator, expected: string) => {
-  assert.equal(await field.inputValue(), expected);
+  const actual = await field.inputValue();
+  if (actual !== expected) {
+    throw new Error(`field value mismatch actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`);
+  }
 };
