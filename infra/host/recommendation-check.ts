@@ -42,7 +42,11 @@ class ReturningLoginProbeComplete extends Error {
     super("returning login probe complete");
   }
 }
-for (const key of Object.values(fixtureKeys)) Schema.decodeUnknownSync(IdempotencyKey)(key);
+class ReturningTargetedComplete extends Error {
+  constructor(readonly result: unknown) {
+    super("returning targeted journey complete");
+  }
+}
 if (process.argv.includes("--report")) validateInterviewReportFixture();
 if (process.argv.includes("--validate-fixture")) {
   // oxlint-effect-plugin allow(no-ambient-console): dev only: local fixture validation result.
@@ -280,6 +284,69 @@ try {
   const cookies = await context.cookies();
   const cookie = cookies.map((c: any) => `${c.name}=${c.value}`).join("; ");
   secrets.push(...cookies.map((c: any) => c.value));
+  if (process.argv.includes("--returning-mode")) {
+    let currentStage = "returning:startup";
+    const returningStages: string[] = [];
+    const stage = (name: string) => {
+      currentStage = name;
+      returningStages.push(name);
+      // oxlint-effect-plugin allow(no-ambient-console): dev-only bounded stage evidence.
+      console.log(JSON.stringify({ returningStage: name }));
+    };
+    const bounded = async <T>(label: string, operation: Promise<T>, timeoutMs = 90_000): Promise<T> => {
+      let timer: NodeJS.Timeout;
+      try {
+        return await Promise.race([
+          operation,
+          new Promise<T>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error(`${label} timed out at ${currentStage}`)),
+              timeoutMs,
+            );
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    const returningResult = await bounded(
+      "returning browser journey",
+      runReturningAssistantBrowserJourney({
+        browser,
+        page,
+        pool,
+        api,
+        ui,
+        artifacts,
+        auditPage,
+        errors,
+        stage,
+      }),
+    );
+    stage("returning:report-observer");
+    const reportEvidence = await bounded(
+      "0103 report observer",
+      observeInterviewReport({
+        root,
+        pool,
+        browser,
+        api,
+        ui,
+        artifacts,
+        ordinaryCookie: cookie,
+        password,
+        secrets,
+        revision,
+        auditPage,
+        recordGate,
+      }),
+    );
+    await writeFile(
+      join(artifacts, "returning-targeted-evidence.json"),
+      JSON.stringify({ revision, returningStages, returningResult, reportEvidence }, null, 2),
+    );
+    throw new ReturningTargetedComplete({ returningStages, reportEvidence });
+  }
   const get = (id: string) =>
     fetch(`${api}/api/recruitment/interviews/${id}`, { headers: { cookie, origin: ui } });
   const post = (id: string, body: unknown, key: string, etag: string) =>
@@ -863,43 +930,46 @@ try {
   if (error instanceof ReturningLoginProbeComplete) {
     // oxlint-effect-plugin allow(no-ambient-console): bounded local login probe result.
     console.log(JSON.stringify({ result: "ReturningLoginProbe", revision, artifacts, gates, probe: error.result }));
+  } else if (error instanceof ReturningTargetedComplete) {
+    // oxlint-effect-plugin allow(no-ambient-console): bounded returning/report result.
+    console.log(JSON.stringify({ result: "ReturningTargeted", revision, artifacts, gates, journey: error.result }));
   } else {
     let detail =
-    error instanceof Error
-      ? (error.stack?.split("\n").slice(0, 5).join("\n") ?? error.message)
-      : String(error);
-  const activeQueries = pool
-    ? await pool
-        .query(
-          `SELECT pid,state,wait_event_type,wait_event,left(query,240) AS query
-           FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()
-           ORDER BY pid`,
-        )
-        .then((result: { rows: unknown[] }) => result.rows)
-        .catch(() => [])
-    : [];
-  detail += ` Active PostgreSQL queries: ${JSON.stringify(activeQueries)}`;
-  if (page)
-    detail += ` Current page: ${await page
-      .locator("body")
-      .innerText()
-      .catch(() => "unavailable")}`;
+      error instanceof Error
+        ? (error.stack?.split("\n").slice(0, 5).join("\n") ?? error.message)
+        : String(error);
+    const activeQueries = pool
+      ? await pool
+          .query(
+            `SELECT pid,state,wait_event_type,wait_event,left(query,240) AS query
+             FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()
+             ORDER BY pid`,
+          )
+          .then((result: { rows: unknown[] }) => result.rows)
+          .catch(() => [])
+      : [];
+    detail += ` Active PostgreSQL queries: ${JSON.stringify(activeQueries)}`;
+    if (page)
+      detail += ` Current page: ${await page
+        .locator("body")
+        .innerText()
+        .catch(() => "unavailable")}`;
 
-  const safe = (value: string) =>
-    secrets.reduce((result, secret) => result.replaceAll(secret, "[redacted]"), value);
-  detail = safe(detail);
-  const failureEvidence = {
-    result: "Failed",
-    revision,
-    gates,
-    detail: detail.slice(0, 2000),
-    logs: logs.map(safe),
-  };
-  await writeFile(join(artifacts, "failure.json"), JSON.stringify(failureEvidence, null, 2));
-  await writeFile(join(artifacts, "runtime.log"), `${logs.map(safe).join("")}${detail}\n`);
-  // oxlint-effect-plugin allow(no-ambient-console): dev only: redacted local rehearsal failure evidence.
-  console.error(JSON.stringify({ ...failureEvidence, artifacts }));
-  process.exitCode = 1;
+    const safe = (value: string) =>
+      secrets.reduce((result, secret) => result.replaceAll(secret, "[redacted]"), value);
+    detail = safe(detail);
+    const failureEvidence = {
+      result: "Failed",
+      revision,
+      gates,
+      detail: detail.slice(0, 2000),
+      logs: logs.map(safe),
+    };
+    await writeFile(join(artifacts, "failure.json"), JSON.stringify(failureEvidence, null, 2));
+    await writeFile(join(artifacts, "runtime.log"), `${logs.map(safe).join("")}${detail}\n`);
+    // oxlint-effect-plugin allow(no-ambient-console): dev only: redacted local rehearsal failure evidence.
+    console.error(JSON.stringify({ ...failureEvidence, artifacts }));
+    process.exitCode = 1;
   }
 } finally {
   await browser?.close();

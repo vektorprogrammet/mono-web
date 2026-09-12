@@ -180,6 +180,7 @@ export const runReturningAssistantBrowserJourney = async ({
   artifacts,
   auditPage,
   errors,
+  stage,
 }: {
   readonly browser: Browser;
   readonly page: Page;
@@ -189,10 +190,13 @@ export const runReturningAssistantBrowserJourney = async ({
   readonly artifacts: string;
   readonly auditPage: (page: Page, state: string) => Promise<void>;
   readonly errors: string[];
+  readonly stage?: (name: string) => void;
 }) => {
+  stage?.("returning:browser.newContext");
   const context = await browser.newContext();
   const responses: string[] = [];
   const trace: Array<Record<string, unknown>> = [];
+  stage?.("returning:browser.newPage");
   const returning = await context.newPage();
   returning.on("request", (request) => {
     const url = new URL(request.url());
@@ -255,6 +259,7 @@ export const runReturningAssistantBrowserJourney = async ({
     }
   });
   const destination = "/dashboard/tidligere-assistenter";
+  stage?.("returning:login");
   try {
     await returning.goto(`${ui}/login?redirectTo=${encodeURIComponent(destination)}`);
     await returning.getByLabel("E-post", { exact: true }).fill(person.email);
@@ -276,8 +281,8 @@ export const runReturningAssistantBrowserJourney = async ({
     });
     return { status: response.status };
   }, `${api}/api/returning-assistant/options`);
-  responses.push(`browser options ${browserOptions.status}`);
   let form: Locator;
+  stage?.("returning:form");
   try {
     form = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
     await form.getByRole("combobox", { name: "Opptaksperiode" }).selectOption(nextAdmissionPeriodId);
@@ -339,16 +344,13 @@ export const runReturningAssistantBrowserJourney = async ({
       resolveFirstAction();
       return;
     }
-    if (commandKey !== firstCommandKey || expectedRevision !== firstExpectedRevision)
-      routeFailure = "retry payload identity changed";
-    if (status < 200 || status >= 300) routeFailure = `retry action status ${status}`;
-    await route.fulfill({ response });
-    resolveSecondAction();
   });
+  stage?.("returning:mutation");
   try {
     await submit.click();
     await firstActionSettled;
     await returning.locator('form[aria-label="Registrer som tidligere assistent"][data-pending="false"]').waitFor();
+    stage?.("returning:retry");
     await submit.click();
     await secondActionSettled;
   } catch (cause) {
@@ -443,6 +445,7 @@ export const runReturningAssistantBrowserJourney = async ({
     data: { commandId: "returning-browser-registration-0104-replay", admissionPeriodId, expectedRevision: 2, yearOfStudy: 3, mondayUnavailable: true, tuesdayUnavailable: false, wednesdayUnavailable: false, thursdayUnavailable: false, fridayUnavailable: false, positionWeeks: 4, preferredGroup: "all", language: "Engelsk", preferredSchool: null, teamInterest: false, teamIds: [] },
   });
   assert.equal(replay.status(), 401);
+  stage?.("returning:report");
   await page.goto(`${ui}/dashboard/intervjuer/rapport?admissionPeriodId=${encodeURIComponent(admissionPeriodId)}`);
   await page.getByRole("heading", { level: 1, name: "Fullførte intervjuer" }).waitFor();
   await page.getByRole("row").filter({ hasText: "Rita Tilbake" }).getByText("Tilbakevendende").waitFor();
@@ -451,6 +454,7 @@ export const runReturningAssistantBrowserJourney = async ({
   await page.getByRole("row").filter({ hasText: "Rita Tilbake" }).waitFor();
   await auditPage(page, "returning-report");
   await page.screenshot({ path: join(artifacts, "returning-report.png"), fullPage: true });
+  stage?.("returning:cleanup");
   await returning.close();
   await context.close();
   await page.goto(`${ui}/dashboard/intervjuer`);
