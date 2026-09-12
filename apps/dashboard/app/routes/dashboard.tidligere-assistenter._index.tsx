@@ -210,29 +210,57 @@ export default function TidligereAssistenter() {
     savedValues?.get(name)?.includes("true") ?? fallback;
   const restoredIncludes = (name: string, value: string, fallback: boolean) =>
     savedValues?.get(name)?.includes(value) ?? fallback;
-  const [draftRevisionOverride, setDraftRevisionOverride] = useState<number>();
+  const [periodFormOverrides, setPeriodFormOverrides] = useState<
+    Record<
+      string,
+      {
+        readonly draftRevision?: number;
+        readonly commandId?: string;
+        readonly commandDraft?: string;
+        readonly persistenceError?: string | null;
+      }
+    >
+  >({});
+  const setPeriodFormOverride = (
+    periodId: string,
+    patch: {
+      readonly draftRevision?: number;
+      readonly commandId?: string;
+      readonly commandDraft?: string;
+      readonly persistenceError?: string | null;
+    },
+  ) =>
+    setPeriodFormOverrides((previous) => ({
+      ...previous,
+      [periodId]: { ...previous[periodId], ...patch },
+    }));
+  const periodFormOverride = periodFormOverrides[selectedId] ?? {};
   const draftRevision =
-    draftRevisionOverride ?? (restoringDraft ? savedPayload?.expectedRevision ?? currentRevision : currentRevision);
-  const [commandIdOverride, setCommandIdOverride] = useState<string>();
-  const commandId = commandIdOverride ?? (restoringDraft ? savedPayload?.commandId ?? "" : "");
-  const [commandDraftOverride, setCommandDraftOverride] = useState<string>();
-  const commandDraft = commandDraftOverride ?? (restoringDraft ? savedDraft?.signature ?? "" : "");
+    periodFormOverride.draftRevision ??
+    (restoringDraft ? savedPayload?.expectedRevision ?? currentRevision : currentRevision);
+  const commandId =
+    periodFormOverride.commandId ?? (restoringDraft ? savedPayload?.commandId ?? "" : "");
+  const commandDraft =
+    periodFormOverride.commandDraft ?? (restoringDraft ? savedDraft?.signature ?? "" : "");
+  const persistenceError = periodFormOverride.persistenceError ?? null;
   const [acceptedCommandId, setAcceptedCommandId] = useState("");
-  const [persistenceError, setPersistenceError] = useState<string | null>(null);
   if (fetcher.data?.success === true && fetcher.data.commandId !== acceptedCommandId) {
     if (typeof window !== "undefined" && options !== null) {
       try {
         window.sessionStorage.removeItem(returningDraftStorageKey(options.personId, selectedId));
       } catch {
-        setPersistenceError(
-          "Registreringen er lagret, men nettleseren kunne ikke fjerne gjenopprettingsutkastet.",
-        );
+        setPeriodFormOverride(selectedId, {
+          persistenceError:
+            "Registreringen er lagret, men nettleseren kunne ikke fjerne gjenopprettingsutkastet.",
+        });
       }
     }
     setAcceptedCommandId(fetcher.data.commandId);
-    setDraftRevisionOverride(fetcher.data.revision);
-    setCommandIdOverride("");
-    setCommandDraftOverride("");
+    setPeriodFormOverride(selectedId, {
+      draftRevision: fetcher.data.revision,
+      commandId: "",
+      commandDraft: "",
+    });
   }
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     if (busy || event.currentTarget.dataset.pending === "true") {
@@ -240,7 +268,7 @@ export default function TidligereAssistenter() {
       return;
     }
     event.currentTarget.dataset.pending = "true";
-    setPersistenceError(null);
+    setPeriodFormOverride(selectedId, { persistenceError: null });
     const draft = new FormData(event.currentTarget);
     draft.delete("commandId");
     const entries = [...draft].map(([name, value]) => ({ name, value: String(value) }));
@@ -249,8 +277,7 @@ export default function TidligereAssistenter() {
     if (field instanceof HTMLInputElement && (!field.value || signature !== commandDraft)) {
       const key = crypto.randomUUID();
       field.value = key;
-      setCommandIdOverride(key);
-      setCommandDraftOverride(signature);
+      setPeriodFormOverride(selectedId, { commandId: key, commandDraft: signature });
     }
     if (typeof window !== "undefined" && options !== null) {
       const payloadForm = new FormData(event.currentTarget);
@@ -276,7 +303,9 @@ export default function TidligereAssistenter() {
       } catch {
         event.preventDefault();
         event.currentTarget.dataset.pending = "false";
-        setPersistenceError("Registreringen kunne ikke klargjøres. Kontroller feltene og prøv igjen.");
+        setPeriodFormOverride(selectedId, {
+          persistenceError: "Registreringen kunne ikke klargjøres. Kontroller feltene og prøv igjen.",
+        });
         return;
       }
       try {
@@ -292,9 +321,10 @@ export default function TidligereAssistenter() {
       } catch {
         event.preventDefault();
         event.currentTarget.dataset.pending = "false";
-        setPersistenceError(
-          "Nettleseren kunne ikke lagre et gjenopprettingsutkast. Registreringen ble ikke sendt.",
-        );
+        setPeriodFormOverride(selectedId, {
+          persistenceError:
+            "Nettleseren kunne ikke lagre et gjenopprettingsutkast. Registreringen ble ikke sendt.",
+        });
       }
     }
   };
@@ -370,11 +400,12 @@ export default function TidligereAssistenter() {
                   nextPeriodId ? { admissionPeriodId: nextPeriodId } : {},
                   { replace: false },
                 );
-                setDraftRevisionOverride(
-                  options.periods.find(({ period }) => period.id === nextPeriodId)?.currentRevision ?? 0,
-                );
-                setCommandIdOverride("");
-                setCommandDraftOverride("");
+                setPeriodFormOverride(nextPeriodId, {
+                  draftRevision:
+                    options.periods.find(({ period }) => period.id === nextPeriodId)?.currentRevision ?? 0,
+                  commandId: "",
+                  commandDraft: "",
+                });
               }}
               className="mt-1 block w-full rounded border p-2"
             >
