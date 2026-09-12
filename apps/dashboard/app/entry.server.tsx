@@ -50,7 +50,13 @@ export default async function handleRequest(
   });
 }
 
-/** Request errors may contain credential URLs; never log their raw payload. */
-export function handleError(_error: unknown) {
-  console.error("Dashboard request failed");
+/** Request errors may contain credential URLs; log only a bounded typed summary. */
+export function handleError(error: unknown) {
+  const status = error instanceof Response ? String(error.status) : "unknown";
+  const code =
+    error !== null && typeof error === "object" && "code" in error && typeof error.code === "string"
+      ? error.code
+      : "unknown";
+  const kind = error instanceof Error ? error.name : typeof error;
+  console.error(`Dashboard request failed phase=handler kind=${kind} status=${status} code=${code}`);
 }

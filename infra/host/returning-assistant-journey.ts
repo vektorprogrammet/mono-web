@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Pool } from "pg";
 import type { Browser, Locator, Page } from "@playwright/test";
@@ -176,7 +177,30 @@ export const runReturningAssistantBrowserJourney = async ({
   returning.on("response", (response) => {
     if (response.url().includes("/api/")) responses.push(`${response.status()} ${response.url()}`);
   });
+  returning.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.includes("/dashboard/tidligere-assistenter") || url.pathname.includes("/api/returning-assistant/"))
+      responses.push(`request ${request.method()} ${url.pathname}`);
+  });
+  returning.on("response", (response) => {
+    const url = new URL(response.url());
+    if (url.pathname.includes("/dashboard/tidligere-assistenter") || url.pathname.includes("/api/returning-assistant/"))
+      responses.push(`response ${response.status()} ${url.pathname}`);
+  });
   returning.on("pageerror", (error: Error) => errors.push(`returning:${error.message}`));
+  const captureReturningFailure = async (phase: string, cause: unknown): Promise<never> => {
+    const markup = await returning.content().catch(() => "<unavailable>");
+    await writeFile(
+      join(artifacts, `returning-${phase}-failure.html`),
+      markup.replaceAll(person.email, "[redacted]"),
+    );
+    await returning.screenshot({ path: join(artifacts, `returning-${phase}-failure.png`), fullPage: true });
+    const kind = cause instanceof Error ? cause.name : typeof cause;
+    throw new Error(
+      `returning ${phase} failed phase=browser-action kind=${kind} url=${returning.url()} responses=${responses.join(" | ")}`,
+      { cause },
+    );
+  };
   const destination = "/dashboard/tidligere-assistenter";
   await returning.goto(`${ui}/login?redirectTo=${encodeURIComponent(destination)}`);
   await returning.getByLabel("E-post", { exact: true }).fill(person.email);
@@ -186,17 +210,15 @@ export const runReturningAssistantBrowserJourney = async ({
   const optionsResponse = await context.request.get(`${api}/api/returning-assistant/options`, {
     headers: { origin: ui, accept: "application/json", cookie: cookieHeader },
   });
-  responses.push(
-    `${optionsResponse.status()} ${optionsResponse.url()} ${JSON.stringify(await optionsResponse.json().catch(() => null))}`,
-  );
+  responses.push(`context.request options ${optionsResponse.status()}`);
   const browserOptions = await returning.evaluate(async (endpoint) => {
     const response = await fetch(endpoint, {
       credentials: "include",
       headers: { accept: "application/json" },
     });
-    return { status: response.status, body: await response.text() };
+    return { status: response.status };
   }, `${api}/api/returning-assistant/options`);
-  responses.push(`browser ${browserOptions.status} ${browserOptions.body}`);
+  responses.push(`browser options ${browserOptions.status}`);
   await returning.waitForURL(/\/dashboard\/tidligere-assistenter$/);
   let form: Locator;
   try {
@@ -206,11 +228,7 @@ export const runReturningAssistantBrowserJourney = async ({
     await form.getByLabel("Mandag").check();
     await form.getByRole("combobox", { name: "Språk" }).selectOption("Norsk og engelsk");
   } catch (cause) {
-    const body = await returning.locator("body").innerText().catch(() => "unavailable");
-    throw new Error(
-      `returning route ${returning.url()} responses: ${responses.join(" | ")} body: ${body.slice(0, 2000)}`,
-      { cause },
-    );
+    await captureReturningFailure("form", cause);
   }
   const submit = form.locator('button[type="submit"]');
   let droppedResponse = false;
@@ -229,10 +247,18 @@ export const runReturningAssistantBrowserJourney = async ({
     await response.body();
     await route.abort("failed");
   });
-  await submit.click();
-  await returning.locator('form[aria-label="Registrer som tidligere assistent"][data-pending="false"]').waitFor();
-  await submit.click();
-  await assertStatus(form, "Registreringen er lagret.");
+  try {
+    await submit.click();
+    await returning.locator('form[aria-label="Registrer som tidligere assistent"][data-pending="false"]').waitFor();
+    await submit.click();
+  } catch (cause) {
+    await captureReturningFailure("submit", cause);
+  }
+  try {
+    await assertStatus(form, "Registreringen er lagret.");
+  } catch (cause) {
+    await captureReturningFailure("submit-status", cause);
+  }
   await returning.unroute(`${api}/api/returning-assistant/registrations`);
   await returning.reload();
   const reloaded = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
@@ -241,7 +267,11 @@ export const runReturningAssistantBrowserJourney = async ({
   await reloaded.getByRole("combobox", { name: "Studieår" }).selectOption("3");
   await reloaded.getByRole("combobox", { name: "Språk" }).selectOption("Engelsk");
   await reloaded.getByRole("button", { name: "Lagre endringer" }).click();
-  await assertStatus(reloaded, "Registreringen er lagret.");
+  try {
+    await assertStatus(reloaded, "Registreringen er lagret.");
+  } catch (cause) {
+    await captureReturningFailure("update-status", cause);
+  }
   await returning.reload();
   await expectValue(returning.getByRole("combobox", { name: "Studieår" }), "3");
   await expectValue(returning.getByRole("combobox", { name: "Språk" }), "Engelsk");
