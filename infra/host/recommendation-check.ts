@@ -1077,22 +1077,33 @@ try {
         return;
       }
       if (
-        typeof payload !== "object" ||
         payload === null ||
+        typeof payload !== "object" ||
         !("operation" in payload) ||
         payload.operation !== "correctInterviewAssessment"
       ) {
         await route.continue();
         return;
       }
+      const headersValue = "headers" in payload ? payload.headers : undefined;
+      const operationHeaders =
+        typeof headersValue === "object" && headersValue !== null ? headersValue : {};
+      const ifMatch =
+        "if-match" in operationHeaders && typeof operationHeaders["if-match"] === "string"
+          ? operationHeaders["if-match"]
+          : undefined;
+      const idempotencyKey =
+        "idempotency-key" in operationHeaders && typeof operationHeaders["idempotency-key"] === "string"
+          ? operationHeaders["idempotency-key"]
+          : undefined;
       const phase: CorrectionAttempt["phase"] = correctionAttempts.length === 0 ? "failed-save" : "retry";
       try {
         const response = await route.fetch({ timeout: 30_000 });
         correctionAttempts.push({
           phase,
           payload,
-          ifMatch: request.headers()["if-match"],
-          idempotencyKey: request.headers()["idempotency-key"],
+          ifMatch,
+          idempotencyKey,
           fetchedStatus: response.status(),
         });
         if (phase === "failed-save") {
@@ -1171,8 +1182,8 @@ try {
     const staleCorrectionRequestBody = staleCorrectionRequest.postDataJSON();
     assert.equal(staleCorrectionRequestBody.operation, "correctInterviewAssessment");
     assert.equal(staleCorrectionRequestBody.payload.expectedRevision, 2);
-    assert.equal(staleCorrectionRequest.headers()["if-match"], staleCorrectionEtag);
-    assert.match(staleCorrectionRequest.headers()["idempotency-key"] ?? "", /^[a-z0-9-]+$/);
+    assert.equal(staleCorrectionRequestBody.headers["if-match"], staleCorrectionEtag);
+    assert.match(staleCorrectionRequestBody.headers["idempotency-key"] ?? "", /^[a-z0-9-]+$/);
     await staleCorrection
       .getByText(
         "Intervjuet er endret. Utkastet er beholdt; åpne intervjuet på nytt for å hente gjeldende versjon.",
@@ -1359,6 +1370,11 @@ try {
     if (firstDirect.status !== 200) {
       throw new Error(`first direct correction ${firstDirect.status}: ${await firstDirect.text()}`);
     }
+    const acceptedCorrectionRequest = {
+      rawKey: "correction-replay-0105-a",
+      originalIfMatch: firstDirectEtag,
+      exactFourFieldPayload: firstDirectPayload,
+    };
     const firstBytes = await firstDirect.text();
     const secondDirectDetail = await (await get(correctionId)).json();
     const secondDirectEtag = (await get(correctionId)).headers.get("etag")!;
@@ -1371,9 +1387,9 @@ try {
     assert.equal(secondDirect.status, 200);
     const replay = await correctPost(
       correctionId,
-      firstDirectPayload,
-      "correction-replay-0105-a",
-      firstDirectEtag,
+      acceptedCorrectionRequest.exactFourFieldPayload,
+      acceptedCorrectionRequest.rawKey,
+      acceptedCorrectionRequest.originalIfMatch,
     );
     assert.equal(replay.status, 200);
     assert.equal(await replay.text(), firstBytes);
@@ -1410,7 +1426,6 @@ try {
     assert.ok(finalDetail.canFinalize === false && finalDetail.canCancel === false);
     assert.deepEqual(await effectSnapshot(), effectsBefore);
     stage("corrections create no notification or application effects");
-    const correctionAuthorityEtag = (await get(correctionId)).headers.get("etag")!;
     await pool.query(
       `UPDATE public.organization_memberships SET is_suspended=true WHERE membership_id='membership-native-conduct-leader-0063'`,
     );
@@ -1419,9 +1434,9 @@ try {
       (
         await correctPost(
           correctionId,
-          firstDirectPayload,
-          "correction-revoked-replay-0105",
-          correctionAuthorityEtag,
+          acceptedCorrectionRequest.exactFourFieldPayload,
+          acceptedCorrectionRequest.rawKey,
+          acceptedCorrectionRequest.originalIfMatch,
         )
       ).status,
       403,
@@ -1438,9 +1453,9 @@ try {
       (
         await correctPost(
           correctionId,
-          firstDirectPayload,
-          "correction-wrong-actor-0105",
-          correctionAuthorityEtag,
+          acceptedCorrectionRequest.exactFourFieldPayload,
+          acceptedCorrectionRequest.rawKey,
+          acceptedCorrectionRequest.originalIfMatch,
         )
       ).status,
       403,
@@ -1458,9 +1473,9 @@ try {
       (
         await correctPost(
           correctionId,
-          firstDirectPayload,
-          "correction-ended-membership-0105",
-          correctionAuthorityEtag,
+          acceptedCorrectionRequest.exactFourFieldPayload,
+          acceptedCorrectionRequest.rawKey,
+          acceptedCorrectionRequest.originalIfMatch,
         )
       ).status,
       403,
