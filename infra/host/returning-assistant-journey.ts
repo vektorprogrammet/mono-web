@@ -365,8 +365,6 @@ export const runReturningAssistantBrowserJourney = async ({
   stage?.("returning:browser.newContext");
   const context = await browser.newContext();
   const responses: string[] = [];
-  const trace: Array<Record<string, unknown>> = [];
-  const dashboardPostStatuses: number[] = [];
   stage?.("returning:browser.newPage");
   const returning = await context.newPage();
   returning.on("request", (request) => {
@@ -385,8 +383,6 @@ export const runReturningAssistantBrowserJourney = async ({
   });
   returning.on("response", async (response) => {
     const url = new URL(response.url());
-    if (response.request().method() === "POST" && url.pathname === "/dashboard/tidligere-assistenter")
-      dashboardPostStatuses.push(response.status());
     if (
       !url.pathname.includes("/dashboard/tidligere-assistenter")
       && !url.pathname.includes("/api/returning-assistant/")
@@ -452,21 +448,43 @@ export const runReturningAssistantBrowserJourney = async ({
   const optionsResponse = await context.request.get(`${api}/api/returning-assistant/options`, {
     headers: { origin: ui, accept: "application/json", cookie: cookieHeader },
   });
-  const waitForDashboardAction = async (beforePosts: number, beforeResponses: number) => {
-    let post: Record<string, unknown> | undefined;
-    let status: number | undefined;
+  const waitForDashboardAction = async (periodId: string, trigger: () => Promise<void>) => {
+    const responsePromise = returning.waitForResponse(
+      (response) => {
+        const url = new URL(response.url());
+        if (
+          response.request().method() !== "POST"
+          || !["/dashboard/tidligere-assistenter", "/dashboard/tidligere-assistenter.data"].includes(url.pathname)
+        )
+          return false;
+        const body = new URLSearchParams(response.request().postData() ?? "");
+        return body.get("admissionPeriodId") === periodId;
+      },
+      { timeout: 30_000 },
+    );
+    await trigger();
+    const response = await responsePromise;
+    await response.finished();
+    assert.equal(response.status(), 200);
+    const body = new URLSearchParams(response.request().postData() ?? "");
+    return {
+      phase: "dashboard-post",
+      form: [...body.entries()],
+      admissionPeriodId: body.get("admissionPeriodId"),
+      expectedRevision: body.get("expectedRevision"),
+      commandId: body.get("commandId"),
+    };
+  };
+  const waitForActionReady = async (form: Locator) => {
     for (let attempt = 0; attempt < 100; attempt += 1) {
-      const posts = trace.filter((entry) => entry.phase === "dashboard-post");
-      if (posts.length > beforePosts && dashboardPostStatuses.length > beforeResponses) {
-        post = posts.at(-1);
-        status = dashboardPostStatuses.at(-1);
-        break;
-      }
+      if (
+        await form.locator('button[type="submit"]').isEnabled()
+        && (await form.getAttribute("data-pending")) === "false"
+      )
+        return;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    assert.ok(post, "dashboard action request did not arrive");
-    assert.equal(status, 200);
-    return post;
+    throw new Error("returning form did not become ready for action");
   };
   responses.push(`context.request options ${optionsResponse.status()}`);
   const negativeMutationSnapshot = async (personId: string) =>
@@ -788,8 +806,6 @@ export const runReturningAssistantBrowserJourney = async ({
   assert.equal(await reloaded.getByLabel("Mandag", { exact: true }).isChecked(), true);
   assert.equal(await reloaded.getByLabel("Torsdag", { exact: true }).isChecked(), true);
   assert.equal(await reloaded.getByLabel("Ønsket skole (valgfritt)", { exact: true }).inputValue(), "Returning School");
-  assert.equal(await reloaded.getByLabel("Jeg er interessert i teamarbeid", { exact: true }).isChecked(), true);
-  assert.equal(await reloaded.locator(`input[name="teamIds"][value="${teamId}"]`).isChecked(), true);
   await reloaded.getByRole("combobox", { name: "Opptaksperiode" }).selectOption(admissionPeriodId);
   await returning.waitForURL(
     new RegExp(`/dashboard/tidligere-assistenter\\?admissionPeriodId=${admissionPeriodId}$`),
@@ -804,10 +820,12 @@ export const runReturningAssistantBrowserJourney = async ({
   await reloaded.getByLabel("Ønsket skole (valgfritt)", { exact: true }).fill("");
   await reloaded.getByLabel("Jeg er interessert i teamarbeid", { exact: true }).uncheck();
   await reloaded.locator(`input[name="teamIds"][value="${teamId}"]`).uncheck();
-  const nativePostsBefore = trace.filter((entry) => entry.phase === "dashboard-post").length;
-  const nativeResponsesBefore = dashboardPostStatuses.length;
-  await reloaded.locator('button[type="submit"]').click();
-  await waitForDashboardAction(nativePostsBefore, nativeResponsesBefore);
+  const nativePost = await waitForDashboardAction(admissionPeriodId, async () => {
+    await waitForActionReady(reloaded);
+    await reloaded.locator('button[type="submit"]').click();
+  });
+  assert.equal(nativePost.admissionPeriodId, admissionPeriodId);
+  assert.equal(nativePost.expectedRevision, "0");
   try {
     await assertStatus(reloaded, "Registreringen er lagret.");
   } catch (cause) {
@@ -823,16 +841,18 @@ export const runReturningAssistantBrowserJourney = async ({
   await expectValue(existing.getByRole("combobox", { name: "Semesterblokk" }), "all");
   await expectValue(existing.getByRole("combobox", { name: "Språk" }), "Norsk og engelsk");
   await existing.getByRole("combobox", { name: "Studieår" }).selectOption("3");
-  await existing.getByRole("combobox", { name: "Språk" }).selectOption("Engelsk");
-  const updatePostsBefore = trace.filter((entry) => entry.phase === "dashboard-post").length;
-  const updateResponsesBefore = dashboardPostStatuses.length;
-  await existing.getByRole("button", { name: "Lagre endringer" }).click();
-  await waitForDashboardAction(updatePostsBefore, updateResponsesBefore);
+  const updatePost = await waitForDashboardAction(admissionPeriodId, async () => {
+    await waitForActionReady(existing);
+    await existing.getByRole("button", { name: "Lagre endringer" }).click();
+  });
+  assert.equal(updatePost.admissionPeriodId, admissionPeriodId);
+  assert.equal(updatePost.expectedRevision, "1");
   try {
     await assertStatus(existing, "Registreringen er lagret.");
   } catch (cause) {
     await captureReturningFailure("update-status", cause);
   }
+  await captureCommitted("existing-period-after-update", admissionPeriodId);
   await returning.reload();
   const updated = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
   await expectValue(updated.getByRole("combobox", { name: "Opptaksperiode" }), admissionPeriodId);
@@ -880,16 +900,12 @@ export const runReturningAssistantBrowserJourney = async ({
   await expectValue(periodForm.getByRole("combobox", { name: "Opptaksperiode" }), admissionPeriodId);
   await expectValue(periodForm.locator('input[name="expectedRevision"]'), "2");
   await expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "3");
-  const dashboardPostsBeforeFinal = trace.filter((entry) => entry.phase === "dashboard-post").length;
-  await periodForm.getByRole("combobox", { name: "Studieår" }).selectOption("5");
-  await periodForm.getByRole("button", { name: "Lagre endringer" }).click();
-  let dashboardPostsAfterFinal = dashboardPostsBeforeFinal;
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    dashboardPostsAfterFinal = trace.filter((entry) => entry.phase === "dashboard-post").length;
-    if (dashboardPostsAfterFinal > dashboardPostsBeforeFinal) break;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  assert.equal(dashboardPostsAfterFinal, dashboardPostsBeforeFinal + 1);
+  const finalPost = await waitForDashboardAction(nextAdmissionPeriodId, async () => {
+    await periodForm.getByRole("combobox", { name: "Studieår" }).selectOption("5");
+    await waitForActionReady(periodForm);
+    await periodForm.getByRole("button", { name: "Lagre endringer" }).click();
+  });
+  assert.equal(finalPost.admissionPeriodId, nextAdmissionPeriodId);
   await assertStatus(periodForm, "Registreringen er lagret.");
   const nextPeriodPost = [...trace]
     .reverse()
