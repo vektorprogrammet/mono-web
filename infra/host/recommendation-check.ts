@@ -921,6 +921,9 @@ try {
     const saveCorrection = async (recommendation: "Ja" | "Kanskje" | "Nei") => {
       await fill(page);
       await page.locator("#interviewer-recommendation").selectOption(recommendation);
+      await page.locator("#score-explanatoryPower").selectOption("4");
+      await page.locator("#score-roleModel").selectOption("5");
+      await page.locator("#score-suitability").selectOption("6");
       await page.getByRole("button", { name: "Rett intervju", exact: true }).click();
       await page.getByRole("dialog").waitFor({ state: "visible" });
       const responsePromise = responseFor("correctInterviewAssessment");
@@ -936,6 +939,14 @@ try {
     const before = await get(correctionId);
     assert.equal(before.status, 200);
     const beforeBody = await before.json();
+    const originalConductSql = (
+      await pool.query(
+        `SELECT to_jsonb(c) AS value
+         FROM public.recruitment_interview_conducts c
+         WHERE interview_id=$1`,
+        [correctionId],
+      )
+    ).rows[0].value;
     assert.equal(beforeBody.completionState, "Completed");
     assert.equal(beforeBody.history[0]?._tag, "Original");
     assert.equal(beforeBody.history[0]?.recommendation, null);
@@ -945,22 +956,39 @@ try {
     stage("browser keyboard correction saves and refreshes detail");
     const afterFirst = await (await get(correctionId)).json();
     assert.equal(afterFirst.recommendation, "Ja");
+    assert.deepEqual(afterFirst.answers, [
+      { questionId: "interview-schema-native-conduct-0063-q0", answer: "Jeg liker å bygge gode løsninger sammen med andre." },
+      { questionId: "interview-schema-native-conduct-0063-q1", answer: "Teknologi" },
+      { questionId: "interview-schema-native-conduct-0063-q2", answer: "Praksis" },
+      {
+        questionId: "interview-schema-native-conduct-0063-q3",
+        answer: ["Samarbeid", "Nysgjerrighet"],
+      },
+    ]);
+    assert.deepEqual(afterFirst.score, {
+      explanatoryPower: 4,
+      roleModel: 5,
+      suitability: 6,
+    });
+    assert.equal(afterFirst.finalizedByPersonId, beforeBody.finalizedByPersonId);
+    assert.equal(afterFirst.finalizedAt, beforeBody.finalizedAt);
+    assert.deepEqual(afterFirst.history[0], beforeBody.history[0]);
     await page.reload();
     await correctionPageOpen();
     assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Ja");
     await page.locator("#question-interview-schema-native-conduct-0063-q0").fill("Et nytt tydelig svar.");
     await page.locator("#score-explanatoryPower").selectOption("9");
     await page.locator("#interviewer-recommendation").selectOption("Nei");
-    await page
-      .getByRole("button", { name: "Rett intervju", exact: true })
-      .last()
-      .click();
+    await page.getByRole("button", { name: "Rett intervju", exact: true }).last().click();
+    await page.getByRole("dialog").waitFor({ state: "visible" });
+    const secondResponsePromise = responseFor("correctInterviewAssessment");
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Rett intervju", exact: true })
       .press("Enter");
+    const secondResponse = await secondResponsePromise;
+    assert.equal(secondResponse.status(), 200);
     await page.locator("#interviewer-recommendation").waitFor({ state: "visible" });
-    assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Nei");
     await page.reload();
     await correctionPageOpen();
     assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Nei");
@@ -968,6 +996,115 @@ try {
     const afterSecond = await (await get(correctionId)).json();
     assert.ok(afterSecond.history.filter((entry: any) => entry._tag === "Correction").length >= 2);
     const afterSecondEtag = (await get(correctionId)).headers.get("etag");
+    assert.deepEqual(afterSecond.answers, [
+      { questionId: "interview-schema-native-conduct-0063-q0", answer: "Et nytt tydelig svar." },
+      { questionId: "interview-schema-native-conduct-0063-q1", answer: "Teknologi" },
+      { questionId: "interview-schema-native-conduct-0063-q2", answer: "Praksis" },
+      {
+        questionId: "interview-schema-native-conduct-0063-q3",
+        answer: ["Samarbeid", "Nysgjerrighet"],
+      },
+    ]);
+    assert.deepEqual(afterSecond.score, { explanatoryPower: 9, roleModel: 5, suitability: 6 });
+    const secondCorrections = afterSecond.history.filter((entry: any) => entry._tag === "Correction");
+    assert.equal(secondCorrections.length, 2);
+    assert.deepEqual(
+      secondCorrections.map((entry: any) => [entry.predecessorRevision, entry.revision]),
+      [
+        [1, 2],
+        [2, 3],
+      ],
+    );
+    assert.ok(
+      secondCorrections.every(
+        (entry: any) =>
+          entry.correctedByPersonId === "journey-conduct-leader-0063" &&
+          typeof entry.correctedAt === "string" &&
+          typeof entry.commandId === "string",
+      ),
+    );
+    const originalConductAfterSql = (
+      await pool.query(
+        `SELECT to_jsonb(c) AS value
+         FROM public.recruitment_interview_conducts c
+         WHERE interview_id=$1`,
+        [correctionId],
+      )
+    ).rows[0].value;
+    assert.deepEqual(originalConductAfterSql, originalConductSql);
+    const correctionRows = (
+      await pool.query(
+        `SELECT predecessor_revision AS "predecessorRevision",
+                resulting_revision AS "resultingRevision",
+                answers, explanatory_power AS "explanatoryPower",
+                role_model AS "roleModel", suitability, recommendation,
+                corrected_by_person_id AS "correctedByPersonId",
+                command_id AS "commandId"
+         FROM public.recruitment_interview_correction_assessments
+         WHERE interview_id=$1 ORDER BY resulting_revision`,
+        [correctionId],
+      )
+    ).rows;
+    assert.equal(correctionRows.length, 2);
+    assert.deepEqual(
+      correctionRows.map((row: any) => [row.predecessorRevision, row.resultingRevision]),
+      [
+        [1, 2],
+        [2, 3],
+      ],
+    );
+    assert.ok(
+      correctionRows.every(
+        (row: any) =>
+          row.correctedByPersonId === "journey-conduct-leader-0063" &&
+          typeof row.commandId === "string",
+      ),
+    );
+    const receiptRows = (
+      await pool.query(
+        `SELECT command_id AS "commandId", predecessor_revision AS "predecessorRevision",
+                resulting_revision AS "resultingRevision", command_json AS "commandJson",
+                observation_json AS "observationJson"
+         FROM public.recruitment_interview_correction_command_receipts
+         WHERE interview_id=$1 ORDER BY resulting_revision`,
+        [correctionId],
+      )
+    ).rows;
+    const auditRows = (
+      await pool.query(
+        `SELECT command_id AS "commandId", actor_person_id AS "actorPersonId",
+                predecessor_revision AS "predecessorRevision",
+                resulting_revision AS "resultingRevision"
+         FROM public.recruitment_interview_correction_audit
+         WHERE interview_id=$1 ORDER BY resulting_revision`,
+        [correctionId],
+      )
+    ).rows;
+    assert.equal(receiptRows.length, 2);
+    assert.equal(auditRows.length, 2);
+    assert.deepEqual(
+      receiptRows.map((row: any) => [row.commandId, row.predecessorRevision, row.resultingRevision]),
+      correctionRows.map((row: any) => [row.commandId, row.predecessorRevision, row.resultingRevision]),
+    );
+    assert.ok(
+      receiptRows.every(
+        (row: any) =>
+          typeof row.commandJson === "object" &&
+          row.commandJson !== null &&
+          typeof row.observationJson === "object" &&
+          row.observationJson !== null,
+      ),
+    );
+    assert.deepEqual(
+      auditRows.map((row: any) => [row.commandId, row.actorPersonId, row.predecessorRevision, row.resultingRevision]),
+      correctionRows.map((row: any) => [
+        row.commandId,
+        "journey-conduct-leader-0063",
+        row.predecessorRevision,
+        row.resultingRevision,
+      ]),
+    );
+    stage("SQL original conduct immutability and correction chain receipt audit linkage");
     assert.ok(afterSecondEtag);
     const writeCount = async () =>
       (
@@ -1021,15 +1158,13 @@ try {
     const firstBytes = await firstDirect.text();
     const secondDirectDetail = await (await get(correctionId)).json();
     const secondDirectEtag = (await get(correctionId)).headers.get("etag")!;
-    assert.equal(
-      (await correctPost(
-        correctionId,
-        correctionPayload(secondDirectDetail, "Nei"),
-        "correction-replay-0105-b",
-        secondDirectEtag,
-      )).status,
-      200,
+    const secondDirect = await correctPost(
+      correctionId,
+      correctionPayload(secondDirectDetail, "Nei"),
+      "correction-replay-0105-b",
+      secondDirectEtag,
     );
+    assert.equal(secondDirect.status, 200);
     const replay = await correctPost(
       correctionId,
       firstDirectPayload,
@@ -1041,6 +1176,7 @@ try {
     stage("exact correction replay remains byte-stable after later correction");
     const raceDetail = await (await get(correctionId)).json();
     const raceEtag = (await get(correctionId)).headers.get("etag")!;
+    const beforeRaceWrites = await writeCount();
     const race = await Promise.all(
       ["correction-race-0105-a", "correction-race-0105-b"].map((key, index) =>
         correctPost(
@@ -1052,11 +1188,112 @@ try {
       ),
     );
     assert.equal(race.filter((response) => response.status === 200).length, 1);
+    assert.equal(race.filter((response) => response.status !== 200).length, 1);
     assert.ok(race.every((response) => [200, 409, 412].includes(response.status)));
-    stage("same-revision concurrent corrections have one winner");
+    const afterRaceWrites = await writeCount();
+    assert.equal(Number(afterRaceWrites.assessments), Number(beforeRaceWrites.assessments) + 1);
+    assert.equal(Number(afterRaceWrites.receipts), Number(beforeRaceWrites.receipts) + 1);
+    assert.equal(Number(afterRaceWrites.audit), Number(beforeRaceWrites.audit) + 1);
+    assert.equal(Number(afterRaceWrites.revision), Number(beforeRaceWrites.revision) + 1);
+    stage("same-revision concurrent corrections have one winner and one no-write loser");
     const finalDetail = await (await get(correctionId)).json();
     assert.equal(finalDetail.history[0]?.recommendation, null);
-    assert.ok(finalDetail.history.filter((entry: any) => entry._tag === "Correction").length >= 4);
+    assert.equal(finalDetail.finalizedByPersonId, beforeBody.finalizedByPersonId);
+    assert.equal(finalDetail.finalizedAt, beforeBody.finalizedAt);
+    assert.equal(finalDetail.effectiveRevision, 6);
+    assert.equal(finalDetail.revision, 6);
+    assert.equal(finalDetail.history.filter((entry: any) => entry._tag === "Correction").length, 5);
+    assert.ok(finalDetail.canFinalize === false && finalDetail.canCancel === false);
+    assert.deepEqual(await effectSnapshot(), effectsBefore);
+    stage("corrections create no notification or application effects");
+    const correctionAuthorityEtag = (await get(correctionId)).headers.get("etag")!;
+    await pool.query(
+      `UPDATE public.organization_memberships SET is_suspended=true WHERE membership_id='membership-native-conduct-leader-0063'`,
+    );
+    assert.equal((await get(correctionId)).status, 403);
+    assert.equal(
+      (
+        await correctPost(
+          correctionId,
+          firstDirectPayload,
+          "correction-revoked-replay-0105",
+          correctionAuthorityEtag,
+        )
+      ).status,
+      403,
+    );
+    await pool.query(
+      `UPDATE public.organization_memberships SET is_suspended=false WHERE membership_id='membership-native-conduct-leader-0063'`,
+    );
+    await pool.query(
+      `UPDATE public.recruitment_interviews SET interviewer_person_id='recommendation-other-0101' WHERE interview_id=$1`,
+      [correctionId],
+    );
+    assert.equal((await get(correctionId)).status, 403);
+    assert.equal(
+      (
+        await correctPost(
+          correctionId,
+          firstDirectPayload,
+          "correction-wrong-actor-0105",
+          correctionAuthorityEtag,
+        )
+      ).status,
+      403,
+    );
+    await pool.query(
+      `UPDATE public.recruitment_interviews SET interviewer_person_id='journey-conduct-leader-0063' WHERE interview_id=$1`,
+      [correctionId],
+    );
+    stage("authority revocation denies correction detail and replay before receipt reuse");
+    await pool.query(
+      `UPDATE public.organization_memberships SET end_at=CURRENT_TIMESTAMP - interval '1 day' WHERE membership_id='membership-native-conduct-leader-0063'`,
+    );
+    assert.equal((await get(correctionId)).status, 403);
+    assert.equal(
+      (
+        await correctPost(
+          correctionId,
+          firstDirectPayload,
+          "correction-ended-membership-0105",
+          correctionAuthorityEtag,
+        )
+      ).status,
+      403,
+    );
+    await pool.query(
+      `UPDATE public.organization_memberships SET end_at=NULL WHERE membership_id='membership-native-conduct-leader-0063'`,
+    );
+    stage("ended membership denies correction detail and replay");
+    const rollbackBefore = await writeCount();
+    await pool.query(`
+      CREATE OR REPLACE FUNCTION public.test_correction_audit_failure()
+      RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        RAISE EXCEPTION 'synthetic correction audit failure';
+      END;
+      $$;
+      DROP TRIGGER IF EXISTS test_correction_audit_failure
+        ON public.recruitment_interview_correction_audit;
+      CREATE TRIGGER test_correction_audit_failure
+        AFTER INSERT ON public.recruitment_interview_correction_audit
+        FOR EACH ROW EXECUTE FUNCTION public.test_correction_audit_failure();
+    `);
+    const rollbackEtag = (await get(correctionId)).headers.get("etag")!;
+    const rollbackResponse = await correctPost(
+      correctionId,
+      correctionPayload(finalDetail, "Ja"),
+      "correction-rollback-0105",
+      rollbackEtag,
+    );
+    assert.ok([500, 503].includes(rollbackResponse.status));
+    assert.deepEqual(await writeCount(), rollbackBefore);
+    await pool.query(`
+      DROP TRIGGER test_correction_audit_failure
+        ON public.recruitment_interview_correction_audit;
+      DROP FUNCTION public.test_correction_audit_failure();
+    `);
+    stage("synthetic audit failure rolls back correction assessment, aggregate, receipt and audit");
     await writeFile(
       join(artifacts, "correction-targeted-evidence.json"),
       JSON.stringify(
@@ -1065,7 +1302,8 @@ try {
         2,
       ),
     );
-    throw new CorrectionTargetedComplete({ correctionStages, finalDetail });
+    await page.goto(`${ui}/dashboard/intervjuer`);
+    await open(page, "Sofie Gjennomfører");
   }
   await fill(page);
   assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "");
