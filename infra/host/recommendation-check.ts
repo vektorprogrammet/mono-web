@@ -922,10 +922,6 @@ try {
     const saveCorrection = async (recommendation: "Ja" | "Kanskje" | "Nei") => {
       await fill(page);
       await page.locator("#interviewer-recommendation").selectOption(recommendation);
-      await page
-        .getByRole("button", { name: "Rett intervju", exact: true })
-        .last()
-        .click();
       const responsePromise = responseFor("correctInterviewAssessment");
       await page
         .getByRole("dialog")
