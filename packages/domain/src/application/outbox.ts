@@ -92,6 +92,7 @@ export const claimNextPublicApplicationOutbox = (
     return yield* sql.withTransaction(
       Effect.gen(function* () {
         const rows = yield* sql<ClaimedOutboxRow>`
+            WITH candidate AS (
               SELECT outbox.effect_id
               FROM admission_application_outbox AS outbox
               LEFT JOIN admission_application_command_receipts AS public_receipt

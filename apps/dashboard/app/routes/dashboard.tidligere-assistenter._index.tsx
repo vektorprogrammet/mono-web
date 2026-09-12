@@ -111,24 +111,29 @@ const readReturningDrafts = (personId: string | undefined): SavedReturningDraft[
   if (typeof window === "undefined" || personId === undefined) return [];
   const candidates: SavedReturningDraft[] = [];
   const storageKeyPrefix = `${returningDraftStoragePrefix}${personId}:${returningRegistrationRoute}:`;
-  for (let index = 0; index < window.sessionStorage.length; index += 1) {
-    const key = window.sessionStorage.key(index);
-    if (key === null || !key.startsWith(storageKeyPrefix)) continue;
-    try {
-      const value = Schema.decodeUnknownSync(ReturningDraftJsonSchema)(
-        window.sessionStorage.getItem(key) ?? "",
-        { onExcessProperty: "error" },
-      );
-      const admissionPeriodId = key.slice(storageKeyPrefix.length);
-      if (
-        value.personId === personId &&
-        value.route === returningRegistrationRoute &&
-        value.payload.admissionPeriodId === admissionPeriodId
-      )
-        candidates.push(value);
-    } catch {
-      // Ignore stale or malformed browser storage. It must never become form state.
+  try {
+    const storage = window.sessionStorage;
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key === null || !key.startsWith(storageKeyPrefix)) continue;
+      try {
+        const value = Schema.decodeUnknownSync(ReturningDraftJsonSchema)(
+          storage.getItem(key) ?? "",
+          { onExcessProperty: "error" },
+        );
+        const admissionPeriodId = key.slice(storageKeyPrefix.length);
+        if (
+          value.personId === personId &&
+          value.route === returningRegistrationRoute &&
+          value.payload.admissionPeriodId === admissionPeriodId
+        )
+          candidates.push(value);
+      } catch {
+        // Ignore stale or malformed browser storage. It must never become form state.
+      }
     }
+  } catch {
+    // Storage can be unavailable in privacy-restricted browser contexts.
   }
   return candidates;
 };
@@ -189,9 +194,17 @@ export default function TidligereAssistenter() {
   const [commandDraftOverride, setCommandDraftOverride] = useState<string>();
   const commandDraft = commandDraftOverride ?? (restoringDraft ? savedDraft?.signature ?? "" : "");
   const [acceptedCommandId, setAcceptedCommandId] = useState("");
+  const [persistenceError, setPersistenceError] = useState<string | null>(null);
   if (fetcher.data?.success === true && fetcher.data.commandId !== acceptedCommandId) {
-    if (typeof window !== "undefined" && options !== null)
-      window.sessionStorage.removeItem(returningDraftStorageKey(options.personId, selectedId));
+    if (typeof window !== "undefined" && options !== null) {
+      try {
+        window.sessionStorage.removeItem(returningDraftStorageKey(options.personId, selectedId));
+      } catch {
+        setPersistenceError(
+          "Registreringen er lagret, men nettleseren kunne ikke fjerne gjenopprettingsutkastet.",
+        );
+      }
+    }
     setAcceptedCommandId(fetcher.data.commandId);
     setDraftRevisionOverride(fetcher.data.revision);
     setCommandIdOverride("");
@@ -203,6 +216,7 @@ export default function TidligereAssistenter() {
       return;
     }
     event.currentTarget.dataset.pending = "true";
+    setPersistenceError(null);
     const draft = new FormData(event.currentTarget);
     draft.delete("commandId");
     const entries = [...draft].map(([name, value]) => ({ name, value: String(value) }));
@@ -215,9 +229,10 @@ export default function TidligereAssistenter() {
       setCommandDraftOverride(signature);
     }
     if (typeof window !== "undefined" && options !== null) {
+      const payloadForm = new FormData(event.currentTarget);
+      let payload: ReturningPayload;
       try {
-        const payloadForm = new FormData(event.currentTarget);
-        const payload = Schema.decodeUnknownSync(ReturningAssistantRegistrationInputSchema)({
+        payload = Schema.decodeUnknownSync(ReturningAssistantRegistrationInputSchema)({
           commandId: String(payloadForm.get("commandId") || ""),
           admissionPeriodId: payloadForm.get("admissionPeriodId"),
           expectedRevision: Number(payloadForm.get("expectedRevision")),
@@ -234,6 +249,13 @@ export default function TidligereAssistenter() {
           teamInterest: boolField(payloadForm, "teamInterest"),
           teamIds: payloadForm.getAll("teamIds"),
         });
+      } catch {
+        event.preventDefault();
+        event.currentTarget.dataset.pending = "false";
+        setPersistenceError("Registreringen kunne ikke klargjøres. Kontroller feltene og prøv igjen.");
+        return;
+      }
+      try {
         window.sessionStorage.setItem(
           returningDraftStorageKey(options.personId, payload.admissionPeriodId),
           JSON.stringify({
@@ -244,7 +266,11 @@ export default function TidligereAssistenter() {
           }),
         );
       } catch {
-        // Do not persist a form that is not a valid canonical registration payload.
+        event.preventDefault();
+        event.currentTarget.dataset.pending = "false";
+        setPersistenceError(
+          "Nettleseren kunne ikke lagre et gjenopprettingsutkast. Registreringen ble ikke sendt.",
+        );
       }
     }
   };
@@ -303,7 +329,7 @@ export default function TidligereAssistenter() {
           <div><dt className="font-medium">Studium</dt><dd>{options.fieldOfStudyId}</dd></div>
         </dl>
       </header>
-      <fetcher.Form key={selectedId} method="post" onSubmit={onSubmit} data-pending={busy ? "true" : "false"} className="space-y-6" aria-label="Registrer som tidligere assistent">
+      <fetcher.Form key={`${selectedId}:${hydrated ? "hydrated" : "server"}`} method="post" onSubmit={onSubmit} data-pending={busy ? "true" : "false"} className="space-y-6" aria-label="Registrer som tidligere assistent">
         <input type="hidden" name="commandId" value={commandId} readOnly />
         <input type="hidden" name="expectedRevision" value={draftRevision} readOnly />
         <fieldset disabled={busy} className="space-y-4">
@@ -398,6 +424,7 @@ export default function TidligereAssistenter() {
           </fieldset>
         </fieldset>
         <Button type="submit" disabled={busy}>{busy ? "Lagrer …" : current === null ? "Registrer for semesteret" : "Lagre endringer"}</Button>
+        {persistenceError !== null && <p role="alert">{persistenceError}</p>}
         {restoringDraft && (
           <Button type="button" onClick={discardDraft}>
             Forkast lagret utkast
