@@ -732,7 +732,9 @@ export async function assertInterviewCorrectionBoundaries(
         freshId(`correction-boundary-rollback-${name}`),
       );
       status(`rollback:${name}`, response.status);
-      assert.equal(response.status, 500, await response.text());
+      const failureBody = (await response.json()) as { readonly code?: unknown; readonly status?: unknown };
+      assert.equal(response.status, 503, JSON.stringify(failureBody));
+      assert.equal(failureBody.code, "dependency.unavailable", JSON.stringify(failureBody));
       const marker = await pool.query(
         `SELECT last_value, is_called FROM public.${quote(rollbackSequence)}`,
       );

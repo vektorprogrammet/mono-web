@@ -1542,25 +1542,6 @@ try {
     await page.goto(`${ui}/dashboard/intervjuer`);
     await open(page, "Sofie Gjennomfører");
   }
-  if (acceptedCorrectionReplay !== undefined && process.argv.includes("--correction-mode")) {
-    const boundaryResult = await assertInterviewCorrectionBoundaries({
-      pool,
-      api,
-      origin: ui,
-      cookie,
-      interviewId: "interview-recommendation-history",
-      actorPersonId: "journey-conduct-leader-0063",
-      otherPersonId: "recommendation-other-0101",
-      membershipId: "membership-native-conduct-leader-0063",
-      selfLinkRaceInterviewId: "interview-recommendation-link-race",
-      acceptedReplay: acceptedCorrectionReplay,
-      recordGate,
-    });
-    await writeFile(
-      join(artifacts, "correction-boundaries.json"),
-      JSON.stringify({ revision, ...boundaryResult }, null, 2),
-    );
-  }
   await fill(page);
   assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "");
   await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "editable-desktop.png") });
@@ -1773,7 +1754,34 @@ try {
   await pool.query(
     `UPDATE public.organization_memberships SET team_id='team-native-conduct-0063' WHERE membership_id='membership-native-conduct-leader-0063'`,
   );
+  await pool.query(
+    `INSERT INTO public.admission_period_departments
+       SELECT (jsonb_populate_record(NULL::public.admission_period_departments,
+         to_jsonb(d)||'{"department_id":"department-other-recommendation-0101"}'::jsonb)).*
+       FROM public.admission_period_departments d
+       WHERE d.department_id='department-native-conduct-0063'
+       ON CONFLICT (department_id) DO NOTHING`,
+  );
   assert.equal(await lifecycleSnapshot(), authorizationBefore);
+  if (acceptedCorrectionReplay !== undefined && process.argv.includes("--correction-mode")) {
+    const boundaryResult = await assertInterviewCorrectionBoundaries({
+      pool,
+      api,
+      origin: ui,
+      cookie,
+      interviewId: "interview-recommendation-history",
+      actorPersonId: "journey-conduct-leader-0063",
+      otherPersonId: "recommendation-other-0101",
+      membershipId: "membership-native-conduct-leader-0063",
+      selfLinkRaceInterviewId: "interview-recommendation-link-race",
+      acceptedReplay: acceptedCorrectionReplay,
+      recordGate,
+    });
+    await writeFile(
+      join(artifacts, "correction-boundaries.json"),
+      JSON.stringify({ revision, ...boundaryResult }, null, 2),
+    );
+  }
   const applicantResponse = await fetch(`${api}/api/recruitment/invitation-response`, {
     headers: { "x-recruitment-invitation-capability": invitationCapability, origin: ui },
   });
