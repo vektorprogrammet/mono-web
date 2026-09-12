@@ -320,7 +320,7 @@ export const seedReturningAssistant = async ({
             (SELECT count(*)::int FROM public.assistant_placements WHERE person_id=$1) placements`,
     [person.personId],
   );
-  assert.deepEqual(counts.rows[0], { links: 1, placements: 1 });
+  assert.deepEqual(counts.rows[0], { links: 1, placements: 2 });
 };
 
 export const runReturningAssistantBrowserJourney = async ({
