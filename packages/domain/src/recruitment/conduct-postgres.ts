@@ -391,6 +391,44 @@ const readCorrectionReceipt = (sql: DatabaseShape, commandId: string, lock: bool
   );
 
 
+interface EffectiveAssessmentRow {
+  readonly answers: unknown;
+  readonly explanatoryPower: number;
+  readonly roleModel: number;
+  readonly suitability: number;
+  readonly recommendation: "Ja" | "Kanskje" | "Nei" | null;
+  readonly effectiveRevision: number;
+}
+
+const readEffectiveAssessment = (sql: DatabaseShape, interviewId: string, lock: boolean) =>
+  sql<EffectiveAssessmentRow>`
+    SELECT answers, explanatory_power AS "explanatoryPower", role_model AS "roleModel",
+      suitability, recommendation, effective_revision AS "effectiveRevision"
+    FROM public.recruitment_interview_effective_assessments
+    WHERE interview_id = ${interviewId}
+    ${lock ? sql`FOR UPDATE` : sql``}
+  `.pipe(
+    Effect.flatMap((rows) =>
+      rows[0] === undefined
+        ? Effect.succeed(undefined)
+        : decode(
+            Schema.Struct({
+              answers: Schema.Unknown,
+              explanatoryPower: Schema.Number,
+              roleModel: Schema.Number,
+              suitability: Schema.Number,
+              recommendation: Schema.NullOr(InterviewRecommendationSchema),
+              effectiveRevision: Schema.Number,
+            }),
+            rows[0],
+            "effective assessment",
+          ),
+    ),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("read effective assessment", cause)),
+    ),
+  );
+
 const stateFor = (
   interview: InterviewRow,
   schedule: ScheduleRow | undefined,
@@ -518,9 +556,11 @@ const authorizeAndLoad = (
     const questions = yield* readQuestions(sql, interviewId, lock);
     const conduct = yield* readConduct(sql, interviewId, lock);
     const corrections = yield* readCorrections(sql, interviewId, lock);
+    const effective = yield* readEffectiveAssessment(sql, interviewId, lock);
     const cancellation = yield* readCancellation(sql, interviewId, lock);
-    return { actor, interview, schedule, invitation, questions, conduct, corrections, cancellation };
+    return { actor, interview, schedule, invitation, questions, conduct, corrections, effective, cancellation };
   });
+
 const observation = (
   state: RecruitmentConductState,
   applicant: {
@@ -529,6 +569,7 @@ const observation = (
     readonly lastName: string;
   },
   corrections: ReadonlyArray<CorrectionRow>,
+  effective: EffectiveAssessmentRow | undefined,
 ): Effect.Effect<RecruitmentInterviewConductObservation, RecruitmentFailure> =>
   Effect.gen(function* () {
     if (state.schedule === null)
@@ -541,7 +582,6 @@ const observation = (
         responseState: state.invitationResponse ?? "Absent",
       });
     }
-    const latest = corrections.at(-1);
     const history =
       state.conduct === null
         ? []
@@ -584,21 +624,21 @@ const observation = (
         schedule: state.schedule,
         invitationResponse: "Accepted",
         questions: state.questions,
-        answers: latest?.answers ?? state.conduct?.answers ?? [],
+        answers: effective?.answers ?? state.conduct?.answers ?? [],
         score:
-          latest === undefined
+          effective === undefined
             ? (state.conduct?.score ?? null)
             : {
-                explanatoryPower: latest.explanatoryPower,
-                roleModel: latest.roleModel,
-                suitability: latest.suitability,
+                explanatoryPower: effective.explanatoryPower,
+                roleModel: effective.roleModel,
+                suitability: effective.suitability,
               },
-        recommendation: latest?.recommendation ?? state.conduct?.recommendation ?? null,
+        recommendation: effective?.recommendation ?? state.conduct?.recommendation ?? null,
         completionState: state.conduct === null ? "NotCompleted" : "Completed",
         cancellationState: state.cancellation === null ? "NotCancelled" : "Cancelled",
         finalizedByPersonId: state.conduct?.finalizedByPersonId ?? null,
         finalizedAt: state.conduct?.finalizedAt ?? null,
-        effectiveRevision: state.revision,
+        effectiveRevision: effective?.effectiveRevision ?? state.revision,
         history,
         cancelledAt: state.cancellation?.cancelledAt ?? null,
         revision: state.revision,
@@ -634,30 +674,42 @@ export const readInterviewConduct = (
 > =>
   Effect.gen(function* () {
     const sql = yield* Database;
-    const admissions = yield* Admissions;
-    const organization = yield* Organization;
     return yield* sql
-      .withTransaction(
-        Effect.gen(function* () {
-          const loaded = yield* authorizeAndLoad(sql, organization, context, interviewId, false);
-          const state = yield* stateFor(
-            loaded.interview,
-            loaded.schedule,
-            loaded.invitation,
-            loaded.questions,
-            loaded.conduct,
-            loaded.cancellation,
-          );
-          const applicant = yield* readApplicant(admissions, loaded.interview.applicationId);
-          return yield* observation(state, applicant, loaded.corrections);
-        }),
-      )
+      .withTransaction(readInterviewConductInTransaction(interviewId, context, sql))
       .pipe(
         Effect.catchTag("SqlError", (cause) =>
           Effect.fail(persistenceError("conduct observation", cause)),
         ),
       );
   });
+export const readInterviewConductInTransaction = (
+  interviewId: RecruitmentInterviewId,
+  context: RecruitmentConductContext,
+  sql: DatabaseShape,
+): Effect.Effect<
+  RecruitmentInterviewConductObservation,
+  RecruitmentFailure,
+  Admissions | Organization
+> =>
+  Effect.gen(function* () {
+    const admissions = yield* Admissions;
+    const organization = yield* Organization;
+    const loaded = yield* authorizeAndLoad(sql, organization, context, interviewId, false);
+    const state = yield* stateFor(
+      loaded.interview,
+      loaded.schedule,
+      loaded.invitation,
+      loaded.questions,
+      loaded.conduct,
+      loaded.cancellation,
+    );
+    const applicant = yield* readApplicant(admissions, loaded.interview.applicationId);
+    return yield* observation(state, applicant, loaded.corrections, loaded.effective);
+  }).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("conduct observation", cause)),
+    ),
+  );
 const finalizeInTransaction = (
   command: FinalizeInterviewCommand,
   context: RecruitmentConductContext,

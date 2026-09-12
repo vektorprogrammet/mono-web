@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS public.recruitment_interview_correction_assessments (
   command_id text NOT NULL UNIQUE,
   CONSTRAINT recruitment_interview_correction_assessments_pk
     PRIMARY KEY (interview_id, resulting_revision),
+  CONSTRAINT recruitment_interview_correction_assessments_predecessor_resulting_unique
+    UNIQUE (interview_id, predecessor_revision, resulting_revision),
   CONSTRAINT recruitment_interview_correction_assessments_predecessor_nonnegative
     CHECK (predecessor_revision >= 0),
   CONSTRAINT recruitment_interview_correction_assessments_revision_order
@@ -52,6 +54,11 @@ CREATE TABLE IF NOT EXISTS public.recruitment_interview_correction_command_recei
   CONSTRAINT recruitment_interview_correction_receipts_assessment_fk
     FOREIGN KEY (interview_id, resulting_revision)
     REFERENCES public.recruitment_interview_correction_assessments(interview_id, resulting_revision),
+  CONSTRAINT recruitment_interview_correction_receipts_assessment_chain_fk
+    FOREIGN KEY (interview_id, predecessor_revision, resulting_revision)
+    REFERENCES public.recruitment_interview_correction_assessments(
+      interview_id, predecessor_revision, resulting_revision
+    ),
   CONSTRAINT recruitment_interview_correction_receipts_command_fk
     FOREIGN KEY (command_id) REFERENCES public.recruitment_interview_correction_assessments(command_id)
 );
@@ -68,11 +75,49 @@ CREATE TABLE IF NOT EXISTS public.recruitment_interview_correction_audit (
   CONSTRAINT recruitment_interview_correction_audit_assessment_fk
     FOREIGN KEY (interview_id, resulting_revision)
     REFERENCES public.recruitment_interview_correction_assessments(interview_id, resulting_revision),
+  CONSTRAINT recruitment_interview_correction_audit_assessment_chain_fk
+    FOREIGN KEY (interview_id, predecessor_revision, resulting_revision)
+    REFERENCES public.recruitment_interview_correction_assessments(
+      interview_id, predecessor_revision, resulting_revision
+    ),
   CONSTRAINT recruitment_interview_correction_audit_revision_nonnegative
     CHECK (predecessor_revision >= 0 AND resulting_revision > predecessor_revision),
   CONSTRAINT recruitment_interview_correction_audit_actor_nonempty
     CHECK (btrim(actor_person_id) <> '')
 );
+
+CREATE OR REPLACE FUNCTION public.enforce_recruitment_interview_correction_chain()
+RETURNS trigger AS $$
+DECLARE
+  base_revision integer;
+  expected_predecessor integer;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended(NEW.interview_id, 0));
+  SELECT interview_revision
+    INTO base_revision
+    FROM public.recruitment_interview_conducts
+    WHERE interview_id = NEW.interview_id
+    FOR UPDATE;
+  IF base_revision IS NULL THEN
+    RAISE EXCEPTION 'Completed interview conduct is required for a correction';
+  END IF;
+  SELECT COALESCE(MAX(resulting_revision), base_revision)
+    INTO expected_predecessor
+    FROM public.recruitment_interview_correction_assessments
+    WHERE interview_id = NEW.interview_id;
+  IF NEW.predecessor_revision <> expected_predecessor
+     OR NEW.resulting_revision <> expected_predecessor + 1 THEN
+    RAISE EXCEPTION 'Correction predecessor must be the current effective revision';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS recruitment_interview_correction_chain
+  ON public.recruitment_interview_correction_assessments;
+CREATE TRIGGER recruitment_interview_correction_chain
+  BEFORE INSERT ON public.recruitment_interview_correction_assessments
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_recruitment_interview_correction_chain();
 
 CREATE OR REPLACE FUNCTION public.prevent_recruitment_interview_correction_mutation()
 RETURNS trigger AS $$
@@ -99,8 +144,6 @@ CREATE TRIGGER recruitment_interview_correction_audit_immutable
   BEFORE UPDATE OR DELETE ON public.recruitment_interview_correction_audit
   FOR EACH ROW EXECUTE FUNCTION public.prevent_recruitment_interview_correction_mutation();
 
-CREATE INDEX IF NOT EXISTS recruitment_interview_correction_assessments_order
-  ON public.recruitment_interview_correction_assessments (interview_id, resulting_revision);
 CREATE INDEX IF NOT EXISTS recruitment_interview_correction_audit_order
   ON public.recruitment_interview_correction_audit (interview_id, resulting_revision);
 

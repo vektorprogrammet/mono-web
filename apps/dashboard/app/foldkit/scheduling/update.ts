@@ -337,7 +337,7 @@ export const makeUpdate =
                   "idempotency-key": IdempotencyKey.make(
                     `${model.idempotencyKeySeed}-${model.commandSequence}`,
                   ),
-                  "if-match": interview.etag,
+                  "if-match": model.conductEtag,
                 },
                 payload: {
                   scheduledAt: scheduledAt.value.trim(),
@@ -461,7 +461,7 @@ export const makeUpdate =
           if (model.isConducting) return [model, []];
           return [clearConduct(model), []];
         },
-        SucceededConduct: ({ requestId, generation, interviewId, detail }) => {
+        SucceededConduct: ({ requestId, generation, interviewId, detail, etag }) => {
           if (
             requestId !== model.conductRequestId ||
             generation !== model.conductGeneration ||
@@ -473,6 +473,7 @@ export const makeUpdate =
             {
               ...model,
               conduct: ConductData.Success({ data: detail }),
+              conductEtag: etag,
               recommendation: detail.recommendation,
               answers: detail.answers.map((answer) => ({
                 questionId: answer.questionId,
@@ -655,14 +656,7 @@ export const makeUpdate =
             return [model, []];
           }
           const current = AsyncData.getData(model.conduct);
-          const board = AsyncData.getData(model.board);
-          const interview =
-            board._tag === "Some"
-              ? board.value.interviews.find(
-                  (candidate) => candidate.interviewId === model.selectedInterviewId,
-                )
-              : undefined;
-          if (current._tag === "None" || interview === undefined) return [model, []];
+          if (current._tag === "None" || model.conductEtag === null) return [model, []];
           const score = {
             explanatoryPower: Number(model.score.explanatoryPower.value),
             roleModel: Number(model.score.roleModel.value),
@@ -677,7 +671,7 @@ export const makeUpdate =
                   "idempotency-key": IdempotencyKey.make(
                     `${model.idempotencyKeySeed}-${model.commandSequence}`,
                   ),
-                  "if-match": interview.etag,
+                  "if-match": model.conductEtag,
                 },
                 payload: {
                   answers: model.answers,

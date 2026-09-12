@@ -16,6 +16,7 @@ export {
 export { readInvitationResponse as readInvitationResponsePostgres } from "./invitation-response-postgres.js";
 export {
   readInterviewConduct,
+  readInterviewConductInTransaction,
   finalizeInterview as finalizeInterviewPostgres,
   cancelInterview as cancelInterviewPostgres,
   correctInterviewAssessment as correctInterviewAssessmentPostgres,

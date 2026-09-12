@@ -80,7 +80,7 @@ import {
   correctInterviewAssessmentPostgres,
   executeRecruitmentInvitationHttpTransitionPostgres,
   finalizeInterviewPostgres,
-  readInterviewConduct,
+  readInterviewConductInTransaction,
   readInvitationResponsePostgres,
   readRecruitmentApplicationHttpAccessPostgres,
   readRecruitmentInterviewHttpSourcePostgres,
@@ -1279,18 +1279,31 @@ const readInterviewConductHandler = async (
     false,
     input,
   );
-  const observation = await input.run(
-    readInterviewConduct(interviewId, {
-      actor: authorization.actor,
-      now: input.config.now(),
-      authorizationInstant: authorization.authorizationInstant,
+  const snapshot = await input.run(
+    Effect.gen(function* () {
+      const sql = yield* Database;
+      return yield* sql.withTransaction(
+        Effect.gen(function* () {
+          const observation = yield* readInterviewConductInTransaction(
+            interviewId,
+            {
+              actor: authorization.actor,
+              now: input.config.now(),
+              authorizationInstant: authorization.authorizationInstant,
+            },
+            sql,
+          );
+          const source = yield* readRecruitmentInterviewHttpSourcePostgres(
+            interviewId,
+            authorization.actor.personId,
+          ).pipe(Effect.provideService(Database, sql));
+          return { observation, source };
+        }),
+      );
     }),
   );
-  const output = await strictOutput(ConductObservation, observation, input.run);
-  const source = await input.run(
-    readRecruitmentInterviewHttpSourcePostgres(interviewId, authorization.actor.personId),
-  );
-  return conditionalJsonResponse(request, output, interviewETag(source));
+  const output = await strictOutput(ConductObservation, snapshot.observation, input.run);
+  return conditionalJsonResponse(request, output, interviewETag(snapshot.source));
 };
 
 const correctInterviewAssessment = async (
