@@ -122,20 +122,6 @@ export async function seedInterviewReportCoordinator(o: { pool: any; secrets: st
   );
 }
 
-type Options = {
-  root: string;
-  pool: any;
-  browser: any;
-  api: string;
-  ui: string;
-  artifacts: string;
-  ordinaryCookie: string;
-  password: string;
-  secrets: string[];
-  revision: string;
-  auditPage: (page: any, state: string) => Promise<void>;
-  recordGate: (...observations: string[]) => void;
-};
 export async function observeInterviewReport(o: Options) {
   const { pool, api, ui } = o;
   const require = createRequire(join(o.root, "apps/dashboard/package.json"));
