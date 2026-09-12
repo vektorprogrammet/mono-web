@@ -7,6 +7,7 @@ import * as Migrator from "effect/unstable/sql/Migrator";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { Pool } from "pg";
 import { databaseMigrationDefinitions } from "../src/migrations.js";
+const url = process.env.JOURNEY_SEED_PG_URL!;
 type MigrationDefinition = { readonly id: string; readonly url: URL };
 const applyMigrations = async (definitions: ReadonlyArray<MigrationDefinition>): Promise<void> => {
   await Effect.runPromise(
