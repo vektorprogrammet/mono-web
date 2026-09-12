@@ -322,8 +322,9 @@ export const runReturningAssistantBrowserJourney = async ({
     const commandKey = formData.get("commandId");
     const expectedRevision = formData.get("expectedRevision");
     const phase = droppedResponse ? "retry" : "first";
-    const response = await route.fetch();
-    const status = response.status();
+    stage?.(`returning:mutation:${phase}:request`);
+    const response = await route.fetch({ timeout: 30_000 });
+    stage?.(`returning:mutation:${phase}:response`);
     trace.push({
       phase,
       admissionPeriodId: formData.get("admissionPeriodId"),
@@ -347,11 +348,15 @@ export const runReturningAssistantBrowserJourney = async ({
   });
   stage?.("returning:mutation");
   try {
+    stage?.("returning:mutation:first:click");
     await submit.click();
+    stage?.("returning:mutation:first:await");
     await firstActionSettled;
     await returning.locator('form[aria-label="Registrer som tidligere assistent"][data-pending="false"]').waitFor();
     stage?.("returning:retry");
+    stage?.("returning:mutation:retry:click");
     await submit.click();
+    stage?.("returning:mutation:retry:await");
     await secondActionSettled;
   } catch (cause) {
     await captureReturningFailure("submit", cause);
