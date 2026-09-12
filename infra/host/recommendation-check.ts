@@ -39,6 +39,7 @@ import {
 import { deliverJson } from "../../apps/backend/src/delivery/http.js";
 const root = new URL("../../", import.meta.url).pathname;
 const dbRequire = createRequire(new URL("../../packages/database/package.json", import.meta.url));
+const uiRequire = createRequire(new URL("../../apps/dashboard/package.json", import.meta.url));
 const { Pool } = dbRequire("pg");
 const { Schema } = dbRequire("effect");
 const { Effect, Layer, Redacted } = dbRequire("effect");
