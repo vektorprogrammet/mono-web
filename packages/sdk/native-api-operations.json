@@ -32,6 +32,18 @@
     },
     {
       "group": "admissions",
+      "method": "GET",
+      "operationId": "admissions.readReturningAssistantOptions",
+      "path": "/api/returning-assistant/options"
+    },
+    {
+      "group": "admissions",
+      "method": "POST",
+      "operationId": "admissions.registerReturningAssistant",
+      "path": "/api/returning-assistant/registrations"
+    },
+    {
+      "group": "admissions",
       "method": "PATCH",
       "operationId": "admissions.reviseAdmissionPeriod",
       "path": "/api/admission-periods/{admissionPeriodId}"

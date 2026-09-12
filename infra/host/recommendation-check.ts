@@ -13,6 +13,11 @@ import {
   validateInterviewReportFixture,
 } from "./interview-report-observation.js";
 import { stopPreviewScenarioBackend } from "./preview-scenario.js";
+import {
+  returningAssistantFixture,
+  runReturningAssistantBrowserJourney,
+  seedReturningAssistant,
+} from "./returning-assistant-journey.ts";
 const root = new URL("../../", import.meta.url).pathname;
 const dbRequire = createRequire(new URL("../../packages/database/package.json", import.meta.url));
 const uiRequire = createRequire(new URL("../../apps/dashboard/package.json", import.meta.url));
@@ -157,6 +162,8 @@ try {
     )
   ).rows[0].value;
   run("bun", ["apps/dashboard/e2e/native-conduct-journey-seed.mjs"], env);
+  await seedReturningAssistant({ pool, run, env, root });
+  recordGate("seeded returning-assistant identity, historical placement, and linked applicant");
   const historicalAfter = (
     await pool.query(
       `SELECT to_jsonb(c)-'recommendation' value,recommendation FROM public.recruitment_interview_conducts c WHERE interview_id='interview-recommendation-history'`,
@@ -731,6 +738,19 @@ try {
   await page.getByRole("link", { name: "Kontrollpanel", exact: true }).click();
   await page.waitForURL(/\/dashboard\/?$/);
   await page.getByRole("heading", { name: "Velkommen, Lina Lagleder", exact: true }).waitFor();
+  await runReturningAssistantBrowserJourney({
+    browser,
+    page,
+    pool,
+    api,
+    ui,
+    artifacts,
+    auditPage,
+    errors,
+  });
+  recordGate(
+    `returning registration route ${"/dashboard/tidligere-assistenter"} and report population ${returningAssistantFixture.admissionPeriodId}`,
+  );
   await pool.query(
     `UPDATE public.organization_memberships SET is_team_leader=false,position_id='member' WHERE membership_id='membership-native-conduct-leader-0063'`,
   );

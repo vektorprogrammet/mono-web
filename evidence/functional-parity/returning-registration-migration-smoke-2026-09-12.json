@@ -1,0 +1,24 @@
+{
+  "revision": "2a40eac0",
+  "invocation": "cd packages/database && bun run migration-smoke.ts",
+  "runtime": "fresh local PostgreSQL 17 cluster on socket /tmp, port 55439; synthetic schema only",
+  "observed": {
+    "migrations": 38,
+    "outboxConstraints": [
+      { "constraint_name": "admission_application_outbox_public_command_fk" },
+      { "constraint_name": "admission_application_outbox_returning_command_fk" }
+    ],
+    "registrationColumns": [
+      { "column_name": "registered_at" },
+      { "column_name": "team_ids" }
+    ],
+    "personLinkUnique": [
+      { "constraint_name": "applicant_account_links_applicant_person_key" }
+    ]
+  },
+  "cleanup": [
+    "hub stop returning-pg-smoke",
+    "rm -rf /tmp/returning-pg-BFxRQI packages/database/migration-smoke.ts"
+  ],
+  "source": "Captured command output from the completed smoke; no rerun performed for evidence retention."
+}

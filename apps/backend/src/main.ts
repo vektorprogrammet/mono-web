@@ -6,6 +6,7 @@ import * as BunServices from "@effect/platform-bun/BunServices";
 import { AuthEngine, AuthLive, DatabaseLive } from "@vektorprogrammet/database";
 import { runPublicApplicationOutboxWorker } from "@vektorprogrammet/domain/application";
 import { AdmissionsLive } from "@vektorprogrammet/domain/admissions";
+import { ReturningAssistantsLive } from "@vektorprogrammet/domain/application";
 import { databaseHealth } from "@vektorprogrammet/domain/database";
 import { OrganizationLive } from "@vektorprogrammet/domain/organization";
 import { ProfileLive } from "@vektorprogrammet/domain/profile";
@@ -51,6 +52,7 @@ const databaseLayer = DatabaseLive({
 const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
 const economyLayer = EconomyLive.pipe(Layer.provide(databaseLayer));
 const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
+const returningAssistantsLayer = ReturningAssistantsLive.pipe(Layer.provide(databaseLayer));
 const profileLayer = ProfileLive.pipe(Layer.provide(Layer.merge(databaseLayer, organizationLayer)));
 const schoolsLayer = SchoolsLive.pipe(Layer.provide(databaseLayer));
 const contentManagementLayer = ContentManagementLive.pipe(Layer.provide(databaseLayer));
@@ -61,6 +63,7 @@ const recruitmentLayer = RecruitmentLive.pipe(
   Layer.provide(Layer.mergeAll(databaseLayer, admissionsLayer, organizationLayer, profileLayer)),
 );
 const capabilityLayers = Layer.mergeAll(
+  returningAssistantsLayer,
   admissionsLayer,
   economyLayer,
   organizationLayer,

@@ -8,15 +8,20 @@ import {
   type AdmissionPeriodActor,
 } from "@vektorprogrammet/domain/admission-period";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
-import { PublicApplicationCommandIdSchema } from "@vektorprogrammet/domain/application";
+import {
+  ReturningAssistants,
+  ReturningAssistantOptionsSchema,
+  ReturningAssistantRegistrationInputSchema,
+  ReturningCommandIdSchema,
+  PublicApplicationCommandIdSchema,
+} from "@vektorprogrammet/domain/application";
+import { ResourceId, ResourceKind } from "@vektorprogrammet/domain/authz";
 import {
   DepartmentId,
   type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
 import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
 import {
-  AdmissionPeriodManagementItem,
-  AdmissionPeriodMergePatch,
   CreateAdmissionPeriodEndpoint,
   CreateAdmissionPeriodRequest,
   ExternalNativeApi,
@@ -24,9 +29,13 @@ import {
   ListOpenAdmissionPeriodsEndpoint,
   ReadApplicationCatalogEndpoint,
   ReadApplicationConfirmationEndpoint,
+  ReadReturningAssistantOptionsEndpoint,
+  RegisterReturningAssistantEndpoint,
   ReviseAdmissionPeriodEndpoint,
   SubmitApplicationEndpoint,
   SubmitApplicationRequest,
+  AdmissionPeriodMergePatch,
+  AdmissionPeriodManagementItem,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -136,7 +145,32 @@ const errorResponse = (cause: unknown): Response => {
       return nativeProblemResponse("rate-limit.exceeded", 429, { "retry-after": "60" });
     case "PublicApplicationDecodeError":
     case "AdmissionPeriodDecodeError":
+    case "ReturningAssistantDecodeError":
       return nativeProblemResponse("validation.failed", 422);
+    case "ReturningAssistantUnauthenticated":
+      return nativeProblemResponse("credential.invalid", 401, {
+        "www-authenticate": 'VektorSession realm="native-api", Bearer realm="native-api"',
+      });
+    case "ReturningAssistantIdentityMissing":
+      return nativeProblemResponse("returning.identity-missing", 404);
+    case "ReturningAssistantHistoryMissing":
+      return nativeProblemResponse("returning.history-missing", 404);
+    case "ReturningAssistantIdentityAmbiguous":
+      return nativeProblemResponse("returning.identity-ambiguous", 409);
+    case "ReturningAssistantStudyMappingInvalid":
+      return nativeProblemResponse("returning.study-invalid", 409);
+    case "ReturningAssistantPeriodUnavailable":
+      return nativeProblemResponse("returning.period-unavailable", 409);
+    case "ReturningAssistantTeamScopeDenied":
+      return nativeProblemResponse("returning.team-scope-denied", 403);
+    case "ReturningAssistantDuplicate":
+      return nativeProblemResponse("returning.period-unavailable", 409);
+    case "ReturningAssistantRevisionConflict":
+      return nativeProblemResponse("returning.revision-conflict", 412);
+    case "ReturningAssistantCommandConflict":
+      return nativeProblemResponse("idempotency.digest-conflict", 409);
+    case "ReturningAssistantPersistenceError":
+      return nativeProblemResponse("returning.unavailable", 503);
     case "FieldOfStudyNotFound":
     case "FieldOfStudyInactive":
     case "FieldOfStudyDepartmentMismatch":
@@ -163,9 +197,169 @@ const errorResponse = (cause: unknown): Response => {
 };
 
 const runDatabase = <A, E>(
-  effect: Effect.Effect<A, E, Database | Admissions>,
+  effect: Effect.Effect<A, E, Database | Admissions | ReturningAssistants>,
   run: AdmissionApiHttpOptions["run"],
-): Promise<A> => run(effect);
+): Promise<A> => run(effect as never);
+
+type ReturningRun = <A, E>(
+  effect: Effect.Effect<A, E, Database | ReturningAssistants>,
+) => Promise<A>;
+
+const returningRun = (run: BackendRun): ReturningRun => run as unknown as ReturningRun;
+
+const returningPersonResource = (personId: string) => ({
+  _tag: "Resource" as const,
+  resource: {
+    kind: ResourceKind.make("person-profile"),
+    id: ResourceId.make(personId),
+  },
+});
+
+const returningAuthorization = async (
+  request: Request,
+  input: AdmissionApiHttpOptions,
+  endpoint: typeof ReadReturningAssistantOptionsEndpoint | typeof RegisterReturningAssistantEndpoint,
+  txRun: BackendRun,
+) => {
+  const authorization = await resolveRequestPersonAuthorityInTransaction(request, {
+    run: txRun,
+    now: input.config.now,
+  });
+  await authorizePersonNativeOperation({
+    spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
+    credential: authorization.credential,
+    personId: authorization.authority.personId,
+    resolution: {
+      selection: "ExactlyOne",
+      contexts: [
+        genericContext({
+          domainId: "admissions",
+          resourceKind: "person-profile",
+          resourceId: authorization.authority.personId,
+          facts: { ownerPersonId: authorization.authority.personId },
+          authorityVersion: "admissions:returning-assistant",
+        }),
+      ],
+    },
+    grantScopes: [returningPersonResource(authorization.authority.personId)],
+    now: authorization.authorizationInstant,
+    run: txRun,
+  });
+  return authorization;
+};
+
+const readReturningAssistantOptions = async (
+  request: Request,
+  input: AdmissionApiHttpOptions,
+): Promise<Response> => {
+  requireNoQuery(request);
+  const authorization = await returningAuthorization(
+    request,
+    input,
+    ReadReturningAssistantOptionsEndpoint,
+    input.run,
+  );
+  const options = await runDatabase(
+    ReturningAssistants.use(({ readOptions }) =>
+      readOptions({
+        personId: authorization.authority.personId,
+        now: authorization.authorizationInstant,
+      }),
+    ),
+    input.run,
+  );
+  const body = await Schema.decodeUnknownPromise(ReturningAssistantOptionsSchema)(options, {
+    onExcessProperty: "error",
+  });
+  return jsonResponse(body);
+};
+
+const registerReturningAssistant = async (
+  request: Request,
+  input: AdmissionApiHttpOptions,
+): Promise<Response> => {
+  requireNoQuery(request);
+  const payload = await decodeJson(
+    request,
+    ReturningAssistantRegistrationInputSchema,
+    input.config.maxBodyBytes,
+    "ReturningAssistantDecodeError",
+  );
+  const idempotencyKey = parseIdempotencyKey(
+    request.headers.get("idempotency-key") === null
+      ? []
+      : [request.headers.get("idempotency-key")!],
+  );
+  const operationId = "admissions.registerReturningAssistant";
+  const result = await returningRun(input.run)(
+    executeNativeHttpCommandPostgres(
+      prepareNativeHttpCommand(returningRun(input.run), async (txRun) => {
+        const authorization = await returningAuthorization(
+          request,
+          input,
+          RegisterReturningAssistantEndpoint,
+          txRun as unknown as BackendRun,
+        );
+        await returningRun(txRun as unknown as BackendRun)(
+          ReturningAssistants.use(({ preflight }) =>
+            preflight(
+              {
+                admissionPeriodId: payload.admissionPeriodId,
+                teamIds: payload.teamIds,
+              },
+              {
+                personId: authorization.authority.personId,
+                now: input.config.now,
+              },
+            ),
+          ),
+        );
+        const derived = deriveHttpIdentity({
+          credentialSubject: `Person:${authorization.authority.personId}`,
+          qualifiedOperationId: operationId,
+          normalizedTarget: "/api/returning-assistant/registrations",
+          idempotencyKey,
+        });
+        return {
+          identity: {
+            identitySha256: derived.identitySha256,
+            requestSha256: semanticRequestDigest({ body: payload }),
+            operationId,
+          },
+          execute: ReturningAssistants.use((returning) =>
+            Effect.gen(function* () {
+              const registered = yield* returning.register(
+                {
+                  ...payload,
+                  commandId: ReturningCommandIdSchema.make(derived.commandId),
+                },
+                {
+                  personId: authorization.authority.personId,
+                  now: input.config.now,
+                },
+              );
+              return {
+                status: 201,
+                mediaType: "application/json",
+                headers: {
+                  "content-type": "application/json",
+                  location: `/api/returning-assistant/registrations/${encodePathIdentity(registered.observation.registrationId)}`,
+                  etag: deriveStrongETag({
+                    representationKind: "ReturningAssistantRegistration",
+                    resourceIdentity: registered.observation.registrationId,
+                    version: registered.observation.revision,
+                  }),
+                },
+                bodyBytes: jsonBodyBytes(registered),
+              };
+            }),
+          ),
+        };
+      }),
+    ),
+  );
+  return nativeCommandOutcomeResponse(result);
+};
 
 const requireActive = (actor: AdmissionPeriodActor): AdmissionPeriodActor => {
   if (!actor.active) throw new InactiveActor({ personId: actor.personId });
@@ -905,6 +1099,20 @@ export const AdmissionsApiHandlers = (input: AdmissionApiHttpOptions) =>
           toHttpApiResponse(
             request,
             (webRequest) => publicConfirmation(webRequest, params.applicationId, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("readReturningAssistantOptions", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => readReturningAssistantOptions(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("registerReturningAssistant", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => registerReturningAssistant(webRequest, input),
             errorResponse,
           ),
         ),

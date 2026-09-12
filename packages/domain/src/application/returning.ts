@@ -23,11 +23,7 @@ const TeamIds = Schema.Array(TeamId).pipe(
     Schema.makeFilter((ids) => new Set(ids).size === ids.length, { message: "unique team ids" }),
   ),
 );
-
-export const ReturningAssistantRegistrationInputSchema = Schema.Struct({
-  commandId: ReturningCommandIdSchema,
-  admissionPeriodId: AdmissionPeriodId,
-  expectedRevision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+const ReturningPreferenceFields = {
   yearOfStudy: PublicApplicationYearOfStudySchema,
   mondayUnavailable: Schema.Boolean,
   tuesdayUnavailable: Schema.Boolean,
@@ -40,13 +36,30 @@ export const ReturningAssistantRegistrationInputSchema = Schema.Struct({
   preferredSchool: PreferredSchool,
   teamInterest: Schema.Boolean,
   teamIds: TeamIds,
+};
+export const ReturningAssistantPreferencesSchema = Schema.Struct(ReturningPreferenceFields);
+export type ReturningAssistantPreferences = typeof ReturningAssistantPreferencesSchema.Type;
+
+export const ReturningAssistantRegistrationInputSchema = Schema.Struct({
+  commandId: ReturningCommandIdSchema,
+  admissionPeriodId: AdmissionPeriodId,
+  expectedRevision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  ...ReturningPreferenceFields,
 });
 export type ReturningAssistantRegistrationInput = typeof ReturningAssistantRegistrationInputSchema.Type;
+
+export const ReturningAssistantPreferencesSnapshotSchema = Schema.Struct({
+  registrationId: ReturningRegistrationIdSchema,
+  revision: Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0))),
+  ...ReturningPreferenceFields,
+});
+export type ReturningAssistantPreferencesSnapshot = typeof ReturningAssistantPreferencesSnapshotSchema.Type;
 
 export const ReturningAssistantPeriodOptionSchema = Schema.Struct({
   period: AdmissionPeriodProjectionSchema,
   semesterName: Schema.String,
   currentRevision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  currentPreferences: Schema.NullOr(ReturningAssistantPreferencesSnapshotSchema),
 });
 export type ReturningAssistantPeriodOption = typeof ReturningAssistantPeriodOptionSchema.Type;
 export const ReturningAssistantOptionsSchema = Schema.Struct({
@@ -109,7 +122,12 @@ export type ReturningAssistantError =
 
 export interface ReturningAssistantShape {
   readonly readOptions: (input: { readonly personId: PersonId; readonly now: string | (() => string) }) => Effect.Effect<ReturningAssistantOptions, ReturningAssistantError>;
+  readonly preflight: (
+    input: Pick<ReturningAssistantRegistrationInput, "admissionPeriodId" | "teamIds">,
+    context: { readonly personId: PersonId; readonly now: string | (() => string) },
+  ) => Effect.Effect<void, ReturningAssistantError>;
   readonly register: (input: unknown, context: { readonly personId: PersonId; readonly now: string | (() => string) }) => Effect.Effect<{
+    readonly observation: ReturningAssistantObservation;
     readonly replayed: boolean;
     readonly outboxCount: number;
   }, ReturningAssistantError>;

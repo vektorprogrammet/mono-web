@@ -42,6 +42,7 @@ export function validateInterviewReportFixture() {
           Schema.decodeUnknownSync(InterviewReportQuery)({
             admissionPeriodId: period,
             recommendation,
+            participation: "all",
             sort,
             direction,
           });
@@ -52,6 +53,7 @@ export function validateInterviewReportFixture() {
       lastName: f.key,
       completedAt: "2026-09-07T00:00:00.000Z",
       recommendation: f.recommendation,
+      participation: "Unknown",
       explanatoryPower: f.scores[0],
       roleModel: f.scores[1],
       suitability: f.scores[2],
@@ -324,13 +326,13 @@ export async function observeInterviewReport(o: Options) {
   assert.ok(report.rows.some((r) => r.recommendation === null));
   for (const row of report.rows) {
     assert.deepEqual(
-      Object.keys(row).sort(),
       [
         "interviewId",
         "firstName",
         "lastName",
         "completedAt",
         "recommendation",
+        "participation",
         "explanatoryPower",
         "roleModel",
         "suitability",
@@ -358,6 +360,11 @@ export async function observeInterviewReport(o: Options) {
       filtered.rows,
       report.rows.filter((r) => (r.recommendation ?? "not-recorded") === filter),
     );
+    assert.ok(filtered.rows.length > 0);
+  }
+  for (const filter of ["Returning", "Unknown"]) {
+    const filtered = await read({ admissionPeriodId: ids.period, participation: filter });
+    assert.deepEqual(filtered.rows, report.rows.filter((r) => r.participation === filter));
     assert.ok(filtered.rows.length > 0);
   }
   for (const sort of ["applicant", "recommendation", "total"])

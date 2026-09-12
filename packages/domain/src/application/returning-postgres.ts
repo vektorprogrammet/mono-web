@@ -10,6 +10,14 @@ import {
   PublicApplicationIdSchema,
 } from "./schema.js";
 import {
+  type ReturningAssistantOptions,
+  ReturningAssistantPreferencesSnapshotSchema,
+  type ReturningAssistantRegistrationInput,
+  ReturningAssistantRegistrationInputSchema,
+  type ReturningAssistantObservation,
+  ReturningAssistantObservationSchema,
+  ReturningRegistrationIdSchema,
+  type ReturningAssistantError,
   ReturningAssistantIdentityAmbiguous,
   ReturningAssistantIdentityMissing,
   ReturningAssistantHistoryMissing,
@@ -20,13 +28,6 @@ import {
   ReturningAssistantCommandConflict,
   ReturningAssistantDecodeError,
   ReturningAssistantPersistenceError,
-  ReturningAssistantRegistrationInputSchema,
-  ReturningAssistantObservationSchema,
-  ReturningRegistrationIdSchema,
-  type ReturningAssistantError,
-  type ReturningAssistantObservation,
-  type ReturningAssistantOptions,
-  type ReturningAssistantRegistrationInput,
 } from "./returning.js";
 import { AdmissionPeriodId, AdmissionPeriodProjectionSchema, AdmissionFieldOfStudyId } from "../admission-period/schema.js";
 import { DepartmentId, PersonId, SemesterId, TeamId } from "../organization/schema.js";
@@ -62,6 +63,22 @@ type ApplicationRow = {
   readonly yearOfStudy: number;
   readonly submittedAt: string;
   readonly revision: number;
+};
+type CurrentPreferencesRow = {
+  readonly registrationId: string;
+  readonly revision: number;
+  readonly yearOfStudy: number;
+  readonly mondayUnavailable: boolean;
+  readonly tuesdayUnavailable: boolean;
+  readonly wednesdayUnavailable: boolean;
+  readonly thursdayUnavailable: boolean;
+  readonly fridayUnavailable: boolean;
+  readonly positionWeeks: number;
+  readonly preferredGroup: string;
+  readonly language: string;
+  readonly preferredSchool: string | null;
+  readonly teamInterest: boolean;
+  readonly teamIds: unknown;
 };
 const fail = (operation: string) => new ReturningAssistantPersistenceError({ operation });
 const decodeInput = (input: unknown) =>
@@ -144,6 +161,25 @@ const authorize = (sql: DatabaseShape, context: { readonly personId: PersonId; r
     const teams = yield* readTeams(sql, study.departmentId);
     return { applicant, placementId, departmentId: study.departmentId, fieldOfStudyId: study.fieldOfStudyId, periods, teams } satisfies LinkedIdentity;
   }).pipe(Effect.catchTag("SqlError", () => Effect.fail(fail("authorize returning assistant"))));
+const validateRegistrationEligibility = (
+  sql: DatabaseShape,
+  input: Pick<ReturningAssistantRegistrationInput, "admissionPeriodId" | "teamIds">,
+  context: RegistrationContext,
+) =>
+  Effect.gen(function* () {
+    yield* lockPersonCustody(sql, context.personId);
+    const identity = yield* authorize(sql, {
+      personId: context.personId,
+      now: nowFor(context),
+    });
+    if (identity.periods.every((period) => period.id !== input.admissionPeriodId)) {
+      return yield* new ReturningAssistantPeriodUnavailable();
+    }
+    const validTeamIds = new Set(identity.teams.map((team) => team.teamId));
+    if (input.teamIds.some((teamId) => !validTeamIds.has(teamId))) {
+      return yield* new ReturningAssistantTeamScopeDenied();
+    }
+  }).pipe(Effect.catchTag("SqlError", () => Effect.fail(fail("validate returning eligibility"))));
 const projection = (row: ReturningPeriodRow) =>
   Schema.decodeUnknownEffect(AdmissionPeriodProjectionSchema)({
     id: AdmissionPeriodId.make(row.id),
@@ -154,6 +190,12 @@ const projection = (row: ReturningPeriodRow) =>
     lastCommandId: row.lastCommandId,
     eligible: true,
   }, { onExcessProperty: "error" }).pipe(Effect.mapError(() => fail("decode returning period")));
+const decodeCurrentPreferences = (row: CurrentPreferencesRow | undefined) =>
+  row === undefined
+    ? Effect.succeed(null)
+    : Schema.decodeUnknownEffect(ReturningAssistantPreferencesSnapshotSchema)(row, {
+        onExcessProperty: "error",
+      }).pipe(Effect.mapError(() => fail("decode returning preferences")));
 export const readReturningAssistantOptions = (context: RegistrationContext) =>
   Database.use((sql) =>
     Effect.gen(function* () {
@@ -163,21 +205,37 @@ export const readReturningAssistantOptions = (context: RegistrationContext) =>
         now: nowFor(context),
       });
       const periods = yield* Effect.forEach(identity.periods, (period) =>
-        Effect.all([
-          projection(period),
-          sql<{ revision: number }>`
-            SELECT COALESCE(MAX(r.revision), 0)::int AS revision
+        Effect.gen(function* () {
+          const value = yield* projection(period);
+          const current = yield* sql<CurrentPreferencesRow>`
+            SELECT r.registration_id AS "registrationId",
+              r.revision,
+              r.year_of_study AS "yearOfStudy",
+              r.monday_unavailable AS "mondayUnavailable",
+              r.tuesday_unavailable AS "tuesdayUnavailable",
+              r.wednesday_unavailable AS "wednesdayUnavailable",
+              r.thursday_unavailable AS "thursdayUnavailable",
+              r.friday_unavailable AS "fridayUnavailable",
+              r.position_weeks AS "positionWeeks",
+              r.preferred_group AS "preferredGroup",
+              r.language,
+              r.preferred_school AS "preferredSchool",
+              r.team_interest AS "teamInterest",
+              r.team_ids AS "teamIds"
             FROM public.admission_returning_registrations r
             JOIN public.admission_applications a USING(application_id)
             WHERE a.applicant_id=${identity.applicant.id}
-              AND a.admission_period_id=${period.id}`,
-        ]).pipe(
-          Effect.map(([value, current]) => ({
+              AND a.admission_period_id=${period.id}
+            ORDER BY r.revision DESC
+            LIMIT 1`;
+          const currentPreferences = yield* decodeCurrentPreferences(current[0]);
+          return {
             period: value,
             semesterName: period.semesterName,
-            currentRevision: current[0]?.revision ?? 0,
-          })),
-        ),
+            currentRevision: currentPreferences?.revision ?? 0,
+            currentPreferences,
+          };
+        }),
       );
       return {
         personId: context.personId,
@@ -189,6 +247,10 @@ export const readReturningAssistantOptions = (context: RegistrationContext) =>
       } satisfies ReturningAssistantOptions;
     }),
   ).pipe(Effect.catchTag("SqlError", () => Effect.fail(fail("read returning assistant options"))));
+export const preflightReturningAssistantRegistration = (
+  input: Pick<ReturningAssistantRegistrationInput, "admissionPeriodId" | "teamIds">,
+  context: RegistrationContext,
+) => Database.use((sql) => validateRegistrationEligibility(sql, input, context));
 const findReceipt = (sql: DatabaseShape, commandId: string) =>
   sql<ReceiptRow>`SELECT command_sha256, observation_json FROM public.admission_returning_command_receipts WHERE command_id=${commandId} FOR UPDATE`;
 const findApplication = (sql: DatabaseShape, applicantId: string, periodId: string) =>
@@ -260,7 +322,7 @@ const registerInTransaction = (input: ReturningAssistantRegistrationInput, conte
       yield* sql`UPDATE public.admission_applications SET year_of_study=${input.yearOfStudy}, revision=revision+1 WHERE application_id=${existing.id}`;
       application = { ...existing, yearOfStudy: input.yearOfStudy, revision: existing.revision + 1 };
     }
-    const revisions = yield* sql<{ revision: number }>`SELECT COALESCE(MAX(revision),0)::int AS revision FROM public.admission_returning_registrations WHERE application_id=${application.id} FOR UPDATE`;
+    const revisions = yield* sql<{ revision: number }>`SELECT COALESCE(MAX(revision),0)::int AS revision FROM public.admission_returning_registrations WHERE application_id=${application.id}`;
     const currentRevision = revisions[0]?.revision ?? 0;
     if (input.expectedRevision !== currentRevision) return yield* new ReturningAssistantRevisionConflict({ expectedRevision: input.expectedRevision, currentRevision });
     const nextRevision = currentRevision + 1;

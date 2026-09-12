@@ -1,8 +1,8 @@
 {
   "counts": {
-    "externalOperations": 70,
+    "externalOperations": 72,
     "internalOperations": 1,
-    "operations": 71
+    "operations": 73
   },
   "operations": [
     {
@@ -185,6 +185,83 @@
         "503"
       ],
       "summary": "Read application confirmation",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "profile.current-person",
+        "capabilities": {
+          "one": "placements.self"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "admissions",
+      "method": "GET",
+      "operationId": "admissions.readReturningAssistantOptions",
+      "path": "/api/returning-assistant/options",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+        "503"
+      ],
+      "summary": "Read returning-assistant registration options",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "profile.current-person",
+        "capabilities": {
+          "one": "placements.self"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "admissions",
+      "method": "POST",
+      "operationId": "admissions.registerReturningAssistant",
+      "path": "/api/returning-assistant/registrations",
+      "statuses": [
+        "201",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "422",
+        "503"
+      ],
+      "summary": "Register returning assistant",
       "visibility": "external"
     },
     {
