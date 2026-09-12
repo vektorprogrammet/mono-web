@@ -556,6 +556,7 @@ const authorizeAndLoad = (
     const conduct = yield* readConduct(sql, interviewId, lock);
     const corrections = yield* readCorrections(sql, interviewId, lock);
     const effective = yield* readEffectiveAssessment(sql, interviewId);
+    const cancellation = yield* readCancellation(sql, interviewId, lock);
     return { actor, interview, schedule, invitation, questions, conduct, corrections, effective, cancellation };
   });
 
