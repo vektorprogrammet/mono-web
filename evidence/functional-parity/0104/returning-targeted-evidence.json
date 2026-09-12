@@ -1,5 +1,5 @@
 {
-  "revision": "2decfdd748d02880601ef71a0b7b24ac3ba28811",
+  "revision": "5cb4401610d3799a8fe931471fee265676824b9c",
   "returningStages": [
     "returning:browser.newContext",
     "returning:browser.newPage",
@@ -78,7 +78,7 @@
         "form": [
           [
             "commandId",
-            "023d5c43-314d-48e9-8ff0-306217e8892a"
+            "f53caa05-adfd-406d-a95f-7f9d365d7559"
           ],
           [
             "expectedRevision",
@@ -127,14 +127,14 @@
         ],
         "admissionPeriodId": "admission-period-returning-next-0104",
         "expectedRevision": "0",
-        "commandId": "023d5c43-314d-48e9-8ff0-306217e8892a"
+        "commandId": "f53caa05-adfd-406d-a95f-7f9d365d7559"
       },
       {
         "phase": "first",
         "form": [
           [
             "commandId",
-            "023d5c43-314d-48e9-8ff0-306217e8892a"
+            "f53caa05-adfd-406d-a95f-7f9d365d7559"
           ],
           [
             "expectedRevision",
@@ -183,7 +183,7 @@
         ],
         "admissionPeriodId": "admission-period-returning-next-0104",
         "expectedRevision": "0",
-        "commandId": "023d5c43-314d-48e9-8ff0-306217e8892a",
+        "commandId": "f53caa05-adfd-406d-a95f-7f9d365d7559",
         "responseStatus": 200
       },
       {
@@ -195,8 +195,8 @@
         "phase": "first-before-retry",
         "sqlCommitted": [
           {
-            "registration_id": "returning-registration-b2e442e57d7c2b7c988e83c452235b090ed99972ca131d205b9a1149866adf9f",
-            "application_id": "application-7b6881e827f312e2acdc91c8ff3c9a43",
+            "registration_id": "returning-registration-181af50f7243b8a91a1bcf6485f4f4649cb670f71cff2be05f085e859c6abef2",
+            "application_id": "application-7a7a3f138eb57c55cf13ff61590e3bcf",
             "applicant_id": "applicant-returning-0104",
             "person_id": "journey-returning-assistant-0104",
             "placement_id": "placement-0000000000000000000000000000000000000000000000000000000000000000",
@@ -204,7 +204,7 @@
             "semester_id": "semester-returning-next-0104",
             "admission_period_id": "admission-period-returning-next-0104",
             "revision": 1,
-            "command_id": "httpv2_zXyvVMQtAiGoAMw1uMVu3ypxM4DK0_OV5ooLDzw3QWU",
+            "command_id": "httpv2_sCo1GkMFueKBJSUAzBJLdtLd1g9G9w1nH8F7uDOsntc",
             "year_of_study": 4,
             "monday_unavailable": true,
             "tuesday_unavailable": false,
@@ -219,7 +219,7 @@
             "team_ids": [
               "team-native-conduct-0063"
             ],
-            "registered_at": "2026-09-12T14:16:15.630Z"
+            "registered_at": "2026-09-12T14:25:02.222Z"
           }
         ]
       },
@@ -228,7 +228,7 @@
         "form": [
           [
             "commandId",
-            "023d5c43-314d-48e9-8ff0-306217e8892a"
+            "f53caa05-adfd-406d-a95f-7f9d365d7559"
           ],
           [
             "expectedRevision",
@@ -277,14 +277,14 @@
         ],
         "admissionPeriodId": "admission-period-returning-next-0104",
         "expectedRevision": "0",
-        "commandId": "023d5c43-314d-48e9-8ff0-306217e8892a"
+        "commandId": "f53caa05-adfd-406d-a95f-7f9d365d7559"
       },
       {
         "phase": "retry",
         "form": [
           [
             "commandId",
-            "023d5c43-314d-48e9-8ff0-306217e8892a"
+            "f53caa05-adfd-406d-a95f-7f9d365d7559"
           ],
           [
             "expectedRevision",
@@ -333,7 +333,7 @@
         ],
         "admissionPeriodId": "admission-period-returning-next-0104",
         "expectedRevision": "0",
-        "commandId": "023d5c43-314d-48e9-8ff0-306217e8892a",
+        "commandId": "f53caa05-adfd-406d-a95f-7f9d365d7559",
         "responseStatus": 200
       },
       {
@@ -341,7 +341,7 @@
         "form": [
           [
             "commandId",
-            "7cd6c995-c871-4247-964b-d1ba150b49d1"
+            "6064e24f-2847-4058-a9c9-bb09bbf5abc9"
           ],
           [
             "expectedRevision",
@@ -374,13 +374,13 @@
         ],
         "admissionPeriodId": "admission-period-native-conduct-0063",
         "expectedRevision": "0",
-        "commandId": "7cd6c995-c871-4247-964b-d1ba150b49d1"
+        "commandId": "6064e24f-2847-4058-a9c9-bb09bbf5abc9"
       },
       {
         "phase": "existing-period-after-registration",
         "sqlCommitted": [
           {
-            "registration_id": "returning-registration-1071d925282ee0f73b7ce7393b3823aff7496e62eb63e7ec7efb441f8175d029",
+            "registration_id": "returning-registration-d010c0a250ea37f5e7f9ff418444f3ddfe987741908ddbd7fd82cff9ece8803f",
             "application_id": "application-returning-0104",
             "applicant_id": "applicant-returning-0104",
             "person_id": "journey-returning-assistant-0104",
@@ -389,7 +389,7 @@
             "semester_id": "semester-native-conduct-0063",
             "admission_period_id": "admission-period-native-conduct-0063",
             "revision": 1,
-            "command_id": "httpv2_M1aDn1_6W82zf1RByMG9o4hTGL8yeJfhhGjgm9Fh9zg",
+            "command_id": "httpv2_7-pM1JeO9WObb_nd1-7e5v8WgbfXCLPH4foRPJBBWDI",
             "year_of_study": 2,
             "monday_unavailable": false,
             "tuesday_unavailable": false,
@@ -402,7 +402,7 @@
             "preferred_school": null,
             "team_interest": false,
             "team_ids": [],
-            "registered_at": "2026-09-12T14:16:16.659Z"
+            "registered_at": "2026-09-12T14:25:03.239Z"
           }
         ]
       },
@@ -411,7 +411,7 @@
         "form": [
           [
             "commandId",
-            "4d27fd44-7fa4-4624-94ff-8705b24cd408"
+            "1934ecd0-34a5-4f01-9588-bea8b4a14fdb"
           ],
           [
             "expectedRevision",
@@ -444,13 +444,13 @@
         ],
         "admissionPeriodId": "admission-period-native-conduct-0063",
         "expectedRevision": "1",
-        "commandId": "4d27fd44-7fa4-4624-94ff-8705b24cd408"
+        "commandId": "1934ecd0-34a5-4f01-9588-bea8b4a14fdb"
       },
       {
         "phase": "existing-period-after-update",
         "sqlCommitted": [
           {
-            "registration_id": "returning-registration-1071d925282ee0f73b7ce7393b3823aff7496e62eb63e7ec7efb441f8175d029",
+            "registration_id": "returning-registration-d010c0a250ea37f5e7f9ff418444f3ddfe987741908ddbd7fd82cff9ece8803f",
             "application_id": "application-returning-0104",
             "applicant_id": "applicant-returning-0104",
             "person_id": "journey-returning-assistant-0104",
@@ -459,7 +459,7 @@
             "semester_id": "semester-native-conduct-0063",
             "admission_period_id": "admission-period-native-conduct-0063",
             "revision": 1,
-            "command_id": "httpv2_M1aDn1_6W82zf1RByMG9o4hTGL8yeJfhhGjgm9Fh9zg",
+            "command_id": "httpv2_7-pM1JeO9WObb_nd1-7e5v8WgbfXCLPH4foRPJBBWDI",
             "year_of_study": 2,
             "monday_unavailable": false,
             "tuesday_unavailable": false,
@@ -472,10 +472,10 @@
             "preferred_school": null,
             "team_interest": false,
             "team_ids": [],
-            "registered_at": "2026-09-12T14:16:16.659Z"
+            "registered_at": "2026-09-12T14:25:03.239Z"
           },
           {
-            "registration_id": "returning-registration-8218558fcfdda18b819960d605c00daab7a8735309943c1d67017d1e1659da1d",
+            "registration_id": "returning-registration-36fb049fd4fe03b487d9e1c13d8344c3b6aa6a56ebd1e04012b55ac7d0848fdd",
             "application_id": "application-returning-0104",
             "applicant_id": "applicant-returning-0104",
             "person_id": "journey-returning-assistant-0104",
@@ -484,7 +484,7 @@
             "semester_id": "semester-native-conduct-0063",
             "admission_period_id": "admission-period-native-conduct-0063",
             "revision": 2,
-            "command_id": "httpv2_xZES5RDNY43T3kDVp99JUhk5ELu460Tbt84GKwq3EDk",
+            "command_id": "httpv2_2dKXalViaIteY4FxmEQuiZPfOhKeA7jakIhi3yDLh8w",
             "year_of_study": 3,
             "monday_unavailable": false,
             "tuesday_unavailable": false,
@@ -497,7 +497,7 @@
             "preferred_school": null,
             "team_interest": false,
             "team_ids": [],
-            "registered_at": "2026-09-12T14:16:17.090Z"
+            "registered_at": "2026-09-12T14:25:03.687Z"
           }
         ]
       },
@@ -506,7 +506,7 @@
         "form": [
           [
             "commandId",
-            "476e0a09-2da5-4c2a-9866-2933f9c39a7b"
+            "531edec4-607c-4001-9c50-84b1cd4393e7"
           ],
           [
             "expectedRevision",
@@ -555,14 +555,14 @@
         ],
         "admissionPeriodId": "admission-period-returning-next-0104",
         "expectedRevision": "1",
-        "commandId": "476e0a09-2da5-4c2a-9866-2933f9c39a7b"
+        "commandId": "531edec4-607c-4001-9c50-84b1cd4393e7"
       },
       {
         "phase": "negative-gate",
         "gate": "returning-stale-draft",
         "status": 412,
         "expectedRevision": "1",
-        "commandId": "476e0a09-2da5-4c2a-9866-2933f9c39a7b",
+        "commandId": "531edec4-607c-4001-9c50-84b1cd4393e7",
         "draftYearOfStudy": "5"
       },
       {
@@ -570,7 +570,7 @@
         "form": [
           [
             "commandId",
-            "aaa92e1d-f58a-4c7a-b8ef-177dfdd66544"
+            "4b2dd2c4-05af-4188-9e80-ca44e71a3818"
           ],
           [
             "expectedRevision",
@@ -619,7 +619,7 @@
         ],
         "admissionPeriodId": "admission-period-returning-next-0104",
         "expectedRevision": "2",
-        "commandId": "aaa92e1d-f58a-4c7a-b8ef-177dfdd66544"
+        "commandId": "4b2dd2c4-05af-4188-9e80-ca44e71a3818"
       },
       {
         "phase": "negative-gate",
@@ -703,16 +703,16 @@
       {
         "phase": "returning:native-schedule",
         "actorPersonId": "report-coordinator-0103",
-        "interviewId": "recruitment_interview_dc3490b8-ec6d-4696-9601-90aeca46051e",
-        "assignmentETag": "\"vkr2.zPhVfhhmsmC4JqpiD9w82hDRXPLextsCi13aWHYSmPQ\"",
+        "interviewId": "recruitment_interview_de9a92ce-77b6-4c3a-9180-d374dcf5d79f",
+        "assignmentETag": "\"vkr2.tflmfDSxDFXih-3RvD3XVKm9lPWVfq79l9scsWcjIkw\"",
         "scheduleStatus": 200,
         "scheduledAt": "2026-09-20T10:00:00.000Z",
         "responseState": "Pending"
       },
       {
         "phase": "returning:native-invitation-delivered",
-        "interviewId": "recruitment_interview_dc3490b8-ec6d-4696-9601-90aeca46051e",
-        "effectId": "recruitment-invitation:4f229dda0cf2dc1cf7caef829e24f2e83b8229e9717b72bf4f006cba54a588db",
+        "interviewId": "recruitment_interview_de9a92ce-77b6-4c3a-9180-d374dcf5d79f",
+        "effectId": "recruitment-invitation:cf6e15193e47b64fcdc487cb81629758fac62148b33765daf759b0dd28aaf905",
         "deliveryStatus": "Delivered",
         "outbox": [
           {
@@ -723,7 +723,7 @@
       },
       {
         "phase": "returning:native-invitation-accepted",
-        "interviewId": "recruitment_interview_dc3490b8-ec6d-4696-9601-90aeca46051e",
+        "interviewId": "recruitment_interview_de9a92ce-77b6-4c3a-9180-d374dcf5d79f",
         "responseState": "Accepted",
         "confirmStatus": 204
       },
@@ -731,8 +731,8 @@
         "phase": "returning:native-finalization",
         "actorPersonId": "journey-conduct-leader-0063",
         "interviewerPersonId": "journey-conduct-leader-0063",
-        "interviewId": "recruitment_interview_dc3490b8-ec6d-4696-9601-90aeca46051e",
-        "etagBefore": "\"vkr2.Fg0sh2IPNjQZcybq5qOssbM884I2jWsA-dokVOg6oQA\"",
+        "interviewId": "recruitment_interview_de9a92ce-77b6-4c3a-9180-d374dcf5d79f",
+        "etagBefore": "\"vkr2.UQB_1Qdyn2yoIUeQ4uGPiQN9cyU9kSyey56wf9G2mGE\"",
         "questionSnapshotIds": [
           "interview-schema-native-conduct-0063-q0",
           "interview-schema-native-conduct-0063-q1",
@@ -829,7 +829,7 @@
   ],
   "reportEvidence": {
     "specId": "0103",
-    "revision": "2decfdd748d02880601ef71a0b7b24ac3ba28811",
+    "revision": "5cb4401610d3799a8fe931471fee265676824b9c",
     "gates": [
       "real ordinary-interviewer conduct reported to non-assigned leader; exact population/projection/history/SQL and closed/empty periods; sort/filter/ties; no report writes; raw conduct remains denied",
       "authorized department without periods returns explicit empty selection and no rows",
@@ -842,7 +842,7 @@
         "interviewId": "interview-native-conduct-a-0063",
         "firstName": "Sofie",
         "lastName": "Gjennomfører",
-        "completedAt": "2026-09-12T14:16:20.461Z",
+        "completedAt": "2026-09-12T14:25:07.111Z",
         "recommendation": "Ja",
         "participation": "Unknown",
         "explanatoryPower": 8,
@@ -853,7 +853,7 @@
         "interviewId": "interview-recommendation-history",
         "firstName": "history",
         "lastName": "Recommendation",
-        "completedAt": "2026-09-12T14:15:22.669Z",
+        "completedAt": "2026-09-12T14:24:09.195Z",
         "recommendation": null,
         "participation": "Unknown",
         "explanatoryPower": 7,
@@ -864,7 +864,7 @@
         "interviewId": "report-interview-tie-a",
         "firstName": "Report",
         "lastName": "Tie",
-        "completedAt": "2026-09-12T14:16:20.461Z",
+        "completedAt": "2026-09-12T14:25:07.111Z",
         "recommendation": "Ja",
         "participation": "Unknown",
         "explanatoryPower": 8,
@@ -875,7 +875,7 @@
         "interviewId": "report-interview-tie-b",
         "firstName": "Report",
         "lastName": "Tie",
-        "completedAt": "2026-09-12T14:16:20.461Z",
+        "completedAt": "2026-09-12T14:25:07.111Z",
         "recommendation": "Ja",
         "participation": "Unknown",
         "explanatoryPower": 8,
@@ -897,7 +897,7 @@
         "interviewId": "report-interview-low",
         "firstName": "Report",
         "lastName": "low",
-        "completedAt": "2026-09-12T14:16:20.461Z",
+        "completedAt": "2026-09-12T14:25:07.111Z",
         "recommendation": "Nei",
         "participation": "Unknown",
         "explanatoryPower": 1,
@@ -908,7 +908,7 @@
         "interviewId": "report-interview-race",
         "firstName": "Report",
         "lastName": "race",
-        "completedAt": "2026-09-12T14:16:20.461Z",
+        "completedAt": "2026-09-12T14:25:07.111Z",
         "recommendation": "Kanskje",
         "participation": "Unknown",
         "explanatoryPower": 4,
