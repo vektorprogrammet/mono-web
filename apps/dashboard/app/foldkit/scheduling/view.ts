@@ -691,7 +691,7 @@ const conductDetailView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
 
 const historyAnswer = (
   answer: RecruitmentInterviewConductObservation["answers"][number],
-): string => (Array.isArray(answer.answer) ? answer.answer.join(", ") : answer.answer);
+): string => (typeof answer.answer === "string" ? answer.answer : answer.answer.join(", "));
 
 const correctionHistoryView = (
   detail: RecruitmentInterviewConductObservation,

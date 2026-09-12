@@ -163,7 +163,7 @@ const detailFor = (state: "Completed" | "Cancelled") =>
     canCancel: false,
   });
 
-const terminalModel = (state: "Completed" | "Cancelled"): Model => {
+const terminalModel = (state: "Completed" | "Cancelled"): ReadyModel => {
   const detail = detailFor(state);
   const board = S.decodeUnknownSync(SchedulingBoard)({
     departmentId: "department-conduct-view",
@@ -281,8 +281,8 @@ describe("Foldkit scheduling conduct view", () => {
       ...terminalModel("Completed"),
       conduct: ConductData.Refreshing({ data: detailFor("Completed") }),
     } satisfies ReadyModel;
-    const controls = descendants(view(pending, htmlBuilder) as unknown as RenderedNode).filter((node) =>
-      ["textarea", "input", "select"].includes(node.tag),
+    const controls = descendants(view(pending, htmlBuilder) as unknown as RenderedNode).filter(
+      (node) => ["textarea", "input", "select"].includes(node.tag),
     );
     expect(controls).toHaveLength(7);
     expect(controls.every((node) => hasAttribute(node, "Disabled", true))).toBe(true);
@@ -320,7 +320,10 @@ describe("Foldkit scheduling conduct view", () => {
     ).toBe(true);
   });
   it("routes correction confirmation to the correction command", () => {
-    const rendered = view(conductConfirmationModel("Correct"), htmlBuilder) as unknown as RenderedNode;
+    const rendered = view(
+      conductConfirmationModel("Correct"),
+      htmlBuilder,
+    ) as unknown as RenderedNode;
     const confirmation = descendants(rendered).find(
       (node) => node.tag === "button" && textContent(node) === "Rett intervju",
     );
@@ -328,7 +331,6 @@ describe("Foldkit scheduling conduct view", () => {
     const onClick = confirmation === undefined ? undefined : attribute(confirmation, "OnClick");
     expect(onClick).toEqual(SubmittedFinalize());
   });
-
 
   it("maps native checkbox checked state through answer updates", () => {
     const update = makeUpdate({} as SchedulingCommands);
