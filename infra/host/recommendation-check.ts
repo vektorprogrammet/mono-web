@@ -1344,16 +1344,18 @@ try {
   await page.locator("#interviewer-recommendation").focus();
   await page.keyboard.press("Home");
   await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("Enter");
   assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Ja");
+  const finalResponsePromise = responseFor("finalizeInterview");
   await page.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
   await page.getByRole("dialog").waitFor();
   await page.screenshot({ path: join(artifacts, "confirmation.png") });
   await auditPage(page, "confirmation");
+  const finalResponse = finalResponsePromise;
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Fullfør intervju", exact: true })
     .press("Enter");
+  assert.equal((await finalResponse).status(), 200);
   await page.getByText("Intervjuet er fullført.", { exact: true }).waitFor();
   await page.reload();
   await open(page, "Sofie Gjennomfører");
