@@ -439,9 +439,9 @@ export const runReturningAssistantBrowserJourney = async ({
     probePerson: (typeof negativeProbePersons)[number],
     expectedStatus: number,
   ) => {
-    const probeContext = await browser.newContext();
+    const probeContext = await browser.newContext({ baseURL: api });
     try {
-      let signIn = await probeContext.request.post(`${api}/api/auth/sign-in/email`, {
+      let signIn = await probeContext.request.post("/api/auth/sign-in/email", {
         headers: { origin: ui, "content-type": "application/json" },
         data: { email: probePerson.email, password: probePerson.password },
       });
@@ -449,14 +449,14 @@ export const runReturningAssistantBrowserJourney = async ({
         const cooldown = Promise.withResolvers<void>();
         setTimeout(cooldown.resolve, 1_000);
         await cooldown.promise;
-        signIn = await probeContext.request.post(`${api}/api/auth/sign-in/email`, {
+        signIn = await probeContext.request.post("/api/auth/sign-in/email", {
           headers: { origin: ui, "content-type": "application/json" },
           data: { email: probePerson.email, password: probePerson.password },
         });
       }
       assert.equal(signIn.status(), 200, `${gate} sign-in`);
       const before = await negativeMutationSnapshot(probePerson.personId);
-      const response = await probeContext.request.get(`${api}/api/returning-assistant/options`, {
+      const response = await probeContext.request.get("/api/returning-assistant/options", {
         headers: { origin: ui, accept: "application/json" },
       });
       const body = await response.text();
