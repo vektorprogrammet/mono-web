@@ -189,6 +189,11 @@ export const runReturningAssistantBrowserJourney = async ({
   responses.push(
     `${optionsResponse.status()} ${optionsResponse.url()} ${JSON.stringify(await optionsResponse.json().catch(() => null))}`,
   );
+  const browserOptions = await returning.evaluate(async (endpoint) => {
+    const response = await fetch(endpoint, { headers: { accept: "application/json" } });
+    return { status: response.status, body: await response.text() };
+  }, `${api}/api/returning-assistant/options`);
+  responses.push(`browser ${browserOptions.status} ${browserOptions.body}`);
   await returning.waitForURL(/\/dashboard\/tidligere-assistenter$/);
   let form: Locator;
   try {
