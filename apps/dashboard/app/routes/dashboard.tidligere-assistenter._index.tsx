@@ -31,7 +31,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     return privateData({
       options: null,
       error: messages[problem?.code ?? ""] ?? "Alternativene kunne ikke lastes. Prøv igjen.",
-    }, problem?.status ?? 503);
+    });
   }
 }
 
