@@ -878,6 +878,22 @@ try {
       .click();
     await p.getByRole("heading", { name: `Intervju med ${name}` }).waitFor();
   };
+  const waitForRecruitmentOperation = (p: any, operation: string) =>
+    p.waitForResponse((response: any) => {
+      if (response.request().method() !== "POST" || new URL(response.url()).pathname !== "/recruitment")
+        return false;
+      try {
+        const payload: unknown = response.request().postDataJSON();
+        return (
+          typeof payload === "object" &&
+          payload !== null &&
+          "operation" in payload &&
+          payload.operation === operation
+        );
+      } catch {
+        return false;
+      }
+    });
   const fill = async (p: any) => {
     await p
       .locator("#question-interview-schema-native-conduct-0063-q0")
@@ -1340,13 +1356,12 @@ try {
   await stale.goto(`${ui}/dashboard/intervjuer`);
   await open(stale, "Sofie Gjennomfører");
   await fill(stale);
-  await stale.locator("#interviewer-recommendation").selectOption("Kanskje");
   await page.locator("#interviewer-recommendation").focus();
   await page.keyboard.press("Home");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
   assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Ja");
-  const finalResponsePromise = responseFor("finalizeInterview");
+  const finalResponsePromise = waitForRecruitmentOperation(page, "finalizeInterview");
   await page.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
   await page.getByRole("dialog").waitFor();
   await page.screenshot({ path: join(artifacts, "confirmation.png") });
