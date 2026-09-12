@@ -1024,22 +1024,168 @@ try {
     await page.reload();
     await correctionPageOpen();
     assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Ja");
+    const staleCorrectionEtag = (await get(correctionId)).headers.get("etag")!;
+    const staleCorrectionContext = await browser.newContext({ storageState: await context.storageState() });
+    const staleCorrection = await staleCorrectionContext.newPage();
+    staleCorrection.on("pageerror", () => errors.push("stale-correction-pageerror"));
+    await staleCorrection.goto(`${ui}/dashboard/intervjuer`);
+    await staleCorrection
+      .getByRole("article")
+      .filter({ hasText: correctionName })
+      .getByRole("button", { name: "Åpne intervju", exact: true })
+      .click();
+    await staleCorrection
+      .getByRole("heading", { name: `Intervju med ${correctionName}` })
+      .waitFor();
+    await staleCorrection.locator("#question-interview-schema-native-conduct-0063-q0").fill("Stale correction draft.");
+    await staleCorrection.locator("#interviewer-recommendation").selectOption("Kanskje");
+    await staleCorrection.locator("#score-explanatoryPower").selectOption("7");
     await page.locator("#question-interview-schema-native-conduct-0063-q0").fill("Et nytt tydelig svar.");
     await page.locator("#score-explanatoryPower").selectOption("9");
     await page.locator("#interviewer-recommendation").selectOption("Nei");
+    type CorrectionAttempt = {
+      readonly phase: "failed-save" | "retry";
+      readonly payload: unknown;
+      readonly ifMatch: string | undefined;
+      readonly idempotencyKey: string | undefined;
+      readonly fetchedStatus: number;
+    };
+    const correctionAttempts: CorrectionAttempt[] = [];
+    let resolveFailedSave!: () => void;
+    let rejectFailedSave!: (cause: unknown) => void;
+    let resolveCorrectionRetry!: () => void;
+    let rejectCorrectionRetry!: (cause: unknown) => void;
+    const failedSaveSettled = new Promise<void>((resolve, reject) => {
+      resolveFailedSave = resolve;
+      rejectFailedSave = reject;
+    });
+    const correctionRetrySettled = new Promise<void>((resolve, reject) => {
+      resolveCorrectionRetry = resolve;
+      rejectCorrectionRetry = reject;
+    });
+    const correctionRoute = async (route: any) => {
+      const request = route.request();
+      if (request.method() !== "POST" || new URL(request.url()).pathname !== "/recruitment") {
+        await route.continue();
+        return;
+      }
+      let payload: unknown;
+      try {
+        payload = request.postDataJSON();
+      } catch {
+        await route.continue();
+        return;
+      }
+      if (
+        typeof payload !== "object" ||
+        payload === null ||
+        !("operation" in payload) ||
+        payload.operation !== "correctInterviewAssessment"
+      ) {
+        await route.continue();
+        return;
+      }
+      const phase: CorrectionAttempt["phase"] = correctionAttempts.length === 0 ? "failed-save" : "retry";
+      try {
+        const response = await route.fetch({ timeout: 30_000 });
+        correctionAttempts.push({
+          phase,
+          payload,
+          ifMatch: request.headers()["if-match"],
+          idempotencyKey: request.headers()["idempotency-key"],
+          fetchedStatus: response.status(),
+        });
+        if (phase === "failed-save") {
+          await response.body();
+          await route.abort("failed");
+          resolveFailedSave();
+          return;
+        }
+        await route.fulfill({ response });
+        resolveCorrectionRetry();
+      } catch (cause) {
+        (phase === "failed-save" ? rejectFailedSave : rejectCorrectionRetry)(cause);
+      }
+    };
+    await page.route("**/recruitment", correctionRoute);
     await page.getByRole("button", { name: "Rett intervju", exact: true }).last().click();
     await page.getByRole("dialog").waitFor({ state: "visible" });
-    const secondResponsePromise = responseFor("correctInterviewAssessment");
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Rett intervju", exact: true })
       .press("Enter");
-    const secondResponse = await secondResponsePromise;
-    assert.equal(secondResponse.status(), 200);
+    await failedSaveSettled;
     await page.locator("#interviewer-recommendation").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Nei");
+    assert.equal(await page.locator("#score-explanatoryPower").inputValue(), "9");
+    assert.equal(await page.locator("#question-interview-schema-native-conduct-0063-q0").inputValue(), "Et nytt tydelig svar.");
+    const rowsBeforeRetry = (
+      await pool.query(
+        `SELECT resulting_revision FROM public.recruitment_interview_correction_assessments
+         WHERE interview_id=$1 ORDER BY resulting_revision`,
+        [correctionId],
+      )
+    ).rows;
+    assert.deepEqual(rowsBeforeRetry.map((row: any) => row.resulting_revision), [2]);
+    await page.getByRole("button", { name: "Rett intervju", exact: true }).last().click();
+    await page.getByRole("dialog").waitFor({ state: "visible" });
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Rett intervju", exact: true })
+      .press("Enter");
+    await correctionRetrySettled;
+    assert.equal(correctionAttempts.length, 2);
+    assert.deepEqual(correctionAttempts[1], {
+      ...correctionAttempts[0],
+      phase: "retry",
+    });
+    assert.equal(correctionAttempts[0].fetchedStatus, 200);
+    await page.locator("#interviewer-recommendation").waitFor({ state: "visible" });
+    await page.unroute("**/recruitment", correctionRoute);
     await page.reload();
     await correctionPageOpen();
     assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Nei");
+    const staleCorrectionResponsePromise = staleCorrection.waitForResponse(
+      (response: any) => operationFor(response.request()) === "correctInterviewAssessment",
+    );
+    await staleCorrection.getByRole("button", { name: "Rett intervju", exact: true }).click();
+    await staleCorrection.getByRole("dialog").waitFor({ state: "visible" });
+    await staleCorrection
+      .getByRole("dialog")
+      .getByRole("button", { name: "Rett intervju", exact: true })
+      .press("Enter");
+    const staleCorrectionResponse = await staleCorrectionResponsePromise;
+    assert.equal(staleCorrectionResponse.status(), 409);
+    const staleCorrectionRequest = staleCorrectionResponse.request();
+    assert.equal(new URL(staleCorrectionRequest.url()).pathname, "/recruitment");
+    const staleCorrectionRequestBody = staleCorrectionRequest.postDataJSON();
+    assert.equal(staleCorrectionRequestBody.operation, "correctInterviewAssessment");
+    assert.equal(staleCorrectionRequestBody.payload.expectedRevision, 2);
+    assert.equal(staleCorrectionRequest.headers()["if-match"], staleCorrectionEtag);
+    assert.match(staleCorrectionRequest.headers()["idempotency-key"] ?? "", /^[a-z0-9-]+$/);
+    await staleCorrection
+      .getByText(
+        "Intervjuet er endret. Utkastet er beholdt; åpne intervjuet på nytt for å hente gjeldende versjon.",
+        { exact: true },
+      )
+      .waitFor();
+    assert.equal(
+      await staleCorrection.locator("#question-interview-schema-native-conduct-0063-q0").inputValue(),
+      "Stale correction draft.",
+    );
+    assert.equal(await staleCorrection.locator("#interviewer-recommendation").inputValue(), "Kanskje");
+    const staleRowsAfterConflict = (
+      await pool.query(
+        `SELECT resulting_revision FROM public.recruitment_interview_correction_assessments
+         WHERE interview_id=$1 ORDER BY resulting_revision`,
+        [correctionId],
+      )
+    ).rows;
+    assert.deepEqual(staleRowsAfterConflict.map((row: any) => row.resulting_revision), [2, 3]);
+    await staleCorrection.close();
+    await staleCorrectionContext.close();
+    stage("stale correction rejects old base and preserves visible draft without persistence");
+    stage("lost correction response retries identical payload, base and idempotency key without duplicate persistence");
     stage("second correction and reload preserve ordered history");
     const afterSecond = await (await get(correctionId)).json();
     assert.ok(afterSecond.history.filter((entry: any) => entry._tag === "Correction").length >= 2);
@@ -1345,7 +1491,15 @@ try {
     await writeFile(
       join(artifacts, "correction-targeted-evidence.json"),
       JSON.stringify(
-        { revision, correctionStages, beforeBody, afterFirst, afterSecond, finalDetail },
+        {
+          revision,
+          correctionStages,
+          beforeBody,
+          afterFirst,
+          afterSecond,
+          finalDetail,
+          failedSaveRetry: correctionAttempts,
+        },
         null,
         2,
       ),
@@ -1382,12 +1536,6 @@ try {
     .getByText("Svar på alle spørsmål, velg alle tre scorer og en anbefaling.", { exact: true })
     .waitFor();
   assert.equal(await page.locator("#score-suitability").inputValue(), "8");
-  const staleContext = await browser.newContext({ storageState: await context.storageState() });
-  const stale = await staleContext.newPage();
-  stale.on("pageerror", () => errors.push("stale-pageerror"));
-  await stale.goto(`${ui}/dashboard/intervjuer`);
-  await open(stale, "Sofie Gjennomfører");
-  await fill(stale);
   await page.locator("#interviewer-recommendation").focus();
   await page.keyboard.press("Home");
   await page.keyboard.press("ArrowDown");
@@ -1422,23 +1570,7 @@ try {
     .screenshot({ path: join(artifacts, "recommendation-mobile.png") });
   await auditPage(page, "finalized-mobile");
   await page.setViewportSize({ width: 1280, height: 900 });
-  await stale.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
-  await stale.getByRole("dialog").waitFor();
-  await stale.getByRole("dialog").locator("button").last().press("Enter");
-  await stale
-    .getByText(
-      "Intervjuet er endret. Utkastet er beholdt; åpne intervjuet på nytt for å hente gjeldende versjon.",
-      { exact: true },
-    )
-    .waitFor();
-  assert.equal(await stale.locator("#interviewer-recommendation").inputValue(), "Kanskje");
-  await stale.locator(".fs-conduct").screenshot({ path: join(artifacts, "stale-draft.png") });
-  await auditPage(stale, "stale-draft");
-  await stale.close();
-  await staleContext.close();
-  recordGate(
-    "ordinary assigned member: required choice, keyboard finalization, reload and real stale-conflict draft retention",
-  );
+  recordGate("ordinary assigned member: required choice, keyboard finalization, reload and exact stale-correction conflict retention");
   const answers = [
     { questionId: "interview-schema-native-conduct-0063-q0", answer: "Et tydelig svar" },
     { questionId: "interview-schema-native-conduct-0063-q1", answer: "Teknologi" },
