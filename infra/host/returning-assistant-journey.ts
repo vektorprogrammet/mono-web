@@ -525,6 +525,8 @@ export const runReturningAssistantBrowserJourney = async ({
     });
     return { status: response.status };
   }, `${api}/api/returning-assistant/options`);
+  assert.equal(browserOptions.status, 200);
+  trace.push({ phase: "options-probe", status: browserOptions.status });
   const originalCustody = await pool.query(
     `SELECT
        to_jsonb(application) - 'year_of_study' - 'revision' AS application_immutable,
@@ -547,10 +549,9 @@ export const runReturningAssistantBrowserJourney = async ({
     [applicationId],
   );
   assert.equal(originalCustody.rows.length, 1);
-  let form: Locator;
+  let form = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
   stage?.("returning:form");
   try {
-    form = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
     await form.getByRole("combobox", { name: "Opptaksperiode" }).selectOption(nextAdmissionPeriodId);
     await form.getByRole("combobox", { name: "Studieår" }).selectOption("4");
     await form.getByLabel("Mandag", { exact: true }).check();
@@ -698,8 +699,9 @@ export const runReturningAssistantBrowserJourney = async ({
       let lastError: unknown;
       for (let attempt = 0; attempt < 50; attempt += 1) {
         try {
-          const restoredEntries = await form.evaluate((node) =>
-            [...new FormData(node as HTMLFormElement)].map(([name, value]) => [name, String(value)]),
+          const restoredEntries = await form.evaluate(
+            (node) => [...new FormData(node as HTMLFormElement)].map(([name, value]) => [name, String(value)]),
+            undefined,
           );
           if (JSON.stringify(restoredEntries) !== JSON.stringify(firstRequest.form))
             throw new Error(`recovered form intent mismatch actual=${JSON.stringify(restoredEntries)} expected=${JSON.stringify(firstRequest.form)}`);
@@ -999,13 +1001,11 @@ export const runReturningAssistantBrowserJourney = async ({
 export const runReturningAssistantLoginProbe = async ({
   browser,
   pool,
-  api,
   ui,
   artifacts,
 }: {
   readonly browser: Browser;
   readonly pool: Pool;
-  readonly api: string;
   readonly ui: string;
   readonly artifacts: string;
 }) => {

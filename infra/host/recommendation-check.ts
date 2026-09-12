@@ -113,6 +113,7 @@ let pool: any, browser: any, page: any, heldIdentityClient: any, backend: any;
 let effectServer: Server | undefined;
 const effectCalls: EffectReceiverCall[] = [];
 const effectAttempts = new Map<string, number>();
+let releaseEffectDelivery = false;
 const gates: string[] = [];
 const recordGate = (...observations: string[]) => {
   gates.push(...observations);
@@ -193,7 +194,7 @@ const startEffectReceiver = async (
     const normalizedEffectId = typeof effectId === "string" ? effectId : "";
     const attempt = (effectAttempts.get(normalizedEffectId) ?? 0) + 1;
     effectAttempts.set(normalizedEffectId, attempt);
-    const status = attempt === 1 ? 503 : 204;
+    const status = releaseEffectDelivery ? 204 : 503;
     effectCalls.push({
       effectId: normalizedEffectId,
       commandId: stringField(body, "commandId"),
@@ -367,7 +368,7 @@ try {
   await page.waitForURL(/\/dashboard\/?$/);
   await page.goto(`${ui}/dashboard/intervjuer`);
   if (process.argv.includes("--returning-login-probe")) {
-    const probe = await runReturningAssistantLoginProbe({ browser, pool, api, ui, artifacts });
+    const probe = await runReturningAssistantLoginProbe({ browser, pool, ui, artifacts });
     throw new ReturningLoginProbeComplete(probe);
   }
   assert.equal(await page.getByRole("link", { name: "Søkerkontoer", exact: true }).count(), 0);
@@ -426,12 +427,19 @@ try {
       };
       const failedRows = await bounded(
         "returning effect first failure",
-        waitForOutbox((rows) => rows.some((row) => row.status === "Failed")),
+        waitForOutbox((rows) => rows.length === 12 && rows.every((row) => row.status === "Failed")),
         30_000,
       );
-      assert.ok(failedRows.some((row: { status: string }) => row.status === "Failed"));
-      recordGate("returning notification/subscription/audit loopback observed a retryable failure");
+      assert.equal(failedRows.length, 12);
+      assert.ok(failedRows.every((row: { status: string }) => row.status === "Failed"));
+      const heldFailedRows = await pool.query(
+        "SELECT status FROM public.admission_application_outbox WHERE origin='ReturningAssistant' ORDER BY effect_id",
+      );
+      assert.equal(heldFailedRows.rows.length, 12);
+      assert.ok(heldFailedRows.rows.every((row: { status: string }) => row.status === "Failed"));
+      recordGate("returning notification/subscription/audit loopback failure held until deliberate restart");
       await stopPreviewScenarioBackend(backend);
+      releaseEffectDelivery = true;
       backend = start("bun", ["apps/backend/src/main.ts"], env);
       await ready(async () => (await fetch(`${api}/health`)).ok);
       const deliveredRows = await bounded(
