@@ -37,6 +37,7 @@ import {
   type RecruitmentInvitationDeliveryResult,
 } from "../../packages/domain/src/recruitment/index.js";
 import { deliverJson } from "../../apps/backend/src/delivery/http.js";
+import { NotificationGateway } from "../../packages/domain/src/notification/service.js";
 const root = new URL("../../", import.meta.url).pathname;
 const dbRequire = createRequire(new URL("../../packages/database/package.json", import.meta.url));
 const uiRequire = createRequire(new URL("../../apps/dashboard/package.json", import.meta.url));
