@@ -425,7 +425,11 @@ export async function observeInterviewReport(o: Options) {
       filtered.rows,
       report.rows.filter((r) => r.participation === filter),
     );
-    assert.ok(filtered.rows.length > 0);
+    if (o.correctionMode && filter === "Returning") {
+      assert.equal(filtered.rows.length, 0);
+    } else {
+      assert.ok(filtered.rows.length > 0);
+    }
   }
   for (const sort of ["applicant", "recommendation", "total"])
     for (const direction of ["asc", "desc"]) {
