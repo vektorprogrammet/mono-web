@@ -746,8 +746,14 @@ export async function observeInterviewReport(o: Options) {
     await expect(page.getByLabel("Anbefaling", { exact: true })).toHaveValue("not-recorded");
     await submit();
     await assertRendered();
-    await expect(page.getByRole("status")).toHaveText("1 fullførte intervjuer");
-    await expect(page.locator("tbody")).toContainText("Ikke registrert");
+    await expect(page.getByRole("status")).toHaveText(
+      `${o.correctionMode ? 0 : 1} fullførte intervjuer`,
+    );
+    if (o.correctionMode) {
+      await expect(page.locator("tbody")).not.toContainText("Ikke registrert");
+    } else {
+      await expect(page.locator("tbody")).toContainText("Ikke registrert");
+    }
     const selectedUrl = page.url();
     await page.reload();
     assert.equal(page.url(), selectedUrl);
