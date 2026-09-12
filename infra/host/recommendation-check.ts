@@ -917,12 +917,12 @@ try {
         .getByRole("button", { name: "Åpne intervju", exact: true })
         .click();
       await page.getByRole("heading", { name: `Intervju med ${correctionName}` }).waitFor();
-      await page.getByRole("button", { name: "Rett intervju", exact: true }).click();
-      await page.getByRole("dialog").waitFor({ state: "visible" });
     };
     const saveCorrection = async (recommendation: "Ja" | "Kanskje" | "Nei") => {
       await fill(page);
       await page.locator("#interviewer-recommendation").selectOption(recommendation);
+      await page.getByRole("button", { name: "Rett intervju", exact: true }).click();
+      await page.getByRole("dialog").waitFor({ state: "visible" });
       const responsePromise = responseFor("correctInterviewAssessment");
       await page
         .getByRole("dialog")
