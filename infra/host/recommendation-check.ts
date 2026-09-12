@@ -18,6 +18,7 @@ import {
   runReturningAssistantBrowserJourney,
   seedReturningAssistant,
 } from "./returning-assistant-journey.ts";
+class CookieProbeComplete extends Error {}
 const root = new URL("../../", import.meta.url).pathname;
 const dbRequire = createRequire(new URL("../../packages/database/package.json", import.meta.url));
 const uiRequire = createRequire(new URL("../../apps/dashboard/package.json", import.meta.url));
@@ -265,6 +266,64 @@ try {
   await page.getByLabel("Passord", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Logg inn", exact: true }).click();
   await page.waitForURL(/\/dashboard\/?$/);
+  if (process.argv.includes("--cookie-probe")) {
+    const probeContext = await browser.newContext();
+    const probePage = await probeContext.newPage();
+    const loginCookies: string[] = [];
+    probePage.on("response", (response: any) => {
+      if (!response.url().includes("/api/auth/sign-in/email")) return;
+      const setCookie = response.headers()["set-cookie"];
+      if (setCookie !== undefined) loginCookies.push(setCookie);
+    });
+    await probePage.goto(`${ui}/login?redirectTo=${encodeURIComponent("/dashboard/tidligere-assistenter")}`);
+    await probePage.getByLabel("E-post", { exact: true }).fill(returningAssistantFixture.person.email);
+    await probePage.getByLabel("Passord", { exact: true }).fill(returningAssistantFixture.person.password);
+    await probePage.getByRole("button", { name: "Logg inn", exact: true }).click();
+    await probePage.waitForURL(/\/dashboard\/tidligere-assistenter$/);
+    const probeCookies = await probeContext.cookies();
+    const cookieHeader = probeCookies.map((item: any) => `${item.name}=${item.value}`).join("; ");
+    const sessionCookie = probeCookies.find((item: any) => item.name === "better-auth.session_token");
+    const sessionRows = await pool.query(
+      `SELECT count(*)::int AS count, min("expiresAt") AS "expiresAt", max("expiresAt") AS "maxExpiresAt"
+       FROM auth.session WHERE "userId"=$1`,
+      [returningAssistantFixture.person.personId],
+    );
+    const now = new Date();
+    const expiry = sessionRows.rows[0].expiresAt === null ? null : new Date(sessionRows.rows[0].expiresAt);
+    const nativeSession = await fetch(`${api}/api/session`, {
+      headers: { cookie: cookieHeader, origin: ui, accept: "application/json" },
+    });
+    const nativeOptions = await fetch(`${api}/api/returning-assistant/options`, {
+      headers: { cookie: cookieHeader, origin: ui, accept: "application/json" },
+    });
+    const browserOptions = await probePage.evaluate(async (endpoint: string) => {
+      const response = await fetch(endpoint, { credentials: "include", headers: { accept: "application/json" } });
+      return { status: response.status, body: await response.text() };
+    }, `${api}/api/returning-assistant/options`);
+    const hash = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 16);
+    const rawSessionCookie = loginCookies.find((value) => value.startsWith("better-auth.session_token="));
+    const rawSessionValue = rawSessionCookie?.split(";", 1)[0].split("=", 2)[1];
+    const probe = {
+      loginSetCookieCount: loginCookies.length,
+      loginSessionCookieSeen: rawSessionValue !== undefined,
+      loginSessionValueHash: rawSessionValue === undefined ? null : hash(rawSessionValue),
+      contextCookieCount: probeCookies.length,
+      contextSessionCookieSeen: sessionCookie !== undefined,
+      contextSessionValueHash: sessionCookie === undefined ? null : hash(sessionCookie.value),
+      contextHeaderPairCount: cookieHeader === "" ? 0 : cookieHeader.split(";").length,
+      loginAndContextSessionHashMatch:
+        rawSessionValue !== undefined && sessionCookie !== undefined && hash(rawSessionValue) === hash(sessionCookie.value),
+      sessionRowCount: sessionRows.rows[0].count,
+      sessionExpiresAt: sessionRows.rows[0].expiresAt,
+      probeNow: now.toISOString(),
+      sessionExpiryAfterProbeNow: expiry !== null && expiry.getTime() > now.getTime(),
+      nativeSessionStatus: nativeSession.status,
+      nativeOptionsStatus: nativeOptions.status,
+      browserOptionsStatus: browserOptions.status,
+    };
+    await probeContext.close();
+    throw new CookieProbeComplete(JSON.stringify(probe));
+  }
   await page.goto(`${ui}/dashboard/intervjuer`);
   assert.equal(await page.getByRole("link", { name: "Søkerkontoer", exact: true }).count(), 0);
   const cookies = await context.cookies();
@@ -850,42 +909,46 @@ try {
   // oxlint-effect-plugin allow(no-ambient-console): dev only: sanitized local acceptance artifact location.
   console.log(JSON.stringify({ result: "Passed", revision, artifacts, gates }));
 } catch (error) {
-  let detail =
-    error instanceof Error
-      ? (error.stack?.split("\n").slice(0, 5).join("\n") ?? error.message)
-      : String(error);
-  const activeQueries = pool
-    ? await pool
-        .query(
-          `SELECT pid,state,wait_event_type,wait_event,left(query,240) AS query
-           FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()
-           ORDER BY pid`,
-        )
-        .then((result: { rows: unknown[] }) => result.rows)
-        .catch(() => [])
-    : [];
-  detail += ` Active PostgreSQL queries: ${JSON.stringify(activeQueries)}`;
-  if (page)
-    detail += ` Current page: ${await page
-      .locator("body")
-      .innerText()
-      .catch(() => "unavailable")}`;
+  if (error instanceof CookieProbeComplete) {
+    console.log(error.message);
+  } else {
+    let detail =
+      error instanceof Error
+        ? (error.stack?.split("\n").slice(0, 5).join("\n") ?? error.message)
+        : String(error);
+    const activeQueries = pool
+      ? await pool
+          .query(
+            `SELECT pid,state,wait_event_type,wait_event,left(query,240) AS query
+             FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()
+             ORDER BY pid`,
+          )
+          .then((result: { rows: unknown[] }) => result.rows)
+          .catch(() => [])
+      : [];
+    detail += ` Active PostgreSQL queries: ${JSON.stringify(activeQueries)}`;
+    if (page)
+      detail += ` Current page: ${await page
+        .locator("body")
+        .innerText()
+        .catch(() => "unavailable")}`;
 
-  const safe = (value: string) =>
-    secrets.reduce((result, secret) => result.replaceAll(secret, "[redacted]"), value);
-  detail = safe(detail);
-  const failureEvidence = {
-    result: "Failed",
-    revision,
-    gates,
-    detail: detail.slice(0, 2000),
-    logs: logs.map(safe),
-  };
-  await writeFile(join(artifacts, "failure.json"), JSON.stringify(failureEvidence, null, 2));
-  await writeFile(join(artifacts, "runtime.log"), `${logs.map(safe).join("")}${detail}\n`);
-  // oxlint-effect-plugin allow(no-ambient-console): dev only: redacted local rehearsal failure evidence.
-  console.error(JSON.stringify({ ...failureEvidence, artifacts }));
-  process.exitCode = 1;
+    const safe = (value: string) =>
+      secrets.reduce((result, secret) => result.replaceAll(secret, "[redacted]"), value);
+    detail = safe(detail);
+    const failureEvidence = {
+      result: "Failed",
+      revision,
+      gates,
+      detail: detail.slice(0, 2000),
+      logs: logs.map(safe),
+    };
+    await writeFile(join(artifacts, "failure.json"), JSON.stringify(failureEvidence, null, 2));
+    await writeFile(join(artifacts, "runtime.log"), `${logs.map(safe).join("")}${detail}\n`);
+    // oxlint-effect-plugin allow(no-ambient-console): dev only: redacted local rehearsal failure evidence.
+    console.error(JSON.stringify({ ...failureEvidence, artifacts }));
+    process.exitCode = 1;
+  }
 } finally {
   await browser?.close();
   if (heldIdentityClient) {
