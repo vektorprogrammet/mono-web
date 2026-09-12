@@ -1299,58 +1299,108 @@ export const runReturningAssistantBrowserJourney = async ({
       revision: 0,
     },
   ]);
-  // Scheduling and invitation acceptance are synthetic fixture setup for the
-  // already-assigned next-period interview; conduct itself stays browser/native.
-  await pool.query(
-    `INSERT INTO public.recruitment_interview_schedules
-       (interview_id,scheduled_at,room,campus,map_link,message,scheduled_by_person_id,committed_at,schedule_revision)
-     VALUES($1,'2026-09-10T10:00:00Z','K-0104','Gløshaugen','https://maps.example.invalid/returning-0104',
-       'Velkommen til intervjuet.','journey-conduct-leader-0063','2026-09-09T10:00:00Z',1)`,
-    [nextInterviewId],
-  );
-  await pool.query(
-    `WITH invitation AS (
-       INSERT INTO public.recruitment_invitations
-         (invitation_id,interview_id,schedule_revision,capability_sha256,response_state,created_at,
-          response_message,responded_at,response_revision,superseded_at)
-       VALUES('invitation-returning-next-0104',$1,1,repeat('c',64),'Accepted',
-         '2026-09-09T10:00:00Z',NULL,'2026-09-09T12:00:00Z',1,NULL)
-       RETURNING invitation_id,interview_id,schedule_revision,response_revision,response_state,response_message,responded_at
-     )
-     INSERT INTO public.recruitment_invitation_response_audit
-       (invitation_id,interview_id,schedule_revision,response_revision,response_state,response_message,responded_at)
-     SELECT invitation_id,interview_id,schedule_revision,response_revision,response_state,response_message,responded_at
-     FROM invitation`,
-    [nextInterviewId],
-  );
-  await page.goto(`${ui}/dashboard/intervjuer`);
-  await page.getByRole("heading", { name: "Planlegg intervjuer", exact: true }).waitFor();
-  const nextCard = page.getByRole("article").filter({ hasText: "Rita Tilbake" });
-  await nextCard.getByRole("button", { name: "Åpne intervju", exact: true }).click();
-  await page.getByRole("heading", { name: "Intervju med Rita Tilbake", exact: true }).waitFor();
-  await page.locator("#question-interview-schema-native-conduct-0063-q0").fill(
-    "Jeg vil utvikle læringsopplegg sammen med andre.",
-  );
-  await page.locator("#question-interview-schema-native-conduct-0063-q1-1").check();
-  await page.locator("#question-interview-schema-native-conduct-0063-q2-0").check();
-  await page.locator("#question-interview-schema-native-conduct-0063-q3-0").check();
-  for (const axis of ["explanatoryPower", "roleModel", "suitability"])
-    await page.locator(`#score-${axis}`).selectOption("9");
-  await page.locator("#interviewer-recommendation").selectOption("Kanskje");
-  await page.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Fullfør intervju", exact: true })
-    .press("Enter");
-  await page.getByText("Intervjuet er fullført.", { exact: true }).waitFor();
-  await page.reload();
-  const nextConduct = await pool.query(
+  // Finalize an existing assigned native interview through its real API. The
+  // assignment above remains a separate coordinator operation; registration
+  // does not synthesize a schedule, invitation, or audit state.
+  const finalizedInterviewId = "interview-native-conduct-b-0063";
+  const conductPath = `${api}/api/recruitment/interviews/${finalizedInterviewId}`;
+  const conductResponse = await page.request.get(conductPath, {
+    headers: { origin: ui },
+  });
+  assert.equal(conductResponse.status(), 200);
+  const conductETag = conductResponse.headers()["etag"];
+  assert.ok(conductETag);
+  const conductBefore = JSON.parse(await conductResponse.text()) as {
+    interviewId: string;
+    applicationId: string;
+    invitationResponse: string;
+    questions: Array<{ questionId: string; kind: string }>;
+    answers: unknown[];
+    score: unknown;
+    recommendation: string | null;
+    completionState: string;
+    revision: number;
+  };
+  assert.equal(conductBefore.interviewId, finalizedInterviewId);
+  assert.equal(conductBefore.applicationId, "application-native-conduct-b-0063");
+  assert.equal(conductBefore.invitationResponse, "Accepted");
+  assert.equal(conductBefore.completionState, "NotCompleted");
+  assert.equal(conductBefore.revision, 1);
+  assert.equal(conductBefore.answers.length, 0);
+  assert.equal(conductBefore.score, null);
+  assert.equal(conductBefore.recommendation, null);
+  assert.equal(conductBefore.questions.length, 4);
+  const finalizeAnswers = conductBefore.questions.map((question) => ({
+    questionId: question.questionId,
+    answer:
+      question.kind === "text"
+        ? "Jeg vil utvikle læringsopplegg sammen med andre."
+        : question.kind === "list"
+          ? ["Teknologi"]
+          : question.kind === "radio"
+            ? ["Praksis"]
+            : ["Samarbeid"],
+  }));
+  const finalizeKey = "returning-native-finalize-0104";
+  const finalizeResponse = await page.request.post(`${conductPath}:finalize`, {
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": finalizeKey,
+      "if-match": conductETag,
+      origin: ui,
+    },
+    data: {
+      answers: finalizeAnswers,
+      score: { explanatoryPower: 9, roleModel: 9, suitability: 9 },
+      recommendation: "Kanskje",
+    },
+  });
+  assert.equal(finalizeResponse.status(), 200);
+  const finalizeBody = JSON.parse(await finalizeResponse.text()) as {
+    interviewId: string;
+    finalizedAt: string;
+    completionState: string;
+    cancellationState: string;
+  };
+  assert.equal(finalizeBody.interviewId, finalizedInterviewId);
+  assert.match(finalizeBody.finalizedAt, /^\d{4}-\d{2}-\d{2}T/u);
+  assert.equal(finalizeBody.completionState, "Completed");
+  assert.equal(finalizeBody.cancellationState, "NotCancelled");
+  const conductAfterResponse = await page.request.get(conductPath, {
+    headers: { origin: ui },
+  });
+  assert.equal(conductAfterResponse.status(), 200);
+  const conductAfter = JSON.parse(await conductAfterResponse.text()) as {
+    answers: unknown[];
+    score: { explanatoryPower: number; roleModel: number; suitability: number } | null;
+    recommendation: string | null;
+    completionState: string;
+    revision: number;
+  };
+  assert.equal(conductAfterResponse.headers()["etag"] !== conductETag, true);
+  assert.equal(conductAfter.answers.length, 4);
+  assert.deepEqual(conductAfter.score, { explanatoryPower: 9, roleModel: 9, suitability: 9 });
+  assert.equal(conductAfter.recommendation, "Kanskje");
+  assert.equal(conductAfter.completionState, "Completed");
+  assert.equal(conductAfter.revision, 2);
+  trace.push({
+    phase: "returning:native-finalization",
+    actorPersonId: "journey-conduct-leader-0063",
+    interviewerPersonId: "journey-conduct-leader-0063",
+    interviewId: finalizedInterviewId,
+    etagBefore: conductETag,
+    questionSnapshotIds: conductBefore.questions.map((question) => question.questionId),
+    finalizeStatus: finalizeResponse.status(),
+    recommendation: "Kanskje",
+    scoreTotal: 27,
+  });
+  const finalizedConduct = await pool.query(
     `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
      FROM public.recruitment_interview_conducts c
      WHERE c.interview_id=$1`,
-    [nextInterviewId],
+    [finalizedInterviewId],
   );
-  assert.deepEqual(nextConduct.rows, [
+  assert.deepEqual(finalizedConduct.rows, [
     { recommendation: "Kanskje", explanatory_power: 9, role_model: 9, suitability: 9 },
   ]);
   const preservedConduct = await pool.query(
@@ -1361,12 +1411,6 @@ export const runReturningAssistantBrowserJourney = async ({
   assert.deepEqual(preservedConduct.rows, [
     { recommendation: "Ja", explanatory_power: 8, role_model: 8, suitability: 8 },
   ]);
-  trace.push({
-    phase: "returning:next-period-conduct",
-    interviewId: nextInterviewId,
-    recommendation: "Kanskje",
-    total: 27,
-  });
   const registrations = await pool.query("SELECT admission_period_id,revision,year_of_study,monday_unavailable,tuesday_unavailable,wednesday_unavailable,thursday_unavailable,friday_unavailable,position_weeks,preferred_group,language,preferred_school,team_interest,team_ids FROM public.admission_returning_registrations WHERE person_id=$1 ORDER BY admission_period_id,revision", [person.personId]);
   assert.deepEqual(registrations.rows, [
     { admission_period_id: admissionPeriodId, revision: 1, year_of_study: 2, monday_unavailable: false, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: false, friday_unavailable: false, position_weeks: 4, preferred_group: "all", language: "Norsk og engelsk", preferred_school: null, team_interest: false, team_ids: [] },
@@ -1546,6 +1590,12 @@ export const runReturningAssistantBrowserJourney = async ({
   assert.match(currentOrdinary, /Ja/u);
   assert.match(currentOrdinary, /8/u);
   assert.match(currentOrdinary, /24/u);
+  const finalizedOrdinary = currentReportRows.find((row) => row.includes("Olav Konflikt"));
+  assert.ok(finalizedOrdinary);
+  assert.match(finalizedOrdinary, /Ukjent/u);
+  assert.match(finalizedOrdinary, /Kanskje/u);
+  assert.match(finalizedOrdinary, /9/u);
+  assert.match(finalizedOrdinary, /27/u);
   await page.reload();
   assert.equal(
     (await page.locator("tbody tr").evaluateAll((rows) =>
@@ -1556,19 +1606,14 @@ export const runReturningAssistantBrowserJourney = async ({
   await auditPage(page, "returning-report-existing-period");
   await page.screenshot({ path: join(artifacts, "returning-report-existing-period.png"), fullPage: true });
   const nextReportRows = await reportRows(nextAdmissionPeriodId);
-  assert.equal(nextReportRows.length, 1);
-  assert.match(nextReportRows[0]!, /Rita Tilbake/u);
-  assert.match(nextReportRows[0]!, /Tilbakevendende/u);
-  assert.match(nextReportRows[0]!, /Kanskje/u);
-  assert.match(nextReportRows[0]!, /9/u);
-  assert.match(nextReportRows[0]!, /27/u);
+  assert.deepEqual(nextReportRows, []);
   await page.reload();
   const reloadedNextRows = await page.locator("tbody tr").evaluateAll((rows) =>
     rows.map((row) => (row.textContent ?? "").replace(/\s+/gu, " ").trim()),
   );
   assert.deepEqual(reloadedNextRows, nextReportRows);
-  await auditPage(page, "returning-report-next-period");
-  await page.screenshot({ path: join(artifacts, "returning-report-next-period.png"), fullPage: true });
+  await auditPage(page, "returning-report-next-period-empty");
+  await page.screenshot({ path: join(artifacts, "returning-report-next-period-empty.png"), fullPage: true });
   stage?.("returning:cleanup");
   await returning.close();
   await context.close();
