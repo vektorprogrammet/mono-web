@@ -504,6 +504,17 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
   ],
   [
     "POST",
+    "/api/recruitment/interviews/:interviewId:correct",
+    "recruitment.correctInterviewAssessment",
+    person(
+      "recruitment.conduct-interview",
+      "recruitment.interview-by-id",
+      ["recruitment.assigned-interviewer", "recruitment.not-known-self"],
+      "Transaction",
+    ),
+  ],
+  [
+    "POST",
     "/api/recruitment/interviews/:interviewId:cancel",
     "recruitment.cancelInterview",
     person(
@@ -714,6 +725,7 @@ const entityMutationOperations = [
   "recruitment.scheduleInterview",
   "recruitment.finalizeInterview",
   "recruitment.cancelInterview",
+  "recruitment.correctInterviewAssessment",
   "receipts.reviseReceipt",
   "receipts.withdrawReceipt",
   "receipts.refundReceipt",

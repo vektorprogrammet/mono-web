@@ -1174,6 +1174,58 @@ try {
     await page.reload();
     await correctionPageOpen();
     assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Nei");
+    const browserHistory: any[] = (await (await get(correctionId)).json()).history;
+    assert.deepEqual(
+      browserHistory.map((entry) => [entry._tag, entry.revision]),
+      [
+        ["Original", 1],
+        ["Correction", 2],
+        ["Correction", 3],
+      ],
+    );
+    const formatUiInstant = (instant: string): string =>
+      new Intl.DateTimeFormat("nb-NO", { dateStyle: "long", timeStyle: "short" }).format(
+        new Date(instant),
+      );
+    const historyView = page.locator(".fs-history");
+    await historyView.waitFor();
+    const historyText = () => historyView.textContent();
+    assert.match((await historyText()) ?? "", /Original vurdering, versjon 1/u);
+    assert.match((await historyText()) ?? "", /Korrigering, versjon 2/u);
+    assert.match((await historyText()) ?? "", /Korrigering, versjon 3/u);
+    assert.match((await historyText()) ?? "", /journey-conduct-leader-0063/u);
+    const completionText = (await page.locator(".fs-conduct__completion").textContent()) ?? "";
+    assert.match(completionText, /Fullført/u);
+    assert.match(completionText, /journey-conduct-leader-0063/u);
+    assert.match(completionText, new RegExp(formatUiInstant(beforeBody.finalizedAt), "u"));
+    assert.match((await historyText()) ?? "", /Svar/u);
+    assert.match((await historyText()) ?? "", /Et nytt tydelig svar/u);
+    assert.match((await historyText()) ?? "", /Forklaringskraft7/u);
+    assert.match((await historyText()) ?? "", /Rollemodell8/u);
+    assert.match((await historyText()) ?? "", /Egnethet9/u);
+    assert.match((await historyText()) ?? "", /Ja/u);
+    assert.match((await historyText()) ?? "", /Nei/u);
+    assert.match((await historyText()) ?? "", new RegExp(formatUiInstant(browserHistory[0].finalizedAt), "u"));
+    assert.match((await historyText()) ?? "", new RegExp(formatUiInstant(browserHistory[1].correctedAt), "u"));
+    assert.match((await historyText()) ?? "", new RegExp(formatUiInstant(browserHistory[2].correctedAt), "u"));
+    await page.locator("#interviewer-recommendation").focus();
+    assert.equal(
+      await page.locator("#interviewer-recommendation").evaluate((element: HTMLSelectElement) =>
+        document.activeElement === element,
+      ),
+      true,
+    );
+    await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "correction-history-desktop.png") });
+    await auditPage(page, "correction-history-desktop");
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.ok(
+      (await page.locator("html").evaluate((element: HTMLElement) => element.scrollWidth)) <=
+        390,
+    );
+    await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "correction-history-mobile.png") });
+    await auditPage(page, "correction-history-mobile");
+    await page.setViewportSize({ width: 1280, height: 900 });
+    stage("browser ordered original and correction history shows completion metadata after reload with keyboard/mobile/Axe evidence");
     const staleCorrectionResponsePromise = staleCorrection.waitForResponse(
       (response: any) => operationFor(response.request()) === "correctInterviewAssessment",
     );

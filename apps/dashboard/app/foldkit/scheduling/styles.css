@@ -217,6 +217,44 @@ vektor-recruitment-scheduling {
   overflow-wrap: anywhere;
 }
 
+.fs-conduct__completion,
+.fs-history {
+  margin-block-start: var(--fd-space-4);
+}
+
+.fs-history {
+  padding: var(--fd-space-4);
+  border: 0.0625rem solid var(--fd-color-border);
+  border-radius: var(--fd-radius-sm);
+}
+
+.fs-history__entry {
+  padding-block: var(--fd-space-4);
+  border-block-start: 0.0625rem solid var(--fd-color-border);
+}
+
+.fs-history__entry:first-of-type {
+  padding-block-start: var(--fd-space-2);
+  border-block-start: 0;
+}
+
+.fs-history__heading,
+.fs-history__answers h5 {
+  margin: 0;
+}
+
+.fs-history__answers {
+  margin-block-start: var(--fd-space-4);
+}
+
+.fs-history__answer {
+  margin: var(--fd-space-2) 0 0;
+}
+
+.fs-history__scores {
+  margin-block-start: var(--fd-space-4);
+}
+
 .fs-card-actions {
   display: flex;
   justify-content: flex-end;

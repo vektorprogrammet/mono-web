@@ -689,6 +689,111 @@ const conductDetailView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
     onSuccess: (detail) => conductSuccessView(model, detail, h),
   });
 
+const historyAnswer = (
+  answer: RecruitmentInterviewConductObservation["answers"][number],
+): string => (Array.isArray(answer.answer) ? answer.answer.join(", ") : answer.answer);
+
+const correctionHistoryView = (
+  detail: RecruitmentInterviewConductObservation,
+  h: HtmlBuilder<Message>,
+): Html =>
+  h.section(
+    [h.Class("fs-history"), h.AriaLabelledBy("fs-history-title")],
+    [
+      h.h3([h.Id("fs-history-title"), h.Class("fs-label")], ["Vurderingshistorikk"]),
+      h.p([h.Class("fs-field-hint")], ["Historikken er skrivebeskyttet."]),
+      ...detail.history.map((entry, index) => {
+        const original = entry._tag === "Original";
+        const actor = original ? entry.finalizedByPersonId : entry.correctedByPersonId;
+        const timestamp = original ? entry.finalizedAt : entry.correctedAt;
+        const label = original ? "Original vurdering" : "Korrigering";
+        return h.article(
+          [h.Class("fs-history__entry"), h.AriaLabelledBy(`fs-history-entry-${index}`)],
+          [
+            h.h4(
+              [h.Id(`fs-history-entry-${index}`), h.Class("fs-history__heading")],
+              [`${label}, versjon ${entry.revision}`],
+            ),
+            h.dl(
+              [h.Class("fs-details fs-history__metadata")],
+              [
+                h.div([], [h.dt([], ["Tidspunkt"]), h.dd([], [formatInstant(timestamp)])]),
+                h.div(
+                  [],
+                  [h.dt([], [original ? "Fullført av" : "Korrigert av"]), h.dd([], [actor])],
+                ),
+              ],
+            ),
+            h.div(
+              [h.Class("fs-history__answers")],
+              [
+                h.h5([h.Class("fs-label")], ["Svar"]),
+                ...entry.answers.map((answer) => {
+                  const question = detail.questions.find(
+                    (candidate) => candidate.questionId === answer.questionId,
+                  );
+                  return h.p(
+                    [h.Class("fs-history__answer")],
+                    [`${question?.prompt ?? answer.questionId}: ${historyAnswer(answer)}`],
+                  );
+                }),
+              ],
+            ),
+            h.dl(
+              [h.Class("fs-details fs-history__scores")],
+              [
+                h.div(
+                  [],
+                  [
+                    h.dt([], ["Forklaringskraft"]),
+                    h.dd([], [String(entry.score.explanatoryPower)]),
+                  ],
+                ),
+                h.div([], [h.dt([], ["Rollemodell"]), h.dd([], [String(entry.score.roleModel)])]),
+                h.div([], [h.dt([], ["Egnethet"]), h.dd([], [String(entry.score.suitability)])]),
+                h.div(
+                  [],
+                  [h.dt([], ["Anbefaling"]), h.dd([], [entry.recommendation ?? "Ikke registrert"])],
+                ),
+              ],
+            ),
+          ],
+        );
+      }),
+    ],
+  );
+
+const completionDetailsView = (
+  detail: RecruitmentInterviewConductObservation,
+  h: HtmlBuilder<Message>,
+): Html =>
+  h.dl(
+    [h.Class("fs-details fs-conduct__completion")],
+    [
+      h.div(
+        [],
+        [
+          h.dt([], ["Status"]),
+          h.dd([], [detail.completionState === "Completed" ? "Fullført" : "Ikke fullført"]),
+        ],
+      ),
+      h.div(
+        [],
+        [
+          h.dt([], ["Fullført"]),
+          h.dd(
+            [],
+            [detail.finalizedAt === null ? "Ikke registrert" : formatInstant(detail.finalizedAt)],
+          ),
+        ],
+      ),
+      h.div(
+        [],
+        [h.dt([], ["Fullført av"]), h.dd([], [detail.finalizedByPersonId ?? "Ikke registrert"])],
+      ),
+    ],
+  );
+
 const conductSuccessView = (
   model: ReadyModel,
   detail: RecruitmentInterviewConductObservation,
@@ -731,11 +836,17 @@ const conductSuccessView = (
           h.div([], [h.dt([], ["Campus"]), h.dd([], [detail.schedule.campus ?? "Ikke oppgitt"])]),
         ],
       ),
+      completionDetailsView(detail, h),
+      detail.history.length === 0 ? h.empty : correctionHistoryView(detail, h),
       h.div(
         [h.Class("fs-conduct__questions grid gap-6")],
-        detail.questions.map((question) => questionView(question, model, detail.cancellationState === "Cancelled", h)),
+        detail.questions.map((question) =>
+          questionView(question, model, detail.cancellationState === "Cancelled", h),
+        ),
       ),
-      terminal === null || terminal === "Completed" ? scoreView(model, detail.cancellationState === "Cancelled", h) : h.empty,
+      terminal === null || terminal === "Completed"
+        ? scoreView(model, detail.cancellationState === "Cancelled", h)
+        : h.empty,
       model.conductValidationFeedback === null
         ? h.empty
         : h.p(
@@ -772,7 +883,13 @@ const conductSuccessView = (
               ],
             )
           : terminal === "Completed"
-            ? actionButton("Rett intervju", SubmittedFinalize(), false, "fs-button fs-button--primary", h)
+            ? actionButton(
+                "Rett intervju",
+                SubmittedFinalize(),
+                false,
+                "fs-button fs-button--primary",
+                h,
+              )
             : h.p(
                 [h.Class("fs-feedback fs-feedback--success"), h.Role("status")],
                 ["Intervjuet er avlyst."],
