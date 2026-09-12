@@ -849,9 +849,9 @@ const conductDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                         Button.view(
                           {
                             onClick:
-                              model.pendingConductAction === "Finalize"
-                                ? ConfirmedFinalize()
-                                : ConfirmedCancel(),
+                              model.pendingConductAction === "Cancel"
+                                ? ConfirmedCancel()
+                                : ConfirmedFinalize(),
                             isDisabled: false,
                             type: "button",
                             toView: ({ button }) =>

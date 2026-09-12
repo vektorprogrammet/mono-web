@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS public.recruitment_interview_correction_assessments (
   corrected_by_person_id text NOT NULL REFERENCES public.person_profiles(person_id),
   corrected_at timestamptz NOT NULL,
   command_id text NOT NULL UNIQUE,
+  CONSTRAINT correction_assessment_command_chain_uq
+    UNIQUE (command_id, interview_id, predecessor_revision, resulting_revision),
   CONSTRAINT recruitment_interview_correction_assessments_pk
     PRIMARY KEY (interview_id, resulting_revision),
   CONSTRAINT recruitment_interview_correction_assessments_predecessor_resulting_unique
@@ -49,8 +51,13 @@ CREATE TABLE IF NOT EXISTS public.recruitment_interview_correction_command_recei
     CHECK (jsonb_typeof(command_json) = 'object'),
   CONSTRAINT recruitment_interview_correction_receipts_observation_json_object
     CHECK (jsonb_typeof(observation_json) = 'object'),
-  CONSTRAINT recruitment_interview_correction_receipts_revision_nonnegative
-    CHECK (predecessor_revision >= 0 AND resulting_revision > predecessor_revision),
+  CONSTRAINT correction_receipt_chain_uq
+    UNIQUE (command_id, interview_id, predecessor_revision, resulting_revision),
+  CONSTRAINT correction_receipt_assessment_chain_fk
+    FOREIGN KEY (command_id, interview_id, predecessor_revision, resulting_revision)
+    REFERENCES public.recruitment_interview_correction_assessments(
+      command_id, interview_id, predecessor_revision, resulting_revision
+    ),
   CONSTRAINT recruitment_interview_correction_receipts_assessment_fk
     FOREIGN KEY (interview_id, resulting_revision)
     REFERENCES public.recruitment_interview_correction_assessments(interview_id, resulting_revision),
@@ -72,9 +79,19 @@ CREATE TABLE IF NOT EXISTS public.recruitment_interview_correction_audit (
   occurred_at timestamptz NOT NULL,
   CONSTRAINT recruitment_interview_correction_audit_receipt_fk
     FOREIGN KEY (command_id) REFERENCES public.recruitment_interview_correction_command_receipts(command_id),
+  CONSTRAINT correction_audit_receipt_chain_fk
+    FOREIGN KEY (command_id, interview_id, predecessor_revision, resulting_revision)
+    REFERENCES public.recruitment_interview_correction_command_receipts(
+      command_id, interview_id, predecessor_revision, resulting_revision
+    ),
   CONSTRAINT recruitment_interview_correction_audit_assessment_fk
     FOREIGN KEY (interview_id, resulting_revision)
     REFERENCES public.recruitment_interview_correction_assessments(interview_id, resulting_revision),
+  CONSTRAINT correction_audit_assessment_chain_fk
+    FOREIGN KEY (command_id, interview_id, predecessor_revision, resulting_revision)
+    REFERENCES public.recruitment_interview_correction_assessments(
+      command_id, interview_id, predecessor_revision, resulting_revision
+    ),
   CONSTRAINT recruitment_interview_correction_audit_assessment_chain_fk
     FOREIGN KEY (interview_id, predecessor_revision, resulting_revision)
     REFERENCES public.recruitment_interview_correction_assessments(
@@ -90,9 +107,18 @@ CREATE OR REPLACE FUNCTION public.enforce_recruitment_interview_correction_chain
 RETURNS trigger AS $$
 DECLARE
   base_revision integer;
+  aggregate_revision integer;
   expected_predecessor integer;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended(NEW.interview_id, 0));
+  SELECT revision
+    INTO aggregate_revision
+    FROM public.recruitment_interviews
+    WHERE interview_id = NEW.interview_id
+    FOR UPDATE;
+  IF aggregate_revision IS NULL THEN
+    RAISE EXCEPTION 'Interview aggregate is required for a correction';
+  END IF;
   SELECT interview_revision
     INTO base_revision
     FROM public.recruitment_interview_conducts
@@ -108,6 +134,9 @@ BEGIN
   IF NEW.predecessor_revision <> expected_predecessor
      OR NEW.resulting_revision <> expected_predecessor + 1 THEN
     RAISE EXCEPTION 'Correction predecessor must be the current effective revision';
+  END IF;
+  IF aggregate_revision <> NEW.resulting_revision THEN
+    RAISE EXCEPTION 'Interview aggregate revision must match correction revision';
   END IF;
   RETURN NEW;
 END;

@@ -5,9 +5,10 @@ import type { HtmlBuilder } from "foldkit/html";
 import { FieldValidation } from "foldkit";
 import { Schema as S } from "effect";
 import { describe, expect, it } from "vitest";
+import { SubmittedFinalize } from "./message";
 import type { Message } from "./message";
-import { ConductData, makeInitialModel, type Model, type ReadyModel } from "./model";
 import type { SchedulingCommands } from "./command";
+import { ConductData, makeInitialModel, type Model, type ReadyModel } from "./model";
 import { makeUpdate } from "./update";
 import { view } from "./view";
 const etag = StrongETag.make(`"vkr2.${"A".repeat(43)}"`);
@@ -97,7 +98,6 @@ const schedule = {
   committedAt: "2031-09-01T10:00:00.000Z",
   scheduleRevision: 1,
 } as const;
-
 const detailFor = (state: "Completed" | "Cancelled") =>
   S.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)({
     interviewId: schedule.interviewId,
@@ -137,7 +137,26 @@ const detailFor = (state: "Completed" | "Cancelled") =>
     recommendation: null,
     completionState: state === "Completed" ? "Completed" : "NotCompleted",
     cancellationState: state === "Cancelled" ? "Cancelled" : "NotCancelled",
+    finalizedByPersonId: state === "Completed" ? "person-interviewer" : null,
     finalizedAt: state === "Completed" ? "2031-09-15T13:00:00.000Z" : null,
+    history:
+      state === "Completed"
+        ? [
+            {
+              _tag: "Original" as const,
+              revision: 2,
+              answers: [
+                { questionId: "question-text", answer: "Persisted answer" },
+                { questionId: "question-check", answer: ["Nysgjerrig"] },
+              ],
+              score: { explanatoryPower: 7, roleModel: 8, suitability: 9 },
+              recommendation: null,
+              finalizedByPersonId: "person-interviewer",
+              finalizedAt: "2031-09-15T13:00:00.000Z",
+            },
+          ]
+        : [],
+    effectiveRevision: 2,
     cancelledAt: state === "Cancelled" ? "2031-09-15T13:00:00.000Z" : null,
     revision: 2,
     canFinalize: false,
@@ -208,7 +227,7 @@ const readyModel = (model: Model): ReadyModel => {
   if (model._tag !== "Ready") throw new Error("expected ready model");
   return model;
 };
-const conductConfirmationModel = (action: "Finalize" | "Cancel"): ReadyModel => {
+const conductConfirmationModel = (action: "Finalize" | "Cancel" | "Correct"): ReadyModel => {
   const initial = readyModel(terminalModel("Completed"));
   const [conductDialog] = Dialog.open(initial.conductDialog);
   return { ...initial, conductDialog, pendingConductAction: action };
@@ -241,7 +260,7 @@ describe("Foldkit scheduling conduct view", () => {
       ["textarea", "input", "select"].includes(node.tag),
     );
     expect(completedControls).toHaveLength(7);
-    expect(completedControls.every((node) => hasAttribute(node, "Disabled", true))).toBe(true);
+    expect(completedControls.some((node) => !hasAttribute(node, "Disabled", true))).toBe(true);
     expect(
       completedNodes
         .filter((node) => node.tag === "select")
@@ -289,6 +308,16 @@ describe("Foldkit scheduling conduct view", () => {
         hasAttribute(confirmation, "DataAttribute", "foldkit-dialog-initial-focus"),
     ).toBe(true);
   });
+  it("routes correction confirmation to the correction command", () => {
+    const rendered = view(conductConfirmationModel("Correct"), htmlBuilder) as unknown as RenderedNode;
+    const confirmation = descendants(rendered).find(
+      (node) => node.tag === "button" && textContent(node) === "Rett intervju",
+    );
+    expect(confirmation).toBeDefined();
+    const onClick = confirmation === undefined ? undefined : attribute(confirmation, "OnClick");
+    expect(onClick).toEqual(SubmittedFinalize());
+  });
+
 
   it("maps native checkbox checked state through answer updates", () => {
     const update = makeUpdate({} as SchedulingCommands);

@@ -9,6 +9,10 @@ import {
   CorrectInterviewAssessmentInputSchema,
   ScheduleInterviewInputSchema,
 } from "../recruitment/bridge";
+import type {
+  CorrectInterviewAssessmentInput,
+  FinalizeInterviewInput,
+} from "../recruitment/browser-client";
 import type { SchedulingCommands } from "./command";
 import { GotConductDialogMessage, GotScheduleDialogMessage, type Message } from "./message";
 import { ConductData, SchedulingBoardData, type Model, type ReadyModel } from "./model";
@@ -87,6 +91,7 @@ const clearConduct = (
   ...model,
   selectedInterviewId: null,
   conduct: ConductData.Idle(),
+  conductEtag: null,
   conductRequestId: model.conductRequestId + 1,
   conductGeneration: model.conductGeneration + 1,
   pendingConductAction: null,
@@ -169,6 +174,7 @@ export const makeUpdate =
           return [
             {
               ...clearSchedule(model),
+              selectedInterviewId: model.selectedInterviewId,
               scheduleDialog,
               board: SchedulingBoardData.Loading(),
               boardRequestId: requestId,
@@ -337,7 +343,7 @@ export const makeUpdate =
                   "idempotency-key": IdempotencyKey.make(
                     `${model.idempotencyKeySeed}-${model.commandSequence}`,
                   ),
-                  "if-match": model.conductEtag,
+                  "if-match": interview.etag,
                 },
                 payload: {
                   scheduledAt: scheduledAt.value.trim(),
@@ -527,6 +533,7 @@ export const makeUpdate =
             return [
               {
                 ...model,
+                conductGeneration: model.conductGeneration + 1,
                 answerErrors: [
                   ...answerErrors,
                   { questionId, message: "Velg et gyldig svaralternativ." },
@@ -539,6 +546,7 @@ export const makeUpdate =
           return [
             {
               ...model,
+              conductGeneration: model.conductGeneration + 1,
               answers: [
                 ...model.answers.filter((candidate) => candidate.questionId !== questionId),
                 { questionId, answer },
@@ -558,6 +566,7 @@ export const makeUpdate =
                 {
                   ...model,
                   recommendation: value,
+                  conductGeneration: model.conductGeneration + 1,
                   commandSequence: model.commandSequence + 1,
                   conductValidationFeedback: null,
                 },
@@ -662,25 +671,42 @@ export const makeUpdate =
             roleModel: Number(model.score.roleModel.value),
             suitability: Number(model.score.suitability.value),
           };
-          let input;
+          let input: CorrectInterviewAssessmentInput | FinalizeInterviewInput;
           try {
-            input = S.decodeUnknownSync(model.pendingConductAction === "Correct" ? CorrectInterviewAssessmentInputSchema : FinalizeInterviewInputSchema)(
-              {
-                params: { interviewId: model.selectedInterviewId },
-                headers: {
-                  "idempotency-key": IdempotencyKey.make(
-                    `${model.idempotencyKeySeed}-${model.commandSequence}`,
-                  ),
-                  "if-match": model.conductEtag,
-                },
-                payload: {
-                  answers: model.answers,
-                  score,
-                  recommendation: model.recommendation,
-                },
+            const base = {
+              params: { interviewId: model.selectedInterviewId },
+              headers: {
+                "idempotency-key": IdempotencyKey.make(
+                  `${model.idempotencyKeySeed}-${model.commandSequence}`,
+                ),
+                "if-match": model.conductEtag,
               },
-              { onExcessProperty: "error" },
-            );
+            } as const;
+            input =
+              model.pendingConductAction === "Correct"
+                ? S.decodeUnknownSync(CorrectInterviewAssessmentInputSchema)(
+                    {
+                      ...base,
+                      payload: {
+                        expectedRevision: current.value.revision,
+                        answers: model.answers,
+                        score,
+                        recommendation: model.recommendation,
+                      },
+                    },
+                    { onExcessProperty: "error" },
+                  )
+                : S.decodeUnknownSync(FinalizeInterviewInputSchema)(
+                    {
+                      ...base,
+                      payload: {
+                        answers: model.answers,
+                        score,
+                        recommendation: model.recommendation,
+                      },
+                    },
+                    { onExcessProperty: "error" },
+                  );
           } catch {
             return [
               { ...model, conductValidationFeedback: "Kontroller svarene og prøv igjen." },
@@ -705,13 +731,13 @@ export const makeUpdate =
                     requestId,
                     generation: model.conductGeneration,
                     interviewId: model.selectedInterviewId,
-                    input,
+                    input: input as CorrectInterviewAssessmentInput,
                   })
                 : FinalizeInterview({
                     requestId,
                     generation: model.conductGeneration,
                     interviewId: model.selectedInterviewId,
-                    input,
+                    input: input as FinalizeInterviewInput,
                   }),
             ],
           ];
@@ -809,6 +835,42 @@ export const makeUpdate =
             ],
           ];
         },
+        SucceededCorrection: ({ requestId, generation, interviewId }) => {
+          if (
+            requestId !== model.conductRequestId ||
+            generation !== model.conductGeneration ||
+            interviewId !== model.selectedInterviewId ||
+            !model.isConducting
+          ) {
+            return [model, []];
+          }
+          const conductRequestId = requestId + 1;
+          const boardRequestId = model.boardRequestId + 1;
+          const current = AsyncData.getData(model.conduct);
+          const board = AsyncData.getData(model.board);
+          return [
+            {
+              ...model,
+              conduct:
+                current._tag === "Some"
+                  ? ConductData.Refreshing({ data: current.value })
+                  : ConductData.Loading(),
+              conductRequestId,
+              conductFeedback: null,
+              conductValidationFeedback: null,
+              board:
+                board._tag === "Some"
+                  ? SchedulingBoardData.Refreshing({ data: board.value })
+                  : SchedulingBoardData.Loading(),
+              boardRequestId,
+              isConducting: false,
+            },
+            [
+              ReadInterviewConduct({ requestId: conductRequestId, generation, interviewId }),
+              LoadSchedulingBoard({ requestId: boardRequestId }),
+            ],
+          ];
+        },
         SucceededCancel: ({ requestId, generation, interviewId }) => {
           if (
             requestId !== model.conductRequestId ||
@@ -844,6 +906,29 @@ export const makeUpdate =
               LoadSchedulingBoard({ requestId: boardRequestId }),
             ],
           ];
+        },
+        FailedCorrection: ({ requestId, generation, interviewId, failure }) => {
+          if (
+            requestId !== model.conductRequestId ||
+            generation !== model.conductGeneration ||
+            interviewId !== model.selectedInterviewId ||
+            !model.isConducting
+          ) {
+            return [model, []];
+          }
+          return failure._tag === "Conflict"
+            ? [
+                {
+                  ...model,
+                  isConducting: false,
+                  pendingConductAction: null,
+                  conductFeedback: failure,
+                  conductValidationFeedback:
+                    "Intervjuet er endret. Utkastet er beholdt; åpne intervjuet på nytt for å hente gjeldende versjon.",
+                },
+                [],
+              ]
+            : [{ ...model, isConducting: false, conductFeedback: failure }, []];
         },
         FailedFinalize: ({ requestId, generation, interviewId, failure }) => {
           if (

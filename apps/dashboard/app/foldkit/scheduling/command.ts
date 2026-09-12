@@ -154,12 +154,26 @@ export const makeSchedulingCommands = (client: RecruitmentClient): SchedulingCom
   });
 
   const CorrectInterviewAssessment = Command.define("CorrectInterviewAssessment", {
-    args: { requestId: ConductRequestId, generation: ConductRequestId, interviewId: RecruitmentInterviewId, input: CorrectInterviewAssessmentInputSchema },
-    messages: [SucceededFinalize, FailedFinalize],
+    args: {
+      requestId: ConductRequestId,
+      generation: ConductRequestId,
+      interviewId: RecruitmentInterviewId,
+      input: CorrectInterviewAssessmentInputSchema,
+    },
+    messages: [SucceededCorrection, FailedCorrection],
     execute: ({ requestId, generation, interviewId, input }) =>
       client.recruitment.correctInterviewAssessment(input).pipe(
-        Effect.map(() => SucceededFinalize({ requestId, generation, interviewId })),
-        Effect.catch((error) => Effect.succeed(FailedFinalize({ requestId, generation, interviewId, failure: toRecruitmentBridgeFailure(error) }))),
+        Effect.map(() => SucceededCorrection({ requestId, generation, interviewId })),
+        Effect.catch((error) =>
+          Effect.succeed(
+            FailedCorrection({
+              requestId,
+              generation,
+              interviewId,
+              failure: toRecruitmentBridgeFailure(error),
+            }),
+          ),
+        ),
       ),
   });
 

@@ -68,7 +68,6 @@ export const ChangedScore = m("ChangedScore", {
   value: S.String,
 });
 export const SubmittedFinalize = m("SubmittedFinalize");
-export const SubmittedCorrection = m("SubmittedCorrection");
 export const SubmittedCancel = m("SubmittedCancel");
 export const ConfirmedFinalize = m("ConfirmedFinalize");
 export const ConfirmedCancel = m("ConfirmedCancel");
@@ -137,7 +136,9 @@ export const Message = S.Union([
   ConfirmedFinalize,
   ConfirmedCancel,
   SucceededFinalize,
+  SucceededCorrection,
   FailedFinalize,
+  FailedCorrection,
   SucceededCancel,
   FailedCancel,
   GotConductDialogMessage,

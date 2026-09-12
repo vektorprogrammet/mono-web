@@ -157,6 +157,7 @@ export type FinalizeInterviewRequest = typeof FinalizeInterviewRequest.Type;
 
 const correctionFields = CorrectInterviewAssessmentCommandSchema.fields;
 export const CorrectInterviewAssessmentRequest = Schema.Struct({
+  expectedRevision: correctionFields.expectedRevision,
   answers: correctionFields.answers,
   score: correctionFields.score,
   recommendation: correctionFields.recommendation,

@@ -67,6 +67,11 @@ class ReturningTargetedComplete extends Error {
     super("returning targeted journey complete");
   }
 }
+class CorrectionTargetedComplete extends Error {
+  constructor(readonly result: unknown) {
+    super("correction targeted journey complete");
+  }
+}
 if (process.argv.includes("--report")) validateInterviewReportFixture();
 if (process.argv.includes("--validate-fixture")) {
   // oxlint-effect-plugin allow(no-ambient-console): dev only: local fixture validation result.
@@ -91,7 +96,7 @@ const run = (cmd: string, args: string[], env = process.env, cwd = root): string
     );
   }
 };
-assert.equal(run("git", ["status", "--porcelain"]).trim(), "");
+assert.equal(run("git", ["status", "--porcelain", "--", ".", ":(exclude).serena"]).trim(), "");
 const revision = run("git", ["rev-parse", "HEAD"]).trim();
 const artifacts = await mkdtemp(join(tmpdir(), "vektor-recommendation-0101-"));
 const logs: string[] = [];
@@ -853,6 +858,18 @@ try {
       },
       body: JSON.stringify(body),
     });
+  const correctPost = (id: string, body: unknown, key: string, etag: string) =>
+    fetch(`${api}/api/recruitment/interviews/${id}:correct`, {
+      method: "POST",
+      headers: {
+        cookie,
+        origin: ui,
+        "content-type": "application/json",
+        "idempotency-key": key,
+        "if-match": etag,
+      },
+      body: JSON.stringify(body),
+    });
   const open = async (p: any, name: string) => {
     await p
       .getByRole("article")
@@ -871,7 +888,168 @@ try {
     for (const axis of ["explanatoryPower", "roleModel", "suitability"])
       await p.locator(`#score-${axis}`).selectOption("8");
   };
-  await open(page, "Sofie Gjennomfører");
+  if (process.argv.includes("--correction-mode")) {
+    const correctionId = "interview-recommendation-history";
+    const correctionName = "history Recommendation";
+    const correctionStages: string[] = [];
+    const stage = (name: string) => correctionStages.push(name);
+    const correctionPageOpen = async () => {
+      await page
+        .getByRole("article")
+        .filter({ hasText: correctionName })
+        .getByRole("button", { name: "Rett intervju", exact: true })
+        .click();
+      await page.getByRole("heading", { name: `Intervju med ${correctionName}` }).waitFor();
+    };
+    const saveCorrection = async (recommendation: "Ja" | "Kanskje" | "Nei") => {
+      await fill(page);
+      await page.locator("#interviewer-recommendation").selectOption(recommendation);
+      await page
+        .getByRole("button", { name: "Rett intervju", exact: true })
+        .last()
+        .click();
+      await page
+        .getByRole("dialog")
+        .getByRole("button", { name: "Rett intervju", exact: true })
+        .press("Enter");
+      await page
+        .locator("#interviewer-recommendation")
+        .waitFor({ state: "visible" });
+      await assert.equal(await page.locator("#interviewer-recommendation").inputValue(), recommendation);
+    };
+    const before = await get(correctionId);
+    assert.equal(before.status, 200);
+    const beforeBody = await before.json();
+    assert.equal(beforeBody.completionState, "Completed");
+    assert.equal(beforeBody.history[0]?._tag, "Original");
+    assert.equal(beforeBody.history[0]?.recommendation, null);
+    stage("historical-null completed detail opens");
+    await correctionPageOpen();
+    await saveCorrection("Ja");
+    stage("browser keyboard correction saves and refreshes detail");
+    const afterFirst = await (await get(correctionId)).json();
+    assert.equal(afterFirst.recommendation, "Ja");
+    await page.reload();
+    await correctionPageOpen();
+    assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Ja");
+    await page.locator("#question-interview-schema-native-conduct-0063-q0").fill("Et nytt tydelig svar.");
+    await page.locator("#score-explanatoryPower").selectOption("9");
+    await page.locator("#interviewer-recommendation").selectOption("Nei");
+    await page
+      .getByRole("button", { name: "Rett intervju", exact: true })
+      .last()
+      .click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Rett intervju", exact: true })
+      .press("Enter");
+    await page.locator("#interviewer-recommendation").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Nei");
+    await page.reload();
+    await correctionPageOpen();
+    assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Nei");
+    stage("second correction and reload preserve ordered history");
+    const afterSecond = await (await get(correctionId)).json();
+    assert.ok(afterSecond.history.filter((entry: any) => entry._tag === "Correction").length >= 2);
+    const afterSecondEtag = (await get(correctionId)).headers.get("etag");
+    assert.ok(afterSecondEtag);
+    const writeCount = async () =>
+      (
+        await pool.query(
+          `SELECT
+             (SELECT count(*) FROM public.recruitment_interview_correction_assessments WHERE interview_id=$1) AS assessments,
+             (SELECT count(*) FROM public.recruitment_interview_correction_command_receipts WHERE interview_id=$1) AS receipts,
+             (SELECT count(*) FROM public.recruitment_interview_correction_audit WHERE interview_id=$1) AS audit,
+             (SELECT revision FROM public.recruitment_interviews WHERE interview_id=$1) AS revision`,
+          [correctionId],
+        )
+      ).rows[0];
+    const beforeMismatch = await writeCount();
+    const mismatched = await correctPost(
+      correctionId,
+      {
+        ...afterFirst,
+        expectedRevision: afterFirst.revision,
+        answers: afterFirst.answers,
+        score: afterFirst.score,
+        recommendation: "Ja",
+      },
+      "correction-old-body-new-header-0105",
+      afterSecondEtag!,
+    );
+    assert.equal(mismatched.status, 412);
+    assert.deepEqual(await writeCount(), beforeMismatch);
+    stage("old displayed body with newer opaque ETag rejects at correction boundary without writes");
+    const correctionPayload = (detail: any, recommendation: "Ja" | "Kanskje" | "Nei") => ({
+      expectedRevision: detail.revision,
+      answers: [
+        { questionId: "interview-schema-native-conduct-0063-q0", answer: "API correction answer" },
+        { questionId: "interview-schema-native-conduct-0063-q1", answer: ["Teknologi"] },
+        { questionId: "interview-schema-native-conduct-0063-q2", answer: ["Praksis"] },
+        { questionId: "interview-schema-native-conduct-0063-q3", answer: ["Samarbeid"] },
+      ],
+      score: { explanatoryPower: 7, roleModel: 8, suitability: 9 },
+      recommendation,
+    });
+    const firstDirectDetail = await (await get(correctionId)).json();
+    const firstDirectEtag = (await get(correctionId)).headers.get("etag")!;
+    const firstDirectPayload = correctionPayload(firstDirectDetail, "Kanskje");
+    const firstDirect = await correctPost(
+      correctionId,
+      firstDirectPayload,
+      "correction-replay-0105-a",
+      firstDirectEtag,
+    );
+    assert.equal(firstDirect.status, 200);
+    const firstBytes = await firstDirect.text();
+    const secondDirectDetail = await (await get(correctionId)).json();
+    const secondDirectEtag = (await get(correctionId)).headers.get("etag")!;
+    assert.equal(
+      (await correctPost(
+        correctionId,
+        correctionPayload(secondDirectDetail, "Nei"),
+        "correction-replay-0105-b",
+        secondDirectEtag,
+      )).status,
+      200,
+    );
+    const replay = await correctPost(
+      correctionId,
+      firstDirectPayload,
+      "correction-replay-0105-a",
+      firstDirectEtag,
+    );
+    assert.equal(replay.status, 200);
+    assert.equal(await replay.text(), firstBytes);
+    stage("exact correction replay remains byte-stable after later correction");
+    const raceDetail = await (await get(correctionId)).json();
+    const raceEtag = (await get(correctionId)).headers.get("etag")!;
+    const race = await Promise.all(
+      ["correction-race-0105-a", "correction-race-0105-b"].map((key, index) =>
+        correctPost(
+          correctionId,
+          correctionPayload(raceDetail, index === 0 ? "Ja" : "Kanskje"),
+          key,
+          raceEtag,
+        ),
+      ),
+    );
+    assert.equal(race.filter((response) => response.status === 200).length, 1);
+    assert.ok(race.every((response) => [200, 409, 412].includes(response.status)));
+    stage("same-revision concurrent corrections have one winner");
+    const finalDetail = await (await get(correctionId)).json();
+    assert.equal(finalDetail.history[0]?.recommendation, null);
+    assert.ok(finalDetail.history.filter((entry: any) => entry._tag === "Correction").length >= 4);
+    await writeFile(
+      join(artifacts, "correction-targeted-evidence.json"),
+      JSON.stringify(
+        { revision, correctionStages, beforeBody, afterFirst, afterSecond, finalDetail },
+        null,
+        2,
+      ),
+    );
+    throw new CorrectionTargetedComplete({ correctionStages, finalDetail });
+  }
   await fill(page);
   assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "");
   await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "editable-desktop.png") });
@@ -1437,6 +1615,17 @@ try {
     console.log(
       JSON.stringify({
         result: "ReturningTargeted",
+        revision,
+        artifacts,
+        gates,
+        journey: error.result,
+      }),
+    );
+  } else if (error instanceof CorrectionTargetedComplete) {
+    // oxlint-effect-plugin allow(no-ambient-console): bounded local correction result.
+    console.log(
+      JSON.stringify({
+        result: "CorrectionTargeted",
         revision,
         artifacts,
         gates,

@@ -1,3 +1,4 @@
+import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/domain/recruitment";
 import {
   IdempotencyKey,
   ScheduleInterviewResponse,
@@ -11,13 +12,16 @@ import { describe, expect, it } from "vitest";
 import type { RecruitmentClient } from "../recruitment/browser-client";
 import { makeSchedulingCommands } from "./command";
 import {
-  FailedFinalize,
+  ChangedAnswer,
   ChangedRecommendation,
+  FailedFinalize,
   FailedLoadSchedulingBoard,
   FailedSchedule,
   Message,
   OpenedSchedule,
+  RequestedBoardRefresh,
   SubmittedSchedule,
+  SucceededConduct,
   SucceededLoadSchedulingBoard,
   SucceededSchedule,
   UpdatedCampus,
@@ -134,6 +138,41 @@ const initialModel = (): ReadyModel =>
 const advance = (transition: SchedulingUpdate, model: Model, message: Message): ReadyModel =>
   ready(transition(model, message)[0]);
 
+const conductDetail = S.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)({
+  interviewId: "recruitment-interview-50",
+  applicationId: "recruitment-application-50",
+  applicant: {
+    applicantId: "recruitment-applicant-50",
+    firstName: "Ada",
+    lastName: "Lovelace",
+  },
+  schedule: freshSchedule,
+  invitationResponse: "Accepted",
+  questions: [
+    {
+      interviewId: "recruitment-interview-50",
+      questionId: "question-text",
+      ordinal: 0,
+      prompt: "Hva motiverer deg?",
+      helpText: null,
+      kind: "text",
+      alternatives: [],
+    },
+  ],
+  finalizedByPersonId: null,
+  finalizedAt: null,
+  answers: [{ questionId: "question-text", answer: "Original answer" }],
+  score: null,
+  recommendation: null,
+  completionState: "NotCompleted",
+  cancellationState: "NotCancelled",
+  effectiveRevision: 1,
+  history: [],
+  cancelledAt: null,
+  revision: 1,
+  canFinalize: true,
+  canCancel: true,
+});
 const validDraft = (transition: SchedulingUpdate): ReadyModel => {
   let model = advance(
     transition,
@@ -338,6 +377,42 @@ describe("Foldkit scheduling transitions", () => {
     expect(completedModel.feedback).toBe(
       "Intervjuet er planlagt. Invitasjonen er lagt i kø for sending.",
     );
+  });
+  it("keeps a changed conduct draft when a concurrent board refresh returns an old body with a newer opaque ETag", () => {
+    const current = {
+      ...initialModel(),
+      selectedInterviewId: conductDetail.interviewId,
+      conduct: AsyncData.Success({ data: conductDetail }),
+      conductEtag: etag,
+      conductRequestId: 4,
+      conductGeneration: 7,
+      answers: [{ questionId: "question-text", answer: "Draft answer" }],
+    } satisfies ReadyModel;
+    const changed = advance(
+      update,
+      current,
+      ChangedAnswer({ questionId: "question-text", answer: "Edited draft" }),
+    );
+    const [refreshingModel] = update(changed, RequestedBoardRefresh());
+    const refreshing = ready(refreshingModel);
+    const newerEtag = StrongETag.make(`"vkr2.${"B".repeat(43)}"`);
+    const [unchanged, effects] = update(
+      refreshing,
+      SucceededConduct({
+        requestId: refreshing.conductRequestId,
+        generation: current.conductGeneration,
+        interviewId: conductDetail.interviewId,
+        detail: conductDetail,
+        etag: newerEtag,
+      }),
+    );
+
+    expect(unchanged).toBe(refreshing);
+    expect(ready(unchanged).answers).toEqual([
+      { questionId: "question-text", answer: "Edited draft" },
+    ]);
+    expect(ready(unchanged).conductEtag).toBe(etag);
+    expect(effects).toEqual([]);
   });
 
   it("ignores stale load and schedule request observations", () => {

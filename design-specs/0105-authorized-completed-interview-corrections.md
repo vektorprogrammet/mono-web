@@ -165,19 +165,27 @@ correction result, effective assessment, and tagged history. Use the repository'
 excess property decoding. Reuse `RecruitmentInterviewAnswerSchema`, `RecruitmentInterviewScoreSchema`, and
 `InterviewRecommendationSchema`.
 
-The public correction payload has exactly:
+The public correction payload carries the displayed detail revision as a draft-base intent:
 
 ```text
 {
+  expectedRevision: NonNegativeInteger,
   answers: RecruitmentInterviewAnswer[],
   score: RecruitmentInterviewScore,
   recommendation: Ja | Kanskje | Nei
 }
 ```
 
-The route supplies the interview identity. The `If-Match` header supplies the expected current interview revision.
-The idempotency key supplies the command identity. The domain command may contain these server-derived values, but
-the browser payload must not repeat them or provide a predecessor revision.
+`expectedRevision` is not a decoded or derived ETag. The browser copies the opaque detail body revision that the
+interviewer edited. The route still requires the opaque `If-Match` header. Inside `plan.execute`, after the native
+receipt lookup has confirmed that this is not an exact replay, the server requires `expectedRevision` to equal the
+fresh authorized interview revision used for that transaction. A mismatch returns the established typed
+`precondition.failed` (HTTP 412) result and writes nothing. Exact replay remains governed by fresh authority,
+request digest, and the stored receipt; it does not re-run this new-command validation.
+
+The route supplies the interview identity. The idempotency key supplies the command identity. The domain command
+contains these server-derived values after the plan check. The browser payload must not provide a predecessor
+revision. This explicit body revision is the only amendment to the prior payload prohibition.
 The effective detail observation keeps the existing original completion fields and adds:
 
 ```text
@@ -245,9 +253,9 @@ The detail read uses one transaction snapshot for all of these operations:
 5. read the HTTP source used to derive the ETag from the same locked revision and authority facts;
 6. return the body and ETag together.
 
-The server derives the predecessor from the locked effective assessment. It never trusts a browser predecessor.
-The command still carries the expected revision derived from `If-Match`; the server checks it against the locked
-interview revision.
+The server derives the predecessor from the locked effective assessment. The command carries the displayed
+`expectedRevision` draft-base value and the opaque `If-Match` precondition. After receipt lookup, the server checks
+both against the locked interview revision for a new command. It never trusts a browser predecessor.
 
 For a new command, in one transaction:
 
@@ -277,21 +285,15 @@ Keep the existing detail route:
 GET /api/recruitment/interviews/{interviewId}
 ```
 
-The response body now contains the effective assessment, original completion metadata, and tagged version history.
-Its body and ETag come from the same authorized transaction snapshot. A body from an older snapshot paired with a
-newer ETag is a protocol failure and has an executable falsifier.
+Its body and ETag come from the same authorized transaction snapshot. The body exposes a typed `revision` value,
+which the browser copies as the correction payload's draft-base `expectedRevision`; the browser keeps the ETag
+opaque and sends it unchanged as `If-Match`.
 
-Add the correction command route:
-
-```text
-POST /api/recruitment/interviews/{interviewId}:correct
-```
-
-The correction request uses the existing `If-Match` and idempotency-key headers. Its JSON payload contains only
-answers, score, and recommendation. The route supplies the interview identity. The expected revision comes only from
-`If-Match`. The command identity comes only from the idempotency key. No duplicate predecessor or identity field is
-accepted. Responses use the existing strict problem mapping and return no applicant-facing fields. Reads and writes
-are private and no-store.
+The correction request uses the existing `If-Match` and idempotency-key headers. Its JSON payload contains
+`expectedRevision`, answers, score, and recommendation. The route supplies the interview identity. The command
+identity comes only from the idempotency key. No duplicate predecessor, actor, or identity field is accepted.
+Responses use the existing strict problem mapping and return no applicant-facing fields. Reads and writes are private
+and no-store.
 
 The AccessSpec must state that detail, correction, and replay require the current assigned interviewer, current active
 department membership, and known-self denial. A coordinator report reader cannot call these routes.
@@ -385,8 +387,13 @@ the real boundary. Run heavy runtime/build work serially in this worktree.
   inactive-department, and known-self actors before detail, correction, and replay.
 - Revoke membership before a receipt replay and assert denial rather than replay.
 - Revoke membership before detail and assert denial rather than stale data.
-- Pair an older detail body with a newer ETag in a harness interceptor and assert that the protocol rejects the
-  mismatch; the browser must never submit a correction against an ETag newer than the displayed draft.
+- Keep the displayed correction draft when a board refresh races a stale detail response carrying the old body and
+  a newer opaque ETag. The Foldkit generation guard must ignore the stale response, retain the base revision and
+  opaque ETag, and never submit the newer token with that draft.
+- The current response representation exposes `detail.revision` and an opaque ETag as separate values. It has no
+  body-bound token that can detect an arbitrary harness-only old-body/new-header pairing at the GET boundary.
+  Therefore that literal HTTP protocol-rejection falsifier is reported as unavailable, not passed; the executable
+  replacement is the draft-ownership gate above plus the new-command body revision and opaque `If-Match` checks.
 - Race a new Applicant→Person self-link against a detail read, correction, or replay using the existing applicant-before-interview
   custody lock. A newly known self-assessment must never leak or mutate.
 - Allow a different linked Person and preserve unknown-link behavior as established by existing authority rules.

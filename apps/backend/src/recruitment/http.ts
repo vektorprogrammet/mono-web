@@ -1347,11 +1347,12 @@ const correctInterviewAssessment = async (
               return yield* Effect.fail(
                 new HttpSemanticFailure(precondition.code, precondition.status),
               );
+            if (body.expectedRevision !== authorization.source.interviewRevision)
+              return yield* Effect.fail(new HttpSemanticFailure("precondition.failed", 412));
             const result = yield* correctInterviewAssessmentPostgres(
               {
                 commandId,
                 interviewId,
-                expectedRevision: authorization.source.interviewRevision,
                 ...body,
               },
               {
