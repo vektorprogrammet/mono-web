@@ -400,34 +400,33 @@ interface EffectiveAssessmentRow {
   readonly effectiveRevision: number;
 }
 
-const readEffectiveAssessment = (sql: DatabaseShape, interviewId: string, lock: boolean) =>
-  sql<EffectiveAssessmentRow>`
-    SELECT answers, explanatory_power AS "explanatoryPower", role_model AS "roleModel",
-      suitability, recommendation, effective_revision AS "effectiveRevision"
-    FROM public.recruitment_interview_effective_assessments
-    WHERE interview_id = ${interviewId}
-    ${lock ? sql`FOR UPDATE` : sql``}
-  `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined
-        ? Effect.succeed(undefined)
-        : decode(
-            Schema.Struct({
-              answers: Schema.Unknown,
-              explanatoryPower: Schema.Number,
-              roleModel: Schema.Number,
-              suitability: Schema.Number,
-              recommendation: Schema.NullOr(InterviewRecommendationSchema),
-              effectiveRevision: Schema.Number,
-            }),
-            rows[0],
-            "effective assessment",
-          ),
-    ),
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("read effective assessment", cause)),
-    ),
-  );
+const readEffectiveAssessment = (sql: DatabaseShape, interviewId: string) =>
+   sql<EffectiveAssessmentRow>`
+     SELECT answers, explanatory_power AS "explanatoryPower", role_model AS "roleModel",
+       suitability, recommendation, effective_revision AS "effectiveRevision"
+     FROM public.recruitment_interview_effective_assessments
+     WHERE interview_id = ${interviewId}
+   `.pipe(
+     Effect.flatMap((rows) =>
+       rows[0] === undefined
+         ? Effect.succeed(undefined)
+         : decode(
+             Schema.Struct({
+               answers: Schema.Unknown,
+               explanatoryPower: Schema.Number,
+               roleModel: Schema.Number,
+               suitability: Schema.Number,
+               recommendation: Schema.NullOr(InterviewRecommendationSchema),
+               effectiveRevision: Schema.Number,
+             }),
+             rows[0],
+             "effective assessment",
+           ),
+     ),
+     Effect.catchTag("SqlError", (cause) =>
+       Effect.fail(persistenceError("read effective assessment", cause)),
+     ),
+   );
 
 const stateFor = (
   interview: InterviewRow,
@@ -556,8 +555,7 @@ const authorizeAndLoad = (
     const questions = yield* readQuestions(sql, interviewId, lock);
     const conduct = yield* readConduct(sql, interviewId, lock);
     const corrections = yield* readCorrections(sql, interviewId, lock);
-    const effective = yield* readEffectiveAssessment(sql, interviewId, lock);
-    const cancellation = yield* readCancellation(sql, interviewId, lock);
+    const effective = yield* readEffectiveAssessment(sql, interviewId);
     return { actor, interview, schedule, invitation, questions, conduct, corrections, effective, cancellation };
   });
 
