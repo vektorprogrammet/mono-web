@@ -71,6 +71,7 @@ type Options = {
   password: string;
   secrets: string[];
   revision: string;
+  correctionMode: boolean;
   auditPage: (page: any, state: string) => Promise<void>;
   recordGate: (...observations: string[]) => void;
 };
@@ -353,7 +354,15 @@ export async function observeInterviewReport(o: Options) {
     report.rows.map((r) => r.interviewId).sort(),
     sqlRows.map((r: any) => r.interview_id),
   );
-  assert.ok(report.rows.some((r) => r.recommendation === null));
+  if (o.correctionMode) {
+    assert.equal(
+      report.rows.find((row) => row.interviewId === "interview-recommendation-history")
+        ?.recommendation,
+      "Ja",
+    );
+  } else {
+    assert.ok(report.rows.some((r) => r.recommendation === null));
+  }
   for (const row of report.rows) {
     assert.deepEqual(
       Object.keys(row).sort(),
