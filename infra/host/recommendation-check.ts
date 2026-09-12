@@ -31,6 +31,10 @@ import {
   seedInterviewCorrectionPre0039Fixture,
   type InterviewCorrectionPre0039Fixture,
 } from "./recommendation-preupgrade-fixture.ts";
+import {
+  assertInterviewCorrectionBoundaries,
+  type InterviewCorrectionReplayRequest,
+} from "./interview-correction-boundaries.ts";
 import { DatabaseLive } from "../../packages/database/src/index.js";
 import { AdmissionsLive } from "../../packages/domain/src/admissions/index.js";
 import { OrganizationLive } from "../../packages/domain/src/organization/index.js";
@@ -135,6 +139,7 @@ const ready = async (test: () => Promise<boolean>) => {
 };
 let pool: any, browser: any, page: any, heldIdentityClient: any, backend: any;
 let correctionPre0039Fixture: InterviewCorrectionPre0039Fixture | undefined;
+let acceptedCorrectionReplay: InterviewCorrectionReplayRequest | undefined;
 let effectServer: Server | undefined;
 const effectCalls: EffectReceiverCall[] = [];
 const effectAttempts = new Map<string, number>();
@@ -1374,6 +1379,11 @@ try {
       rawKey: "correction-replay-0105-a",
       originalIfMatch: firstDirectEtag,
       exactFourFieldPayload: firstDirectPayload,
+    };
+    acceptedCorrectionReplay = {
+      key: acceptedCorrectionRequest.rawKey,
+      etag: acceptedCorrectionRequest.originalIfMatch,
+      payload: acceptedCorrectionRequest.exactFourFieldPayload,
     };
     const firstBytes = await firstDirect.text();
     const secondDirectDetail = await (await get(correctionId)).json();
