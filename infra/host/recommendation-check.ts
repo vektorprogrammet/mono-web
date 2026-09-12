@@ -2058,7 +2058,17 @@ try {
       `SELECT c.interview_id,c.recommendation,a.kind,a.resulting_revision,r.command_id FROM public.recruitment_interview_conducts c JOIN public.recruitment_interview_lifecycle_audit a USING(interview_id) JOIN public.recruitment_interview_lifecycle_command_receipts r ON r.command_id=a.command_id ORDER BY c.interview_id`,
     )
   ).rows;
-  assert.equal(lifecycle.length, rows.length - 1);
+  const lifecycleExpectedInterviewIds = rows
+    .map((row: any) => row.interview_id)
+    .filter(
+      (interviewId: string) =>
+        !["interview-recommendation-history", "interview-recommendation-link-race"].includes(interviewId),
+    )
+    .sort();
+  assert.deepEqual(
+    lifecycle.map((row: any) => row.interview_id).sort(),
+    lifecycleExpectedInterviewIds,
+  );
   assert.ok(lifecycle.every((r: any) => r.kind === "InterviewFinalized"));
   assert.equal(new Set(lifecycle.map((r: any) => r.interview_id)).size, lifecycle.length);
   assert.deepEqual(await effectSnapshot(), effectsAfterOnboarding);
