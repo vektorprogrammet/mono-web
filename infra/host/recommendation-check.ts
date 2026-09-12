@@ -962,7 +962,7 @@ try {
       { questionId: "interview-schema-native-conduct-0063-q2", answer: "Praksis" },
       {
         questionId: "interview-schema-native-conduct-0063-q3",
-        answer: ["Samarbeid", "Nysgjerrighet"],
+        answer: ["Samarbeid"],
       },
     ]);
     assert.deepEqual(afterFirst.score, {
