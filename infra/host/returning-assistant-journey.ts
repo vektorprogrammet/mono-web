@@ -366,6 +366,7 @@ export const runReturningAssistantBrowserJourney = async ({
     await submit.click();
     stage?.("returning:mutation:first:await");
     await firstActionSettled;
+    stage?.("returning:mutation:first:settled");
     await returning.locator('form[aria-label="Registrer som tidligere assistent"][data-pending="false"]').waitFor();
     stage?.("returning:retry");
     stage?.("returning:mutation:retry:click");
