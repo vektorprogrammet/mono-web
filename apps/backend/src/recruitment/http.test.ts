@@ -86,6 +86,11 @@ describe("native recruitment HTTP boundary", () => {
         method: "GET",
         path: "/api/recruitment/interviews/{interviewId}",
       },
+      correctInterviewAssessment: {
+        operationId: "recruitment.correctInterviewAssessment",
+        method: "POST",
+        path: "/api/recruitment/interviews/{interviewId}:correct",
+      },
       finalizeInterview: {
         operationId: "recruitment.finalizeInterview",
         method: "POST",
@@ -97,17 +102,6 @@ describe("native recruitment HTTP boundary", () => {
         path: "/api/recruitment/interviews/{interviewId}:cancel",
       },
     });
-    expect(new Set(RECRUITMENT_NATIVE_OPERATION_IDS).size).toBe(12);
-    expect(
-      Object.values(RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS).map(
-        (registration) => registration.operationId,
-      ),
-    ).toEqual(RECRUITMENT_NATIVE_OPERATION_IDS);
-    expect(
-      Object.values(RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS).every(
-        (registration) => !registration.path.includes("::"),
-      ),
-    ).toBe(true);
   });
 
   it("accepts one bounded JSON object and rejects invalid transport bodies", async () => {

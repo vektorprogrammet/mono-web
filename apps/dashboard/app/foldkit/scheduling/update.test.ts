@@ -14,6 +14,7 @@ import { makeSchedulingCommands } from "./command";
 import {
   ChangedAnswer,
   ChangedRecommendation,
+  ChangedScore,
   FailedFinalize,
   FailedLoadSchedulingBoard,
   FailedSchedule,
@@ -30,7 +31,7 @@ import {
   UpdatedRoom,
   UpdatedScheduledAt,
 } from "./message";
-import { makeInitialModel, type Model, type ReadyModel } from "./model";
+import { ConductData, makeInitialModel, type Model, type ReadyModel } from "./model";
 import { makeUpdate } from "./update";
 import { responseLabel } from "./view";
 
@@ -413,6 +414,27 @@ describe("Foldkit scheduling transitions", () => {
     ]);
     expect(ready(unchanged).conductEtag).toBe(etag);
     expect(effects).toEqual([]);
+  });
+  it("ignores every conduct draft edit while the successful detail is refreshing", () => {
+    const refreshing = {
+      ...ready({
+        ...initialModel(),
+        conduct: ConductData.Refreshing({ data: conductDetail }),
+        conductEtag: etag,
+        answers: [{ questionId: "question-text", answer: "Draft answer" }],
+      }),
+      isConducting: false,
+    } satisfies ReadyModel;
+    const messages = [
+      ChangedAnswer({ questionId: "question-text", answer: "Edited answer" }),
+      ChangedRecommendation({ value: "Kanskje" }),
+      ChangedScore({ axis: "suitability", value: "9" }),
+    ];
+    for (const message of messages) {
+      const [next, effects] = update(refreshing, message);
+      expect(next).toBe(refreshing);
+      expect(effects).toEqual([]);
+    }
   });
 
   it("ignores stale load and schedule request observations", () => {

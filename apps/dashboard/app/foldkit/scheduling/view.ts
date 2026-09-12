@@ -524,7 +524,7 @@ const questionView = (
         );
   const inputAttrs = [
     h.Name(`question-${question.questionId}`),
-    h.Disabled(model.isConducting || isTerminal),
+    h.Disabled(model.isConducting || model.conduct._tag === "Refreshing" || isTerminal),
     ...(describedBy === undefined ? [] : [h.AriaDescribedBy(describedBy)]),
   ];
   const controls =
@@ -623,7 +623,7 @@ const scoreView = (model: ReadyModel, isTerminal: boolean, h: HtmlBuilder<Messag
               h.Id("interviewer-recommendation"),
               h.Class("fs-input"),
               h.Value(model.recommendation ?? ""),
-              h.Disabled(model.isConducting || isTerminal),
+              h.Disabled(model.isConducting || model.conduct._tag === "Refreshing" || isTerminal),
               h.OnChange((value) =>
                 ChangedRecommendation({
                   value: interviewRecommendations.find((choice) => choice === value) ?? null,
@@ -654,7 +654,7 @@ const scoreView = (model: ReadyModel, isTerminal: boolean, h: HtmlBuilder<Messag
                 h.Id(`score-${axis}`),
                 h.Class("fs-input"),
                 h.Value(field.value),
-                h.Disabled(model.isConducting || isTerminal),
+                h.Disabled(model.isConducting || model.conduct._tag === "Refreshing" || isTerminal),
                 h.OnChange((value) => ChangedScore({ axis, value })),
               ],
               [

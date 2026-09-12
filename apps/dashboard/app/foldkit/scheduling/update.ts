@@ -521,7 +521,12 @@ export const makeUpdate =
               ],
         ChangedAnswer: ({ questionId, answer }) => {
           const current = AsyncData.getData(model.conduct);
-          if (current._tag === "None" || model.isConducting) return [model, []];
+          if (
+            current._tag === "None" ||
+            model.isConducting ||
+            model.conduct._tag === "Refreshing"
+          )
+            return [model, []];
           const question = current.value.questions.find(
             (candidate) => candidate.questionId === questionId,
           );
@@ -560,7 +565,9 @@ export const makeUpdate =
           ];
         },
         ChangedRecommendation: ({ value }) =>
-          model.isConducting || model.pendingConductAction !== null
+          model.isConducting ||
+          model.pendingConductAction !== null ||
+          model.conduct._tag === "Refreshing"
             ? [model, []]
             : [
                 {
@@ -572,19 +579,24 @@ export const makeUpdate =
                 },
                 [],
               ],
-        ChangedScore: ({ axis, value }) => [
-          {
-            ...model,
-            score: {
-              ...model.score,
-              [axis]: FieldValidation.validate(scoreRules)(value),
-            },
-            conductValidationFeedback: null,
-            conductFeedback: null,
-            commandSequence: model.commandSequence + 1,
-          },
-          [],
-        ],
+        ChangedScore: ({ axis, value }) =>
+          model.isConducting ||
+          model.pendingConductAction !== null ||
+          model.conduct._tag === "Refreshing"
+            ? [model, []]
+            : [
+                {
+                  ...model,
+                  score: {
+                    ...model.score,
+                    [axis]: FieldValidation.validate(scoreRules)(value),
+                  },
+                  conductValidationFeedback: null,
+                  conductFeedback: null,
+                  commandSequence: model.commandSequence + 1,
+                },
+                [],
+              ],
         SubmittedFinalize: () => {
           if (model.isConducting || model.pendingConductAction !== null) return [model, []];
           const current = AsyncData.getData(model.conduct);

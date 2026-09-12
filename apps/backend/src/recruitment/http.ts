@@ -197,6 +197,11 @@ export const RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS = {
     method: "GET",
     path: "/api/recruitment/interviews/{interviewId}",
   },
+  correctInterviewAssessment: {
+    operationId: "recruitment.correctInterviewAssessment",
+    method: "POST",
+    path: "/api/recruitment/interviews/{interviewId}:correct",
+  },
   finalizeInterview: {
     operationId: "recruitment.finalizeInterview",
     method: "POST",
@@ -1140,6 +1145,7 @@ const interviewAuthorizationInTransaction = async (
   interviewId: RecruitmentInterviewId,
   endpoint:
     | typeof ScheduleInterviewEndpoint
+    | typeof ReadInterviewConductEndpoint
     | typeof FinalizeInterviewEndpoint
     | typeof CancelInterviewEndpoint
     | typeof CorrectInterviewAssessmentEndpoint,
@@ -1272,23 +1278,28 @@ const readInterviewConductHandler = async (
   input: RecruitmentApiHttpOptions,
 ): Promise<Response> => {
   noQuery(request);
-  const authorization = await interviewAuthorization(
-    request,
-    interviewId,
-    ReadInterviewConductEndpoint,
-    false,
-    input,
-  );
   const snapshot = await input.run(
     Effect.gen(function* () {
       const sql = yield* Database;
       return yield* sql.withTransaction(
         Effect.gen(function* () {
+          const txRun: RecruitmentBackendRun = (effect) =>
+            input.run(effect.pipe(Effect.provideService(Database, sql)));
+          const authorization = yield* Effect.promise(() =>
+            interviewAuthorizationInTransaction(
+              request,
+              interviewId,
+              ReadInterviewConductEndpoint,
+              false,
+              input,
+              txRun,
+            ),
+          );
           const observation = yield* readInterviewConductInTransaction(
             interviewId,
             {
               actor: authorization.actor,
-              now: input.config.now(),
+              now: input.config.now,
               authorizationInstant: authorization.authorizationInstant,
             },
             sql,
