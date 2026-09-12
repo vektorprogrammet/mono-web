@@ -346,7 +346,18 @@ export const runReturningAssistantBrowserJourney = async ({
         firstCommandKey = commandKey ?? undefined;
         firstExpectedRevision = expectedRevision ?? undefined;
         if (status < 200 || status >= 300) routeFailure = `first action status ${status}`;
-        await route.abort("failed");
+        trace.push({ phase: "first-delivery", deliveredStatus: 503 });
+        await route.fulfill({
+          response,
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({
+            success: false,
+            message: "Registreringen kunne not be saved. Try again.",
+            commandId: commandKey,
+            code: "returning.network-failure",
+          }),
+        });
         resolveFirstAction();
         return;
       }
