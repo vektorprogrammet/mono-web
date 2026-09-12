@@ -3,7 +3,7 @@
   "result": "Passed",
   "revision": "4b17590d1ba605f1153588b375bebd6ff93b5427",
   "command": "bun infra/host/recommendation-check.ts --correction-mode --report",
-  "artifactDirectory": "/tmp/vektor-recommendation-0101-qNCL0G",
+  "artifactDirectory": "/tmp/vektor-recommendation-0101-qNCL0G (copied into evidence/functional-parity/0105 and removed after checksum verification)",
   "evidenceDirectory": "evidence/functional-parity/0105",
   "checksums": "evidence/functional-parity/0105/SHA256SUMS",
   "gates": [
@@ -120,5 +120,16 @@
         "evidence/functional-parity/0105/report-superseded-settled.png"
       ]
     }
+  },
+  "cleanup": {
+    "ownedDisposablePostgres": {
+      "dataDirectory": "/tmp/vektor-recommendation-0101-3ca8Wh/postgres",
+      "status": "stopped with pg_ctl -m fast; data directory removed"
+    },
+    "ownedRuntimeArtifact": {
+      "directory": "/tmp/vektor-recommendation-0101-qNCL0G",
+      "status": "copied into evidence/functional-parity/0105; directory removed after checksum verification"
+    },
+    "productionOrExternalResources": "none used"
   }
 }
