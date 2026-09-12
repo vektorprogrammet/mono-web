@@ -15,6 +15,7 @@ const person = {
 const departmentId = "department-native-conduct-0063";
 const semesterId = "semester-native-conduct-0063";
 const admissionPeriodId = "admission-period-native-conduct-0063";
+const nextSemesterId = "semester-returning-next-0104";
 const nextAdmissionPeriodId = "admission-period-returning-next-0104";
 const fieldOfStudyId = "field-native-conduct-0063";
 const applicantId = "applicant-returning-0104";
@@ -25,8 +26,8 @@ const teamId = "team-native-conduct-0063";
 
 export const returningAssistantFixture = {
   person,
-  departmentId,
   semesterId,
+  nextSemesterId,
   admissionPeriodId,
   nextAdmissionPeriodId,
   teamId,
@@ -69,11 +70,18 @@ export const seedReturningAssistant = async ({
   try {
     await client.query("BEGIN");
     await seedQuery(
+      "next semester",
+      `INSERT INTO public.admission_period_semesters(semester_id,start_at,end_at,revision)
+       VALUES($1,'2026-08-02T00:00:00Z','2026-12-31T23:59:59.999Z',0)
+       ON CONFLICT (semester_id) DO NOTHING`,
+      [nextSemesterId],
+    );
+    await seedQuery(
       "next admission period",
       `INSERT INTO public.admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,revision,last_command_id)
-       VALUES($1,$2,$3,'2026-08-02T00:00:00Z','2026-09-30T23:59:59.999Z',0,'returning-next-period-seed-0104')
+       VALUES($1,$2,$3,'2026-08-02T00:00:00Z','2026-12-31T23:59:59.999Z',0,'returning-next-period-seed-0104')
        ON CONFLICT (admission_period_id) DO NOTHING`,
-      [nextAdmissionPeriodId, departmentId, semesterId],
+      [nextAdmissionPeriodId, departmentId, nextSemesterId],
     );
     await seedQuery("volunteer affiliation", 
       `INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision)
