@@ -1,8 +1,8 @@
 {
   "counts": {
-    "externalOperations": 72,
+    "externalOperations": 73,
     "internalOperations": 1,
-    "operations": 73
+    "operations": 74
   },
   "operations": [
     {
@@ -2022,6 +2022,56 @@
         "503"
       ],
       "summary": "Confirm invitation",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "recruitment.interview-by-id",
+        "capabilities": {
+          "one": "recruitment.conduct-interview"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "recruitment.assigned-interviewer"
+          },
+          {
+            "id": "recruitment.not-known-self"
+          }
+        ]
+      },
+      "group": "recruitment",
+      "method": "POST",
+      "operationId": "recruitment.correctInterviewAssessment",
+      "path": "/api/recruitment/interviews/{interviewId}:correct",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Correct interview assessment",
       "visibility": "external"
     },
     {

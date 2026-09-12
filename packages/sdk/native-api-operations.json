@@ -297,6 +297,12 @@
     {
       "group": "recruitment",
       "method": "POST",
+      "operationId": "recruitment.correctInterviewAssessment",
+      "path": "/api/recruitment/interviews/{interviewId}:correct"
+    },
+    {
+      "group": "recruitment",
+      "method": "POST",
       "operationId": "recruitment.createApplicationInterview",
       "path": "/api/recruitment/applications/{applicationId}/interviews"
     },

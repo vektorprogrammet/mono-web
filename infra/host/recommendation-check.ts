@@ -893,6 +893,23 @@ try {
     const correctionName = "history Recommendation";
     const correctionStages: string[] = [];
     const stage = (name: string) => correctionStages.push(name);
+    const operationFor = (request: any): string | undefined => {
+      if (request.method() !== "POST" || new URL(request.url()).pathname !== "/recruitment")
+        return undefined;
+      try {
+        const payload: unknown = request.postDataJSON();
+        return typeof payload === "object" &&
+          payload !== null &&
+          "operation" in payload &&
+          typeof payload.operation === "string"
+          ? payload.operation
+          : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    const responseFor = (operation: string) =>
+      page.waitForResponse((response: any) => operationFor(response.request()) === operation);
     const correctionPageOpen = async () => {
       await page
         .getByRole("article")
@@ -909,9 +926,7 @@ try {
         .getByRole("button", { name: "Rett intervju", exact: true })
         .last()
         .click();
-      const responsePromise = page.waitForResponse((response: { url(): string }) =>
-        response.url().includes(":correct"),
-      );
+      const responsePromise = responseFor("correctInterviewAssessment");
       await page
         .getByRole("dialog")
         .getByRole("button", { name: "Rett intervju", exact: true })
@@ -972,11 +987,10 @@ try {
     const mismatched = await correctPost(
       correctionId,
       {
-        ...afterFirst,
         expectedRevision: afterFirst.revision,
         answers: afterFirst.answers,
         score: afterFirst.score,
-        recommendation: "Ja",
+        recommendation: afterFirst.recommendation,
       },
       "correction-old-body-new-header-0105",
       afterSecondEtag!,
