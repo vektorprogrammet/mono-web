@@ -4,6 +4,17 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Pool } from "pg";
 import type { Browser, Locator, Page } from "@playwright/test";
+import { AdmissionFieldOfStudyId } from "../../packages/domain/src/admission-period/schema.js";
+import { publicApplicationCommandDigest } from "../../packages/domain/src/application/digest.js";
+import {
+  PublicApplicationCommandIdSchema,
+  PublicApplicationEmailSchema,
+  PublicApplicationGenderSchema,
+  PublicApplicationNameSchema,
+  PublicApplicationPhoneSchema,
+  PublicApplicationYearOfStudySchema,
+} from "../../packages/domain/src/application/schema.js";
+import { DepartmentId } from "../../packages/domain/src/organization/schema.js";
 
 const person = {
   personId: "journey-returning-assistant-0104",
@@ -27,9 +38,19 @@ const originalPublicCommandId = "public-original-returning-0104";
 const originalActivationDigest = createHash("sha256")
   .update("historical-public-activation-returning-0104")
   .digest("hex");
-const originalPublicCommandDigest = createHash("sha256")
-  .update(originalPublicCommandId)
-  .digest("hex");
+const originalPublicCommand = {
+  _tag: "SubmitPublicApplication" as const,
+  commandId: PublicApplicationCommandIdSchema.make(originalPublicCommandId),
+  departmentId: DepartmentId.make(departmentId),
+  firstName: PublicApplicationNameSchema.make("Rita"),
+  lastName: PublicApplicationNameSchema.make("Tilbake"),
+  phone: PublicApplicationPhoneSchema.make("90000104"),
+  email: PublicApplicationEmailSchema.make("rita.returning@example.invalid"),
+  gender: PublicApplicationGenderSchema.make(0),
+  fieldOfStudyId: AdmissionFieldOfStudyId.make(fieldOfStudyId),
+  yearOfStudy: PublicApplicationYearOfStudySchema.make(2),
+} as const;
+const originalPublicCommandDigest = publicApplicationCommandDigest(originalPublicCommand);
 const placementId = `placement-${"f".repeat(64)}`;
 const teamId = "team-native-conduct-0063";
 const foreignDepartmentId = "department-returning-foreign-0104";
@@ -177,17 +198,32 @@ export const seedReturningAssistant = async ({
          command_id,command_sha256,command_json,observation_json,application_id,committed_at
        ) VALUES(
          $1::text,$2::text,
-         jsonb_build_object('commandId',$1::text,'applicantId',$3::text,'admissionPeriodId',$4::text,'departmentId',$5::text,'fieldOfStudyId',$6::text,'yearOfStudy',2),
-         jsonb_build_object('_tag','PublicApplicationSubmitted','applicationId',$7::text,'revision',0),
-         $7::text,'2026-08-20T10:00:00Z'
+         jsonb_build_object(
+           '_tag','SubmitPublicApplication',
+           'commandId',$1::text,
+           'departmentId',$3::text,
+           'firstName',$4::text,
+           'lastName',$5::text,
+           'phone',$6::text,
+           'email',$7::text,
+           'gender',$8::int,
+           'fieldOfStudyId',$9::text,
+           'yearOfStudy',$10::int
+         ),
+         jsonb_build_object('_tag','Submitted','commandId',$1::text,'applicationId',$11::text),
+         $11::text,'2026-08-20T10:00:00Z'
        ) ON CONFLICT DO NOTHING`,
       [
         originalPublicCommandId,
         originalPublicCommandDigest,
-        applicantId,
-        admissionPeriodId,
         departmentId,
+        originalPublicCommand.firstName,
+        originalPublicCommand.lastName,
+        originalPublicCommand.phone,
+        originalPublicCommand.email,
+        originalPublicCommand.gender,
         fieldOfStudyId,
+        originalPublicCommand.yearOfStudy,
         applicationId,
       ],
     );
