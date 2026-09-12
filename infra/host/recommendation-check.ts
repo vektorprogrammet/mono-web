@@ -1885,6 +1885,7 @@ try {
     ).status,
     403,
   );
+  if (!process.argv.includes("--correction-mode")) {
   run("bun", ["packages/database/runtime/recommendation-domain-replay.ts"], env);
   const raceRead = await get("interview-recommendation-link-race");
   assert.equal(raceRead.status, 200);
@@ -1930,6 +1931,7 @@ try {
   );
   assert.equal((await get("interview-recommendation-link-race")).status, 403);
 
+  }
   const readLocker = await pool.connect();
   heldIdentityClient = readLocker;
   await readLocker.query("BEGIN");

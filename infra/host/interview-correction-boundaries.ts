@@ -592,14 +592,6 @@ export async function assertInterviewCorrectionBoundaries(
     await locker.query("ROLLBACK").catch(() => undefined);
     locker.release();
   }
-  await pool.query(
-    `DELETE FROM public.applicant_account_links WHERE invitation_id=$1`,
-    [raceInvitation],
-  );
-  await pool.query(
-    `DELETE FROM public.applicant_account_invitations WHERE invitation_id=$1`,
-    [raceInvitation],
-  );
   record("genuine accepted self-link fixture correction is denied or transaction-conflicted after committed self-link; fresh read and exact replay deny");
 
   const current = await detail();
@@ -638,6 +630,7 @@ export async function assertInterviewCorrectionBoundaries(
         ),
       },
     ],
+    ["missing-question-entry", { ...currentPayload, answers: answerRows.slice(1) }],
     ["invalid-recommendation", { ...currentPayload, recommendation: "Maybe" }],
     ["fractional-score", { ...currentPayload, score: { ...currentPayload.score, roleModel: 1.5 } }],
     [
@@ -666,7 +659,7 @@ export async function assertInterviewCorrectionBoundaries(
     assert.equal(response.status, name === "malformed-json" ? 400 : 422, await response.text());
     await assertSnapshot(before, `invalid ${name}`);
   }
-  record("malformed JSON maps to 400; strict schema failures map to 422; each leaves exact state unchanged");
+  record("malformed JSON, missing answer/question entry, and strict schema failures map to 400/422; each leaves exact state unchanged");
   const sameKeyBefore = await snapshot();
   const conflictingPayload = {
     ...currentPayload,
