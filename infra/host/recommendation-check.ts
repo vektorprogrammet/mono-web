@@ -2,6 +2,12 @@ import { IdempotencyKey } from "../../packages/http-api/src/http-semantics.js";
 /**0101: previous-schema history -> actual migration -> production browser/API/PostgreSQL. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
+import {
+  createServer as createHttpServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 import { createServer } from "node:net";
 import { mkdtemp, writeFile, rm, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -103,7 +109,10 @@ const ready = async (test: () => Promise<boolean>) => {
   }
   throw new Error("Readiness failed");
 };
-let pool: any, browser: any, page: any, heldIdentityClient: any;
+let pool: any, browser: any, page: any, heldIdentityClient: any, backend: any;
+let effectServer: Server | undefined;
+const effectCalls: EffectReceiverCall[] = [];
+const effectAttempts = new Map<string, number>();
 const gates: string[] = [];
 const recordGate = (...observations: string[]) => {
   gates.push(...observations);
@@ -136,10 +145,77 @@ const assertNoRecommendation = (value: unknown): void => {
       assertNoRecommendation(item);
     }
 };
+type EffectReceiverCall = {
+  readonly effectId: string;
+  readonly commandId: string;
+  readonly origin: string;
+  readonly kind: string;
+  readonly attempt: number;
+  readonly status: number;
+};
+
+const readRequestText = async (request: IncomingMessage): Promise<string> => {
+  const chunks: string[] = [];
+  for await (const chunk of request) chunks.push(String(chunk));
+  return chunks.join("");
+};
+
+const stringField = (value: unknown, key: string): string => {
+  if (value === null || typeof value !== "object" || !(key in value)) return "";
+  const field = value[key];
+  return typeof field === "string" ? field : "";
+};
+
+const startEffectReceiver = async (
+  token: string,
+  portNumber: number,
+): Promise<Server> => {
+  const server = createHttpServer(async (request: IncomingMessage, response: ServerResponse) => {
+    if (request.method !== "POST" || request.url !== "/effects") {
+      response.statusCode = 404;
+      response.end();
+      return;
+    }
+    if (request.headers.authorization !== `Bearer ${token}`) {
+      response.statusCode = 401;
+      response.end();
+      return;
+    }
+    let body: unknown;
+    try {
+      body = JSON.parse(await readRequestText(request));
+    } catch {
+      response.statusCode = 400;
+      response.end();
+      return;
+    }
+    const effectId = request.headers["idempotency-key"];
+    const normalizedEffectId = typeof effectId === "string" ? effectId : "";
+    const attempt = (effectAttempts.get(normalizedEffectId) ?? 0) + 1;
+    effectAttempts.set(normalizedEffectId, attempt);
+    const status = attempt === 1 ? 503 : 204;
+    effectCalls.push({
+      effectId: normalizedEffectId,
+      commandId: stringField(body, "commandId"),
+      origin: stringField(body, "origin"),
+      kind: stringField(body, "_tag"),
+      attempt,
+      status,
+    });
+    response.statusCode = status;
+    response.end();
+  });
+  const listening = Promise.withResolvers<void>();
+  server.once("error", listening.reject);
+  server.listen(portNumber, "127.0.0.1", listening.resolve);
+  await listening.promise;
+  return server;
+};
 
 try {
   const pgPort = await port(),
     apiPort = await port(),
+    effectPort = await port(),
     uiPort = await port(5174);
   const pgDir = join(artifacts, "postgres");
   run("initdb", ["-D", pgDir, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"]);
@@ -147,6 +223,8 @@ try {
   const pg = `postgres://postgres@127.0.0.1:${pgPort}/postgres`,
     api = `http://127.0.0.1:${apiPort}`,
     ui = `http://127.0.0.1:${uiPort}`;
+  const effectMode = process.argv.includes("--returning-mode") ? "http" : "disabled";
+  const effectToken = randomBytes(32).toString("hex");
   pool = new Pool({ connectionString: pg });
   await ready(async () => {
     await pool.query("SELECT 1");
@@ -164,7 +242,15 @@ try {
     OAUTH_CANONICAL_ORIGIN: api,
     OAUTH_DASHBOARD_ORIGIN: ui,
     OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
-    PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+    PUBLIC_APPLICATION_EFFECT_MODE: effectMode,
+    ...(effectMode === "http"
+      ? {
+          PUBLIC_APPLICATION_EFFECT_ENDPOINT: `http://127.0.0.1:${effectPort}/effects`,
+          PUBLIC_APPLICATION_EFFECT_TOKEN: effectToken,
+          PUBLIC_APPLICATION_EFFECT_POLL_MS: "1000",
+          PUBLIC_APPLICATION_EFFECT_TIMEOUT_MS: "2000",
+        }
+      : {}),
     API_URL: api,
     VITE_API_URL: api,
     DASHBOARD_MOUNT: "/",
@@ -194,6 +280,10 @@ try {
   recordGate(
     "immutable historical row survived actual0037 upgrade without invented recommendation",
   );
+  if (effectMode === "http") {
+    effectServer = await startEffectReceiver(effectToken, effectPort);
+    secrets.push(effectToken);
+  }
   const effectSnapshot = async () => {
     const tables = (
       await pool.query(
@@ -241,7 +331,7 @@ try {
     [createHash("sha256").update(invitationCapability).digest("hex")],
   );
 
-  start("bun", ["apps/backend/src/main.ts"], env);
+  backend = start("bun", ["apps/backend/src/main.ts"], env);
   await ready(async () => (await fetch(`${api}/health`)).ok);
   run("bun", ["run", "build"], env, join(root, "packages/sdk"));
   run("bun", ["run", "build"], env, join(root, "apps/dashboard"));
@@ -323,7 +413,51 @@ try {
         stage,
       }),
     );
-    stage("returning:report-observer");
+    if (effectMode === "http") {
+      const waitForOutbox = async (predicate: (rows: ReadonlyArray<{ status: string }>) => boolean) => {
+        for (let attempt = 0; attempt < 120; attempt += 1) {
+          const result = await pool.query(
+            "SELECT status FROM public.admission_application_outbox WHERE origin='ReturningAssistant' ORDER BY effect_id",
+          );
+          if (predicate(result.rows)) return result.rows;
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        throw new Error("returning effect outbox did not reach expected state");
+      };
+      const failedRows = await bounded(
+        "returning effect first failure",
+        waitForOutbox((rows) => rows.some((row) => row.status === "Failed")),
+        30_000,
+      );
+      assert.ok(failedRows.some((row: { status: string }) => row.status === "Failed"));
+      recordGate("returning notification/subscription/audit loopback observed a retryable failure");
+      await stopPreviewScenarioBackend(backend);
+      backend = start("bun", ["apps/backend/src/main.ts"], env);
+      await ready(async () => (await fetch(`${api}/health`)).ok);
+      const deliveredRows = await bounded(
+        "returning effect restart delivery",
+        waitForOutbox((rows) => rows.length === 12 && rows.every((row) => row.status === "Delivered")),
+        90_000,
+      );
+      assert.equal(deliveredRows.length, 12);
+      assert.ok(effectCalls.length >= 24);
+      assert.ok(effectCalls.every((call) => [503, 204].includes(call.status)));
+      assert.ok(effectCalls.some((call) => call.attempt === 1 && call.status === 503));
+      assert.ok(effectCalls.some((call) => call.attempt >= 2 && call.status === 204));
+      await writeFile(
+        join(artifacts, "returning-effect-evidence.json"),
+        JSON.stringify(
+          {
+            outbox: deliveredRows,
+            calls: effectCalls,
+            restart: true,
+          },
+          null,
+          2,
+        ),
+      );
+      recordGate("returning effect worker restarted and acknowledged all loopback effects");
+    }
     const reportEvidence = await bounded(
       "0103 report observer",
       observeInterviewReport({
@@ -973,6 +1107,11 @@ try {
   }
 } finally {
   await browser?.close();
+  if (effectServer !== undefined) {
+    const closed = Promise.withResolvers<void>();
+    effectServer.close(closed.resolve);
+    await closed.promise;
+  }
   if (heldIdentityClient) {
     await heldIdentityClient.query("ROLLBACK");
     heldIdentityClient.release();

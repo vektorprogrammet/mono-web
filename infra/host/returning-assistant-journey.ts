@@ -298,12 +298,28 @@ export const runReturningAssistantBrowserJourney = async ({
   } catch (cause) {
     await captureReturningFailure("form", cause);
   }
-  const submit = form.locator('button[type="submit"]');
+  let submit = form.locator('button[type="submit"]');
   let droppedResponse = false;
   let interceptedActions = 0;
   let firstCommandKey: string | undefined;
   let firstExpectedRevision: string | undefined;
   let routeFailure: string | undefined;
+  const firstPayload = {
+    admissionPeriodId: nextAdmissionPeriodId,
+    expectedRevision: 0,
+    yearOfStudy: 4,
+    mondayUnavailable: true,
+    tuesdayUnavailable: false,
+    wednesdayUnavailable: false,
+    thursdayUnavailable: true,
+    fridayUnavailable: false,
+    positionWeeks: 8,
+    preferredGroup: "block-1",
+    language: "Norsk og engelsk",
+    preferredSchool: "Returning School",
+    teamInterest: true,
+    teamIds: [teamId],
+  } as const;
   let resolveFirstAction!: () => void;
   let rejectFirstAction!: (cause: unknown) => void;
   let resolveSecondAction!: () => void;
@@ -333,6 +349,7 @@ export const runReturningAssistantBrowserJourney = async ({
       const status = response.status();
       trace.push({
         phase,
+        form: [...formData.entries()],
         admissionPeriodId: formData.get("admissionPeriodId"),
         expectedRevision,
         commandId: commandKey,
@@ -346,18 +363,9 @@ export const runReturningAssistantBrowserJourney = async ({
         firstCommandKey = commandKey ?? undefined;
         firstExpectedRevision = expectedRevision ?? undefined;
         if (status < 200 || status >= 300) routeFailure = `first action status ${status}`;
-        trace.push({ phase: "first-delivery", deliveredStatus: 503 });
-        await route.fulfill({
-          response,
-          status: 503,
-          contentType: "application/json",
-          body: JSON.stringify({
-            success: false,
-            message: "Registreringen kunne not be saved. Try again.",
-            commandId: commandKey,
-            code: "returning.network-failure",
-          }),
-        });
+        trace.push({ phase: "first-delivery", transport: "aborted", fetchedStatus: status });
+        await response.body();
+        await route.abort("failed");
         resolveFirstAction();
         return;
       }
@@ -378,7 +386,21 @@ export const runReturningAssistantBrowserJourney = async ({
     stage?.("returning:mutation:first:await");
     await firstActionSettled;
     stage?.("returning:mutation:first:settled");
-    await returning.locator('form[aria-label="Registrer som tidligere assistent"][data-pending="false"]').waitFor();
+    stage?.("returning:mutation:recovery");
+    const recovery = returning.getByRole("button", { name: "Prøv igjen", exact: true });
+    await recovery.waitFor();
+    await recovery.click();
+    form = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
+    await form.waitFor();
+    const restoredEntries = await form.evaluate((node) =>
+      [...new FormData(node as HTMLFormElement)].map(([name, value]) => [name, String(value)]),
+    );
+    const firstRequest = trace.find((entry) => entry.phase === "first");
+    assert.ok(firstRequest && Array.isArray(firstRequest.form));
+    assert.deepEqual(restoredEntries, firstRequest.form);
+    assert.equal(await form.locator('input[name="commandId"]').inputValue(), firstCommandKey);
+    assert.equal(await form.locator('input[name="expectedRevision"]').inputValue(), firstExpectedRevision);
+    submit = form.locator('button[type="submit"]');
     stage?.("returning:retry");
     stage?.("returning:mutation:retry:click");
     await submit.click();
@@ -465,16 +487,115 @@ export const runReturningAssistantBrowserJourney = async ({
     { admission_period_id: admissionPeriodId, revision: 2, year_of_study: 3, monday_unavailable: false, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: false, friday_unavailable: false, position_weeks: 4, preferred_group: "all", language: "Engelsk", preferred_school: null, team_interest: false, team_ids: [] },
     { admission_period_id: nextAdmissionPeriodId, revision: 1, year_of_study: 4, monday_unavailable: true, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: true, friday_unavailable: false, position_weeks: 8, preferred_group: "block-1", language: "Norsk og engelsk", preferred_school: "Returning School", team_interest: true, team_ids: [teamId] },
   ]);
-  const pendingOutbox = await pool.query("SELECT count(*)::int AS count FROM public.admission_application_outbox WHERE origin='ReturningAssistant' AND status='Pending'");
-  assert.equal(pendingOutbox.rows[0].count, 6);
+  assert.ok(firstCommandKey);
+  assert.ok(firstExpectedRevision !== undefined);
+  const firstReplayPayload = {
+    commandId: firstCommandKey,
+    ...firstPayload,
+    expectedRevision: Number(firstExpectedRevision),
+  };
+  const nextRevisionBeforeReplay = await pool.query(
+    "SELECT count(*)::int AS count FROM public.admission_returning_registrations WHERE person_id=$1 AND admission_period_id=$2",
+    [person.personId, nextAdmissionPeriodId],
+  );
+  const exactReplay = await context.request.post(`${api}/api/returning-assistant/registrations`, {
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": firstCommandKey,
+      origin: ui,
+    },
+    data: firstReplayPayload,
+  });
+  assert.equal(exactReplay.status(), 200);
+  const nextRevisionAfterReplay = await pool.query(
+    "SELECT count(*)::int AS count FROM public.admission_returning_registrations WHERE person_id=$1 AND admission_period_id=$2",
+    [person.personId, nextAdmissionPeriodId],
+  );
+  assert.deepEqual(nextRevisionAfterReplay.rows, nextRevisionBeforeReplay.rows);
+  await pool.query(
+    "UPDATE public.admission_periods SET end_at='2026-01-01T00:00:00Z' WHERE admission_period_id=$1",
+    [nextAdmissionPeriodId],
+  );
+  try {
+    const closedReplay = await context.request.post(`${api}/api/returning-assistant/registrations`, {
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": firstCommandKey,
+        origin: ui,
+      },
+      data: firstReplayPayload,
+    });
+    assert.equal(closedReplay.status(), 409);
+  } finally {
+    await pool.query(
+      "UPDATE public.admission_periods SET end_at='2026-12-31T23:59:59.999Z' WHERE admission_period_id=$1",
+      [nextAdmissionPeriodId],
+    );
+  }
+  const concurrent = await Promise.all([
+    context.request.post(`${api}/api/returning-assistant/registrations`, {
+      headers: { "content-type": "application/json", "idempotency-key": "returning-concurrent-a-0104", origin: ui },
+      data: {
+        commandId: "returning-concurrent-a-0104",
+        admissionPeriodId,
+        expectedRevision: 2,
+        yearOfStudy: 4,
+        mondayUnavailable: false,
+        tuesdayUnavailable: false,
+        wednesdayUnavailable: false,
+        thursdayUnavailable: false,
+        fridayUnavailable: false,
+        positionWeeks: 4,
+        preferredGroup: "all",
+        language: "Engelsk",
+        preferredSchool: null,
+        teamInterest: false,
+        teamIds: [],
+      },
+    }),
+    context.request.post(`${api}/api/returning-assistant/registrations`, {
+      headers: { "content-type": "application/json", "idempotency-key": "returning-concurrent-b-0104", origin: ui },
+      data: {
+        commandId: "returning-concurrent-b-0104",
+        admissionPeriodId,
+        expectedRevision: 2,
+        yearOfStudy: 5,
+        mondayUnavailable: false,
+        tuesdayUnavailable: false,
+        wednesdayUnavailable: false,
+        thursdayUnavailable: false,
+        fridayUnavailable: false,
+        positionWeeks: 8,
+        preferredGroup: "block-2",
+        language: "Norsk",
+        preferredSchool: null,
+        teamInterest: false,
+        teamIds: [],
+      },
+    }),
+  ]);
+  assert.deepEqual(concurrent.map((response) => response.status()).sort((a, b) => a - b), [200, 412]);
+  const concurrentRows = await pool.query(
+    "SELECT revision FROM public.admission_returning_registrations WHERE person_id=$1 AND admission_period_id=$2 ORDER BY revision",
+    [person.personId, admissionPeriodId],
+  );
+  assert.deepEqual(concurrentRows.rows, [{ revision: 1 }, { revision: 2 }, { revision: 3 }]);
+  const returningOutbox = await pool.query(
+    "SELECT effect_id,status,attempts FROM public.admission_application_outbox WHERE origin='ReturningAssistant' ORDER BY effect_id",
+  );
+  assert.equal(returningOutbox.rows.length, 12);
   const session = await pool.query('SELECT count(*)::int AS count FROM auth.session WHERE "userId"=$1', [person.personId]);
   assert.equal(session.rows[0].count, 1);
   await pool.query('DELETE FROM auth.session WHERE "userId"=$1', [person.personId]);
-  const replay = await context.request.post(`${api}/api/returning-assistant/registrations`, {
-    headers: { "content-type": "application/json", "idempotency-key": "returning-browser-registration-0104-replay", origin: ui },
-    data: { commandId: "returning-browser-registration-0104-replay", admissionPeriodId, expectedRevision: 2, yearOfStudy: 3, mondayUnavailable: true, tuesdayUnavailable: false, wednesdayUnavailable: false, thursdayUnavailable: false, fridayUnavailable: false, positionWeeks: 4, preferredGroup: "all", language: "Engelsk", preferredSchool: null, teamInterest: false, teamIds: [] },
+  const revokedReplay = await context.request.post(`${api}/api/returning-assistant/registrations`, {
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": firstCommandKey,
+      origin: ui,
+    },
+    data: firstReplayPayload,
   });
-  assert.equal(replay.status(), 401);
+  assert.equal(revokedReplay.status(), 401);
   stage?.("returning:report");
   await page.goto(`${ui}/dashboard/intervjuer/rapport?admissionPeriodId=${encodeURIComponent(admissionPeriodId)}`);
   await page.getByRole("heading", { level: 1, name: "Fullførte intervjuer" }).waitFor();
@@ -488,6 +609,7 @@ export const runReturningAssistantBrowserJourney = async ({
   await returning.close();
   await context.close();
   await page.goto(`${ui}/dashboard/intervjuer`);
+  return { trace };
 };
 
 export const runReturningAssistantLoginProbe = async ({
