@@ -17,6 +17,7 @@ const row = (
     lastName: "Søker",
     completedAt: "2031-09-15T12:00:00.000Z",
     recommendation,
+    participation: "Unknown",
     explanatoryPower: scores[0],
     roleModel: scores[1],
     suitability: scores[2],

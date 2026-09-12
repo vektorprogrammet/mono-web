@@ -54,6 +54,8 @@ export const CAPABILITY_TYPE_IDS = [
   "admissions.read-periods",
   "admissions.create-period",
   "admissions.revise-period",
+  "admissions.returning-assistant-options",
+  "admissions.returning-assistant-register",
   "recruitment.invitation-response",
   "recruitment.read-interviews",
   "recruitment.read-interview-report",

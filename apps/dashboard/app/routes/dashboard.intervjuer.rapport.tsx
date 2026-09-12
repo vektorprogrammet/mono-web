@@ -63,6 +63,7 @@ export default function CompletedInterviewReportRoute() {
     const params = new URLSearchParams();
     if (report?.selectedPeriodId) params.set("admissionPeriodId", report.selectedPeriodId);
     params.set("recommendation", report?.recommendation ?? "all");
+    params.set("participation", report?.participation ?? "all");
     params.set("sort", sort);
     params.set("direction", report?.sort === sort && report.direction === "asc" ? "desc" : "asc");
     return `?${params}`;
@@ -79,7 +80,9 @@ export default function CompletedInterviewReportRoute() {
         <h1 id="report-heading" className="text-2xl font-semibold">
           Fullførte intervjuer
         </h1>
-        <p className="mt-2">Tidligere deltakelse er ikke klassifisert i denne oversikten.</p>
+        <p className="mt-2">
+          Filtrer rapporten på registrert anbefaling og autoritativ deltakelseshistorikk.
+        </p>
       </header>
       {pending ? (
         <p role="status">Henter rapporten …</p>
@@ -100,7 +103,7 @@ export default function CompletedInterviewReportRoute() {
           <>
             <Form
               method="get"
-              key={`${report.selectedPeriodId}:${report.recommendation}:${report.sort}:${report.direction}`}
+              key={`${report.selectedPeriodId}:${report.recommendation}:${report.participation}:${report.sort}:${report.direction}`}
               className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2"
             >
               <div className="grid gap-2">
@@ -141,6 +144,21 @@ export default function CompletedInterviewReportRoute() {
                   <option value="not-recorded">Ikke registrert</option>
                 </select>
               </div>
+              <div className="grid gap-2">
+                <label htmlFor="report-participation" className="font-semibold">
+                  Deltakelseshistorikk
+                </label>
+                <select
+                  className="min-h-11 w-full rounded-md border bg-background px-3"
+                  id="report-participation"
+                  name="participation"
+                  defaultValue={report.participation}
+                >
+                  <option value="all">Alle</option>
+                  <option value="Returning">Registrerte tilbakevendere</option>
+                  <option value="Unknown">Ukjent historikk</option>
+                </select>
+              </div>
               <input type="hidden" name="sort" value={report.sort} />
               <input type="hidden" name="direction" value={report.direction} />
               <Button type="submit" disabled={report.periods.length === 0}>
@@ -174,6 +192,9 @@ export default function CompletedInterviewReportRoute() {
                             >
                               Søker
                             </Link>
+                          </th>
+                          <th className="p-3" scope="col">
+                            Deltakelse
                           </th>
                           <th className="p-3" scope="col">
                             Fullført
@@ -211,6 +232,9 @@ export default function CompletedInterviewReportRoute() {
                             <th scope="row" className="p-3 font-medium">
                               {row.firstName} {row.lastName}
                             </th>
+                            <td className="p-3">
+                              {row.participation === "Returning" ? "Tilbakevendende" : "Ukjent"}
+                            </td>
                             <td className="p-3">
                               {new Date(row.completedAt).toLocaleString("nb-NO", {
                                 timeZone: "Europe/Oslo",

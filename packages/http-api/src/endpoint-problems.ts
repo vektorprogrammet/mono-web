@@ -322,6 +322,46 @@ export const AdmissionsListApplicationOptionsProblem = problemUnion(
     ["admissions.unavailable", 503],
   ],
 );
+/** Problems for returning-assistant options and registration. */
+export const AdmissionsReadReturningAssistantOptionsProblem = problemUnion(
+  "AdmissionsReadReturningAssistantOptionsProblem",
+  [
+    ["request.malformed", 400],
+    ["header.malformed", 400],
+    ["credential.missing", 401],
+    ["credential.invalid", 401],
+    ["origin.denied", 403],
+    ["validation.failed", 422],
+    ["returning.identity-missing", 404],
+    ["returning.identity-ambiguous", 409],
+    ["returning.history-missing", 404],
+    ["returning.study-invalid", 409],
+    ["returning.period-unavailable", 409],
+    ["returning.unavailable", 503],
+  ],
+);
+export const AdmissionsRegisterReturningAssistantProblem = problemUnion(
+  "AdmissionsRegisterReturningAssistantProblem",
+  [
+    ["request.malformed", 400],
+    ["header.malformed", 400],
+    ["idempotency-key.invalid", 400],
+    ["credential.missing", 401],
+    ["credential.invalid", 401],
+    ["origin.denied", 403],
+    ["idempotency.digest-conflict", 409],
+    ["idempotency.in-flight", 409],
+    ["validation.failed", 422],
+    ["returning.identity-missing", 404],
+    ["returning.identity-ambiguous", 409],
+    ["returning.history-missing", 404],
+    ["returning.study-invalid", 409],
+    ["returning.period-unavailable", 409],
+    ["returning.team-scope-denied", 403],
+    ["returning.revision-conflict", 412],
+    ["returning.unavailable", 503],
+  ],
+);
 
 /** Problems for `admissions.submitApplication`. */
 export const AdmissionsSubmitApplicationProblem = problemUnion(

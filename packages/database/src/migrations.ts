@@ -139,6 +139,10 @@ const migration = (name: string, url: URL, execute: ExecuteMigration) =>
     yield* execute(source);
   });
 
+const returningAssistantRegistrationMigrationUrl = new URL(
+  "../migrations/0038-returning-assistant-registration.sql",
+  import.meta.url,
+);
 export const databaseMigrationDefinitions = [
   { id: "1_receipt-authority", name: "receipt-authority", url: receiptMigrationUrl },
   {
@@ -312,6 +316,11 @@ export const databaseMigrationDefinitions = [
     id: "37_interviewer-recommendation",
     name: "interviewer-recommendation",
     url: new URL("../migrations/0037-interviewer-recommendation.sql", import.meta.url),
+  },
+  {
+    id: "38_returning-assistant-registration",
+    name: "returning-assistant-registration",
+    url: returningAssistantRegistrationMigrationUrl,
   },
 ] as const;
 

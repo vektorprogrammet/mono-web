@@ -7,6 +7,9 @@ import { AdmissionPeriodId } from "@vektorprogrammet/domain/admission-period";
 import {
   PublicApplicationCatalogSchema,
   PublicApplicationIdSchema,
+  ReturningAssistantOptionsSchema,
+  ReturningAssistantRegistrationInputSchema,
+  ReturningAssistantRegistrationResponseSchema,
 } from "@vektorprogrammet/domain/application";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, anonymousNativeAccess, personNativeAccess } from "./access.js";
@@ -17,6 +20,8 @@ import {
   AdmissionsListApplicationOptionsProblem,
   AdmissionsListOpenAdmissionPeriodsProblem,
   AdmissionsReadApplicationConfirmationProblem,
+  AdmissionsReadReturningAssistantOptionsProblem,
+  AdmissionsRegisterReturningAssistantProblem,
   AdmissionsReviseAdmissionPeriodProblem,
   AdmissionsSubmitApplicationProblem,
 } from "./endpoint-problems.js";
@@ -213,6 +218,64 @@ export const ReviseAdmissionPeriodEndpoint = HttpApiEndpoint.patch(
     ),
   );
 
+/** @since 0.1.0 @category Endpoints */
+export const ReadReturningAssistantOptionsEndpoint = HttpApiEndpoint.get(
+  "readReturningAssistantOptions",
+  "/api/returning-assistant/options",
+  {
+    success: noStoreReadResponse(ReturningAssistantOptionsSchema),
+    error: endpointProblemResponses(AdmissionsReadReturningAssistantOptionsProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "placements.self",
+        canonicalScopeResolver: "profile.current-person",
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
+  .annotateMerge(
+    operationAnnotations(
+      "Read returning-assistant registration options",
+      "Returns current identity, placement, department and admission-period options.",
+    ),
+  );
+
+/** @since 0.1.0 @category Endpoints */
+export const RegisterReturningAssistantEndpoint = HttpApiEndpoint.post(
+  "registerReturningAssistant",
+  "/api/returning-assistant/registrations",
+  {
+    headers: IdempotencyHeaders,
+    payload: ReturningAssistantRegistrationInputSchema,
+    success: createdMutationResponse(
+      ReturningAssistantRegistrationResponseSchema.pipe(HttpApiSchema.status(201)),
+    ),
+    error: endpointProblemResponses(AdmissionsRegisterReturningAssistantProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "placements.self",
+        canonicalScopeResolver: "profile.current-person",
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
+  .annotateMerge(
+    operationAnnotations(
+      "Register returning assistant",
+      "Registers a returning assistant for an admission period with immutable provenance.",
+    ),
+  );
+
 /**
  * Public applicant and administrative admission endpoints.
  *
@@ -228,6 +291,8 @@ export class AdmissionsApi extends HttpApiGroup.make("admissions")
     ListAdmissionPeriodsEndpoint,
     CreateAdmissionPeriodEndpoint,
     ReviseAdmissionPeriodEndpoint,
+    ReadReturningAssistantOptionsEndpoint,
+    RegisterReturningAssistantEndpoint,
   )
   .annotateMerge(
     OpenApi.annotations({

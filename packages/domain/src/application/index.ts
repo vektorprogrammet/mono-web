@@ -6,3 +6,6 @@ export * from "./proof.js";
 export * from "./schema.js";
 export * from "./validation.js";
 export * from "./worker.js";
+export * from "./returning.js";
+export * from "./returning-postgres.js";
+export * from "./returning-layer.js";

@@ -15,11 +15,14 @@ export const InterviewReportFilter = Schema.Literals([
   "Nei",
   "not-recorded",
 ]);
+export const InterviewReportParticipation = Schema.Literals(["all", "Returning", "Unknown"]);
+export type InterviewReportParticipation = typeof InterviewReportParticipation.Type;
 export const InterviewReportSort = Schema.Literals(["applicant", "recommendation", "total"]);
 export const InterviewReportDirection = Schema.Literals(["asc", "desc"]);
 export const InterviewReportQuery = Schema.Struct({
   admissionPeriodId: Schema.optional(AdmissionPeriodId),
   recommendation: Schema.optional(InterviewReportFilter),
+  participation: Schema.optional(Schema.Literals(["all", "Returning", "Unknown"])),
   sort: Schema.optional(InterviewReportSort),
   direction: Schema.optional(InterviewReportDirection),
 });
@@ -30,14 +33,16 @@ export const InterviewReportRow = Schema.Struct({
   lastName: Schema.String,
   completedAt: Rfc3339InstantSchema,
   recommendation: Schema.NullOr(InterviewRecommendationSchema),
+  participation: Schema.Literals(["Returning", "Unknown"]),
   ...RecruitmentInterviewScoreSchema.fields,
 });
-export type InterviewReportRow = typeof InterviewReportRow.Type;
+const compareText = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
 export const InterviewReport = Schema.Struct({
   departmentId: DepartmentId,
   periods: Schema.Array(AdmissionPeriodProjectionSchema),
   selectedPeriodId: Schema.NullOr(AdmissionPeriodId),
   recommendation: InterviewReportFilter,
+  participation: Schema.Literals(["all", "Returning", "Unknown"]),
   sort: InterviewReportSort,
   direction: InterviewReportDirection,
   rows: Schema.Array(InterviewReportRow),
@@ -46,16 +51,19 @@ export type InterviewReport = typeof InterviewReport.Type;
 export const interviewScoreTotal = (
   row: Pick<InterviewReportRow, "explanatoryPower" | "roleModel" | "suitability">,
 ) => row.explanatoryPower + row.roleModel + row.suitability;
-const compareText = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
-/** Pure view derivation; the caller supplies only authorized rows. */
 export const orderInterviewReport = (
   rows: ReadonlyArray<InterviewReportRow>,
   query: InterviewReportQuery,
 ) => {
   const filter = query.recommendation ?? "all";
+  const participation = query.participation ?? "all";
   const direction = query.direction === "desc" ? -1 : 1;
   return rows
-    .filter((row) => filter === "all" || (row.recommendation ?? "not-recorded") === filter)
+    .filter(
+      (row) =>
+        (filter === "all" || (row.recommendation ?? "not-recorded") === filter) &&
+        (participation === "all" || row.participation === participation),
+    )
     .toSorted((left, right) => {
       const primary =
         query.sort === "total"

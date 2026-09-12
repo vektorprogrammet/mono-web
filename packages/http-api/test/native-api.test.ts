@@ -391,6 +391,18 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
   ],
   [
     "GET",
+    "/api/returning-assistant/options",
+    "admissions.readReturningAssistantOptions",
+    person("placements.self", "profile.current-person", [], "SnapshotRead"),
+  ],
+  [
+    "POST",
+    "/api/returning-assistant/registrations",
+    "admissions.registerReturningAssistant",
+    person("placements.self", "profile.current-person", [], "Transaction"),
+  ],
+  [
+    "GET",
     "/api/recruitment/invitation-response",
     "recruitment.readInvitationResponse",
     invitation([], "SnapshotRead"),
@@ -684,6 +696,7 @@ const createdMutationOperations = [
   "organization.createFieldOfStudy",
   "admissions.submitApplication",
   "admissions.createAdmissionPeriod",
+  "admissions.registerReturningAssistant",
   "recruitment.createApplicationInterview",
   "receipts.submitReceipt",
   "content.createArticle",
@@ -745,8 +758,11 @@ const privateReadOperations = [
   "receipts.listReceiptsForApproval",
   "content.readContentWorkspace",
 ] as const;
-
-const noStoreReadOperations = ["system.health", "admissions.readApplicationConfirmation"] as const;
+const noStoreReadOperations = [
+  "system.health",
+  "admissions.readApplicationConfirmation",
+  "admissions.readReturningAssistantOptions",
+] as const;
 
 const existingResourceMutationOperations = new Set<string>([
   ...entityMutationOperations,
