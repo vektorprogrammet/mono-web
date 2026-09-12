@@ -601,6 +601,7 @@ export async function observeInterviewReport(o: Options) {
       const fields = new URLSearchParams();
       for (const name of ["admissionPeriodId", "recommendation", "participation", "sort", "direction"])
         fields.set(name, await page.locator(`[name="${name}"]`).inputValue());
+      const target = new URL(page.url());
       target.search = fields.toString();
       await page.getByRole("button", { name: "Vis rapport", exact: true }).focus();
       await page.keyboard.press("Enter");
