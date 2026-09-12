@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { Schema } from "effect";
+import { createRequire } from "node:module";
 import type { Pool, PoolClient } from "pg";
+const { Schema } = createRequire(new URL("../../packages/database/package.json", import.meta.url))("effect");
 import {
   CancelInterviewCommandSchema,
   CancelInterviewObservationSchema,
