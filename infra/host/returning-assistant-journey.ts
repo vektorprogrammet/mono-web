@@ -305,46 +305,59 @@ export const runReturningAssistantBrowserJourney = async ({
   let firstExpectedRevision: string | undefined;
   let routeFailure: string | undefined;
   let resolveFirstAction!: () => void;
+  let rejectFirstAction!: (cause: unknown) => void;
   let resolveSecondAction!: () => void;
-  const firstActionSettled = new Promise<void>((resolve) => {
+  let rejectSecondAction!: (cause: unknown) => void;
+  const firstActionSettled = new Promise<void>((resolve, reject) => {
     resolveFirstAction = resolve;
+    rejectFirstAction = reject;
   });
-  const secondActionSettled = new Promise<void>((resolve) => {
+  const secondActionSettled = new Promise<void>((resolve, reject) => {
     resolveSecondAction = resolve;
+    rejectSecondAction = reject;
   });
   await returning.route("**/dashboard/tidligere-assistenter*", async (route) => {
-    if (route.request().method() !== "POST") {
-      await route.continue();
-      return;
-    }
-    interceptedActions += 1;
-    const formData = new URLSearchParams(route.request().postData() ?? "");
-    const commandKey = formData.get("commandId");
-    const expectedRevision = formData.get("expectedRevision");
-    const phase = droppedResponse ? "retry" : "first";
-    stage?.(`returning:mutation:${phase}:request`);
-    const response = await route.fetch({ timeout: 30_000 });
-    stage?.(`returning:mutation:${phase}:response`);
-    const status = response.status();
-    trace.push({
-      phase,
-      admissionPeriodId: formData.get("admissionPeriodId"),
-      expectedRevision,
-      commandId: commandKey,
-      responseStatus: status,
-    });
-    responses.push(
-      `intercepted POST /dashboard/tidligere-assistenter.data phase=${phase} status=${status}`,
-    );
-    if (!droppedResponse) {
-      droppedResponse = true;
-      firstCommandKey = commandKey ?? undefined;
-      firstExpectedRevision = expectedRevision ?? undefined;
-      if (status < 200 || status >= 300) routeFailure = `first action status ${status}`;
-      await response.body();
-      await route.abort("failed");
-      resolveFirstAction();
-      return;
+    try {
+      if (route.request().method() !== "POST") {
+        await route.continue();
+        return;
+      }
+      interceptedActions += 1;
+      const formData = new URLSearchParams(route.request().postData() ?? "");
+      const commandKey = formData.get("commandId");
+      const expectedRevision = formData.get("expectedRevision");
+      const phase = droppedResponse ? "retry" : "first";
+      stage?.(`returning:mutation:${phase}:request`);
+      const response = await route.fetch({ timeout: 30_000 });
+      stage?.(`returning:mutation:${phase}:response`);
+      const status = response.status();
+      trace.push({
+        phase,
+        admissionPeriodId: formData.get("admissionPeriodId"),
+        expectedRevision,
+        commandId: commandKey,
+        responseStatus: status,
+      });
+      responses.push(
+        `intercepted POST /dashboard/tidligere-assistenter.data phase=${phase} status=${status}`,
+      );
+      if (!droppedResponse) {
+        droppedResponse = true;
+        firstCommandKey = commandKey ?? undefined;
+        firstExpectedRevision = expectedRevision ?? undefined;
+        if (status < 200 || status >= 300) routeFailure = `first action status ${status}`;
+        await route.abort("failed");
+        resolveFirstAction();
+        return;
+      }
+      if (commandKey !== firstCommandKey || expectedRevision !== firstExpectedRevision)
+        routeFailure = "retry payload identity changed";
+      if (status < 200 || status >= 300) routeFailure = `retry action status ${status}`;
+      await route.fulfill({ response });
+      resolveSecondAction();
+    } catch (cause) {
+      routeFailure = `intercepted ${interceptedActions === 1 ? "first" : "retry"} action failed`;
+      (interceptedActions === 1 ? rejectFirstAction : rejectSecondAction)(cause);
     }
   });
   stage?.("returning:mutation");
