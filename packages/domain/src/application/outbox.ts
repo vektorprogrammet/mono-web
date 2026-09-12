@@ -29,6 +29,7 @@ interface CanonicalOutboxIdentityRow {
   readonly audit_application_id: string;
   readonly audit_applicant_id: string;
   readonly linked_person_id: string | null;
+  readonly linked_registration_id: string | null;
 }
 
 interface CountRow {
@@ -167,10 +168,12 @@ export const claimNextPublicApplicationOutbox = (
                 registration.application_id AS receipt_application_id,
                 registration.application_id AS audit_application_id,
                 registration.applicant_id AS audit_applicant_id,
-                registration.person_id AS linked_person_id
+                registration.person_id AS linked_person_id,
+                registration.registration_id AS linked_registration_id
               FROM admission_returning_command_receipts AS receipt
               INNER JOIN admission_returning_registrations AS registration
                 ON registration.registration_id = receipt.registration_id
+                AND registration.command_id = receipt.command_id
               INNER JOIN admission_applicants AS applicant
                 ON applicant.applicant_id = registration.applicant_id
               WHERE receipt.command_id = ${row.command_id}
@@ -185,7 +188,8 @@ export const claimNextPublicApplicationOutbox = (
                 receipt.application_id AS receipt_application_id,
                 audit.application_id AS audit_application_id,
                 audit.applicant_id AS audit_applicant_id,
-                NULL::text AS linked_person_id
+                NULL::text AS linked_person_id,
+                NULL::text AS linked_registration_id
               FROM admission_applicants AS applicant
               INNER JOIN admission_applications AS application
                 ON application.applicant_id = applicant.applicant_id
@@ -208,7 +212,9 @@ export const claimNextPublicApplicationOutbox = (
             identity.audit_applicant_id === row.applicant_id &&
             (row.origin !== "ReturningAssistant" ||
               (identity.linked_person_id !== null &&
+                identity.linked_registration_id !== null &&
                 request.personId === identity.linked_person_id &&
+                request.registrationId === identity.linked_registration_id &&
                 request.origin === "ReturningAssistant"));
           const requestMatchesCanonicalState =
             request._tag === "SendApplicantActivationOrConfirmation"
@@ -220,7 +226,10 @@ export const claimNextPublicApplicationOutbox = (
               : request._tag === "CreateAdmissionSubscription"
                 ? request.email === identity.email &&
                   request.departmentId === identity.department_id
-                : true;
+                : request.action ===
+                  (row.origin === "ReturningAssistant"
+                    ? "ReturningAssistantRegistered"
+                    : "PublicApplicationSubmitted");
           if (!transactionMatchesCanonicalState || !requestMatchesCanonicalState) {
             yield* quarantine(row.effect_id, "InvalidPublicApplicationEffectAuthority");
             return undefined;

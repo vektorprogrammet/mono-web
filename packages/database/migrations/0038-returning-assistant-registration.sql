@@ -14,7 +14,10 @@ ALTER TABLE public.admission_applications
   ADD CONSTRAINT admission_applications_id_period_key UNIQUE (application_id, admission_period_id);
 ALTER TABLE public.assistant_placements
   ADD CONSTRAINT assistant_placements_id_person_key UNIQUE (placement_id, person_id);
+ALTER TABLE public.applicant_account_links
+  ADD CONSTRAINT applicant_account_links_applicant_person_key UNIQUE (applicant_id, person_id);
 ALTER TABLE public.admission_application_outbox
+  DROP CONSTRAINT IF EXISTS admission_application_outbox_command_id_fkey,
   ADD COLUMN origin text NOT NULL DEFAULT 'PublicApplication',
   ADD COLUMN public_command_id text GENERATED ALWAYS AS (
     CASE WHEN origin = 'PublicApplication' THEN command_id ELSE NULL END
@@ -53,6 +56,7 @@ CREATE TABLE public.admission_returning_registrations (
   preferred_school text NULL CHECK (preferred_school IS NULL OR char_length(preferred_school) <= 255),
   team_interest boolean NOT NULL,
   team_ids jsonb NOT NULL CHECK (jsonb_typeof(team_ids) = 'array'),
+  registered_at timestamptz NOT NULL,
   FOREIGN KEY (application_id, applicant_id)
     REFERENCES public.admission_applications(application_id, applicant_id),
   FOREIGN KEY (application_id, admission_period_id)
@@ -70,7 +74,7 @@ CREATE TABLE public.admission_returning_registrations (
   UNIQUE (application_id, revision),
   UNIQUE (applicant_id, admission_period_id, revision),
   UNIQUE (registration_id, revision),
-  UNIQUE (registration_id, person_id, applicant_id)
+  UNIQUE (registration_id, command_id, person_id, applicant_id)
 );
 CREATE INDEX admission_returning_registrations_current
   ON public.admission_returning_registrations(applicant_id, admission_period_id, revision DESC);
@@ -83,8 +87,8 @@ CREATE TABLE public.admission_returning_command_receipts (
   person_id text NOT NULL,
   applicant_id text NOT NULL,
   committed_at timestamptz NOT NULL,
-  FOREIGN KEY (registration_id, person_id, applicant_id)
-    REFERENCES public.admission_returning_registrations(registration_id, person_id, applicant_id)
+  FOREIGN KEY (registration_id, command_id, person_id, applicant_id)
+    REFERENCES public.admission_returning_registrations(registration_id, command_id, person_id, applicant_id)
 );
 ALTER TABLE public.admission_application_outbox
   ADD CONSTRAINT admission_application_outbox_returning_command_fk
