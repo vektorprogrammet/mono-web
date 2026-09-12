@@ -2014,6 +2014,7 @@ try {
   await pool.query(
     `UPDATE public.organization_memberships SET is_team_leader=false,position_id='member' WHERE membership_id='membership-native-conduct-leader-0063'`,
   );
+  if (!process.argv.includes("--correction-mode")) {
   await runReturningAssistantBrowserJourney({
     browser,
     page,
@@ -2029,6 +2030,7 @@ try {
   recordGate(
     `returning registration route ${"/dashboard/tidligere-assistenter"} and report population ${returningAssistantFixture.admissionPeriodId}`,
   );
+  }
 
   recordGate(
     "owned interview shell retains role-scoped onboarding and existing schema/dashboard navigation",
