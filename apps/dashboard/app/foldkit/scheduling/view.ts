@@ -728,15 +728,17 @@ const correctionHistoryView = (
               [h.Class("fs-history__answers")],
               [
                 h.h5([h.Class("fs-label")], ["Svar"]),
-                ...entry.answers.map((answer) => {
-                  const question = detail.questions.find(
-                    (candidate) => candidate.questionId === answer.questionId,
-                  );
-                  return h.p(
-                    [h.Class("fs-history__answer")],
-                    [`${question?.prompt ?? answer.questionId}: ${historyAnswer(answer)}`],
-                  );
-                }),
+                ...(entry.answers.length === 0
+                  ? [h.p([h.Class("fs-history__answer")], ["Ingen svar registrert"])]
+                  : entry.answers.map((answer) => {
+                      const question = detail.questions.find(
+                        (candidate) => candidate.questionId === answer.questionId,
+                      );
+                      return h.p(
+                        [h.Class("fs-history__answer")],
+                        [`${question?.prompt ?? answer.questionId}: ${historyAnswer(answer)}`],
+                      );
+                    })),
               ],
             ),
             h.dl(

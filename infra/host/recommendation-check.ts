@@ -1238,6 +1238,40 @@ try {
       (await historyText()) ?? "",
       new RegExp(formatUiInstant(browserHistory[2].correctedAt), "u"),
     );
+    const originalEntry = browserHistory[0];
+    assert.deepEqual(originalEntry, beforeBody.history[0]);
+    const originalView = historyView.locator(".fs-history__entry").nth(0);
+    const originalText = (await originalView.textContent()) ?? "";
+    assert.match(originalText, /Original vurdering, versjon 1/u);
+    assert.match(originalText, new RegExp(formatUiInstant(originalEntry.finalizedAt), "u"));
+    assert.match(originalText, new RegExp(originalEntry.finalizedByPersonId, "u"));
+    for (const [label, value] of [
+      ["Forklaringskraft", originalEntry.score.explanatoryPower],
+      ["Rollemodell", originalEntry.score.roleModel],
+      ["Egnethet", originalEntry.score.suitability],
+    ] as const) {
+      assert.match(originalText, new RegExp(`${label}${value}`, "u"));
+    }
+    assert.match(originalText, /AnbefalingIkke registrert/u);
+    const originalAnswerNodes = originalView.locator(".fs-history__answer");
+    assert.equal(await originalAnswerNodes.count(), Math.max(1, originalEntry.answers.length));
+    if (originalEntry.answers.length === 0) {
+      assert.match(originalText, /Ingen svar registrert/u);
+    } else {
+      for (const answer of originalEntry.answers) {
+        const question = beforeBody.questions.find(
+          (candidate: any) => candidate.questionId === answer.questionId,
+        );
+        const renderedAnswer = Array.isArray(answer.answer)
+          ? answer.answer.join(", ")
+          : answer.answer;
+        assert.match(
+          originalText,
+          new RegExp(`${question?.prompt ?? answer.questionId}: ${renderedAnswer}`, "u"),
+        );
+      }
+    }
+    assert.equal(await historyView.locator("input,textarea,select,button").count(), 0);
     await page.locator("#interviewer-recommendation").focus();
     assert.equal(
       await page
