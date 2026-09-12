@@ -379,7 +379,11 @@ try {
   };
   secrets.push(env.BETTER_AUTH_SECRET);
   recordGate("disposable PostgreSQL is ready");
-  run("bun", ["packages/database/runtime/recommendation-preupgrade-fixture.ts"], env);
+  run(
+    "bun",
+    ["packages/database/runtime/recommendation-preupgrade-fixture.ts"],
+    { ...env, RECOMMENDATION_PREUPGRADE_THROUGH_0038: "1" },
+  );
   const historicalBefore = (
     await pool.query(
       `SELECT to_jsonb(c) value FROM public.recruitment_interview_conducts c WHERE interview_id='interview-recommendation-history'`,

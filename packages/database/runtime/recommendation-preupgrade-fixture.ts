@@ -9,24 +9,27 @@ import { Pool } from "pg";
 import { databaseMigrationDefinitions } from "../src/migrations.js";
 const url = process.env.JOURNEY_SEED_PG_URL!;
 if (new URL(url).hostname !== "127.0.0.1") throw new Error("Loopback fixture only");
-const previous = databaseMigrationDefinitions.filter((d) => Number(d.id.split("_")[0]) < 37);
-await Effect.runPromise(
-  Migrator.make({})({
-    table: "vektorprogrammet_schema_migrations",
-    loader: Migrator.fromRecord(
-      Object.fromEntries(
-        previous.map((d) => [
-          d.id,
-          Effect.gen(function* () {
-            const sql = yield* SqlClient.SqlClient;
-            const source = yield* Effect.promise(() => readFile(d.url, "utf8"));
-            yield* sql.unsafe(source).raw;
-          }),
-        ]),
+const applyMigrations = async (definitions: typeof databaseMigrationDefinitions): Promise<void> => {
+  await Effect.runPromise(
+    Migrator.make({})({
+      table: "vektorprogrammet_schema_migrations",
+      loader: Migrator.fromRecord(
+        Object.fromEntries(
+          definitions.map((d) => [
+            d.id,
+            Effect.gen(function* () {
+              const sql = yield* SqlClient.SqlClient;
+              const source = yield* Effect.promise(() => readFile(d.url, "utf8"));
+              yield* sql.unsafe(source).raw;
+            }),
+          ]),
+        ),
       ),
-    ),
-  }).pipe(Effect.provide(PgClient.layer({ url: Redacted.make(url) }))),
-);
+    }).pipe(Effect.provide(PgClient.layer({ url: Redacted.make(url) }))),
+  );
+};
+const previous = databaseMigrationDefinitions.filter((d) => Number(d.id.split("_")[0]) < 37);
+await applyMigrations(previous);
 const pool = new Pool({ connectionString: url });
 try {
   await pool.query(
@@ -101,6 +104,14 @@ try {
     `UPDATE public.organization_memberships SET is_team_leader=false,position_id='member' WHERE membership_id='membership-native-conduct-leader-0063'`,
   );
   await pool.query("COMMIT");
+  if (process.env.RECOMMENDATION_PREUPGRADE_THROUGH_0038 === "1") {
+    await applyMigrations(
+      databaseMigrationDefinitions.filter((d) => {
+        const id = Number(d.id.split("_")[0]);
+        return id >= 37 && id < 39;
+      }),
+    );
+  }
 } finally {
   await pool.end();
 }

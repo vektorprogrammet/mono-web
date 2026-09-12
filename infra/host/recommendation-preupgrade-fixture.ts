@@ -14,25 +14,25 @@ const leaderPersonId = "journey-conduct-leader-0063";
 const baseInterviewId = "interview-native-conduct-a-0063";
 const fixtureIds = {
   explicit: "interview-correction-explicit-0105",
-  historicalNull: "interview-correction-historical-null-0105",
+  historicalNull: "interview-recommendation-history",
   unfinished: "interview-correction-unfinished-0105",
   cancelled: "interview-correction-cancelled-0105",
 } as const;
 const fixtureApplicants = {
   explicit: "applicant-correction-explicit-0105",
-  historicalNull: "applicant-correction-historical-null-0105",
+  historicalNull: "applicant-recommendation-history",
   unfinished: "applicant-correction-unfinished-0105",
   cancelled: "applicant-correction-cancelled-0105",
 } as const;
 const fixtureApplications = {
   explicit: "application-correction-explicit-0105",
-  historicalNull: "application-correction-historical-null-0105",
+  historicalNull: "application-recommendation-history",
   unfinished: "application-correction-unfinished-0105",
   cancelled: "application-correction-cancelled-0105",
 } as const;
 const fixtureInvitations = {
   explicit: "invitation-correction-explicit-0105",
-  historicalNull: "invitation-correction-historical-null-0105",
+  historicalNull: "invitation-recommendation-history",
   unfinished: "invitation-correction-unfinished-0105",
   cancelled: "invitation-correction-cancelled-0105",
 } as const;
@@ -216,6 +216,7 @@ export const seedInterviewCorrectionPre0039Fixture = async ({
     await client.query("BEGIN");
     try {
       for (const [key, interviewId] of Object.entries(fixtureIds) as ReadonlyArray<readonly [keyof typeof fixtureIds, string]>) {
+        if (key === "historicalNull") continue;
         const applicantId = fixtureApplicants[key];
         const applicationId = fixtureApplications[key];
         const invitationId = fixtureInvitations[key];
@@ -253,16 +254,12 @@ export const seedInterviewCorrectionPre0039Fixture = async ({
         `INSERT INTO public.recruitment_interview_conducts
           (interview_id, answers, explanatory_power, role_model, suitability, recommendation,
            finalized_by_person_id, finalized_at, interview_revision)
-         VALUES
-          ($1, $4::jsonb, 4, 5, 6, 'Ja', $2, $5, 2),
-          ($3, $4::jsonb, 4, 5, 6, NULL, $2, $6, 1)`,
+         VALUES ($1, $3::jsonb, 4, 5, 6, 'Ja', $2, $4, 2)`,
         [
           fixtureIds.explicit,
           leaderPersonId,
-          fixtureIds.historicalNull,
           canonicalJson(fixtureAnswers),
           fixtureTimestamps.explicitFinalizedAt,
-          fixtureTimestamps.historicalNullFinalizedAt,
         ],
       );
       await client.query(
