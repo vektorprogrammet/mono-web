@@ -182,6 +182,12 @@ export const runReturningAssistantBrowserJourney = async ({
   await returning.getByLabel("E-post", { exact: true }).fill(person.email);
   await returning.getByLabel("Passord", { exact: true }).fill(person.password);
   await returning.getByRole("button", { name: "Logg inn", exact: true }).click();
+  const optionsResponse = await context.request.get(`${api}/api/returning-assistant/options`, {
+    headers: { origin: ui, accept: "application/json" },
+  });
+  responses.push(
+    `${optionsResponse.status()} ${optionsResponse.url()} ${JSON.stringify(await optionsResponse.json().catch(() => null))}`,
+  );
   await returning.waitForURL(/\/dashboard\/tidligere-assistenter$/);
   let form: Locator;
   try {
