@@ -185,6 +185,7 @@ const projection = (row: ReturningPeriodRow) =>
     id: AdmissionPeriodId.make(row.id),
     departmentId: DepartmentId.make(row.departmentId),
     semesterId: SemesterId.make(row.semesterId),
+    startAt: row.startAt,
     endAt: row.endAt,
     revision: row.revision,
     lastCommandId: row.lastCommandId,
