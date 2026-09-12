@@ -1928,6 +1928,7 @@ try {
     assert.ok(rejected);
   }
   await page.reload();
+  await open(page, "history Recommendation");
   const currentHistoryDetail = await (await get("interview-recommendation-history")).json();
   assert.equal(
     await page.locator("#interviewer-recommendation").inputValue(),
