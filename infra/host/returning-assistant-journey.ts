@@ -23,7 +23,7 @@ const fieldOfStudyId = "field-native-conduct-0063";
 const applicantId = "applicant-returning-0104";
 const applicationId = "application-returning-0104";
 const invitationId = "invitation-returning-0104";
-const placementId = `placement-${"z".repeat(64)}`;
+const placementId = `placement-${"f".repeat(64)}`;
 const teamId = "team-native-conduct-0063";
 const negativeProbePersons = [
   {
