@@ -48,47 +48,89 @@ export const seedReturningAssistant = async ({
     NATIVE_IDENTITY_DEPLOYMENT: env.NATIVE_IDENTITY_DEPLOYMENT,
     BETTER_AUTH_SECRET: env.BETTER_AUTH_SECRET,
   }, join(root, "packages/database"));
-  await pool.query(
-    `BEGIN;
-     INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision)
-     VALUES($1,$2,'Active',1) ON CONFLICT DO NOTHING;
-     INSERT INTO public.organization_volunteer_affiliation_audit(person_id,department_id,revision,action,actor_person_id,occurred_at)
-     VALUES($1,$2,1,'Establish','journey-conduct-leader-0063','2026-01-04T00:00:00Z') ON CONFLICT DO NOTHING;
-     INSERT INTO public.admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study,activation_digest)
-     VALUES($3,'rita.returning@example.invalid','rita.returning@example.invalid','Rita','Tilbake','90000104',0,$4,2,NULL) ON CONFLICT DO NOTHING;
-     INSERT INTO public.admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at,revision)
-     VALUES($5,$3,$6,$2,$4,2,'2026-08-20T10:00:00Z',0) ON CONFLICT DO NOTHING;
-     INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at)
-     VALUES($7,$5,$3,$8,'2026-12-31T00:00:00Z','Claimed','journey-conduct-leader-0063','2026-01-02T00:00:00Z') ON CONFLICT DO NOTHING;
-     INSERT INTO public.applicant_account_links(applicant_id,person_id,linked_at,invitation_id)
-     VALUES($3,$1,'2026-01-03T00:00:00Z',$7) ON CONFLICT DO NOTHING;
-     INSERT INTO public.schools_directory_schools(name,contact_person,email,phone,language,active,revision)
-     VALUES('Returning School','School Contact','school-returning@example.invalid','+47 900000106','Norwegian',true,0) ON CONFLICT DO NOTHING;
-     COMMIT;`,
-    [person.personId, departmentId, applicantId, fieldOfStudyId, applicationId, admissionPeriodId, invitationId, createHash("sha256").update(invitationId).digest("hex")],
-  );
-  const school = await pool.query("SELECT school_id FROM public.schools_directory_schools WHERE name='Returning School'");
-  assert.equal(school.rows.length, 1);
-  await pool.query("INSERT INTO public.schools_directory_departments(school_id,department_id,revision) VALUES($1,$2,0) ON CONFLICT DO NOTHING", [school.rows[0].school_id, departmentId]);
-  await pool.query(
-    `INSERT INTO public.assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision)
-     VALUES($1,$2,$3,$4,$5,'Monday',4,'1',true,1) ON CONFLICT DO NOTHING;
-     INSERT INTO public.assistant_placement_audit(placement_id,revision,actor_person_id,occurred_at,action,snapshot)
-     VALUES($1,1,$2,'2026-01-04T00:00:00Z','Create',jsonb_build_object('placementId',$1,'personId',$2,'departmentId',$3,'semesterId',$4,'schoolId',$5,'day','Monday','workdays',4,'block','1','active',true,'revision',1)) ON CONFLICT DO NOTHING;`,
-    [placementId, person.personId, departmentId, semesterId, school.rows[0].school_id],
-  );
-  await pool.query(
-    `INSERT INTO public.recruitment_interviews(interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at,revision)
-     VALUES('interview-returning-0104',$1,$2,'journey-returning-assistant-0104','interview-schema-native-conduct-0063','journey-conduct-leader-0063','2026-08-21T10:00:00Z',1) ON CONFLICT DO NOTHING;
-     INSERT INTO public.recruitment_interview_question_snapshots(interview_id,question_id,ordinal,prompt,help_text,kind,alternatives)
-     SELECT 'interview-returning-0104',question_id,ordinal,prompt,help_text,kind,alternatives
-     FROM public.recruitment_interview_schema_questions
-     WHERE interview_schema_id='interview-schema-native-conduct-0063'
-     ON CONFLICT DO NOTHING;
-     INSERT INTO public.recruitment_interview_conducts(interview_id,answers,explanatory_power,role_model,suitability,finalized_by_person_id,finalized_at,interview_revision,recommendation)
-     VALUES('interview-returning-0104','[]'::jsonb,8,8,8,'journey-conduct-leader-0063','2026-08-22T10:00:00Z',1,'Ja') ON CONFLICT DO NOTHING;`,
-    [applicationId, departmentId],
-  );
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision)
+       VALUES($1,$2,'Active',1) ON CONFLICT DO NOTHING`,
+      [person.personId, departmentId],
+    );
+    await client.query(
+      `INSERT INTO public.organization_volunteer_affiliation_audit(person_id,department_id,revision,action,actor_person_id,occurred_at)
+       VALUES($1,$2,1,'Establish','journey-conduct-leader-0063','2026-01-04T00:00:00Z') ON CONFLICT DO NOTHING`,
+      [person.personId, departmentId],
+    );
+    await client.query(
+      `INSERT INTO public.admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study,activation_digest)
+       VALUES($1,'rita.returning@example.invalid','rita.returning@example.invalid','Rita','Tilbake','90000104',0,$2,2,NULL) ON CONFLICT DO NOTHING`,
+      [applicantId, fieldOfStudyId],
+    );
+    await client.query(
+      `INSERT INTO public.admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at,revision)
+       VALUES($1,$2,$3,$4,$5,2,'2026-08-20T10:00:00Z',0) ON CONFLICT DO NOTHING`,
+      [applicationId, applicantId, admissionPeriodId, departmentId, fieldOfStudyId],
+    );
+    await client.query(
+      `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at)
+       VALUES($1,$2,$3,$4,'2026-12-31T00:00:00Z','Claimed','journey-conduct-leader-0063','2026-01-02T00:00:00Z') ON CONFLICT DO NOTHING`,
+      [
+        invitationId,
+        applicationId,
+        applicantId,
+        createHash("sha256").update(invitationId).digest("hex"),
+      ],
+    );
+    await client.query(
+      `INSERT INTO public.applicant_account_links(applicant_id,person_id,linked_at,invitation_id)
+       VALUES($1,$2,'2026-01-03T00:00:00Z',$3) ON CONFLICT DO NOTHING`,
+      [applicantId, person.personId, invitationId],
+    );
+    await client.query(
+      `INSERT INTO public.schools_directory_schools(name,contact_person,email,phone,language,active,revision)
+       VALUES('Returning School','School Contact','school-returning@example.invalid','+47 900000106','Norwegian',true,0) ON CONFLICT DO NOTHING`,
+    );
+    const school = await client.query(
+      "SELECT school_id FROM public.schools_directory_schools WHERE name='Returning School'",
+    );
+    assert.equal(school.rows.length, 1);
+    await client.query(
+      "INSERT INTO public.schools_directory_departments(school_id,department_id,revision) VALUES($1,$2,0) ON CONFLICT DO NOTHING",
+      [school.rows[0].school_id, departmentId],
+    );
+    await client.query(
+      `INSERT INTO public.assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision)
+       VALUES($1,$2,$3,$4,$5,'Monday',4,'1',true,1) ON CONFLICT DO NOTHING`,
+      [placementId, person.personId, departmentId, semesterId, school.rows[0].school_id],
+    );
+    await client.query(
+      `INSERT INTO public.assistant_placement_audit(placement_id,revision,actor_person_id,occurred_at,action,snapshot)
+       VALUES($1,1,$2,'2026-01-04T00:00:00Z','Create',jsonb_build_object('placementId',$1,'personId',$2,'departmentId',$3,'semesterId',$4,'schoolId',$5,'day','Monday','workdays',4,'block','1','active',true,'revision',1)) ON CONFLICT DO NOTHING`,
+      [placementId, person.personId, departmentId, semesterId, school.rows[0].school_id],
+    );
+    await client.query(
+      `INSERT INTO public.recruitment_interviews(interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at,revision)
+       VALUES('interview-returning-0104',$1,$2,'journey-returning-assistant-0104','interview-schema-native-conduct-0063','journey-conduct-leader-0063','2026-08-21T10:00:00Z',1) ON CONFLICT DO NOTHING`,
+      [applicationId, departmentId],
+    );
+    await client.query(
+      `INSERT INTO public.recruitment_interview_question_snapshots(interview_id,question_id,ordinal,prompt,help_text,kind,alternatives)
+       SELECT 'interview-returning-0104',question_id,ordinal,prompt,help_text,kind,alternatives
+       FROM public.recruitment_interview_schema_questions
+       WHERE interview_schema_id='interview-schema-native-conduct-0063'
+       ON CONFLICT DO NOTHING`,
+    );
+    await client.query(
+      `INSERT INTO public.recruitment_interview_conducts(interview_id,answers,explanatory_power,role_model,suitability,finalized_by_person_id,finalized_at,interview_revision,recommendation)
+       VALUES('interview-returning-0104','[]'::jsonb,8,8,8,'journey-conduct-leader-0063','2026-08-22T10:00:00Z',1,'Ja') ON CONFLICT DO NOTHING`,
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
   const counts = await pool.query(
     `SELECT (SELECT count(*)::int FROM public.applicant_account_links WHERE person_id=$1) links,
             (SELECT count(*)::int FROM public.assistant_placements WHERE person_id=$1) placements`,
