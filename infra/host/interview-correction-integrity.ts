@@ -288,15 +288,17 @@ export async function assertInterviewCorrectionIntegrity(pool: Pool, interviewId
     pool,
     interviewId,
     "skipped correction predecessor",
-    (client) =>
-      insertAssessment(
+    async (client) => {
+      await alignAggregateForCandidate(client, interviewId, candidateRevision);
+      await insertAssessment(
         client,
         interviewId,
         seed,
         freshId("integrity-skipped"),
         currentRevision - 1,
         candidateRevision,
-      ),
+      );
+    },
     { message: /predecessor must be the current effective revision/i },
   );
   await assertRejectedAndUnchanged(
@@ -327,8 +329,8 @@ export async function assertInterviewCorrectionIntegrity(pool: Pool, interviewId
         client,
         candidateCommandId,
         interviewId,
-        currentRevision + 1,
-        candidateRevision,
+        seed.predecessorRevision,
+        seed.resultingRevision,
       );
     },
     { constraint: "correction_receipt_assessment_chain_fk" },
@@ -348,7 +350,13 @@ export async function assertInterviewCorrectionIntegrity(pool: Pool, interviewId
           (command_id, interview_id, actor_person_id, predecessor_revision,
            resulting_revision, occurred_at)
          VALUES ($1,$2,$3,$4,$5,CURRENT_TIMESTAMP)`,
-        [candidateCommandId, interviewId, seed.correctedByPersonId, currentRevision + 1, candidateRevision],
+        [
+          candidateCommandId,
+          interviewId,
+          seed.correctedByPersonId,
+          seed.predecessorRevision,
+          seed.resultingRevision,
+        ],
       );
     },
     { constraint: "correction_audit_receipt_chain_fk" },
