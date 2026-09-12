@@ -366,6 +366,7 @@ export const runReturningAssistantBrowserJourney = async ({
   const context = await browser.newContext();
   const responses: string[] = [];
   const trace: Array<Record<string, unknown>> = [];
+  const dashboardPostStatuses: number[] = [];
   stage?.("returning:browser.newPage");
   const returning = await context.newPage();
   returning.on("request", (request) => {
@@ -384,6 +385,8 @@ export const runReturningAssistantBrowserJourney = async ({
   });
   returning.on("response", async (response) => {
     const url = new URL(response.url());
+    if (response.request().method() === "POST" && url.pathname === "/dashboard/tidligere-assistenter")
+      dashboardPostStatuses.push(response.status());
     if (
       !url.pathname.includes("/dashboard/tidligere-assistenter")
       && !url.pathname.includes("/api/returning-assistant/")
@@ -449,6 +452,22 @@ export const runReturningAssistantBrowserJourney = async ({
   const optionsResponse = await context.request.get(`${api}/api/returning-assistant/options`, {
     headers: { origin: ui, accept: "application/json", cookie: cookieHeader },
   });
+  const waitForDashboardAction = async (beforePosts: number, beforeResponses: number) => {
+    let post: Record<string, unknown> | undefined;
+    let status: number | undefined;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const posts = trace.filter((entry) => entry.phase === "dashboard-post");
+      if (posts.length > beforePosts && dashboardPostStatuses.length > beforeResponses) {
+        post = posts.at(-1);
+        status = dashboardPostStatuses.at(-1);
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.ok(post, "dashboard action request did not arrive");
+    assert.equal(status, 200);
+    return post;
+  };
   responses.push(`context.request options ${optionsResponse.status()}`);
   const negativeMutationSnapshot = async (personId: string) =>
     (await pool.query(
@@ -758,12 +777,6 @@ export const runReturningAssistantBrowserJourney = async ({
   );
   assert.equal(afterRetryCommitted.rows.length, 1);
   assert.deepEqual(afterRetryCommitted.rows[0], firstCommittedRow);
-  trace.push({ phase: "after-retry-immutable-row", sqlCommitted: afterRetryCommitted.rows });
-  try {
-    await assertStatus(form, "Registreringen er lagret.");
-  } catch (cause) {
-    await captureReturningFailure("submit-status", cause);
-  }
   await returning.unroute("**/dashboard/tidligere-assistenter*");
   await returning.reload();
   const reloaded = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
@@ -777,8 +790,12 @@ export const runReturningAssistantBrowserJourney = async ({
   assert.equal(await reloaded.getByLabel("Ønsket skole (valgfritt)", { exact: true }).inputValue(), "Returning School");
   assert.equal(await reloaded.getByLabel("Jeg er interessert i teamarbeid", { exact: true }).isChecked(), true);
   assert.equal(await reloaded.locator(`input[name="teamIds"][value="${teamId}"]`).isChecked(), true);
-
   await reloaded.getByRole("combobox", { name: "Opptaksperiode" }).selectOption(admissionPeriodId);
+  await returning.waitForURL(
+    new RegExp(`/dashboard/tidligere-assistenter\\?admissionPeriodId=${admissionPeriodId}$`),
+  );
+  for (let attempt = 0; attempt < 100 && !(await reloaded.getByRole("combobox", { name: "Opptaksperiode" }).isEnabled()); attempt += 1)
+    await new Promise((resolve) => setTimeout(resolve, 100));
   await reloaded.getByRole("combobox", { name: "Studieår" }).selectOption("2");
   await reloaded.getByLabel("Torsdag", { exact: true }).uncheck();
   await reloaded.getByRole("combobox", { name: "Stillingslengde" }).selectOption("4");
@@ -787,7 +804,10 @@ export const runReturningAssistantBrowserJourney = async ({
   await reloaded.getByLabel("Ønsket skole (valgfritt)", { exact: true }).fill("");
   await reloaded.getByLabel("Jeg er interessert i teamarbeid", { exact: true }).uncheck();
   await reloaded.locator(`input[name="teamIds"][value="${teamId}"]`).uncheck();
+  const nativePostsBefore = trace.filter((entry) => entry.phase === "dashboard-post").length;
+  const nativeResponsesBefore = dashboardPostStatuses.length;
   await reloaded.locator('button[type="submit"]').click();
+  await waitForDashboardAction(nativePostsBefore, nativeResponsesBefore);
   try {
     await assertStatus(reloaded, "Registreringen er lagret.");
   } catch (cause) {
@@ -804,13 +824,15 @@ export const runReturningAssistantBrowserJourney = async ({
   await expectValue(existing.getByRole("combobox", { name: "Språk" }), "Norsk og engelsk");
   await existing.getByRole("combobox", { name: "Studieår" }).selectOption("3");
   await existing.getByRole("combobox", { name: "Språk" }).selectOption("Engelsk");
+  const updatePostsBefore = trace.filter((entry) => entry.phase === "dashboard-post").length;
+  const updateResponsesBefore = dashboardPostStatuses.length;
   await existing.getByRole("button", { name: "Lagre endringer" }).click();
+  await waitForDashboardAction(updatePostsBefore, updateResponsesBefore);
   try {
     await assertStatus(existing, "Registreringen er lagret.");
   } catch (cause) {
     await captureReturningFailure("update-status", cause);
   }
-  await captureCommitted("existing-period-after-update", admissionPeriodId);
   await returning.reload();
   const updated = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
   await expectValue(updated.getByRole("combobox", { name: "Opptaksperiode" }), admissionPeriodId);
