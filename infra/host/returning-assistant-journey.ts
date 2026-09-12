@@ -965,6 +965,189 @@ export const runReturningAssistantBrowserJourney = async ({
   );
   assert.deepEqual(nextInterviews.rows, [{ count: 0 }]);
   trace.push({ phase: "negative-gate", gate: "new-period-no-new-interview", status: "observed" });
+  const ordinaryConduct = await pool.query(
+    `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
+     FROM public.recruitment_interview_conducts c
+     WHERE c.interview_id='interview-native-conduct-a-0063'`,
+  );
+  if (ordinaryConduct.rows.length === 0) {
+    await page.goto(`${ui}/dashboard/intervjuer`);
+    await page.getByRole("heading", { name: "Planlegg intervjuer", exact: true }).waitFor();
+    const ordinaryCard = page.getByRole("article").filter({ hasText: "Sofie Gjennomfører" });
+    await ordinaryCard.getByRole("button", { name: "Åpne intervju", exact: true }).click();
+    await page.getByRole("heading", { name: "Intervju med Sofie Gjennomfører", exact: true }).waitFor();
+    await page.locator("#question-interview-schema-native-conduct-0063-q0").fill(
+      "Jeg vil forklare matematikk tydelig.",
+    );
+    await page.locator("#question-interview-schema-native-conduct-0063-q1-1").check();
+    await page.locator("#question-interview-schema-native-conduct-0063-q2-0").check();
+    await page.locator("#question-interview-schema-native-conduct-0063-q3-0").check();
+    for (const axis of ["explanatoryPower", "roleModel", "suitability"])
+      await page.locator(`#score-${axis}`).selectOption("8");
+    await page.locator("#interviewer-recommendation").selectOption("Ja");
+    await page.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Fullfør intervju", exact: true })
+      .press("Enter");
+    await page.getByText("Intervjuet er fullført.", { exact: true }).waitFor();
+    await page.reload();
+  }
+  const ordinaryAfter = await pool.query(
+    `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
+     FROM public.recruitment_interview_conducts c
+     WHERE c.interview_id='interview-native-conduct-a-0063'`,
+  );
+  assert.deepEqual(ordinaryAfter.rows, [
+    { recommendation: "Ja", explanatory_power: 8, role_model: 8, suitability: 8 },
+  ]);
+  trace.push({
+    phase: "native-period-ordinary-conduct",
+    interviewId: "interview-native-conduct-a-0063",
+    recommendation: "Ja",
+    total: 24,
+  });
+  stage?.("returning:next-period-assignment");
+  const nextApplication = await pool.query(
+    `SELECT application_id
+     FROM public.admission_applications
+     WHERE applicant_id=$1 AND admission_period_id=$2`,
+    [applicantId, nextAdmissionPeriodId],
+  );
+  assert.equal(nextApplication.rows.length, 1);
+  const nextApplicationId = nextApplication.rows[0].application_id as string;
+  const assignmentCommandId = "returning-next-assignment-0104";
+  const assignment = await page.request.post(
+    `${api}/api/recruitment/applications/${encodeURIComponent(nextApplicationId)}/interviews`,
+    {
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": assignmentCommandId,
+        origin: ui,
+      },
+      data: {
+        interviewerPersonId: "journey-conduct-leader-0063",
+        interviewSchemaId: "interview-schema-native-conduct-0063",
+      },
+    },
+  );
+  assert.equal(assignment.status(), 201);
+  const assignmentBody = (await assignment.json()) as {
+    interviewId?: string;
+    applicationId?: string;
+  };
+  assert.equal(assignmentBody.applicationId, nextApplicationId);
+  assert.equal(typeof assignmentBody.interviewId, "string");
+  const nextInterviewId = assignmentBody.interviewId!;
+  const assignmentRow = await pool.query(
+    `SELECT interview_id,application_id,interviewer_person_id,revision
+     FROM public.recruitment_interviews
+     WHERE interview_id=$1`,
+    [nextInterviewId],
+  );
+  assert.deepEqual(assignmentRow.rows, [
+    {
+      interview_id: nextInterviewId,
+      application_id: nextApplicationId,
+      interviewer_person_id: "journey-conduct-leader-0063",
+      revision: 0,
+    },
+  ]);
+  // Scheduling and invitation acceptance are synthetic fixture setup for the
+  // already-assigned next-period interview; conduct itself stays browser/native.
+  await pool.query(
+    `INSERT INTO public.recruitment_interview_schedules
+       (interview_id,scheduled_at,room,campus,map_link,message,scheduled_by_person_id,committed_at,schedule_revision)
+     VALUES($1,'2026-09-10T10:00:00Z','K-0104','Gløshaugen','https://maps.example.invalid/returning-0104',
+       'Velkommen til intervjuet.','journey-conduct-leader-0063','2026-09-09T10:00:00Z',1);
+    INSERT INTO public.recruitment_invitations
+       (invitation_id,interview_id,schedule_revision,capability_sha256,response_state,created_at,
+        response_message,responded_at,response_revision,superseded_at)
+     VALUES('invitation-returning-next-0104',$1,1,repeat('c',64),'Accepted',
+       '2026-09-09T10:00:00Z',NULL,'2026-09-09T12:00:00Z',1,NULL);
+    INSERT INTO public.recruitment_invitation_response_audit
+       (invitation_id,interview_id,schedule_revision,response_revision,response_state,response_message,responded_at)
+     VALUES('invitation-returning-next-0104',$1,1,1,'Accepted',NULL,'2026-09-09T12:00:00Z')`,
+    [nextInterviewId],
+  );
+  await page.goto(`${ui}/dashboard/intervjuer`);
+  await page.getByRole("heading", { name: "Planlegg intervjuer", exact: true }).waitFor();
+  const nextCard = page.getByRole("article").filter({ hasText: "Rita Tilbake" });
+  await nextCard.getByRole("button", { name: "Åpne intervju", exact: true }).click();
+  await page.getByRole("heading", { name: "Intervju med Rita Tilbake", exact: true }).waitFor();
+  await page.locator("#question-interview-schema-native-conduct-0063-q0").fill(
+    "Jeg vil utvikle læringsopplegg sammen med andre.",
+  );
+  await page.locator("#question-interview-schema-native-conduct-0063-q1-1").check();
+  await page.locator("#question-interview-schema-native-conduct-0063-q2-0").check();
+  await page.locator("#question-interview-schema-native-conduct-0063-q3-0").check();
+  for (const axis of ["explanatoryPower", "roleModel", "suitability"])
+    await page.locator(`#score-${axis}`).selectOption("9");
+  await page.locator("#interviewer-recommendation").selectOption("Kanskje");
+  const staleContext = await browser.newContext({ storageState: await page.context().storageState() });
+  const stalePage = await staleContext.newPage();
+  try {
+    await stalePage.goto(`${ui}/dashboard/intervjuer`);
+    await stalePage.getByRole("heading", { name: "Planlegg intervjuer", exact: true }).waitFor();
+    await stalePage
+      .getByRole("article")
+      .filter({ hasText: "Rita Tilbake" })
+      .getByRole("button", { name: "Åpne intervju", exact: true })
+      .click();
+    await stalePage.getByRole("heading", { name: "Intervju med Rita Tilbake", exact: true }).waitFor();
+    await stalePage.locator("#question-interview-schema-native-conduct-0063-q0").fill(
+      "Jeg vil utvikle læringsopplegg sammen med andre.",
+    );
+    await stalePage.locator("#question-interview-schema-native-conduct-0063-q1-1").check();
+    await stalePage.locator("#question-interview-schema-native-conduct-0063-q2-0").check();
+    await stalePage.locator("#question-interview-schema-native-conduct-0063-q3-0").check();
+    for (const axis of ["explanatoryPower", "roleModel", "suitability"])
+      await stalePage.locator(`#score-${axis}`).selectOption("9");
+    await stalePage.locator("#interviewer-recommendation").selectOption("Kanskje");
+    await page.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Fullfør intervju", exact: true })
+      .press("Enter");
+    await page.getByText("Intervjuet er fullført.", { exact: true }).waitFor();
+    await page.reload();
+    await stalePage.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
+    await stalePage
+      .getByRole("dialog")
+      .getByRole("button", { name: "Fullfør intervju", exact: true })
+      .press("Enter");
+    await stalePage
+      .getByRole("alert")
+      .filter({ hasText: "Intervjuet er endret." })
+      .waitFor();
+    await stalePage.reload();
+  } finally {
+    await staleContext.close();
+  }
+  const nextConduct = await pool.query(
+    `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
+     FROM public.recruitment_interview_conducts c
+     WHERE c.interview_id=$1`,
+    [nextInterviewId],
+  );
+  assert.deepEqual(nextConduct.rows, [
+    { recommendation: "Kanskje", explanatory_power: 9, role_model: 9, suitability: 9 },
+  ]);
+  const preservedConduct = await pool.query(
+    `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
+     FROM public.recruitment_interview_conducts c
+     WHERE c.interview_id='interview-returning-0104'`,
+  );
+  assert.deepEqual(preservedConduct.rows, [
+    { recommendation: "Ja", explanatory_power: 8, role_model: 8, suitability: 8 },
+  ]);
+  trace.push({
+    phase: "returning:next-period-conduct",
+    interviewId: nextInterviewId,
+    recommendation: "Kanskje",
+    total: 27,
+    staleDraft: "409",
+  });
   const registrations = await pool.query("SELECT admission_period_id,revision,year_of_study,monday_unavailable,tuesday_unavailable,wednesday_unavailable,thursday_unavailable,friday_unavailable,position_weeks,preferred_group,language,preferred_school,team_interest,team_ids FROM public.admission_returning_registrations WHERE person_id=$1 ORDER BY admission_period_id,revision", [person.personId]);
   assert.deepEqual(registrations.rows, [
     { admission_period_id: admissionPeriodId, revision: 1, year_of_study: 2, monday_unavailable: false, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: false, friday_unavailable: false, position_weeks: 4, preferred_group: "all", language: "Norsk og engelsk", preferred_school: null, team_interest: false, team_ids: [] },
@@ -1024,7 +1207,7 @@ export const runReturningAssistantBrowserJourney = async ({
     },
     data: firstReplayPayload,
   });
-  assert.equal(exactReplay.status(), 200);
+  assert.equal(exactReplay.status(), 201);
   const nextRevisionAfterReplay = await pool.query(
     "SELECT count(*)::int AS count FROM public.admission_returning_registrations WHERE person_id=$1 AND admission_period_id=$2",
     [person.personId, nextAdmissionPeriodId],
@@ -1095,7 +1278,7 @@ export const runReturningAssistantBrowserJourney = async ({
       },
     }),
   ]);
-  assert.deepEqual(concurrent.map((response) => response.status()).sort((a, b) => a - b), [200, 412]);
+  assert.deepEqual(concurrent.map((response) => response.status()).sort((a, b) => a - b), [201, 412]);
   const concurrentRows = await pool.query(
     "SELECT revision FROM public.admission_returning_registrations WHERE person_id=$1 AND admission_period_id=$2 ORDER BY revision",
     [person.personId, admissionPeriodId],
@@ -1104,7 +1287,7 @@ export const runReturningAssistantBrowserJourney = async ({
   const returningOutbox = await pool.query(
     "SELECT effect_id,status,attempts FROM public.admission_application_outbox WHERE origin='ReturningAssistant' ORDER BY effect_id",
   );
-  assert.equal(returningOutbox.rows.length, 12);
+  assert.equal(returningOutbox.rows.length, 15);
   const revokedBefore = await negativeMutationSnapshot(person.personId);
   const session = await pool.query('SELECT count(*)::int AS count FROM auth.session WHERE "userId"=$1', [person.personId]);
   assert.equal(session.rows[0].count, 1);
@@ -1121,14 +1304,51 @@ export const runReturningAssistantBrowserJourney = async ({
   assert.deepEqual(await negativeMutationSnapshot(person.personId), revokedBefore);
   trace.push({ phase: "negative-gate", gate: "stale-revoked-auth", status: revokedReplay.status() });
   stage?.("returning:report");
-  await page.goto(`${ui}/dashboard/intervjuer/rapport?admissionPeriodId=${encodeURIComponent(admissionPeriodId)}`);
-  await page.getByRole("heading", { level: 1, name: "Fullførte intervjuer" }).waitFor();
-  await page.getByRole("row").filter({ hasText: "Rita Tilbake" }).getByText("Tilbakevendende").waitFor();
-  await page.getByRole("row").filter({ hasText: "Rita Tilbake" }).getByText("Ja").waitFor();
+  const reportRows = async (periodId: string) => {
+    await page.goto(
+      `${ui}/dashboard/intervjuer/rapport?admissionPeriodId=${encodeURIComponent(periodId)}`,
+    );
+    await page.getByRole("heading", { level: 1, name: "Fullførte intervjuer" }).waitFor();
+    return page.locator("tbody tr").evaluateAll((rows) =>
+      rows.map((row) => (row.textContent ?? "").replace(/\s+/gu, " ").trim()),
+    );
+  };
+  const currentReportRows = await reportRows(admissionPeriodId);
+  const currentRita = currentReportRows.find((row) => row.includes("Rita Tilbake"));
+  assert.ok(currentRita);
+  assert.match(currentRita, /Tilbakevendende/u);
+  assert.match(currentRita, /Ja/u);
+  assert.match(currentRita, /8/u);
+  assert.match(currentRita, /24/u);
+  const currentOrdinary = currentReportRows.find((row) => row.includes("Sofie Gjennomfører"));
+  assert.ok(currentOrdinary);
+  assert.match(currentOrdinary, /Ukjent/u);
+  assert.match(currentOrdinary, /Ja/u);
+  assert.match(currentOrdinary, /8/u);
+  assert.match(currentOrdinary, /24/u);
   await page.reload();
-  await page.getByRole("row").filter({ hasText: "Rita Tilbake" }).waitFor();
-  await auditPage(page, "returning-report");
-  await page.screenshot({ path: join(artifacts, "returning-report.png"), fullPage: true });
+  assert.equal(
+    (await page.locator("tbody tr").evaluateAll((rows) =>
+      rows.map((row) => (row.textContent ?? "").replace(/\s+/gu, " ").trim()),
+    )).find((row) => row.includes("Rita Tilbake")),
+    currentRita,
+  );
+  await auditPage(page, "returning-report-existing-period");
+  await page.screenshot({ path: join(artifacts, "returning-report-existing-period.png"), fullPage: true });
+  const nextReportRows = await reportRows(nextAdmissionPeriodId);
+  assert.equal(nextReportRows.length, 1);
+  assert.match(nextReportRows[0]!, /Rita Tilbake/u);
+  assert.match(nextReportRows[0]!, /Tilbakevendende/u);
+  assert.match(nextReportRows[0]!, /Kanskje/u);
+  assert.match(nextReportRows[0]!, /9/u);
+  assert.match(nextReportRows[0]!, /27/u);
+  await page.reload();
+  const reloadedNextRows = await page.locator("tbody tr").evaluateAll((rows) =>
+    rows.map((row) => (row.textContent ?? "").replace(/\s+/gu, " ").trim()),
+  );
+  assert.deepEqual(reloadedNextRows, nextReportRows);
+  await auditPage(page, "returning-report-next-period");
+  await page.screenshot({ path: join(artifacts, "returning-report-next-period.png"), fullPage: true });
   stage?.("returning:cleanup");
   await returning.close();
   await context.close();
