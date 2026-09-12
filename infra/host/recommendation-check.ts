@@ -163,15 +163,17 @@ try {
     NODE_ENV: "production",
   };
   secrets.push(env.BETTER_AUTH_SECRET);
+  recordGate("disposable PostgreSQL is ready");
   run("bun", ["packages/database/runtime/recommendation-preupgrade-fixture.ts"], env);
   const historicalBefore = (
     await pool.query(
       `SELECT to_jsonb(c) value FROM public.recruitment_interview_conducts c WHERE interview_id='interview-recommendation-history'`,
     )
   ).rows[0].value;
+  recordGate("previous-schema history fixture migrated");
   run("bun", ["apps/dashboard/e2e/native-conduct-journey-seed.mjs"], env);
+  recordGate("native interview schema fixture seeded");
   await seedReturningAssistant({ pool, run, env, root });
-  recordGate("seeded returning-assistant identity, historical placement, and linked applicant");
   const historicalAfter = (
     await pool.query(
       `SELECT to_jsonb(c)-'recommendation' value,recommendation FROM public.recruitment_interview_conducts c WHERE interview_id='interview-recommendation-history'`,
