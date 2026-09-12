@@ -751,7 +751,7 @@ export async function observeInterviewReport(o: Options) {
       `${o.correctionMode ? 0 : 1} fullførte intervjuer`,
     );
     if (o.correctionMode) {
-      await expect(page.getByText("Ikke registrert", { exact: true })).toHaveCount(0);
+      await expect(page.locator("tbody tr")).toHaveCount(0);
     } else {
       await expect(page.locator("tbody")).toContainText("Ikke registrert");
     }
