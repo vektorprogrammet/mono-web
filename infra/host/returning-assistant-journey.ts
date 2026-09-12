@@ -212,7 +212,7 @@ export const runReturningAssistantBrowserJourney = async ({
       { cause },
     );
   }
-  const submit = form.getByRole("button", { name: "Registrer for semesteret" });
+  const submit = form.locator('button[type="submit"]');
   let droppedResponse = false;
   let firstCommandKey: string | undefined;
   await returning.route(`${api}/api/returning-assistant/registrations`, async (route) => {
