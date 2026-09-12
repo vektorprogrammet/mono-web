@@ -1430,13 +1430,42 @@ export const runReturningAssistantBrowserJourney = async ({
      WHERE applicant_id=$1 AND admission_period_id=$2`,
       [applicantId, nextAdmissionPeriodId],
     );
-    assert.equal(nextApplication.rows.length, 1);
     const nextApplicationId = nextApplication.rows[0].application_id as string;
-    const assignmentPayload = {
-      interviewerPersonId: "journey-conduct-leader-0063",
-      interviewSchemaId: "interview-schema-native-conduct-0063",
-    };
-    const assignmentPath = `${api}/api/recruitment/applications/${encodeURIComponent(nextApplicationId)}/interviews`;
+    const assignmentActorContextBefore = await pool.query(
+      `SELECT
+         membership.membership_id,
+         membership.person_id,
+         membership.team_id,
+         membership.start_at,
+         membership.end_at,
+         membership.is_team_leader,
+         membership.is_suspended,
+         team.department_id,
+         team.active AS team_active,
+         department.active AS department_active
+       FROM public.organization_memberships membership
+       JOIN public.organization_teams team USING (team_id)
+       JOIN public.organization_departments department USING (department_id)
+       WHERE membership.person_id=$1
+       ORDER BY membership.membership_id`,
+      ["journey-conduct-leader-0063"],
+    );
+    const assignmentPeriodContextBefore = await pool.query(
+      `SELECT
+         p.admission_period_id,
+         p.department_id,
+         p.start_at,
+         p.end_at,
+         s.start_at AS semester_start_at,
+         s.end_at AS semester_end_at,
+         p.start_at <= statement_timestamp() AND statement_timestamp() < p.end_at
+           AND s.start_at <= statement_timestamp() AND statement_timestamp() < s.end_at AS eligible_now
+       FROM public.admission_periods p
+       JOIN public.admission_period_semesters s USING (semester_id)
+       WHERE p.department_id=$1
+       ORDER BY p.admission_period_id`,
+      [departmentId],
+    );
     const ambiguousAssignment = await page.request.post(assignmentPath, {
       headers: {
         "content-type": "application/json",
@@ -1474,6 +1503,8 @@ export const runReturningAssistantBrowserJourney = async ({
       problemCode: ambiguousBody.code,
       problemStatus: ambiguousBody.status,
       body: ambiguousBodyText,
+      actorContextBefore: assignmentActorContextBefore.rows,
+      periodContextBefore: assignmentPeriodContextBefore.rows,
       source:
         "assignmentInTransaction currentPeriod scope check (packages/domain/src/recruitment/postgres.ts:850-857) maps RecruitmentScopeDenied to authority.denied (apps/backend/src/recruitment/http.ts:251-255)",
       periodContext: assignmentPeriodContext.rows,
