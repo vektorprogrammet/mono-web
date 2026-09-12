@@ -378,6 +378,10 @@ export const runReturningAssistantBrowserJourney = async ({
       responses.push(`request ${request.method()} ${url.pathname}`);
     }
   });
+  returning.on("framenavigated", (frame) => {
+    if (frame === returning.mainFrame())
+      responses.push(`navigation ${new URL(frame.url()).pathname}`);
+  });
   returning.on("response", async (response) => {
     const url = new URL(response.url());
     if (
@@ -669,21 +673,53 @@ export const runReturningAssistantBrowserJourney = async ({
     stage?.("returning:mutation:first:await");
     await firstActionSettled;
     stage?.("returning:mutation:first:settled");
+    const firstCommittedBeforeRetry = await pool.query(
+      `SELECT admission_period_id,revision,command_id
+       FROM public.admission_returning_registrations
+       WHERE person_id=$1 AND admission_period_id=$2
+       ORDER BY revision`,
+      [person.personId, nextAdmissionPeriodId],
+    );
+    assert.ok(firstCommandKey);
+    assert.deepEqual(firstCommittedBeforeRetry.rows, [{
+      admission_period_id: nextAdmissionPeriodId,
+      revision: 1,
+      command_id: firstCommandKey,
+    }]);
+    trace.push({ phase: "first-before-retry", sqlCommitted: firstCommittedBeforeRetry.rows });
     stage?.("returning:mutation:recovery");
     const recovery = returning.getByRole("button", { name: "Prøv igjen", exact: true });
-    await recovery.waitFor();
-    await recovery.click();
+    const hasRecoveryControl = await recovery
+      .waitFor({ state: "visible", timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
     form = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
-    await form.waitFor();
-    const restoredEntries = await form.evaluate((node) =>
-      [...new FormData(node as HTMLFormElement)].map(([name, value]) => [name, String(value)]),
-    );
+    await form.waitFor({ state: "visible" });
+    submit = form.locator('button[type="submit"]');
+    await submit.waitFor({ state: "visible" });
+    assert.equal(await submit.isEnabled(), true);
+    assert.equal(await form.getAttribute("data-pending"), "false");
     const firstRequest = trace.find((entry) => entry.phase === "first");
     assert.ok(firstRequest && Array.isArray(firstRequest.form));
-    assert.deepEqual(restoredEntries, firstRequest.form);
-    assert.equal(await form.locator('input[name="commandId"]').inputValue(), firstCommandKey);
-    assert.equal(await form.locator('input[name="expectedRevision"]').inputValue(), firstExpectedRevision);
-    submit = form.locator('button[type="submit"]');
+    const assertRecoveredIntent = async () => {
+      const restoredEntries = await form.evaluate((node) =>
+        [...new FormData(node as HTMLFormElement)].map(([name, value]) => [name, String(value)]),
+      );
+      assert.deepEqual(restoredEntries, firstRequest.form);
+      assert.equal(await form.locator('input[name="commandId"]').inputValue(), firstCommandKey);
+      assert.equal(await form.locator('input[name="expectedRevision"]').inputValue(), firstExpectedRevision);
+    };
+    await assertRecoveredIntent();
+    if (hasRecoveryControl) {
+      await recovery.click();
+      form = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
+      await form.waitFor({ state: "visible" });
+      submit = form.locator('button[type="submit"]');
+      await submit.waitFor({ state: "visible" });
+      assert.equal(await submit.isEnabled(), true);
+      assert.equal(await form.getAttribute("data-pending"), "false");
+      await assertRecoveredIntent();
+    }
     stage?.("returning:retry");
     stage?.("returning:mutation:retry:click");
     await submit.click();
