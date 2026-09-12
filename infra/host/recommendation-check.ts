@@ -375,6 +375,7 @@ try {
     VITE_API_URL: api,
     DASHBOARD_MOUNT: "/",
     HOST: "127.0.0.1",
+    PORT: String(uiPort),
     NODE_ENV: "production",
   };
   secrets.push(env.BETTER_AUTH_SECRET);
