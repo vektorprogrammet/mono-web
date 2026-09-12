@@ -387,11 +387,10 @@ try {
   };
   secrets.push(env.BETTER_AUTH_SECRET);
   recordGate("disposable PostgreSQL is ready");
-  run(
-    "bun",
-    ["packages/database/runtime/recommendation-preupgrade-fixture.ts"],
-    { ...env, RECOMMENDATION_PREUPGRADE_THROUGH_0038: "1" },
-  );
+  run("bun", ["packages/database/runtime/recommendation-preupgrade-fixture.ts"], {
+    ...env,
+    RECOMMENDATION_PREUPGRADE_THROUGH_0038: "1",
+  });
   const historicalBefore = (
     await pool.query(
       `SELECT to_jsonb(c)-'recommendation' value FROM public.recruitment_interview_conducts c WHERE interview_id='interview-recommendation-history'`,
@@ -483,10 +482,14 @@ try {
   ).rows[0];
   assert.deepEqual(historicalAfter.value, historicalBefore);
   assert.equal(historicalAfter.recommendation, null);
-  recordGate("immutable historical row survived actual0037 upgrade without invented recommendation");
+  recordGate(
+    "immutable historical row survived actual0037 upgrade without invented recommendation",
+  );
   assert.ok(correctionPre0039Fixture);
   await assertInterviewCorrectionPre0039Preserved(pool, correctionPre0039Fixture);
-  recordGate("0039 upgrade preserved original interview/schedule/invitation/conduct/lifecycle rows");
+  recordGate(
+    "0039 upgrade preserved original interview/schedule/invitation/conduct/lifecycle rows",
+  );
   run("bun", ["run", "build"], env, join(root, "packages/sdk"));
   run("bun", ["run", "build"], env, join(root, "apps/dashboard"));
   start("bun", ["server.mjs"], env, join(root, "apps/dashboard"));
@@ -920,7 +923,10 @@ try {
   };
   const waitForRecruitmentOperation = (p: any, operation: string) =>
     p.waitForResponse((response: any) => {
-      if (response.request().method() !== "POST" || new URL(response.url()).pathname !== "/recruitment")
+      if (
+        response.request().method() !== "POST" ||
+        new URL(response.url()).pathname !== "/recruitment"
+      )
         return false;
       try {
         const payload: unknown = response.request().postDataJSON();
@@ -988,7 +994,8 @@ try {
         .getByRole("button", { name: "Rett intervju", exact: true })
         .press("Enter");
       const response = await responsePromise;
-      if (!response.ok()) throw new Error(`correction response ${response.status()}: ${await response.text()}`);
+      if (!response.ok())
+        throw new Error(`correction response ${response.status()}: ${await response.text()}`);
       await page.locator("#interviewer-recommendation").waitFor({ state: "visible" });
       assert.equal(await page.locator("#interviewer-recommendation").inputValue(), recommendation);
     };
@@ -1013,7 +1020,10 @@ try {
     const afterFirst = await (await get(correctionId)).json();
     assert.equal(afterFirst.recommendation, "Ja");
     assert.deepEqual(afterFirst.answers, [
-      { questionId: "interview-schema-native-conduct-0063-q0", answer: "Jeg vil forklare matematikk tydelig." },
+      {
+        questionId: "interview-schema-native-conduct-0063-q0",
+        answer: "Jeg vil forklare matematikk tydelig.",
+      },
       { questionId: "interview-schema-native-conduct-0063-q1", answer: "Teknologi" },
       { questionId: "interview-schema-native-conduct-0063-q2", answer: "Praksis" },
       {
@@ -1033,7 +1043,9 @@ try {
     await correctionPageOpen();
     assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Ja");
     const staleCorrectionEtag = (await get(correctionId)).headers.get("etag")!;
-    const staleCorrectionContext = await browser.newContext({ storageState: await context.storageState() });
+    const staleCorrectionContext = await browser.newContext({
+      storageState: await context.storageState(),
+    });
     const staleCorrection = await staleCorrectionContext.newPage();
     staleCorrection.on("pageerror", () => errors.push("stale-correction-pageerror"));
     await staleCorrection.goto(`${ui}/dashboard/intervjuer`);
@@ -1045,10 +1057,14 @@ try {
     await staleCorrection
       .getByRole("heading", { name: `Intervju med ${correctionName}` })
       .waitFor();
-    await staleCorrection.locator("#question-interview-schema-native-conduct-0063-q0").fill("Stale correction draft.");
+    await staleCorrection
+      .locator("#question-interview-schema-native-conduct-0063-q0")
+      .fill("Stale correction draft.");
     await staleCorrection.locator("#interviewer-recommendation").selectOption("Kanskje");
     await staleCorrection.locator("#score-explanatoryPower").selectOption("7");
-    await page.locator("#question-interview-schema-native-conduct-0063-q0").fill("Et nytt tydelig svar.");
+    await page
+      .locator("#question-interview-schema-native-conduct-0063-q0")
+      .fill("Et nytt tydelig svar.");
     await page.locator("#score-explanatoryPower").selectOption("9");
     await page.locator("#interviewer-recommendation").selectOption("Nei");
     type CorrectionAttempt = {
@@ -1101,10 +1117,12 @@ try {
           ? operationHeaders["if-match"]
           : undefined;
       const idempotencyKey =
-        "idempotency-key" in operationHeaders && typeof operationHeaders["idempotency-key"] === "string"
+        "idempotency-key" in operationHeaders &&
+        typeof operationHeaders["idempotency-key"] === "string"
           ? operationHeaders["idempotency-key"]
           : undefined;
-      const phase: CorrectionAttempt["phase"] = correctionAttempts.length === 0 ? "failed-save" : "retry";
+      const phase: CorrectionAttempt["phase"] =
+        correctionAttempts.length === 0 ? "failed-save" : "retry";
       try {
         const response = await route.fetch({ timeout: 30_000 });
         correctionAttempts.push({
@@ -1133,7 +1151,10 @@ try {
         [correctionId],
       )
     ).rows;
-    assert.deepEqual(rowsBeforeFailedSave.map((row: any) => row.resulting_revision), [2]);
+    assert.deepEqual(
+      rowsBeforeFailedSave.map((row: any) => row.resulting_revision),
+      [2],
+    );
     await page.route("**/recruitment", correctionRoute);
     await page.getByRole("button", { name: "Rett intervju", exact: true }).last().click();
     await page.getByRole("dialog").waitFor({ state: "visible" });
@@ -1205,27 +1226,41 @@ try {
     assert.match((await historyText()) ?? "", /Egnethet9/u);
     assert.match((await historyText()) ?? "", /Ja/u);
     assert.match((await historyText()) ?? "", /Nei/u);
-    assert.match((await historyText()) ?? "", new RegExp(formatUiInstant(browserHistory[0].finalizedAt), "u"));
-    assert.match((await historyText()) ?? "", new RegExp(formatUiInstant(browserHistory[1].correctedAt), "u"));
-    assert.match((await historyText()) ?? "", new RegExp(formatUiInstant(browserHistory[2].correctedAt), "u"));
+    assert.match(
+      (await historyText()) ?? "",
+      new RegExp(formatUiInstant(browserHistory[0].finalizedAt), "u"),
+    );
+    assert.match(
+      (await historyText()) ?? "",
+      new RegExp(formatUiInstant(browserHistory[1].correctedAt), "u"),
+    );
+    assert.match(
+      (await historyText()) ?? "",
+      new RegExp(formatUiInstant(browserHistory[2].correctedAt), "u"),
+    );
     await page.locator("#interviewer-recommendation").focus();
     assert.equal(
-      await page.locator("#interviewer-recommendation").evaluate((element: HTMLSelectElement) =>
-        document.activeElement === element,
-      ),
+      await page
+        .locator("#interviewer-recommendation")
+        .evaluate((element: HTMLSelectElement) => document.activeElement === element),
       true,
     );
-    await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "correction-history-desktop.png") });
+    await page
+      .locator(".fs-conduct")
+      .screenshot({ path: join(artifacts, "correction-history-desktop.png") });
     await auditPage(page, "correction-history-desktop");
     await page.setViewportSize({ width: 390, height: 844 });
     assert.ok(
-      (await page.locator("html").evaluate((element: HTMLElement) => element.scrollWidth)) <=
-        390,
+      (await page.locator("html").evaluate((element: HTMLElement) => element.scrollWidth)) <= 390,
     );
-    await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "correction-history-mobile.png") });
+    await page
+      .locator(".fs-conduct")
+      .screenshot({ path: join(artifacts, "correction-history-mobile.png") });
     await auditPage(page, "correction-history-mobile");
     await page.setViewportSize({ width: 1280, height: 900 });
-    stage("browser ordered original and correction history shows completion metadata after reload with keyboard/mobile/Axe evidence");
+    stage(
+      "browser ordered original and correction history shows completion metadata after reload with keyboard/mobile/Axe evidence",
+    );
     const staleCorrectionResponsePromise = staleCorrection.waitForResponse(
       (response: any) => operationFor(response.request()) === "correctInterviewAssessment",
     );
@@ -1251,10 +1286,15 @@ try {
       )
       .waitFor();
     assert.equal(
-      await staleCorrection.locator("#question-interview-schema-native-conduct-0063-q0").inputValue(),
+      await staleCorrection
+        .locator("#question-interview-schema-native-conduct-0063-q0")
+        .inputValue(),
       "Stale correction draft.",
     );
-    assert.equal(await staleCorrection.locator("#interviewer-recommendation").inputValue(), "Kanskje");
+    assert.equal(
+      await staleCorrection.locator("#interviewer-recommendation").inputValue(),
+      "Kanskje",
+    );
     const staleRowsAfterConflict = (
       await pool.query(
         `SELECT resulting_revision FROM public.recruitment_interview_correction_assessments
@@ -1262,11 +1302,16 @@ try {
         [correctionId],
       )
     ).rows;
-    assert.deepEqual(staleRowsAfterConflict.map((row: any) => row.resulting_revision), [2, 3]);
+    assert.deepEqual(
+      staleRowsAfterConflict.map((row: any) => row.resulting_revision),
+      [2, 3],
+    );
     await staleCorrection.close();
     await staleCorrectionContext.close();
     stage("stale correction rejects old base and preserves visible draft without persistence");
-    stage("lost correction response retries identical payload, base and idempotency key without duplicate persistence");
+    stage(
+      "lost correction response retries identical payload, base and idempotency key without duplicate persistence",
+    );
     stage("second correction and reload preserve ordered history");
     const afterSecond = await (await get(correctionId)).json();
     assert.ok(afterSecond.history.filter((entry: any) => entry._tag === "Correction").length >= 2);
@@ -1281,7 +1326,9 @@ try {
       },
     ]);
     assert.deepEqual(afterSecond.score, { explanatoryPower: 9, roleModel: 5, suitability: 6 });
-    const secondCorrections = afterSecond.history.filter((entry: any) => entry._tag === "Correction");
+    const secondCorrections = afterSecond.history.filter(
+      (entry: any) => entry._tag === "Correction",
+    );
     assert.equal(secondCorrections.length, 2);
     assert.deepEqual(
       secondCorrections.map((entry: any) => [entry.predecessorRevision, entry.revision]),
@@ -1358,8 +1405,16 @@ try {
     assert.equal(receiptRows.length, 2);
     assert.equal(auditRows.length, 2);
     assert.deepEqual(
-      receiptRows.map((row: any) => [row.commandId, row.predecessorRevision, row.resultingRevision]),
-      correctionRows.map((row: any) => [row.commandId, row.predecessorRevision, row.resultingRevision]),
+      receiptRows.map((row: any) => [
+        row.commandId,
+        row.predecessorRevision,
+        row.resultingRevision,
+      ]),
+      correctionRows.map((row: any) => [
+        row.commandId,
+        row.predecessorRevision,
+        row.resultingRevision,
+      ]),
     );
     assert.ok(
       receiptRows.every(
@@ -1371,7 +1426,12 @@ try {
       ),
     );
     assert.deepEqual(
-      auditRows.map((row: any) => [row.commandId, row.actorPersonId, row.predecessorRevision, row.resultingRevision]),
+      auditRows.map((row: any) => [
+        row.commandId,
+        row.actorPersonId,
+        row.predecessorRevision,
+        row.resultingRevision,
+      ]),
       correctionRows.map((row: any) => [
         row.commandId,
         "journey-conduct-leader-0063",
@@ -1406,7 +1466,9 @@ try {
     );
     assert.equal(mismatched.status, 412);
     assert.deepEqual(await writeCount(), beforeMismatch);
-    stage("old displayed body with newer opaque ETag rejects at correction boundary without writes");
+    stage(
+      "old displayed body with newer opaque ETag rejects at correction boundary without writes",
+    );
     const correctionPayload = (detail: any, recommendation: "Ja" | "Kanskje" | "Nei") => ({
       expectedRevision: detail.revision,
       answers: [
@@ -1666,7 +1728,9 @@ try {
     .screenshot({ path: join(artifacts, "recommendation-mobile.png") });
   await auditPage(page, "finalized-mobile");
   await page.setViewportSize({ width: 1280, height: 900 });
-  recordGate("ordinary assigned member: required choice, keyboard finalization, reload and exact stale-correction conflict retention");
+  recordGate(
+    "ordinary assigned member: required choice, keyboard finalization, reload and exact stale-correction conflict retention",
+  );
   const answers = [
     { questionId: "interview-schema-native-conduct-0063-q0", answer: "Et tydelig svar" },
     { questionId: "interview-schema-native-conduct-0063-q1", answer: "Teknologi" },
@@ -1943,51 +2007,50 @@ try {
     403,
   );
   if (!process.argv.includes("--correction-mode")) {
-  run("bun", ["packages/database/runtime/recommendation-domain-replay.ts"], env);
-  const raceRead = await get("interview-recommendation-link-race");
-  assert.equal(raceRead.status, 200);
-  const locker = await pool.connect();
-  heldIdentityClient = locker;
-  await locker.query("BEGIN");
-  await locker.query(
-    `SELECT applicant_id FROM public.admission_applicants WHERE applicant_id='applicant-recommendation-link-race' FOR UPDATE`,
-  );
-  const lockerPid = (await locker.query("SELECT pg_backend_pid() pid")).rows[0].pid;
-  const waiting = post(
-    "interview-recommendation-link-race",
-    { ...payload, recommendation: "Ja" },
-    fixtureKeys.linkRace,
-    raceRead.headers.get("etag")!,
-  );
-  await ready(
-    async () =>
+    run("bun", ["packages/database/runtime/recommendation-domain-replay.ts"], env);
+    const raceRead = await get("interview-recommendation-link-race");
+    assert.equal(raceRead.status, 200);
+    const locker = await pool.connect();
+    heldIdentityClient = locker;
+    await locker.query("BEGIN");
+    await locker.query(
+      `SELECT applicant_id FROM public.admission_applicants WHERE applicant_id='applicant-recommendation-link-race' FOR UPDATE`,
+    );
+    const lockerPid = (await locker.query("SELECT pg_backend_pid() pid")).rows[0].pid;
+    const waiting = post(
+      "interview-recommendation-link-race",
+      { ...payload, recommendation: "Ja" },
+      fixtureKeys.linkRace,
+      raceRead.headers.get("etag")!,
+    );
+    await ready(
+      async () =>
+        (
+          await pool.query(
+            `SELECT count(*)::int n FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid))`,
+            [lockerPid],
+          )
+        ).rows[0].n > 0,
+    );
+    await link("link-race", "journey-conduct-leader-0063", locker);
+    await locker.query("COMMIT");
+    locker.release();
+    heldIdentityClient = undefined;
+    const staleIdentity = await waiting;
+    assert.equal(staleIdentity.status, 409);
+    assert.equal((await staleIdentity.json()).code, "transaction.conflict");
+    assert.equal(
       (
-        await pool.query(
-          `SELECT count(*)::int n FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid))`,
-          [lockerPid],
+        await post(
+          "interview-recommendation-link-race",
+          { ...payload, recommendation: "Ja" },
+          fixtureKeys.linkRace,
+          raceRead.headers.get("etag")!,
         )
-      ).rows[0].n > 0,
-  );
-  await link("link-race", "journey-conduct-leader-0063", locker);
-  await locker.query("COMMIT");
-  locker.release();
-  heldIdentityClient = undefined;
-  const staleIdentity = await waiting;
-  assert.equal(staleIdentity.status, 409);
-  assert.equal((await staleIdentity.json()).code, "transaction.conflict");
-  assert.equal(
-    (
-      await post(
-        "interview-recommendation-link-race",
-        { ...payload, recommendation: "Ja" },
-        fixtureKeys.linkRace,
-        raceRead.headers.get("etag")!,
-      )
-    ).status,
-    403,
-  );
-  assert.equal((await get("interview-recommendation-link-race")).status, 403);
-
+      ).status,
+      403,
+    );
+    assert.equal((await get("interview-recommendation-link-race")).status, 403);
   }
   const readLocker = await pool.connect();
   heldIdentityClient = readLocker;
@@ -2072,21 +2135,21 @@ try {
     `UPDATE public.organization_memberships SET is_team_leader=false,position_id='member' WHERE membership_id='membership-native-conduct-leader-0063'`,
   );
   if (!process.argv.includes("--correction-mode")) {
-  await runReturningAssistantBrowserJourney({
-    browser,
-    page,
-    pool,
-    api,
-    ui,
-    artifacts,
-    auditPage,
-    coordinatorEmail: "coordinator.report@example.invalid",
-    coordinatorPassword: password,
-    errors,
-  });
-  recordGate(
-    `returning registration route ${"/dashboard/tidligere-assistenter"} and report population ${returningAssistantFixture.admissionPeriodId}`,
-  );
+    await runReturningAssistantBrowserJourney({
+      browser,
+      page,
+      pool,
+      api,
+      ui,
+      artifacts,
+      auditPage,
+      coordinatorEmail: "coordinator.report@example.invalid",
+      coordinatorPassword: password,
+      errors,
+    });
+    recordGate(
+      `returning registration route ${"/dashboard/tidligere-assistenter"} and report population ${returningAssistantFixture.admissionPeriodId}`,
+    );
   }
 
   recordGate(
@@ -2139,10 +2202,7 @@ try {
     .map((receipt) => receipt.command_id)
     .sort();
   assert.ok(knownFinalizationCommandIds.length > 0);
-  assert.deepEqual(
-    lifecycle.map((row: any) => row.command_id).sort(),
-    knownFinalizationCommandIds,
-  );
+  assert.deepEqual(lifecycle.map((row: any) => row.command_id).sort(), knownFinalizationCommandIds);
   assert.ok(lifecycle.every((r: any) => r.kind === "InterviewFinalized"));
   assert.equal(new Set(lifecycle.map((r: any) => r.interview_id)).size, lifecycle.length);
   assert.deepEqual(await effectSnapshot(), effectsAfterOnboarding);

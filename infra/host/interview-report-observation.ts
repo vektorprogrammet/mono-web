@@ -482,7 +482,11 @@ export async function observeInterviewReport(o: Options) {
       }),
     },
   );
-  assert.equal(coordinatorCorrectionResponse.status, 403, await coordinatorCorrectionResponse.text());
+  assert.equal(
+    coordinatorCorrectionResponse.status,
+    403,
+    await coordinatorCorrectionResponse.text(),
+  );
   assert.deepEqual(await snapshot(), before);
   record(
     "report coordinator detail and correction deny for a non-assigned interview; no co-interviewer grant or writes",
