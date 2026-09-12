@@ -1015,7 +1015,9 @@ try {
       "correction-replay-0105-a",
       firstDirectEtag,
     );
-    assert.equal(firstDirect.status, 200);
+    if (firstDirect.status !== 200) {
+      throw new Error(`first direct correction ${firstDirect.status}: ${await firstDirect.text()}`);
+    }
     const firstBytes = await firstDirect.text();
     const secondDirectDetail = await (await get(correctionId)).json();
     const secondDirectEtag = (await get(correctionId)).headers.get("etag")!;
