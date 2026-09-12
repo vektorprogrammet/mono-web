@@ -3,6 +3,17 @@ import { createHash, randomBytes } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 
 
+export type InterviewCorrectionReplayRequest = Readonly<{
+  key: string;
+  etag: string;
+  payload: {
+    expectedRevision: number;
+    answers: unknown;
+    score: { explanatoryPower: number; roleModel: number; suitability: number };
+    recommendation: "Ja" | "Kanskje" | "Nei";
+  };
+}>;
+
 export type InterviewCorrectionBoundaryContext = Readonly<{
   pool: Pool;
   api: string;
@@ -14,6 +25,7 @@ export type InterviewCorrectionBoundaryContext = Readonly<{
   membershipId: string;
   differentLinkedPersonInterviewId: string;
   selfLinkRaceInterviewId: string;
+  acceptedReplay: InterviewCorrectionReplayRequest;
   recordGate?: (...observations: string[]) => void;
 }>;
 
@@ -49,6 +61,7 @@ export async function assertInterviewCorrectionBoundaries(
     membershipId,
     differentLinkedPersonInterviewId,
     selfLinkRaceInterviewId,
+    acceptedReplay,
   } = context;
   const gates: string[] = [];
   const statuses: Record<string, number> = {};
@@ -330,6 +343,15 @@ export async function assertInterviewCorrectionBoundaries(
     );
     status(`${name}:write`, write.status);
     assert.equal(write.status, expected, `${name} write: ${await write.text()}`);
+    const replay = await post(
+      interviewId,
+      acceptedReplay.payload,
+      acceptedReplay.etag,
+      acceptedReplay.key,
+      requestCookie,
+    );
+    status(`${name}:replay`, replay.status);
+    assert.equal(replay.status, expected, `${name} replay: ${await replay.text()}`);
     await assertSnapshot(before, name);
   };
   const initial = await detail();
@@ -617,6 +639,21 @@ export async function assertInterviewCorrectionBoundaries(
     await assertSnapshot(before, `invalid ${name}`);
   }
   record("malformed JSON maps to 400; strict schema failures map to 422; each leaves exact state unchanged");
+  const sameKeyBefore = await snapshot();
+  const conflictingPayload = {
+    ...currentPayload,
+    recommendation: currentPayload.recommendation === "Nei" ? "Ja" : "Nei",
+  };
+  const sameKeyResponse = await post(
+    interviewId,
+    conflictingPayload,
+    current.etag,
+    acceptedReplay.key,
+  );
+  status("same-key-different-payload", sameKeyResponse.status);
+  assert.equal(sameKeyResponse.status, 409, await sameKeyResponse.text());
+  await assertSnapshot(sameKeyBefore, "same-key different payload");
+  record("same idempotency key with a different payload returns digest conflict without any owned write");
   const rollbackSuffix = randomBytes(8).toString("hex");
   const rollbackSequence = `test_correction_failure_${rollbackSuffix}_seq`;
   const rollbackControl = `test_correction_failure_${rollbackSuffix}_control`;
