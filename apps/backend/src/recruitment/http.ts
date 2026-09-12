@@ -124,6 +124,7 @@ import {
   authorizePersonNativeOperation,
   nativeCommandOutcomeResponse,
   prepareNativeHttpCommand,
+  withNativeHttpRuntime,
 } from "../native-operation.js";
 import type { BackendRun } from "../router.js";
 import { type RecruitmentApiConfig } from "./config.js";
@@ -424,20 +425,6 @@ const actorFor = async (
   }
 };
 
-const authorizationFor = async (
-  request: Request,
-  input: RecruitmentApiHttpOptions,
-): Promise<RecruitmentConductContextResolution> => {
-  try {
-    if (input.resolveConductContext !== undefined) {
-      return await input.resolveConductContext(request);
-    }
-    return { actor: await actorFor(request, input), authorizationInstant: input.config.now() };
-  } catch (cause) {
-    if (errorTag(cause) !== undefined || cause instanceof HttpSemanticFailure) throw cause;
-    throw new HttpSemanticFailure("credential.invalid", 401);
-  }
-};
 
 const capabilityForSpec = (spec: AccessSpec) => {
   if (spec.capabilities._tag !== "One") {
@@ -1098,47 +1085,6 @@ const createApplicationInterview = async (
   });
 };
 
-const interviewAuthorization = async (
-  request: Request,
-  interviewId: RecruitmentInterviewId,
-  endpoint:
-    | typeof ScheduleInterviewEndpoint
-    | typeof ReadInterviewConductEndpoint
-    | typeof FinalizeInterviewEndpoint
-    | typeof CancelInterviewEndpoint
-    | typeof CorrectInterviewAssessmentEndpoint,
-  allowLeader: boolean,
-  input: RecruitmentApiHttpOptions,
-) => {
-  const authorization = await authorizationFor(request, input);
-  const source = await input.run(
-    readRecruitmentInterviewHttpSourcePostgres(interviewId, authorization.actor.personId),
-  );
-  const { actor, activeMember } = await input.run(
-    readRecruitmentTargetAuthorityPostgres({
-      personId: authorization.actor.personId,
-      departmentId: source.departmentId,
-      authorizationInstant: authorization.authorizationInstant,
-    }),
-  );
-  const resource = {
-    kind: ResourceKind.make("recruitment-interview"),
-    id: ResourceId.make(interviewId),
-  };
-  await authorizePersonOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
-    request,
-    actor,
-    resolution: {
-      selection: "ExactlyOne",
-      contexts: [recruitmentInterviewAccessContext(source, actor, allowLeader, activeMember)],
-    },
-    grantScopes: [{ _tag: "Resource", resource }],
-    authorizationInstant: authorization.authorizationInstant,
-    run: input.run,
-  });
-  return { actor, authorizationInstant: authorization.authorizationInstant, source };
-};
 
 const interviewAuthorizationInTransaction = async (
   request: Request,
@@ -1282,32 +1228,32 @@ const readInterviewConductHandler = async (
     Effect.gen(function* () {
       const sql = yield* Database;
       return yield* sql.withTransaction(
-        Effect.gen(function* () {
-          const txRun: RecruitmentBackendRun = (effect) =>
-            input.run(effect.pipe(Effect.provideService(Database, sql)));
-          const authorization = yield* Effect.promise(() =>
-            interviewAuthorizationInTransaction(
-              request,
+        withNativeHttpRuntime(input.run, async (txRun) => {
+          const authorization = await interviewAuthorizationInTransaction(
+            request,
+            interviewId,
+            ReadInterviewConductEndpoint,
+            false,
+            input,
+            txRun,
+          );
+          const observation = await txRun(
+            readInterviewConductInTransaction(
               interviewId,
-              ReadInterviewConductEndpoint,
-              false,
-              input,
-              txRun,
+              {
+                actor: authorization.actor,
+                now: input.config.now(),
+                authorizationInstant: authorization.authorizationInstant,
+              },
+              sql,
             ),
           );
-          const observation = yield* readInterviewConductInTransaction(
-            interviewId,
-            {
-              actor: authorization.actor,
-              now: input.config.now,
-              authorizationInstant: authorization.authorizationInstant,
-            },
-            sql,
+          const source = await txRun(
+            readRecruitmentInterviewHttpSourcePostgres(
+              interviewId,
+              authorization.actor.personId,
+            ),
           );
-          const source = yield* readRecruitmentInterviewHttpSourcePostgres(
-            interviewId,
-            authorization.actor.personId,
-          ).pipe(Effect.provideService(Database, sql));
           return { observation, source };
         }),
       );
