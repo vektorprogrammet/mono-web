@@ -842,6 +842,7 @@ export const runReturningAssistantBrowserJourney = async ({
   await expectValue(existing.getByRole("combobox", { name: "Semesterblokk" }), "all");
   await expectValue(existing.getByRole("combobox", { name: "Språk" }), "Norsk og engelsk");
   await existing.getByRole("combobox", { name: "Studieår" }).selectOption("3");
+  await existing.getByRole("combobox", { name: "Språk" }).selectOption("Engelsk");
   const updatePost = await waitForDashboardAction(admissionPeriodId, async () => {
     await waitForActionReady(existing);
     await existing.getByRole("button", { name: "Lagre endringer" }).click();
@@ -900,7 +901,12 @@ export const runReturningAssistantBrowserJourney = async ({
   periodForm = await waitForPeriodForm(admissionPeriodId);
   await expectValue(periodForm.getByRole("combobox", { name: "Opptaksperiode" }), admissionPeriodId);
   await expectValue(periodForm.locator('input[name="expectedRevision"]'), "2");
-  await expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "3");
+  await returning.goBack();
+  await waitForPeriodUrl(nextAdmissionPeriodId);
+  periodForm = await waitForPeriodForm(nextAdmissionPeriodId);
+  await expectValue(periodForm.getByRole("combobox", { name: "Opptaksperiode" }), nextAdmissionPeriodId);
+  await expectValue(periodForm.locator('input[name="expectedRevision"]'), "1");
+  await expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "4");
   const finalPost = await waitForDashboardAction(nextAdmissionPeriodId, async () => {
     await periodForm.getByRole("combobox", { name: "Studieår" }).selectOption("5");
     await waitForActionReady(periodForm);
