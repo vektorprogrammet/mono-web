@@ -733,9 +733,9 @@ const conductSuccessView = (
       ),
       h.div(
         [h.Class("fs-conduct__questions grid gap-6")],
-        detail.questions.map((question) => questionView(question, model, terminal !== null, h)),
+        detail.questions.map((question) => questionView(question, model, detail.cancellationState === "Cancelled", h)),
       ),
-      terminal === null || detail.score !== null ? scoreView(model, terminal !== null, h) : h.empty,
+      terminal === null || terminal === "Completed" ? scoreView(model, detail.cancellationState === "Cancelled", h) : h.empty,
       model.conductValidationFeedback === null
         ? h.empty
         : h.p(
@@ -771,10 +771,12 @@ const conductSuccessView = (
                 ),
               ],
             )
-          : h.p(
-              [h.Class("fs-feedback fs-feedback--success"), h.Role("status")],
-              [terminal === "Completed" ? "Intervjuet er fullført." : "Intervjuet er avlyst."],
-            ),
+          : terminal === "Completed"
+            ? actionButton("Rett intervju", SubmittedFinalize(), false, "fs-button fs-button--primary", h)
+            : h.p(
+                [h.Class("fs-feedback fs-feedback--success"), h.Role("status")],
+                ["Intervjuet er avlyst."],
+              ),
       conductDialogView(model, h),
     ],
   );
@@ -819,7 +821,9 @@ const conductDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                       [
                         model.pendingConductAction === "Finalize"
                           ? "Fullfør intervjuet?"
-                          : "Avlys intervjuet?",
+                          : model.pendingConductAction === "Correct"
+                            ? "Rette intervjuet?"
+                            : "Avlys intervjuet?",
                       ],
                     ),
                     h.p(
@@ -827,7 +831,9 @@ const conductDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                       [
                         model.pendingConductAction === "Finalize"
                           ? "Svarene og scorene lagres som endelig resultat."
-                          : "Intervjuet markeres som avlyst. Dette kan ikke angres.",
+                          : model.pendingConductAction === "Correct"
+                            ? "Den nye vurderingen lagres som en ny versjon."
+                            : "Intervjuet markeres som avlyst. Dette kan ikke angres.",
                       ],
                     ),
                     h.div(
@@ -858,7 +864,9 @@ const conductDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                                 [
                                   model.pendingConductAction === "Finalize"
                                     ? "Fullfør intervju"
-                                    : "Avlys intervju",
+                                    : model.pendingConductAction === "Correct"
+                                      ? "Rett intervju"
+                                      : "Avlys intervju",
                                 ],
                               ),
                           },

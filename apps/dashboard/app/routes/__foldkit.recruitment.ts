@@ -95,6 +95,14 @@ export async function action({ request }: Route.ActionArgs) {
         });
         return data(result.body, { headers: responseHeaders });
       }
+      case "correctInterviewAssessment": {
+        const result = await recruitment.correctInterviewAssessment({
+          params: operation.params,
+          headers: operation.headers,
+          payload: operation.payload,
+        });
+        return data(result.body, { headers: responseHeaders });
+      }
       case "cancelInterview": {
         const result = await recruitment.cancelInterview({
           params: operation.params,

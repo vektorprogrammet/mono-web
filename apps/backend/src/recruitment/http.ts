@@ -10,6 +10,9 @@ import {
   AssignApplicantEndpoint,
   CancelInterviewEndpoint,
   CancelInterviewRequest,
+  CorrectInterviewAssessmentEndpoint,
+  CorrectInterviewAssessmentRequest,
+  CorrectInterviewAssessmentResponse,
   CancelInterviewResponse,
   ConductObservation,
   ConfirmInvitationEndpoint,
@@ -68,11 +71,13 @@ import {
   RecruitmentAssignmentCommandId,
   RecruitmentCancellationCommandId,
   RecruitmentConductCommandId,
+  RecruitmentInterviewCorrectionCommandId,
   RecruitmentInterviewId,
   RecruitmentInvitationCapabilitySchema,
   RecruitmentScheduleCommandId,
   assignApplicantPostgres,
   cancelInterviewPostgres,
+  correctInterviewAssessmentPostgres,
   executeRecruitmentInvitationHttpTransitionPostgres,
   finalizeInterviewPostgres,
   readInterviewConduct,
@@ -1095,7 +1100,8 @@ const interviewAuthorization = async (
     | typeof ScheduleInterviewEndpoint
     | typeof ReadInterviewConductEndpoint
     | typeof FinalizeInterviewEndpoint
-    | typeof CancelInterviewEndpoint,
+    | typeof CancelInterviewEndpoint
+    | typeof CorrectInterviewAssessmentEndpoint,
   allowLeader: boolean,
   input: RecruitmentApiHttpOptions,
 ) => {
@@ -1135,7 +1141,8 @@ const interviewAuthorizationInTransaction = async (
   endpoint:
     | typeof ScheduleInterviewEndpoint
     | typeof FinalizeInterviewEndpoint
-    | typeof CancelInterviewEndpoint,
+    | typeof CancelInterviewEndpoint
+    | typeof CorrectInterviewAssessmentEndpoint,
   allowLeader: boolean,
   input: RecruitmentApiHttpOptions,
   txRun: RecruitmentBackendRun,
@@ -1284,6 +1291,53 @@ const readInterviewConductHandler = async (
     readRecruitmentInterviewHttpSourcePostgres(interviewId, authorization.actor.personId),
   );
   return conditionalJsonResponse(request, output, interviewETag(source));
+};
+
+const correctInterviewAssessment = async (
+  request: Request,
+  interviewId: RecruitmentInterviewId,
+  input: RecruitmentApiHttpOptions,
+): Promise<Response> => {
+  noQuery(request);
+  const body = await strictDecode(
+    CorrectInterviewAssessmentRequest,
+    await readJsonBody(request, input.config.maxBodyBytes),
+    input.run,
+  );
+  parseRequiredIfMatch(headerValues(request, "if-match"));
+  return executeCommand({
+    request,
+    operationId: "recruitment.correctInterviewAssessment",
+    routeTemplate: "/api/recruitment/interviews/{interviewId}:correct",
+    identities: { interviewId },
+    semanticRequest: semanticMutationRequest(body, parseRequiredIfMatch(headerValues(request, "if-match"))),
+    commandIdSchema: RecruitmentInterviewCorrectionCommandId,
+    run: input.run,
+    prepare: async (txRun) => {
+      const authorization = await interviewAuthorizationInTransaction(
+        request, interviewId, CorrectInterviewAssessmentEndpoint, false, input, txRun,
+      );
+      return {
+        credentialSubject: `Person:${authorization.actor.personId}`,
+        execute: (commandId) => Effect.gen(function* () {
+          const result = yield* correctInterviewAssessmentPostgres(
+            { commandId, interviewId, expectedRevision: authorization.source.interviewRevision, ...body },
+            { actor: authorization.actor, now: authorization.authorizationInstant, authorizationInstant: authorization.authorizationInstant },
+          );
+          const observation = result.observation;
+          const output = yield* Schema.decodeEffect(CorrectInterviewAssessmentResponse)({
+            _tag: observation._tag, commandId: observation.commandId, interviewId: observation.interviewId,
+            predecessorRevision: observation.predecessorRevision, resultingRevision: observation.resultingRevision,
+            replayed: result.replayed,
+          }, { onExcessProperty: "error" }).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+          const updated = yield* readRecruitmentInterviewHttpSourcePostgres(interviewId, authorization.actor.personId);
+          return new Response(JSON.stringify(output), {
+            status: 200, headers: { "cache-control": NO_STORE, "content-type": "application/json", etag: interviewETag(updated) },
+          });
+        }),
+      };
+    },
+  });
 };
 
 const lifecycleInterview = async (
@@ -1514,6 +1568,13 @@ export const RecruitmentApiHandlers = (input: RecruitmentApiHttpOptions) =>
           toHttpApiResponse(
             request,
             (webRequest) => lifecycleInterview(webRequest, params.interviewId, "Finalize", input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("correctInterviewAssessment", ({ request, params }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => correctInterviewAssessment(webRequest, params.interviewId, input),
             errorResponse,
           ),
         )

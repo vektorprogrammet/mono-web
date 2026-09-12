@@ -4,12 +4,14 @@ import { Command } from "foldkit";
 import type {
   CancelInterviewInput,
   FinalizeInterviewInput,
+  CorrectInterviewAssessmentInput,
   RecruitmentClient,
   ScheduleInterviewInput,
 } from "../recruitment/browser-client";
 import {
   CancelInterviewInputSchema,
   FinalizeInterviewInputSchema,
+  CorrectInterviewAssessmentInputSchema,
   ScheduleInterviewInputSchema,
   schedulingBoardFailureMessage,
   schedulingFailureMessage,
@@ -19,11 +21,13 @@ import {
   FailedCancel,
   FailedConduct,
   FailedFinalize,
+  FailedCorrection,
   FailedLoadSchedulingBoard,
   FailedSchedule,
   SucceededCancel,
   SucceededConduct,
   SucceededFinalize,
+  SucceededCorrection,
   SucceededLoadSchedulingBoard,
   SucceededSchedule,
   type Message,
@@ -46,6 +50,12 @@ export interface SchedulingCommands {
     readonly generation: number;
     readonly interviewId: typeof RecruitmentInterviewId.Type;
     readonly input: FinalizeInterviewInput;
+  }) => Command.Command<Message>;
+  readonly CorrectInterviewAssessment: (args: {
+    readonly requestId: number;
+    readonly generation: number;
+    readonly interviewId: typeof RecruitmentInterviewId.Type;
+    readonly input: CorrectInterviewAssessmentInput;
   }) => Command.Command<Message>;
   readonly CancelInterview: (args: {
     readonly requestId: number;
@@ -143,6 +153,16 @@ export const makeSchedulingCommands = (client: RecruitmentClient): SchedulingCom
       ),
   });
 
+  const CorrectInterviewAssessment = Command.define("CorrectInterviewAssessment", {
+    args: { requestId: ConductRequestId, generation: ConductRequestId, interviewId: RecruitmentInterviewId, input: CorrectInterviewAssessmentInputSchema },
+    messages: [SucceededFinalize, FailedFinalize],
+    execute: ({ requestId, generation, interviewId, input }) =>
+      client.recruitment.correctInterviewAssessment(input).pipe(
+        Effect.map(() => SucceededFinalize({ requestId, generation, interviewId })),
+        Effect.catch((error) => Effect.succeed(FailedFinalize({ requestId, generation, interviewId, failure: toRecruitmentBridgeFailure(error) }))),
+      ),
+  });
+
   const CancelInterview = Command.define("CancelInterview", {
     args: {
       requestId: ConductRequestId,
@@ -172,6 +192,7 @@ export const makeSchedulingCommands = (client: RecruitmentClient): SchedulingCom
     ScheduleInterview,
     ReadInterviewConduct,
     FinalizeInterview,
+    CorrectInterviewAssessment,
     CancelInterview,
   };
 };

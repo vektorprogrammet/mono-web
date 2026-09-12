@@ -17,12 +17,16 @@ import {
 } from "./errors.js";
 import {
   cancelInterview as applyCancellation,
+  correctInterviewAssessment as applyCorrection,
   finalizeInterview as applyFinalization,
 } from "./conduct.js";
 import {
   CancelInterviewCommandSchema,
   CancelInterviewObservationSchema,
   CancelInterviewResultSchema,
+  CorrectInterviewAssessmentCommandSchema,
+  CorrectInterviewAssessmentObservationSchema,
+  CorrectInterviewAssessmentResultSchema,
   FinalizeInterviewCommandSchema,
   FinalizeInterviewObservationSchema,
   FinalizeInterviewResultSchema,
@@ -36,9 +40,12 @@ import {
   RecruitmentInterviewSchedule,
   RecruitmentInvitationResponseStateSchema,
   RecruitmentActorSchema,
+  RecruitmentInterviewCorrectionHistoryEntrySchema,
   type CancelInterviewCommand,
   type CancelInterviewResult,
   RecruitmentInterviewId,
+  type CorrectInterviewAssessmentCommand,
+  type CorrectInterviewAssessmentResult,
   type FinalizeInterviewCommand,
   type FinalizeInterviewResult,
   type RecruitmentConductContext,
@@ -72,6 +79,20 @@ interface ScheduleRow {
 interface InvitationRow {
   readonly responseState: string;
 }
+interface CorrectionRow {
+  readonly interviewId: string;
+  readonly predecessorRevision: number;
+  readonly resultingRevision: number;
+  readonly answers: unknown;
+  readonly explanatoryPower: number;
+  readonly roleModel: number;
+  readonly suitability: number;
+  readonly recommendation: "Ja" | "Kanskje" | "Nei";
+  readonly correctedByPersonId: string;
+  readonly correctedAt: string;
+  readonly commandId: string;
+}
+
 interface ReceiptRow {
   readonly commandSha256: string;
   readonly interviewId: string;
@@ -79,6 +100,14 @@ interface ReceiptRow {
   readonly resultingRevision: number;
   readonly observationJson: unknown;
 }
+interface CorrectionReceiptRow {
+  readonly commandSha256: string;
+  readonly interviewId: string;
+  readonly predecessorRevision: number;
+  readonly resultingRevision: number;
+  readonly observationJson: unknown;
+}
+
 interface ConductRow {
   readonly answers: unknown;
   readonly explanatoryPower: number;
@@ -219,6 +248,7 @@ const readConduct = (sql: DatabaseShape, interviewId: string, lock: boolean) =>
       to_char(finalized_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "finalizedAt",
       interview_revision AS "interviewRevision"
     FROM public.recruitment_interview_conducts WHERE interview_id = ${interviewId}
+
     ${lock ? sql`FOR UPDATE` : sql``}
   `.pipe(
     Effect.flatMap((rows) =>
@@ -240,6 +270,43 @@ const readConduct = (sql: DatabaseShape, interviewId: string, lock: boolean) =>
           ),
     ),
     Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceError("read conduct", cause))),
+  );
+const readCorrections = (sql: DatabaseShape, interviewId: string, lock: boolean) =>
+  sql<CorrectionRow>`
+    SELECT interview_id AS "interviewId", predecessor_revision AS "predecessorRevision",
+      resulting_revision AS "resultingRevision", answers,
+      explanatory_power AS "explanatoryPower", role_model AS "roleModel",
+      suitability, recommendation, corrected_by_person_id AS "correctedByPersonId",
+      to_char(corrected_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "correctedAt",
+      command_id AS "commandId"
+    FROM public.recruitment_interview_correction_assessments
+    WHERE interview_id = ${interviewId}
+    ORDER BY resulting_revision ASC ${lock ? sql`FOR UPDATE` : sql``}
+  `.pipe(
+    Effect.flatMap((rows) =>
+      Effect.forEach(rows, (row) =>
+        decode(
+          Schema.Struct({
+            interviewId: Schema.String,
+            predecessorRevision: Schema.Number,
+            resultingRevision: Schema.Number,
+            answers: Schema.Unknown,
+            explanatoryPower: Schema.Number,
+            roleModel: Schema.Number,
+            suitability: Schema.Number,
+            recommendation: InterviewRecommendationSchema,
+            correctedByPersonId: Schema.String,
+            correctedAt: Schema.String,
+            commandId: Schema.String,
+          }),
+          row,
+          "correction row",
+        ),
+      ),
+    ),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("read interview corrections", cause)),
+    ),
   );
 
 const readCancellation = (sql: DatabaseShape, interviewId: string, lock: boolean) =>
@@ -294,6 +361,35 @@ const readReceipt = (sql: DatabaseShape, commandId: string, lock: boolean) =>
       Effect.fail(persistenceError("read lifecycle receipt", cause)),
     ),
   );
+const readCorrectionReceipt = (sql: DatabaseShape, commandId: string, lock: boolean) =>
+  sql<CorrectionReceiptRow>`
+    SELECT command_sha256 AS "commandSha256", interview_id AS "interviewId",
+      predecessor_revision AS "predecessorRevision", resulting_revision AS "resultingRevision",
+      observation_json AS "observationJson"
+    FROM public.recruitment_interview_correction_command_receipts
+    WHERE command_id = ${commandId}
+    ${lock ? sql`FOR UPDATE` : sql``}
+  `.pipe(
+    Effect.flatMap((rows) =>
+      rows[0] === undefined
+        ? Effect.succeed(undefined)
+        : decode(
+            Schema.Struct({
+              commandSha256: Schema.String,
+              interviewId: Schema.String,
+              predecessorRevision: Schema.Number,
+              resultingRevision: Schema.Number,
+              observationJson: Schema.Unknown,
+            }),
+            rows[0],
+            "correction receipt",
+          ),
+    ),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("read correction receipt", cause)),
+    ),
+  );
+
 
 const stateFor = (
   interview: InterviewRow,
@@ -421,8 +517,9 @@ const authorizeAndLoad = (
     const invitation = yield* readInvitation(sql, interviewId, lock);
     const questions = yield* readQuestions(sql, interviewId, lock);
     const conduct = yield* readConduct(sql, interviewId, lock);
+    const corrections = yield* readCorrections(sql, interviewId, lock);
     const cancellation = yield* readCancellation(sql, interviewId, lock);
-    return { actor, interview, schedule, invitation, questions, conduct, cancellation };
+    return { actor, interview, schedule, invitation, questions, conduct, corrections, cancellation };
   });
 const observation = (
   state: RecruitmentConductState,
@@ -431,6 +528,7 @@ const observation = (
     readonly firstName: string;
     readonly lastName: string;
   },
+  corrections: ReadonlyArray<CorrectionRow>,
 ): Effect.Effect<RecruitmentInterviewConductObservation, RecruitmentFailure> =>
   Effect.gen(function* () {
     if (state.schedule === null)
@@ -443,6 +541,40 @@ const observation = (
         responseState: state.invitationResponse ?? "Absent",
       });
     }
+    const latest = corrections.at(-1);
+    const history =
+      state.conduct === null
+        ? []
+        : yield* decode(
+            Schema.Array(RecruitmentInterviewCorrectionHistoryEntrySchema),
+            [
+              {
+                _tag: "Original",
+                revision: state.conduct.interviewRevision,
+                answers: state.conduct.answers,
+                score: state.conduct.score,
+                recommendation: state.conduct.recommendation,
+                finalizedByPersonId: state.conduct.finalizedByPersonId,
+                finalizedAt: state.conduct.finalizedAt,
+              },
+              ...corrections.map((correction) => ({
+                _tag: "Correction" as const,
+                revision: correction.resultingRevision,
+                predecessorRevision: correction.predecessorRevision,
+                answers: correction.answers,
+                score: {
+                  explanatoryPower: correction.explanatoryPower,
+                  roleModel: correction.roleModel,
+                  suitability: correction.suitability,
+                },
+                recommendation: correction.recommendation,
+                correctedByPersonId: correction.correctedByPersonId,
+                correctedAt: correction.correctedAt,
+                commandId: correction.commandId,
+              })),
+            ],
+            "correction history",
+          );
     return yield* decode(
       RecruitmentInterviewConductObservationSchema,
       {
@@ -452,12 +584,22 @@ const observation = (
         schedule: state.schedule,
         invitationResponse: "Accepted",
         questions: state.questions,
-        answers: state.conduct?.answers ?? [],
-        score: state.conduct?.score ?? null,
-        recommendation: state.conduct?.recommendation ?? null,
+        answers: latest?.answers ?? state.conduct?.answers ?? [],
+        score:
+          latest === undefined
+            ? (state.conduct?.score ?? null)
+            : {
+                explanatoryPower: latest.explanatoryPower,
+                roleModel: latest.roleModel,
+                suitability: latest.suitability,
+              },
+        recommendation: latest?.recommendation ?? state.conduct?.recommendation ?? null,
         completionState: state.conduct === null ? "NotCompleted" : "Completed",
         cancellationState: state.cancellation === null ? "NotCancelled" : "Cancelled",
+        finalizedByPersonId: state.conduct?.finalizedByPersonId ?? null,
         finalizedAt: state.conduct?.finalizedAt ?? null,
+        effectiveRevision: state.revision,
+        history,
         cancelledAt: state.cancellation?.cancelledAt ?? null,
         revision: state.revision,
         canFinalize: state.conduct === null && state.cancellation === null,
@@ -507,7 +649,7 @@ export const readInterviewConduct = (
             loaded.cancellation,
           );
           const applicant = yield* readApplicant(admissions, loaded.interview.applicationId);
-          return yield* observation(state, applicant);
+          return yield* observation(state, applicant, loaded.corrections);
         }),
       )
       .pipe(
@@ -659,6 +801,130 @@ const cancelInTransaction = (
       Effect.fail(persistenceError("cancellation transaction", cause)),
     ),
   );
+const correctInTransaction = (
+  command: CorrectInterviewAssessmentCommand,
+  context: RecruitmentConductContext,
+  sql: DatabaseShape,
+  organization: OrganizationShape,
+  digest: string,
+): Effect.Effect<CorrectInterviewAssessmentResult, RecruitmentFailure> =>
+  Effect.gen(function* () {
+    yield* guardInterviewApplicantIdentity(command.interviewId, context.actor.personId).pipe(
+      Effect.provideService(Database, sql),
+    );
+    yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.commandId}, 0))`;
+    yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.interviewId}, 0))`;
+    const loaded = yield* authorizeAndLoad(sql, organization, context, command.interviewId, true);
+    const receipt = yield* readCorrectionReceipt(sql, command.commandId, true);
+    if (receipt !== undefined) {
+      if (
+        receipt.commandSha256 !== digest ||
+        receipt.interviewId !== command.interviewId
+      )
+        return yield* new RecruitmentLifecycleCommandConflict({ commandId: command.commandId });
+      const stored = yield* decode(
+        CorrectInterviewAssessmentObservationSchema,
+        receipt.observationJson,
+        "correction receipt observation",
+      );
+      return yield* decode(
+        CorrectInterviewAssessmentResultSchema,
+        { observation: stored, replayed: true },
+        "correction replay result",
+      );
+    }
+    const state = yield* stateFor(
+      loaded.interview,
+      loaded.schedule,
+      loaded.invitation,
+      loaded.questions,
+      loaded.conduct,
+      loaded.cancellation,
+    );
+    const transition = yield* applyCorrection(state, command, loaded.actor, context.now);
+    const updated = yield* sql<{ readonly revision: number }>`
+      UPDATE recruitment_interviews
+      SET revision = revision + 1
+      WHERE interview_id = ${command.interviewId} AND revision = ${command.expectedRevision}
+      RETURNING revision
+    `;
+    if (updated[0]?.revision !== transition.state.revision)
+      return yield* new RecruitmentInterviewStaleRevision({
+        interviewId: command.interviewId,
+        expectedRevision: command.expectedRevision,
+        actualRevision: loaded.interview.revision,
+      });
+    yield* sql`
+      INSERT INTO public.recruitment_interview_correction_assessments
+        (interview_id, predecessor_revision, resulting_revision, answers,
+         explanatory_power, role_model, suitability, recommendation,
+         corrected_by_person_id, corrected_at, command_id)
+      VALUES
+        (${transition.correction.interviewId}, ${transition.correction.predecessorRevision},
+         ${transition.correction.resultingRevision}, ${canonicalJson(transition.correction.answers)}::jsonb,
+         ${transition.correction.score.explanatoryPower}, ${transition.correction.score.roleModel},
+         ${transition.correction.score.suitability}, ${transition.correction.recommendation},
+         ${transition.correction.correctedByPersonId}, ${transition.correction.correctedAt},
+         ${transition.correction.commandId})
+    `;
+    yield* sql`
+      INSERT INTO public.recruitment_interview_correction_command_receipts
+        (command_id, command_sha256, command_json, observation_json, interview_id,
+         predecessor_revision, resulting_revision, committed_at)
+      VALUES
+        (${command.commandId}, ${digest}, ${canonicalJson(command)}::jsonb,
+         ${canonicalJson(transition.observation)}::jsonb, ${command.interviewId},
+         ${transition.observation.predecessorRevision}, ${transition.observation.resultingRevision},
+         ${context.now})
+    `;
+    yield* sql`
+      INSERT INTO public.recruitment_interview_correction_audit
+        (command_id, interview_id, actor_person_id, predecessor_revision, resulting_revision, occurred_at)
+      VALUES
+        (${command.commandId}, ${command.interviewId}, ${loaded.actor.personId},
+         ${transition.observation.predecessorRevision}, ${transition.observation.resultingRevision},
+         ${context.now})
+    `;
+    return yield* decode(
+      CorrectInterviewAssessmentResultSchema,
+      { observation: transition.observation, replayed: false },
+      "correction result",
+    );
+  }).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("correction transaction", cause)),
+    ),
+  );
+
+export const correctInterviewAssessment = (
+  command: CorrectInterviewAssessmentCommand,
+  context: RecruitmentConductContext,
+): Effect.Effect<CorrectInterviewAssessmentResult, RecruitmentFailure, Database | Organization> =>
+  Effect.gen(function* () {
+    const decoded = yield* decode(
+      CorrectInterviewAssessmentCommandSchema,
+      command,
+      "correction command",
+    );
+    const sql = yield* Database;
+    const organization = yield* Organization;
+    return yield* sql
+      .withTransaction(
+        correctInTransaction(
+          decoded,
+          context,
+          sql,
+          organization,
+          sha256Hex(canonicalJsonBytes(decoded)),
+        ),
+      )
+      .pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("correction transaction", cause)),
+        ),
+      );
+  });
+
 
 export const finalizeInterview = (
   command: FinalizeInterviewCommand,

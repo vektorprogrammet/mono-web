@@ -143,6 +143,10 @@ const returningAssistantRegistrationMigrationUrl = new URL(
   "../migrations/0038-returning-assistant-registration.sql",
   import.meta.url,
 );
+const interviewAssessmentCorrectionsMigrationUrl = new URL(
+  "../migrations/0039-interview-assessment-corrections.sql",
+  import.meta.url,
+);
 export const databaseMigrationDefinitions = [
   { id: "1_receipt-authority", name: "receipt-authority", url: receiptMigrationUrl },
   {
@@ -321,6 +325,11 @@ export const databaseMigrationDefinitions = [
     id: "38_returning-assistant-registration",
     name: "returning-assistant-registration",
     url: returningAssistantRegistrationMigrationUrl,
+  },
+  {
+    id: "39_interview-assessment-corrections",
+    name: "interview-assessment-corrections",
+    url: interviewAssessmentCorrectionsMigrationUrl,
   },
 ] as const;
 

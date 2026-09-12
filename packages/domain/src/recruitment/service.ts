@@ -30,6 +30,8 @@ import type {
   RecruitmentSchedulingBoard,
   RecruitmentConductContext,
   RecruitmentInterviewConductObservation,
+  CorrectInterviewAssessmentCommand,
+  CorrectInterviewAssessmentResult,
   FinalizeInterviewCommand,
   FinalizeInterviewResult,
   CancelInterviewCommand,
@@ -145,6 +147,10 @@ export interface RecruitmentShape {
     command: CancelInterviewCommand,
     context: RecruitmentConductContext,
   ) => Effect.Effect<CancelInterviewResult, RecruitmentFailure>;
+  readonly correctInterviewAssessment: (
+    command: CorrectInterviewAssessmentCommand,
+    context: RecruitmentConductContext,
+  ) => Effect.Effect<CorrectInterviewAssessmentResult, RecruitmentFailure>;
 }
 
 export class Recruitment extends Context.Service<Recruitment, RecruitmentShape>()(

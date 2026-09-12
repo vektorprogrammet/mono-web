@@ -20,6 +20,8 @@ import {
 import { OwnProfile } from "@vektorprogrammet/domain/profile";
 import {
   CancelInterviewObservationSchema,
+  CorrectInterviewAssessmentCommandSchema,
+  CorrectInterviewAssessmentObservationSchema,
   FinalizeInterviewCommandSchema,
   FinalizeInterviewObservationSchema,
   RecruitmentAssignmentCommandSchema,
@@ -153,6 +155,14 @@ export const FinalizeInterviewRequest = Schema.Struct({
 }).annotate({ identifier: "FinalizeInterviewRequest" });
 export type FinalizeInterviewRequest = typeof FinalizeInterviewRequest.Type;
 
+const correctionFields = CorrectInterviewAssessmentCommandSchema.fields;
+export const CorrectInterviewAssessmentRequest = Schema.Struct({
+  answers: correctionFields.answers,
+  score: correctionFields.score,
+  recommendation: correctionFields.recommendation,
+}).annotate({ identifier: "CorrectInterviewAssessmentRequest" });
+export type CorrectInterviewAssessmentRequest = typeof CorrectInterviewAssessmentRequest.Type;
+
 export const SubmitReceiptMultipartV2 = Schema.Struct({
   description: receiptDescriptionPart,
   amountOre: receiptAmountPart,
@@ -257,6 +267,15 @@ export const FinalizeInterviewResponse = Schema.Struct({
   completionState: FinalizeInterviewObservationSchema.fields.completionState,
   cancellationState: FinalizeInterviewObservationSchema.fields.cancellationState,
 }).annotate({ identifier: "FinalizeInterviewResponse" });
+
+export const CorrectInterviewAssessmentResponse = Schema.Struct({
+  _tag: CorrectInterviewAssessmentObservationSchema.fields._tag,
+  commandId: CorrectInterviewAssessmentObservationSchema.fields.commandId,
+  interviewId: CorrectInterviewAssessmentObservationSchema.fields.interviewId,
+  predecessorRevision: CorrectInterviewAssessmentObservationSchema.fields.predecessorRevision,
+  resultingRevision: CorrectInterviewAssessmentObservationSchema.fields.resultingRevision,
+  replayed: Schema.Boolean,
+}).annotate({ identifier: "CorrectInterviewAssessmentResponse" });
 
 export const CancelInterviewResponse = Schema.Struct({
   interviewId: CancelInterviewObservationSchema.fields.interviewId,

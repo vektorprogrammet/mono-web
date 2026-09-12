@@ -107,6 +107,7 @@ const inertClient: RecruitmentClient = {
     readInterviewConduct: () => Effect.die("not executed by transition tests"),
     finalizeInterview: () => Effect.die("not executed by transition tests"),
     cancelInterview: () => Effect.die("not executed by transition tests"),
+  correctInterviewAssessment: () => Effect.die("not executed by transition tests"),
   },
 };
 const commands = makeSchedulingCommands(inertClient);
@@ -298,6 +299,7 @@ describe("Foldkit scheduling transitions", () => {
         readInterviewConduct: () => Effect.die("not executed by transition tests"),
         finalizeInterview: () => Effect.die("not executed by transition tests"),
         cancelInterview: () => Effect.die("not executed by transition tests"),
+      correctInterviewAssessment: () => Effect.die("not executed by transition tests"),
       },
     };
     const flowUpdate = makeUpdate(makeSchedulingCommands(client));

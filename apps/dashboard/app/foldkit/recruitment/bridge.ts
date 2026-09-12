@@ -14,6 +14,8 @@ import {
   ConditionalReadHeaders,
   CreateApplicationInterviewRequest,
   FinalizeInterviewRequest,
+  CorrectInterviewAssessmentRequest,
+  CorrectInterviewAssessmentResponse,
   FinalizeInterviewResponse,
   IdempotencyHeaders,
   IdempotencyIfMatchHeaders,
@@ -82,6 +84,16 @@ export const CancelInterviewInputSchema = S.Struct({
   headers: IdempotencyIfMatchHeaders,
   payload: CancelInterviewRequest,
 });
+export const CorrectInterviewAssessmentInputSchema = S.Struct({
+  params: S.Struct({ interviewId: RecruitmentInterviewId }),
+  headers: IdempotencyIfMatchHeaders,
+  payload: CorrectInterviewAssessmentRequest,
+});
+const CorrectInterviewAssessmentOperation = S.Struct({
+  operation: S.Literal("correctInterviewAssessment"),
+  ...CorrectInterviewAssessmentInputSchema.fields,
+});
+
 const CancelInterviewOperation = S.Struct({
   operation: S.Literal("cancelInterview"),
   ...CancelInterviewInputSchema.fields,
@@ -102,6 +114,8 @@ export {
   CreateApplicationInterviewRequest,
   FinalizeInterviewObservationSchema,
   FinalizeInterviewRequest,
+  CorrectInterviewAssessmentRequest,
+  CorrectInterviewAssessmentResponse,
   FinalizeInterviewResponse,
   InterviewSchemaId,
   RecruitmentAssignmentBoardSchema,
@@ -120,6 +134,7 @@ export const RecruitmentBridgeOperation = S.Union([
   ScheduleInterviewOperation,
   ReadInterviewConductOperation,
   FinalizeInterviewOperation,
+  CorrectInterviewAssessmentOperation,
   CancelInterviewOperation,
 ]);
 export type RecruitmentBridgeOperation = S.Schema.Type<typeof RecruitmentBridgeOperation>;

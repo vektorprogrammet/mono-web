@@ -18,14 +18,19 @@ import {
   RecruitmentInterviewConduct,
   RecruitmentInterviewCancellation,
   RecruitmentInterviewScoreSchema,
+  CorrectInterviewAssessmentObservationSchema,
+  RecruitmentInterviewCorrectionSchema,
   type CancelInterviewObservation,
   type CancelInterviewCommand,
   type FinalizeInterviewCommand,
   type FinalizeInterviewObservation,
+  type CorrectInterviewAssessmentCommand,
+  type CorrectInterviewAssessmentObservation,
   type RecruitmentConductActor,
   type RecruitmentConductState,
   type RecruitmentInterviewAnswer,
   type RecruitmentInterviewScore,
+  type RecruitmentInterviewCorrection,
 } from "./schema.js";
 
 export interface FinalizeTransition {
@@ -309,6 +314,79 @@ export const cancelInterview = (
       ),
     );
     return { observation, state: { ...state, cancellation, revision } };
+  });
+export interface CorrectionTransition {
+  readonly observation: CorrectInterviewAssessmentObservation;
+  readonly correction: RecruitmentInterviewCorrection;
+  readonly state: RecruitmentConductState;
+}
+
+export const correctInterviewAssessment = (
+  state: RecruitmentConductState,
+  command: CorrectInterviewAssessmentCommand,
+  actor: RecruitmentConductActor,
+  now: string,
+): Effect.Effect<CorrectionTransition, ConductFailure> =>
+  Effect.gen(function* () {
+    if (!isRfc3339Instant(now)) return yield* invalid(state, "invalid correction instant");
+    yield* checkBase(state, actor, command.expectedRevision);
+    if (state.cancellation !== null)
+      return yield* new RecruitmentInterviewAlreadyCancelled({
+        interviewId: state.interview.interviewId,
+      });
+    if (state.conduct === null)
+      return yield* new RecruitmentConductValidationError({
+        interviewId: state.interview.interviewId,
+        message: "the interview is not completed",
+      });
+    const answers = yield* validateAnswers(state, command.answers);
+    yield* validateScore(state, command.score);
+    if (!interviewRecommendations.includes(command.recommendation))
+      return yield* invalid(state, "an explicit interviewer recommendation is required");
+    const resultingRevision = state.revision + 1;
+    const correction = yield* Schema.decodeUnknownEffect(RecruitmentInterviewCorrectionSchema)(
+      {
+        interviewId: state.interview.interviewId,
+        predecessorRevision: state.revision,
+        resultingRevision,
+        answers,
+        score: command.score,
+        recommendation: command.recommendation,
+        correctedByPersonId: actor.personId,
+        correctedAt: now,
+        commandId: command.commandId,
+      },
+      { onExcessProperty: "error" },
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new RecruitmentConductValidationError({
+            interviewId: state.interview.interviewId,
+            message: String(cause),
+          }),
+      ),
+    );
+    const observation = yield* Schema.decodeUnknownEffect(
+      CorrectInterviewAssessmentObservationSchema,
+    )(
+      {
+        _tag: "InterviewCorrected",
+        commandId: command.commandId,
+        interviewId: state.interview.interviewId,
+        predecessorRevision: state.revision,
+        resultingRevision,
+      },
+      { onExcessProperty: "error" },
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new RecruitmentConductValidationError({
+            interviewId: state.interview.interviewId,
+            message: String(cause),
+          }),
+      ),
+    );
+    return { observation, correction, state: { ...state, revision: resultingRevision } };
   });
 
 export const recruitmentInterviewAnswerIsValid = (

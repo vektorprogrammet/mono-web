@@ -72,6 +72,7 @@ const client: RecruitmentClient = {
     readInterviewConduct: () => Effect.die("not executed by transition tests"),
     finalizeInterview: () => Effect.die("not executed by transition tests"),
     cancelInterview: () => Effect.die("not executed by transition tests"),
+  correctInterviewAssessment: () => Effect.die("not executed by transition tests"),
   },
 };
 const update = makeUpdate(makeRecruitmentCommands(client));

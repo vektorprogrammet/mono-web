@@ -6,6 +6,7 @@ import {
   RecruitmentAssignmentCommandId,
   RecruitmentConductCommandId,
   RecruitmentCancellationCommandId,
+  RecruitmentInterviewCorrectionCommandId,
   RecruitmentInterviewId,
   RecruitmentScheduleCommandId,
 } from "./schema.js";
@@ -131,10 +132,15 @@ export class RecruitmentPersistenceError extends Schema.TaggedError<RecruitmentP
   "RecruitmentPersistenceError",
   { operation: Schema.String, message: Schema.String, cause: Schema.optional(Schema.Unknown) },
 ) {}
-
 export class RecruitmentLifecycleCommandConflict extends Schema.TaggedError<RecruitmentLifecycleCommandConflict>()(
   "RecruitmentLifecycleCommandConflict",
-  { commandId: Schema.Union([RecruitmentConductCommandId, RecruitmentCancellationCommandId]) },
+  {
+    commandId: Schema.Union([
+      RecruitmentConductCommandId,
+      RecruitmentCancellationCommandId,
+      RecruitmentInterviewCorrectionCommandId,
+    ]),
+  },
 ) {}
 
 export class RecruitmentInterviewAlreadyFinalized extends Schema.TaggedError<RecruitmentInterviewAlreadyFinalized>()(

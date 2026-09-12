@@ -44,7 +44,7 @@ const ScoreDraft = S.Struct({
   roleModel: StringField,
   suitability: StringField,
 });
-const ConductAction = S.Literals(["Finalize", "Cancel"]);
+const ConductAction = S.Literals(["Finalize", "Cancel", "Correct"]);
 
 const ReadyModel = S.Struct({
   _tag: S.Literal("Ready"),

@@ -727,6 +727,11 @@ export const RecruitmentCancellationCommandId = StableId.pipe(
   Schema.brand("RecruitmentCancellationCommandId"),
 );
 export type RecruitmentCancellationCommandId = typeof RecruitmentCancellationCommandId.Type;
+export const RecruitmentInterviewCorrectionCommandId = StableId.pipe(
+  Schema.brand("RecruitmentInterviewCorrectionCommandId"),
+);
+export type RecruitmentInterviewCorrectionCommandId =
+  typeof RecruitmentInterviewCorrectionCommandId.Type;
 
 export const RecruitmentInterviewAnswerSchema = Schema.Struct({
   questionId: StableId,
@@ -802,6 +807,19 @@ export class RecruitmentInterviewConduct extends Model.Class<RecruitmentIntervie
     json: Revision,
   }),
 }) {}
+export const RecruitmentInterviewCorrectionSchema = Schema.Struct({
+  interviewId: RecruitmentInterviewId,
+  predecessorRevision: Revision,
+  resultingRevision: Revision,
+  answers: Schema.Array(RecruitmentInterviewAnswerSchema),
+  score: RecruitmentInterviewScoreSchema,
+  recommendation: InterviewRecommendationSchema,
+  correctedByPersonId: PersonId,
+  correctedAt: Rfc3339InstantSchema,
+  commandId: RecruitmentInterviewCorrectionCommandId,
+});
+export type RecruitmentInterviewCorrection = typeof RecruitmentInterviewCorrectionSchema.Type;
+
 
 export type RecruitmentInterviewConductSelect = typeof RecruitmentInterviewConduct.Encoded;
 export type RecruitmentInterviewConductInsert = typeof RecruitmentInterviewConduct.insert.Encoded;
@@ -857,6 +875,58 @@ export const CancelInterviewCommandSchema = Schema.Struct({
   expectedRevision: Revision,
 });
 export type CancelInterviewCommand = typeof CancelInterviewCommandSchema.Type;
+
+export const CorrectInterviewAssessmentCommandSchema = Schema.Struct({
+  commandId: RecruitmentInterviewCorrectionCommandId,
+  interviewId: RecruitmentInterviewId,
+  expectedRevision: Revision,
+  answers: Schema.Array(RecruitmentInterviewAnswerSchema),
+  score: RecruitmentInterviewScoreSchema,
+  recommendation: InterviewRecommendationSchema,
+});
+export type CorrectInterviewAssessmentCommand = typeof CorrectInterviewAssessmentCommandSchema.Type;
+
+export const CorrectionHistoryOriginalSchema = Schema.Struct({
+  _tag: Schema.Literals(["Original"]),
+  revision: Revision,
+  answers: Schema.Array(RecruitmentInterviewAnswerSchema),
+  score: RecruitmentInterviewScoreSchema,
+  recommendation: Schema.NullOr(InterviewRecommendationSchema),
+  finalizedByPersonId: PersonId,
+  finalizedAt: Rfc3339InstantSchema,
+});
+export const CorrectionHistoryEntrySchema = Schema.Struct({
+  _tag: Schema.Literals(["Correction"]),
+  revision: Revision,
+  predecessorRevision: Revision,
+  answers: Schema.Array(RecruitmentInterviewAnswerSchema),
+  score: RecruitmentInterviewScoreSchema,
+  recommendation: InterviewRecommendationSchema,
+  correctedByPersonId: PersonId,
+  correctedAt: Rfc3339InstantSchema,
+  commandId: RecruitmentInterviewCorrectionCommandId,
+});
+export const RecruitmentInterviewCorrectionHistoryEntrySchema = Schema.Union([
+  CorrectionHistoryOriginalSchema,
+  CorrectionHistoryEntrySchema,
+]);
+export type RecruitmentInterviewCorrectionHistoryEntry =
+  typeof RecruitmentInterviewCorrectionHistoryEntrySchema.Type;
+
+export const CorrectInterviewAssessmentObservationSchema = Schema.Struct({
+  _tag: Schema.Literals(["InterviewCorrected"]),
+  commandId: RecruitmentInterviewCorrectionCommandId,
+  interviewId: RecruitmentInterviewId,
+  predecessorRevision: Revision,
+  resultingRevision: Revision,
+});
+export type CorrectInterviewAssessmentObservation =
+  typeof CorrectInterviewAssessmentObservationSchema.Type;
+export const CorrectInterviewAssessmentResultSchema = Schema.Struct({
+  observation: CorrectInterviewAssessmentObservationSchema,
+  replayed: Schema.Boolean,
+});
+export type CorrectInterviewAssessmentResult = typeof CorrectInterviewAssessmentResultSchema.Type;
 
 export const FinalizeInterviewObservationSchema = Schema.Struct({
   _tag: Schema.Literals(["InterviewFinalized"]),
@@ -929,12 +999,15 @@ export const RecruitmentInterviewConductObservationSchema = Schema.Struct({
   schedule: RecruitmentInterviewSchedule,
   invitationResponse: Schema.Literals(["Accepted"]),
   questions: Schema.Array(RecruitmentInterviewQuestionSnapshot),
+  finalizedByPersonId: Schema.NullOr(PersonId),
+  finalizedAt: Schema.NullOr(Rfc3339InstantSchema),
   answers: Schema.Array(RecruitmentInterviewAnswerSchema),
   score: Schema.NullOr(RecruitmentInterviewScoreSchema),
   recommendation: Schema.NullOr(InterviewRecommendationSchema),
   completionState: Schema.Literals(["NotCompleted", "Completed"]),
   cancellationState: Schema.Literals(["NotCancelled", "Cancelled"]),
-  finalizedAt: Schema.NullOr(Rfc3339InstantSchema),
+  effectiveRevision: Revision,
+  history: Schema.Array(RecruitmentInterviewCorrectionHistoryEntrySchema),
   cancelledAt: Schema.NullOr(Rfc3339InstantSchema),
   revision: Revision,
   canFinalize: Schema.Boolean,

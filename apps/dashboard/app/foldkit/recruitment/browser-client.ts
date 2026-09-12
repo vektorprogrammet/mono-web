@@ -5,6 +5,8 @@ import type {
 import { Effect, Schema as S } from "effect";
 import {
   CancelInterviewInputSchema,
+  CorrectInterviewAssessmentInputSchema,
+  CorrectInterviewAssessmentResponse as CorrectInterviewAssessmentResponseSchema,
   CancelInterviewResponse as CancelInterviewResponseSchema,
   CreateApplicationInterviewInputSchema,
   FinalizeInterviewInputSchema,
@@ -26,6 +28,7 @@ type RecruitmentInterviewResource = S.Schema.Type<typeof RecruitmentInterviewRes
 type ScheduleInterviewResponse = S.Schema.Type<typeof ScheduleInterviewResponseSchema>;
 type FinalizeInterviewResponse = S.Schema.Type<typeof FinalizeInterviewResponseSchema>;
 type CancelInterviewResponse = S.Schema.Type<typeof CancelInterviewResponseSchema>;
+type CorrectInterviewAssessmentResponse = S.Schema.Type<typeof CorrectInterviewAssessmentResponseSchema>;
 
 export type CreateApplicationInterviewInput = S.Schema.Type<
   typeof CreateApplicationInterviewInputSchema
@@ -34,6 +37,7 @@ export type ScheduleInterviewInput = S.Schema.Type<typeof ScheduleInterviewInput
 export type ReadInterviewConductInput = S.Schema.Type<typeof ReadInterviewConductInputSchema>;
 export type FinalizeInterviewInput = S.Schema.Type<typeof FinalizeInterviewInputSchema>;
 export type CancelInterviewInput = S.Schema.Type<typeof CancelInterviewInputSchema>;
+export type CorrectInterviewAssessmentInput = S.Schema.Type<typeof CorrectInterviewAssessmentInputSchema>;
 
 interface RecruitmentOperations {
   readonly readAssignmentBoard: (
@@ -58,6 +62,9 @@ interface RecruitmentOperations {
   readonly cancelInterview: (
     input: CancelInterviewInput,
   ) => Effect.Effect<CancelInterviewResponse, RecruitmentBridgeFailure>;
+  readonly correctInterviewAssessment: (
+    input: CorrectInterviewAssessmentInput,
+  ) => Effect.Effect<CorrectInterviewAssessmentResponse, RecruitmentBridgeFailure>;
 }
 
 export interface RecruitmentAssignmentClient {
@@ -132,6 +139,10 @@ export const createBrowserRecruitmentClient = (): RecruitmentClient => ({
         S.decodeUnknownSync(FinalizeInterviewResponseSchema)(value, {
           onExcessProperty: "error",
         }),
+      ),
+    correctInterviewAssessment: ({ params, headers, payload }) =>
+      bridgeRequest({ operation: "correctInterviewAssessment", params, headers, payload }, (value) =>
+        S.decodeUnknownSync(CorrectInterviewAssessmentResponseSchema)(value, { onExcessProperty: "error" }),
       ),
     cancelInterview: ({ params, headers, payload }) =>
       bridgeRequest({ operation: "cancelInterview", params, headers, payload }, (value) =>

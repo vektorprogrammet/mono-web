@@ -148,6 +148,7 @@ import { annotateAccessSpec, invitationNativeAccess, personNativeAccess } from "
 import { InvitationCapabilitySecurity, operationAnnotations, PersonSecurity } from "./common.js";
 import {
   RecruitmentCancelInterviewProblem,
+  RecruitmentCorrectInterviewAssessmentProblem,
   RecruitmentConfirmInvitationProblem,
   RecruitmentCreateApplicationInterviewProblem,
   RecruitmentFinalizeInterviewProblem,
@@ -175,6 +176,8 @@ import {
 import {
   CancelInterviewRequest,
   CancelInterviewResponse,
+  CorrectInterviewAssessmentRequest,
+  CorrectInterviewAssessmentResponse,
   CreateApplicationInterviewRequest,
   EmptyJsonRequest,
   FinalizeInterviewRequest,
@@ -547,6 +550,34 @@ export const FinalizeInterviewEndpoint = HttpApiEndpoint.post(
   );
 
 /** @since 0.1.0 @category Endpoints */
+export const CorrectInterviewAssessmentEndpoint = HttpApiEndpoint.post(
+  "correctInterviewAssessment",
+  "/api/recruitment/interviews/:interviewId([^:]+)::correct",
+  {
+    params: { interviewId: RecruitmentInterviewId },
+    headers: IdempotencyIfMatchHeaders,
+    payload: CorrectInterviewAssessmentRequest,
+    success: entityMutationResponse(CorrectInterviewAssessmentResponse),
+    error: endpointProblemResponses(RecruitmentCorrectInterviewAssessmentProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "recruitment.conduct-interview",
+        canonicalScopeResolver: "recruitment.interview-by-id",
+        requirements: ["recruitment.assigned-interviewer", "recruitment.not-known-self"],
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
+  .annotateMerge(
+    operationAnnotations("Correct interview assessment", "Appends a replacement assessment to a completed interview."),
+  );
+
+/** @since 0.1.0 @category Endpoints */
 export const CancelInterviewEndpoint = HttpApiEndpoint.post(
   "cancelInterview",
   "/api/recruitment/interviews/:interviewId([^:]+)::cancel",
@@ -593,6 +624,7 @@ export class RecruitmentApi extends HttpApiGroup.make("recruitment")
     ScheduleInterviewEndpoint,
     ReadInterviewConductEndpoint,
     FinalizeInterviewEndpoint,
+    CorrectInterviewAssessmentEndpoint,
     CancelInterviewEndpoint,
   )
   .annotateMerge(

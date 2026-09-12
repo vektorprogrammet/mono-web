@@ -18,6 +18,7 @@ export {
   readInterviewConduct,
   finalizeInterview as finalizeInterviewPostgres,
   cancelInterview as cancelInterviewPostgres,
+  correctInterviewAssessment as correctInterviewAssessmentPostgres,
 } from "./conduct-postgres.js";
 
 export { guardInterviewApplicantIdentity } from "./conduct-identity.js";

@@ -5,7 +5,12 @@ import { Organization } from "../organization/service.js";
 import { Profile } from "../profile/service.js";
 import { assignApplicant, readAssignmentBoard } from "./postgres.js";
 import { readSchedulingBoard, scheduleInterview } from "./scheduling-postgres.js";
-import { readInterviewConduct, finalizeInterview, cancelInterview } from "./conduct-postgres.js";
+import {
+  readInterviewConduct,
+  finalizeInterview,
+  cancelInterview,
+  correctInterviewAssessment,
+} from "./conduct-postgres.js";
 import {
   confirmInvitation,
   readInvitationResponse,
@@ -79,6 +84,11 @@ export const RecruitmentLive = Layer.effect(
         ),
       cancelInterview: (command, context) =>
         cancelInterview(command, context).pipe(
+          Effect.provideService(Database, database),
+          Effect.provideService(Organization, organization),
+        ),
+      correctInterviewAssessment: (command, context) =>
+        correctInterviewAssessment(command, context).pipe(
           Effect.provideService(Database, database),
           Effect.provideService(Organization, organization),
         ),

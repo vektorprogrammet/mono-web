@@ -68,6 +68,7 @@ export const ChangedScore = m("ChangedScore", {
   value: S.String,
 });
 export const SubmittedFinalize = m("SubmittedFinalize");
+export const SubmittedCorrection = m("SubmittedCorrection");
 export const SubmittedCancel = m("SubmittedCancel");
 export const ConfirmedFinalize = m("ConfirmedFinalize");
 export const ConfirmedCancel = m("ConfirmedCancel");
@@ -75,6 +76,17 @@ export const SucceededFinalize = m("SucceededFinalize", {
   requestId: ConductRequestId,
   generation: ConductRequestId,
   interviewId: RecruitmentInterviewId,
+});
+export const SucceededCorrection = m("SucceededCorrection", {
+  requestId: ConductRequestId,
+  generation: ConductRequestId,
+  interviewId: RecruitmentInterviewId,
+});
+export const FailedCorrection = m("FailedCorrection", {
+  requestId: ConductRequestId,
+  generation: ConductRequestId,
+  interviewId: RecruitmentInterviewId,
+  failure: RecruitmentBridgeFailure,
 });
 export const FailedFinalize = m("FailedFinalize", {
   requestId: ConductRequestId,

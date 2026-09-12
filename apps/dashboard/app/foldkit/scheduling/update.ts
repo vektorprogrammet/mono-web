@@ -6,6 +6,7 @@ import { AsyncData, Command, FieldValidation } from "foldkit";
 import {
   CancelInterviewInputSchema,
   FinalizeInterviewInputSchema,
+  CorrectInterviewAssessmentInputSchema,
   ScheduleInterviewInputSchema,
 } from "../recruitment/bridge";
 import type { SchedulingCommands } from "./command";
@@ -152,6 +153,7 @@ export const makeUpdate =
     ScheduleInterview,
     ReadInterviewConduct,
     FinalizeInterview,
+    CorrectInterviewAssessment,
     CancelInterview,
   }: SchedulingCommands) =>
   (model: Model, message: Message): readonly [Model, ReadonlyArray<Command.Command<Message>>] => {
@@ -578,12 +580,11 @@ export const makeUpdate =
           const current = AsyncData.getData(model.conduct);
           if (
             current._tag === "None" ||
-            current.value.completionState === "Completed" ||
             current.value.cancellationState === "Cancelled" ||
-            !current.value.canFinalize
+            (current.value.completionState !== "Completed" && !current.value.canFinalize)
           ) {
             return [
-              { ...model, conductValidationFeedback: "Intervjuet kan ikke fullføres nå." },
+              { ...model, conductValidationFeedback: "Intervjuet kan ikke endres nå." },
               [],
             ];
           }
@@ -624,7 +625,7 @@ export const makeUpdate =
               ...model,
               score,
               answerErrors: [],
-              pendingConductAction: "Finalize",
+              pendingConductAction: current.value.completionState === "Completed" ? "Correct" : "Finalize",
               conductDialog,
               conductValidationFeedback: null,
             },
@@ -650,7 +651,7 @@ export const makeUpdate =
           ];
         },
         ConfirmedFinalize: () => {
-          if (model.pendingConductAction !== "Finalize" || model.selectedInterviewId === null) {
+          if ((model.pendingConductAction !== "Finalize" && model.pendingConductAction !== "Correct") || model.selectedInterviewId === null) {
             return [model, []];
           }
           const current = AsyncData.getData(model.conduct);
@@ -669,7 +670,7 @@ export const makeUpdate =
           };
           let input;
           try {
-            input = S.decodeUnknownSync(FinalizeInterviewInputSchema)(
+            input = S.decodeUnknownSync(model.pendingConductAction === "Correct" ? CorrectInterviewAssessmentInputSchema : FinalizeInterviewInputSchema)(
               {
                 params: { interviewId: model.selectedInterviewId },
                 headers: {
@@ -705,12 +706,19 @@ export const makeUpdate =
             },
             [
               ...conductDialogCommands(dialogCommands),
-              FinalizeInterview({
-                requestId,
-                generation: model.conductGeneration,
-                interviewId: model.selectedInterviewId,
-                input,
-              }),
+              model.pendingConductAction === "Correct"
+                ? CorrectInterviewAssessment({
+                    requestId,
+                    generation: model.conductGeneration,
+                    interviewId: model.selectedInterviewId,
+                    input,
+                  })
+                : FinalizeInterview({
+                    requestId,
+                    generation: model.conductGeneration,
+                    interviewId: model.selectedInterviewId,
+                    input,
+                  }),
             ],
           ];
         },
