@@ -491,7 +491,7 @@ export const runReturningAssistantBrowserJourney = async ({
      WHERE i.indrelid='public.admission_period_fields_of_study'::regclass AND i.indisprimary
      GROUP BY i.indexrelid`,
   );
-  const expectedMappingKey = [{ columns: ["field_of_study_id"] }];
+  const expectedMappingKey = [{ columns: "{field_of_study_id}" }];
   if (JSON.stringify(mappingKey.rows) !== JSON.stringify(expectedMappingKey))
     throw new Error(`ambiguous-study-mapping structural key mismatch actual=${JSON.stringify(mappingKey.rows)} expected=${JSON.stringify(expectedMappingKey)}`);
   trace.push({ phase: "negative-gate", gate: "ambiguous-study-mapping-structural-primary-key", status: "proven" });
