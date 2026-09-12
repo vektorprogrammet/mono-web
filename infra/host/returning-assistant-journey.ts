@@ -1340,7 +1340,7 @@ export const runReturningAssistantBrowserJourney = async ({
         .getByRole("dialog")
         .getByRole("button", { name: "Fullfør intervju", exact: true })
         .press("Enter");
-      await page.getByText("Intervjuet er fullført.", { exact: true }).waitFor();
+      await page.getByText("Completed", { exact: true }).waitFor();
       await page.reload();
     }
     const ordinaryAfter = await pool.query(
