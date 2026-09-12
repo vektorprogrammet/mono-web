@@ -464,7 +464,8 @@ export const runReturningAssistantBrowserJourney = async ({
     const body = await response.text();
     assert.equal(response.status, expectedStatus, `${gate} status body=${body}`);
     const after = await negativeMutationSnapshot(probePerson.personId);
-    assert.deepEqual(after, before, `${gate} must not mutate`);
+    if (JSON.stringify(after) !== JSON.stringify(before))
+      throw new Error(`${gate} must not mutate before=${JSON.stringify(before)} after=${JSON.stringify(after)}`);
     trace.push({ phase: "negative-gate", gate, status: response.status, body });
   };
   await probeNegativeOptions("no-placement-despite-affiliation", negativeProbePersons[0], 404);
