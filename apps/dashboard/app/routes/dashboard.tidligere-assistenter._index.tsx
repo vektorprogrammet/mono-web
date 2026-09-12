@@ -2,7 +2,7 @@ import { ReturningAssistantRegistrationInputSchema } from "@vektorprogrammet/dom
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { IdempotencyHeaders } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
-import { data, useFetcher, useLoaderData, useRouteError } from "react-router";
+import { data, useFetcher, useLoaderData, useRouteError, useSearchParams } from "react-router";
 import { useState, useSyncExternalStore, type FormEvent } from "react";
 import { Button } from "../components/ui/button";
 import { createAuthenticatedClient } from "../lib/api.server";
@@ -16,8 +16,24 @@ const privateData = <T,>(value: T, status = 200) =>
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
+  const search = new URL(request.url).searchParams;
+  const periodIds = search.getAll("admissionPeriodId");
+  if ([...search.keys()].some((key) => key !== "admissionPeriodId") || periodIds.length > 1)
+    return privateData(
+      { options: null, error: "Ugyldig opptaksperiodevalg." },
+      400,
+    );
+  const requestedPeriodId = periodIds[0];
   try {
     const result = await client.admissions.readReturningAssistantOptions();
+    if (
+      requestedPeriodId !== undefined &&
+      !result.body.periods.some(({ period }) => period.id === requestedPeriodId)
+    )
+      return privateData(
+        { options: null, error: "Opptaksperioden er ikke tilgjengelig." },
+        400,
+      );
     return privateData({ options: result.body, error: null as string | null });
   } catch (cause) {
     const problem = nativeProblemFrom(cause);
@@ -169,10 +185,18 @@ export default function TidligereAssistenter() {
   const savedDrafts = hydrated ? readReturningDrafts(options?.personId) : [];
   const savedDraft = savedDrafts.length === 1 ? savedDrafts[0] : null;
   const savedPayload = savedDraft?.payload;
-  const [selectedPeriodOverride, setSelectedPeriodOverride] = useState<string>();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryPeriodId = searchParams.get("admissionPeriodId");
+  const [selectionOverride, setSelectionOverride] = useState<{
+    readonly value: string;
+    readonly to: string | null;
+  }>();
+  const explicitSelection =
+    selectionOverride?.to === queryPeriodId ? selectionOverride.value : undefined;
   const selectedPeriodId =
-    selectedPeriodOverride ??
+    explicitSelection ??
     savedPayload?.admissionPeriodId ??
+    queryPeriodId ??
     (savedDrafts.length === 0 ? options?.periods[0]?.period.id ?? "" : "");
   const selectedPeriod = options?.periods.find(({ period }) => period.id === selectedPeriodId);
   const current = selectedPeriod?.currentPreferences ?? null;
@@ -341,7 +365,11 @@ export default function TidligereAssistenter() {
               value={selectedId}
               onChange={(event) => {
                 const nextPeriodId = event.currentTarget.value;
-                setSelectedPeriodOverride(nextPeriodId);
+                setSelectionOverride({ value: nextPeriodId, to: nextPeriodId || null });
+                setSearchParams(
+                  nextPeriodId ? { admissionPeriodId: nextPeriodId } : {},
+                  { replace: false },
+                );
                 setDraftRevisionOverride(
                   options.periods.find(({ period }) => period.id === nextPeriodId)?.currentRevision ?? 0,
                 );
