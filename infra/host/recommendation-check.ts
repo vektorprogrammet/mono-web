@@ -35,6 +35,7 @@ import {
   assertInterviewCorrectionBoundaries,
   type InterviewCorrectionReplayRequest,
 } from "./interview-correction-boundaries.ts";
+import { assertInterviewCorrectionIntegrity } from "./interview-correction-integrity.ts";
 import { DatabaseLive } from "../../packages/database/src/index.js";
 import { AdmissionsLive } from "../../packages/domain/src/admissions/index.js";
 import { OrganizationLive } from "../../packages/domain/src/organization/index.js";
@@ -1523,6 +1524,10 @@ try {
       DROP FUNCTION public.test_correction_audit_failure();
     `);
     stage("synthetic audit failure rolls back correction assessment, aggregate, receipt and audit");
+    await assertInterviewCorrectionIntegrity(pool, correctionId);
+    recordGate(
+      "direct SQL correction integrity rejects immutable mutations, invalid predecessor, aggregate mismatch, and cross-command receipt/audit tuples without writes",
+    );
     await writeFile(
       join(artifacts, "correction-targeted-evidence.json"),
       JSON.stringify(
