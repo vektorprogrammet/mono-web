@@ -333,10 +333,12 @@ export const seedReturningAssistant = async ({
   }
   const counts = await pool.query(
     `SELECT (SELECT count(*)::int FROM public.applicant_account_links WHERE person_id=$1) links,
-            (SELECT count(*)::int FROM public.assistant_placements WHERE person_id=$1) placements`,
-    [person.personId],
+            (SELECT count(*)::int FROM public.assistant_placements WHERE person_id=$1) placements,
+            (SELECT count(*)::int FROM public.organization_departments WHERE department_id=$2) foreign_departments,
+            (SELECT count(*)::int FROM public.organization_teams WHERE team_id=$3 AND department_id=$2) foreign_teams`,
+    [person.personId, foreignDepartmentId, foreignTeamId],
   );
-  assert.deepEqual(counts.rows[0], { links: 1, placements: 2 });
+  assert.deepEqual(counts.rows[0], { links: 1, placements: 2, foreign_departments: 1, foreign_teams: 1 });
 };
 
 export const runReturningAssistantBrowserJourney = async ({
@@ -596,9 +598,11 @@ export const runReturningAssistantBrowserJourney = async ({
     headers: { "content-type": "application/json", "idempotency-key": "returning-wrong-team-0104", origin: ui },
     data: { ...firstPayload, commandId: "returning-wrong-team-0104", teamInterest: true, teamIds: [foreignTeam.rows[0].team_id] },
   });
-  assert.equal(wrongTeam.status(), 409);
+  const wrongTeamBody = await wrongTeam.json() as { code?: string };
+  assert.equal(wrongTeam.status(), 403);
+  assert.equal(wrongTeamBody.code, "returning.team-scope-denied");
   assert.deepEqual(await negativeMutationSnapshot(person.personId), wrongTeamBefore);
-  trace.push({ phase: "negative-gate", gate: "cross-department-team", status: wrongTeam.status() });
+  trace.push({ phase: "negative-gate", gate: "cross-department-team", status: wrongTeam.status(), code: wrongTeamBody.code });
   let resolveFirstAction!: () => void;
   let rejectFirstAction!: (cause: unknown) => void;
   let resolveSecondAction!: () => void;
