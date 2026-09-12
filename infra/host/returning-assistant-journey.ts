@@ -354,6 +354,7 @@ export const runReturningAssistantBrowserJourney = async ({
   coordinatorEmail,
   coordinatorPassword,
   readInvitationCapability,
+  deliverRecruitmentInvitation,
 }: {
   readonly browser: Browser;
   readonly page: Page;
@@ -367,6 +368,10 @@ export const runReturningAssistantBrowserJourney = async ({
   readonly coordinatorEmail: string;
   readonly coordinatorPassword: string;
   readonly readInvitationCapability?: (interviewId: string) => string | undefined;
+  readonly deliverRecruitmentInvitation?: (claimId: string) => Promise<{
+    readonly _tag: "Delivered" | "Idle" | "Failed";
+    readonly claim?: { readonly effectId: string };
+  }>;
 }) => {
   const trace: Array<Record<string, unknown>> = [];
   try {
@@ -1349,6 +1354,25 @@ export const runReturningAssistantBrowserJourney = async ({
   } finally {
     await coordinatorContext.close();
   }
+  const deliverRecruitmentInvitationOnce = deliverRecruitmentInvitation;
+  assert.ok(deliverRecruitmentInvitationOnce);
+  stage?.("returning:next-period-invitation-delivery");
+  const delivery = await deliverRecruitmentInvitationOnce("returning-next-invitation-delivery-0104");
+  assert.equal(delivery._tag, "Delivered");
+  if (delivery._tag !== "Delivered" || delivery.claim === undefined)
+    throw new Error(`next invitation delivery did not complete: ${delivery._tag}`);
+  const deliveredInvitationOutbox = await pool.query(
+    "SELECT status,attempts FROM public.recruitment_invitation_outbox WHERE effect_id=$1",
+    [delivery.claim.effectId],
+  );
+  assert.deepEqual(deliveredInvitationOutbox.rows, [{ status: "Delivered", attempts: 1 }]);
+  trace.push({
+    phase: "returning:native-invitation-delivered",
+    interviewId: nextInterviewId,
+    effectId: delivery.claim.effectId,
+    deliveryStatus: delivery._tag,
+    outbox: deliveredInvitationOutbox.rows,
+  });
   const invitationCapabilityReader = readInvitationCapability;
   assert.ok(invitationCapabilityReader);
   let invitationCapability: string | undefined;

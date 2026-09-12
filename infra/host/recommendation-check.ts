@@ -26,11 +26,22 @@ import {
   runReturningAssistantLoginProbe,
   seedReturningAssistant,
 } from "./returning-assistant-journey.ts";
+import { DatabaseLive } from "../../packages/database/src/index.js";
+import { AdmissionsLive } from "../../packages/domain/src/admissions/index.js";
+import { OrganizationLive } from "../../packages/domain/src/organization/index.js";
+import { ProfileLive } from "../../packages/domain/src/profile/index.js";
+import {
+  deliverNextRecruitmentInvitation,
+  RecruitmentNotificationDeliveryError,
+  RecruitmentNotificationEvidenceSchema,
+  type RecruitmentInvitationDeliveryResult,
+} from "../../packages/domain/src/recruitment/index.js";
+import { deliverJson } from "../../apps/backend/src/delivery/http.js";
 const root = new URL("../../", import.meta.url).pathname;
 const dbRequire = createRequire(new URL("../../packages/database/package.json", import.meta.url));
-const uiRequire = createRequire(new URL("../../apps/dashboard/package.json", import.meta.url));
 const { Pool } = dbRequire("pg");
 const { Schema } = dbRequire("effect");
+const { Effect, Layer, Redacted } = dbRequire("effect");
 const fixtureKeys = {
   invalid0: "invalid-recommendation-0101-0",
   invalid1: "invalid-recommendation-0101-1",
@@ -201,7 +212,8 @@ const startEffectReceiver = async (
     const normalizedEffectId = typeof effectId === "string" ? effectId : "";
     const attempt = (effectAttempts.get(normalizedEffectId) ?? 0) + 1;
     effectAttempts.set(normalizedEffectId, attempt);
-    const status = releaseEffectDelivery ? 204 : 503;
+    const kind = stringField(body, "_tag");
+    const status = releaseEffectDelivery || kind === "SendInterviewInvitation" ? 204 : 503;
     effectCalls.push({
       effectId: normalizedEffectId,
       commandId: stringField(body, "commandId"),
@@ -218,6 +230,88 @@ const startEffectReceiver = async (
   server.listen(portNumber, "127.0.0.1", listening.resolve);
   await listening.promise;
   return server;
+};
+const deliverRecruitmentInvitationOnce = async ({
+  pgUrl,
+  endpoint,
+  token,
+  claimId,
+  now,
+}: {
+  readonly pgUrl: string;
+  readonly endpoint: URL;
+  readonly token: string;
+  readonly claimId: string;
+  readonly now: () => string;
+}): Promise<RecruitmentInvitationDeliveryResult> => {
+  const databaseLayer = DatabaseLive({
+    url: Redacted.make(pgUrl),
+    applicationName: "native-returning-invitation-delivery",
+    maxConnections: 1,
+  });
+  const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
+  const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
+  const profileLayer = ProfileLive.pipe(
+    Layer.provide(Layer.merge(databaseLayer, organizationLayer)),
+  );
+  const authorityLayers = Layer.mergeAll(
+    databaseLayer,
+    admissionsLayer,
+    organizationLayer,
+    profileLayer,
+  );
+  const transport = {
+    endpoint,
+    token,
+    deliveryTimeoutMilliseconds: 2_000,
+  };
+  const gateway = Layer.succeed(
+    NotificationGateway,
+    NotificationGateway.of({
+      deliverInterviewInvitation: (request) =>
+        deliverJson(request, transport, globalThis.fetch, { "idempotency-key": request.effectId }).pipe(
+          Effect.map(() =>
+            RecruitmentNotificationEvidenceSchema.make({
+              effectId: request.effectId,
+              deliveredAt: now(),
+              providerReference: `loopback:${request.effectId}`,
+            }),
+          ),
+          Effect.mapError(
+            () =>
+              new RecruitmentNotificationDeliveryError({
+                effectId: request.effectId,
+                message: "loopback recruitment invitation delivery unavailable",
+              }),
+          ),
+        ),
+      deliverInterviewInvitationResponse: (request) =>
+        deliverJson(request, transport, globalThis.fetch, { "idempotency-key": request.effectId }).pipe(
+          Effect.map(() =>
+            RecruitmentNotificationEvidenceSchema.make({
+              effectId: request.effectId,
+              deliveredAt: now(),
+              providerReference: `loopback:${request.effectId}`,
+            }),
+          ),
+          Effect.mapError(
+            () =>
+              new RecruitmentNotificationDeliveryError({
+                effectId: request.effectId,
+                message: "loopback recruitment invitation response delivery unavailable",
+              }),
+          ),
+        ),
+    }),
+  );
+  return Effect.runPromise(
+    Effect.scoped(
+      deliverNextRecruitmentInvitation(claimId, now()).pipe(
+        Effect.provide(gateway),
+        Effect.provide(authorityLayers),
+      ),
+    ),
+  );
 };
 
 try {
@@ -423,8 +517,34 @@ try {
         coordinatorEmail: "coordinator.report@example.invalid",
         coordinatorPassword: password,
         readInvitationCapability: (interviewId) => invitationCapabilities.get(interviewId),
+        deliverRecruitmentInvitation: async (claimId) => {
+          const result = await deliverRecruitmentInvitationOnce({
+            pgUrl: pg,
+            endpoint: new URL(`${api.replace(/:\d+$/u, `:${effectPort}`)}/effects`),
+            token: effectToken,
+            claimId,
+            now: () => new Date().toISOString(),
+          });
+          assert.equal(result._tag, "Delivered");
+          if (result._tag !== "Delivered")
+            throw new Error(`recruitment invitation delivery ${result._tag}`);
+          const outbox = await pool.query(
+            "SELECT status,attempts FROM public.recruitment_invitation_outbox WHERE effect_id=$1",
+            [result.claim.effectId],
+          );
+          assert.deepEqual(outbox.rows, [{ status: "Delivered", attempts: 1 }]);
+          return result;
+        },
       }),
     );
+    if (effectMode === "http") {
+      const recruitmentInvitationCalls = effectCalls.filter(
+        (call) => call.kind === "SendInterviewInvitation",
+      );
+      assert.equal(recruitmentInvitationCalls.length, 1);
+      assert.deepEqual(recruitmentInvitationCalls.map((call) => call.status), [204]);
+      recordGate("manually drove existing recruitment invitation delivery helper through loopback ACK");
+    }
     if (effectMode === "http") {
       type ReturningOutboxRow = {
         readonly effect_id: string;
@@ -492,7 +612,7 @@ try {
       assert.equal(heldFailedRows.length, expectedOutboxCount);
       assert.ok(hasExactReturningEffectShape(heldFailedRows));
       assert.ok(heldFailedRows.every((row) => row.status === "Failed"));
-      const preRestartEffectCalls = effectCalls.slice();
+      const preRestartEffectCalls = effectCalls.filter((call) => call.origin === "ReturningAssistant");
       assert.ok(preRestartEffectCalls.some((call) => call.status === 503));
       const preRestartEffectIds = new Set(
         preRestartEffectCalls
@@ -525,8 +645,9 @@ try {
       const expectedEffectsById = new Map(
         deliveredRows.map((row) => [row.effect_id, row]),
       );
+      const returningEffectCalls = effectCalls.filter((call) => call.origin === "ReturningAssistant");
       assert.ok(
-        effectCalls.every((call) => {
+        returningEffectCalls.every((call) => {
           const outboxRow = expectedEffectsById.get(call.effectId);
           return (
             outboxRow !== undefined
