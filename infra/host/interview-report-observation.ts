@@ -380,7 +380,20 @@ export async function observeInterviewReport(o: Options) {
     );
     const persisted = (
       await pool.query(
-        `SELECT explanatory_power,role_model,suitability,recommendation FROM public.recruitment_interview_conducts WHERE interview_id=$1`,
+        `SELECT
+           COALESCE(correction.explanatory_power, conduct.explanatory_power) AS explanatory_power,
+           COALESCE(correction.role_model, conduct.role_model) AS role_model,
+           COALESCE(correction.suitability, conduct.suitability) AS suitability,
+           COALESCE(correction.recommendation, conduct.recommendation) AS recommendation
+         FROM public.recruitment_interview_conducts conduct
+         LEFT JOIN LATERAL (
+           SELECT explanatory_power, role_model, suitability, recommendation
+           FROM public.recruitment_interview_correction_assessments
+           WHERE interview_id = conduct.interview_id
+           ORDER BY resulting_revision DESC
+           LIMIT 1
+         ) correction ON TRUE
+         WHERE conduct.interview_id=$1`,
         [row.interviewId],
       )
     ).rows[0];
