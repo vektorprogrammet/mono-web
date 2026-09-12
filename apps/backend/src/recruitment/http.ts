@@ -1304,37 +1304,74 @@ const correctInterviewAssessment = async (
     await readJsonBody(request, input.config.maxBodyBytes),
     input.run,
   );
-  parseRequiredIfMatch(headerValues(request, "if-match"));
+  const ifMatch = parseRequiredIfMatch(headerValues(request, "if-match"));
   return executeCommand({
     request,
     operationId: "recruitment.correctInterviewAssessment",
     routeTemplate: "/api/recruitment/interviews/{interviewId}:correct",
     identities: { interviewId },
-    semanticRequest: semanticMutationRequest(body, parseRequiredIfMatch(headerValues(request, "if-match"))),
+    semanticRequest: semanticMutationRequest(body, ifMatch),
     commandIdSchema: RecruitmentInterviewCorrectionCommandId,
     run: input.run,
     prepare: async (txRun) => {
       const authorization = await interviewAuthorizationInTransaction(
-        request, interviewId, CorrectInterviewAssessmentEndpoint, false, input, txRun,
+        request,
+        interviewId,
+        CorrectInterviewAssessmentEndpoint,
+        false,
+        input,
+        txRun,
       );
       return {
         credentialSubject: `Person:${authorization.actor.personId}`,
-        execute: (commandId) => Effect.gen(function* () {
-          const result = yield* correctInterviewAssessmentPostgres(
-            { commandId, interviewId, expectedRevision: authorization.source.interviewRevision, ...body },
-            { actor: authorization.actor, now: authorization.authorizationInstant, authorizationInstant: authorization.authorizationInstant },
-          );
-          const observation = result.observation;
-          const output = yield* Schema.decodeEffect(CorrectInterviewAssessmentResponse)({
-            _tag: observation._tag, commandId: observation.commandId, interviewId: observation.interviewId,
-            predecessorRevision: observation.predecessorRevision, resultingRevision: observation.resultingRevision,
-            replayed: result.replayed,
-          }, { onExcessProperty: "error" }).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
-          const updated = yield* readRecruitmentInterviewHttpSourcePostgres(interviewId, authorization.actor.personId);
-          return new Response(JSON.stringify(output), {
-            status: 200, headers: { "cache-control": NO_STORE, "content-type": "application/json", etag: interviewETag(updated) },
-          });
-        }),
+        execute: (commandId) =>
+          Effect.gen(function* () {
+            const precondition = evaluateMutationPrecondition(
+              interviewETag(authorization.source),
+              ifMatch,
+            );
+            if (precondition._tag === "Failed")
+              return yield* Effect.fail(
+                new HttpSemanticFailure(precondition.code, precondition.status),
+              );
+            const result = yield* correctInterviewAssessmentPostgres(
+              {
+                commandId,
+                interviewId,
+                expectedRevision: authorization.source.interviewRevision,
+                ...body,
+              },
+              {
+                actor: authorization.actor,
+                now: authorization.authorizationInstant,
+                authorizationInstant: authorization.authorizationInstant,
+              },
+            );
+            const observation = result.observation;
+            const output = yield* Schema.decodeEffect(CorrectInterviewAssessmentResponse)(
+              {
+                _tag: observation._tag,
+                commandId: observation.commandId,
+                interviewId: observation.interviewId,
+                predecessorRevision: observation.predecessorRevision,
+                resultingRevision: observation.resultingRevision,
+                replayed: result.replayed,
+              },
+              { onExcessProperty: "error" },
+            ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+            const updated = yield* readRecruitmentInterviewHttpSourcePostgres(
+              interviewId,
+              authorization.actor.personId,
+            );
+            return new Response(JSON.stringify(output), {
+              status: 200,
+              headers: {
+                "cache-control": NO_STORE,
+                "content-type": "application/json",
+                etag: interviewETag(updated),
+              },
+            });
+          }),
       };
     },
   });
