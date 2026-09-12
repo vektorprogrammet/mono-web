@@ -176,10 +176,10 @@ export const seedReturningAssistant = async ({
       `INSERT INTO public.admission_application_command_receipts(
          command_id,command_sha256,command_json,observation_json,application_id,committed_at
        ) VALUES(
-         $1,$2,
-         jsonb_build_object('commandId',$1,'applicantId',$3,'admissionPeriodId',$4,'departmentId',$5,'fieldOfStudyId',$6,'yearOfStudy',2),
-         jsonb_build_object('_tag','PublicApplicationSubmitted','applicationId',$7,'revision',0),
-         $7,'2026-08-20T10:00:00Z'
+         $1::text,$2::text,
+         jsonb_build_object('commandId',$1::text,'applicantId',$3::text,'admissionPeriodId',$4::text,'departmentId',$5::text,'fieldOfStudyId',$6::text,'yearOfStudy',2),
+         jsonb_build_object('_tag','PublicApplicationSubmitted','applicationId',$7::text,'revision',0),
+         $7::text,'2026-08-20T10:00:00Z'
        ) ON CONFLICT DO NOTHING`,
       [
         originalPublicCommandId,
