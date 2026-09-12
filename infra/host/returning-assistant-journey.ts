@@ -15,17 +15,21 @@ const person = {
 const departmentId = "department-native-conduct-0063";
 const semesterId = "semester-native-conduct-0063";
 const admissionPeriodId = "admission-period-native-conduct-0063";
+const nextAdmissionPeriodId = "admission-period-returning-next-0104";
 const fieldOfStudyId = "field-native-conduct-0063";
 const applicantId = "applicant-returning-0104";
 const applicationId = "application-returning-0104";
 const placementId = `placement-${"a".repeat(64)}`;
 const invitationId = "invitation-returning-0104";
+const teamId = "team-native-conduct-0063";
 
 export const returningAssistantFixture = {
   person,
   departmentId,
   semesterId,
   admissionPeriodId,
+  nextAdmissionPeriodId,
+  teamId,
   applicantId,
   applicationId,
 };
@@ -64,6 +68,13 @@ export const seedReturningAssistant = async ({
   };
   try {
     await client.query("BEGIN");
+    await seedQuery(
+      "next admission period",
+      `INSERT INTO public.admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,revision,last_command_id)
+       VALUES($1,$2,$3,'2026-08-02T00:00:00Z','2026-09-30T23:59:59.999Z',0,'returning-next-period-seed-0104')
+       ON CONFLICT (admission_period_id) DO NOTHING`,
+      [nextAdmissionPeriodId, departmentId, semesterId],
+    );
     await seedQuery("volunteer affiliation", 
       `INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision)
        VALUES($1,$2,'Active',1) ON CONFLICT DO NOTHING`,
@@ -208,11 +219,21 @@ export const runReturningAssistantBrowserJourney = async ({
       { cause },
     );
   };
+  returning.on("request", (request) => {
+    const url = new URL(request.url());
+    if (request.method() === "POST" && url.pathname === "/dashboard/tidligere-assistenter.data") {
+      const body = new URLSearchParams(request.postData() ?? "");
+      responses.push(
+        `dashboard POST request period=${body.get("admissionPeriodId")} expectedRevision=${body.get("expectedRevision")} commandIdLength=${(body.get("commandId") ?? "").length}`,
+      );
+    }
+  });
   const destination = "/dashboard/tidligere-assistenter";
   await returning.goto(`${ui}/login?redirectTo=${encodeURIComponent(destination)}`);
   await returning.getByLabel("E-post", { exact: true }).fill(person.email);
   await returning.getByLabel("Passord", { exact: true }).fill(person.password);
   await returning.getByRole("button", { name: "Logg inn", exact: true }).click();
+  await returning.waitForURL(/\/dashboard\/tidligere-assistenter$/);
   const cookieHeader = (await context.cookies()).map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
   const optionsResponse = await context.request.get(`${api}/api/returning-assistant/options`, {
     headers: { origin: ui, accept: "application/json", cookie: cookieHeader },
@@ -226,67 +247,139 @@ export const runReturningAssistantBrowserJourney = async ({
     return { status: response.status };
   }, `${api}/api/returning-assistant/options`);
   responses.push(`browser options ${browserOptions.status}`);
-  await returning.waitForURL(/\/dashboard\/tidligere-assistenter$/);
   let form: Locator;
   try {
     form = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
-    await form.getByRole("combobox", { name: "Opptaksperiode" }).selectOption(admissionPeriodId);
-    await form.getByRole("combobox", { name: "Studieår" }).selectOption("2");
-    await form.getByLabel("Mandag").check();
+    await form.getByRole("combobox", { name: "Opptaksperiode" }).selectOption(nextAdmissionPeriodId);
+    await form.getByRole("combobox", { name: "Studieår" }).selectOption("4");
+    await form.getByLabel("Mandag", { exact: true }).check();
+    await form.getByLabel("Torsdag", { exact: true }).check();
+    await form.getByRole("combobox", { name: "Stillingslengde" }).selectOption("8");
+    await form.getByRole("combobox", { name: "Semesterblokk" }).selectOption("block-1");
     await form.getByRole("combobox", { name: "Språk" }).selectOption("Norsk og engelsk");
+    await form.getByLabel("Ønsket skole (valgfritt)", { exact: true }).fill("Returning School");
+    await form.getByLabel("Jeg er interessert i teamarbeid", { exact: true }).check();
+    await form.locator(`input[name="teamIds"][value="${teamId}"]`).check();
   } catch (cause) {
     await captureReturningFailure("form", cause);
   }
   const submit = form.locator('button[type="submit"]');
   let droppedResponse = false;
+  let interceptedActions = 0;
   let firstCommandKey: string | undefined;
-  await returning.route(`${api}/api/returning-assistant/registrations`, async (route) => {
-    const commandKey = route.request().headers()["idempotency-key"];
-    assert.ok(commandKey);
-    if (droppedResponse) {
-      assert.equal(commandKey, firstCommandKey);
+  let firstExpectedRevision: string | undefined;
+  let routeFailure: string | undefined;
+  let resolveFirstAction!: () => void;
+  let resolveSecondAction!: () => void;
+  const firstActionSettled = new Promise<void>((resolve) => {
+    resolveFirstAction = resolve;
+  });
+  const secondActionSettled = new Promise<void>((resolve) => {
+    resolveSecondAction = resolve;
+  });
+  await returning.route("**/dashboard/tidligere-assistenter.data", async (route) => {
+    if (route.request().method() !== "POST") {
       await route.continue();
       return;
     }
-    droppedResponse = true;
-    firstCommandKey = commandKey;
+    interceptedActions += 1;
+    const formData = new URLSearchParams(route.request().postData() ?? "");
+    const commandKey = formData.get("commandId");
+    const expectedRevision = formData.get("expectedRevision");
     const response = await route.fetch();
-    await response.body();
-    await route.abort("failed");
+    const status = response.status();
+    responses.push(
+      `intercepted POST /dashboard/tidligere-assistenter.data phase=${droppedResponse ? "retry" : "first"} status=${status}`,
+    );
+    if (!droppedResponse) {
+      droppedResponse = true;
+      firstCommandKey = commandKey ?? undefined;
+      firstExpectedRevision = expectedRevision ?? undefined;
+      if (status < 200 || status >= 300) routeFailure = `first action status ${status}`;
+      await response.body();
+      await route.abort("failed");
+      resolveFirstAction();
+      return;
+    }
+    if (commandKey !== firstCommandKey || expectedRevision !== firstExpectedRevision)
+      routeFailure = "retry payload identity changed";
+    if (status < 200 || status >= 300) routeFailure = `retry action status ${status}`;
+    await route.fulfill({ response });
+    resolveSecondAction();
   });
   try {
     await submit.click();
+    await firstActionSettled;
     await returning.locator('form[aria-label="Registrer som tidligere assistent"][data-pending="false"]').waitFor();
     await submit.click();
+    await secondActionSettled;
   } catch (cause) {
     await captureReturningFailure("submit", cause);
   }
+  assert.equal(interceptedActions, 2);
+  assert.equal(droppedResponse, true);
+  assert.equal(routeFailure, undefined, routeFailure);
   try {
     await assertStatus(form, "Registreringen er lagret.");
   } catch (cause) {
     await captureReturningFailure("submit-status", cause);
   }
-  await returning.unroute(`${api}/api/returning-assistant/registrations`);
+  await returning.unroute("**/dashboard/tidligere-assistenter.data");
   await returning.reload();
   const reloaded = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
-  await expectValue(reloaded.getByRole("combobox", { name: "Studieår" }), "2");
+  await expectValue(reloaded.getByRole("combobox", { name: "Opptaksperiode" }), nextAdmissionPeriodId);
+  await expectValue(reloaded.getByRole("combobox", { name: "Studieår" }), "4");
+  await expectValue(reloaded.getByRole("combobox", { name: "Stillingslengde" }), "8");
+  await expectValue(reloaded.getByRole("combobox", { name: "Semesterblokk" }), "block-1");
   await expectValue(reloaded.getByRole("combobox", { name: "Språk" }), "Norsk og engelsk");
-  await reloaded.getByRole("combobox", { name: "Studieår" }).selectOption("3");
-  await reloaded.getByRole("combobox", { name: "Språk" }).selectOption("Engelsk");
-  await reloaded.getByRole("button", { name: "Lagre endringer" }).click();
+  assert.equal(await reloaded.getByLabel("Mandag", { exact: true }).isChecked(), true);
+  assert.equal(await reloaded.getByLabel("Torsdag", { exact: true }).isChecked(), true);
+  assert.equal(await reloaded.getByLabel("Ønsket skole (valgfritt)", { exact: true }).inputValue(), "Returning School");
+  assert.equal(await reloaded.getByLabel("Jeg er interessert i teamarbeid", { exact: true }).isChecked(), true);
+  assert.equal(await reloaded.locator(`input[name="teamIds"][value="${teamId}"]`).isChecked(), true);
+
+  await reloaded.getByRole("combobox", { name: "Opptaksperiode" }).selectOption(admissionPeriodId);
+  await reloaded.getByRole("combobox", { name: "Studieår" }).selectOption("2");
+  await reloaded.getByLabel("Torsdag", { exact: true }).uncheck();
+  await reloaded.getByRole("combobox", { name: "Stillingslengde" }).selectOption("4");
+  await reloaded.getByRole("combobox", { name: "Semesterblokk" }).selectOption("all");
+  await reloaded.getByRole("combobox", { name: "Språk" }).selectOption("Norsk og engelsk");
+  await reloaded.getByLabel("Ønsket skole (valgfritt)", { exact: true }).fill("");
+  await reloaded.getByLabel("Jeg er interessert i teamarbeid", { exact: true }).uncheck();
+  await reloaded.locator(`input[name="teamIds"][value="${teamId}"]`).uncheck();
+  await reloaded.locator('button[type="submit"]').click();
   try {
     await assertStatus(reloaded, "Registreringen er lagret.");
+  } catch (cause) {
+    await captureReturningFailure("existing-registration-status", cause);
+  }
+
+  await returning.reload();
+  const existing = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
+  await expectValue(existing.getByRole("combobox", { name: "Opptaksperiode" }), admissionPeriodId);
+  await expectValue(existing.getByRole("combobox", { name: "Studieår" }), "2");
+  await expectValue(existing.getByRole("combobox", { name: "Stillingslengde" }), "4");
+  await expectValue(existing.getByRole("combobox", { name: "Semesterblokk" }), "all");
+  await expectValue(existing.getByRole("combobox", { name: "Språk" }), "Norsk og engelsk");
+  await existing.getByRole("combobox", { name: "Studieår" }).selectOption("3");
+  await existing.getByRole("combobox", { name: "Språk" }).selectOption("Engelsk");
+  await existing.getByRole("button", { name: "Lagre endringer" }).click();
+  try {
+    await assertStatus(existing, "Registreringen er lagret.");
   } catch (cause) {
     await captureReturningFailure("update-status", cause);
   }
   await returning.reload();
-  await expectValue(returning.getByRole("combobox", { name: "Studieår" }), "3");
-  await expectValue(returning.getByRole("combobox", { name: "Språk" }), "Engelsk");
+  const updated = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
+  await expectValue(updated.getByRole("combobox", { name: "Opptaksperiode" }), admissionPeriodId);
+  await expectValue(updated.getByRole("combobox", { name: "Studieår" }), "3");
+  await expectValue(updated.getByRole("combobox", { name: "Språk" }), "Engelsk");
   await auditPage(returning, "returning-registration");
-  const registrations = await pool.query("SELECT revision,year_of_study,language FROM public.admission_returning_registrations WHERE person_id=$1 ORDER BY revision", [person.personId]);
+  const registrations = await pool.query("SELECT admission_period_id,revision,year_of_study,monday_unavailable,tuesday_unavailable,wednesday_unavailable,thursday_unavailable,friday_unavailable,position_weeks,preferred_group,language,preferred_school,team_interest,team_ids FROM public.admission_returning_registrations WHERE person_id=$1 ORDER BY admission_period_id,revision", [person.personId]);
   assert.deepEqual(registrations.rows, [
-    { revision: 1, year_of_study: 2, language: "Norsk og engelsk" },
-    { revision: 2, year_of_study: 3, language: "Engelsk" },
+    { admission_period_id: admissionPeriodId, revision: 1, year_of_study: 2, monday_unavailable: false, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: false, friday_unavailable: false, position_weeks: 4, preferred_group: "all", language: "Norsk og engelsk", preferred_school: null, team_interest: false, team_ids: [] },
+    { admission_period_id: admissionPeriodId, revision: 2, year_of_study: 3, monday_unavailable: false, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: false, friday_unavailable: false, position_weeks: 4, preferred_group: "all", language: "Engelsk", preferred_school: null, team_interest: false, team_ids: [] },
+    { admission_period_id: nextAdmissionPeriodId, revision: 1, year_of_study: 4, monday_unavailable: true, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: true, friday_unavailable: false, position_weeks: 8, preferred_group: "block-1", language: "Norsk og engelsk", preferred_school: "Returning School", team_interest: true, team_ids: [teamId] },
   ]);
   const pendingOutbox = await pool.query("SELECT count(*)::int AS count FROM public.admission_application_outbox WHERE origin='ReturningAssistant' AND status='Pending'");
   assert.equal(pendingOutbox.rows[0].count, 6);
