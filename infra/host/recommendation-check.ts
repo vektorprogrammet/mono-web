@@ -415,48 +415,106 @@ try {
       }),
     );
     if (effectMode === "http") {
-      const waitForOutbox = async (predicate: (rows: ReadonlyArray<{ status: string }>) => boolean) => {
-        for (let attempt = 0; attempt < 120; attempt += 1) {
-          const result = await pool.query(
-            "SELECT status FROM public.admission_application_outbox WHERE origin='ReturningAssistant' ORDER BY effect_id",
+      type ReturningOutboxRow = {
+        readonly effect_id: string;
+        readonly command_id: string;
+        readonly effect_type: string;
+        readonly ordinal: number;
+        readonly status: string;
+        readonly origin: string;
+      };
+      const expectedEffectTypes = [
+        "SendApplicantActivationOrConfirmation",
+        "CreateAdmissionSubscription",
+        "WriteApplicationAudit",
+      ] as const;
+      const acceptedReturningRegistrations = await pool.query(
+        "SELECT command_id,registration_id FROM public.admission_returning_command_receipts ORDER BY command_id",
+      );
+      assert.equal(acceptedReturningRegistrations.rows.length, 6);
+      const expectedOutboxCount = acceptedReturningRegistrations.rows.length * expectedEffectTypes.length;
+      const hasExactReturningEffectShape = (rows: ReadonlyArray<ReturningOutboxRow>) => {
+        if (rows.length !== expectedOutboxCount) return false;
+        if (rows.some((row) => row.origin !== "ReturningAssistant")) return false;
+        return acceptedReturningRegistrations.rows.every(({ command_id }: { command_id: string }) => {
+          const commandRows = rows
+            .filter((row) => row.command_id === command_id)
+            .sort((left, right) => left.ordinal - right.ordinal);
+          return (
+            commandRows.length === expectedEffectTypes.length
+            && commandRows.map((row) => row.ordinal).join(",") === "0,1,2"
+            && commandRows.map((row) => row.effect_type).join(",") === expectedEffectTypes.join(",")
           );
-          if (predicate(result.rows)) return result.rows;
+        });
+      };
+      const readReturningOutbox = async () => (
+        await pool.query(
+          `SELECT effect_id,command_id,effect_type,ordinal,status,origin
+           FROM public.admission_application_outbox
+           WHERE origin='ReturningAssistant'
+           ORDER BY effect_id`,
+        )
+      ).rows as ReturningOutboxRow[];
+      const waitForOutbox = async (
+        predicate: (rows: ReadonlyArray<ReturningOutboxRow>) => boolean,
+      ) => {
+        for (let attempt = 0; attempt < 120; attempt += 1) {
+          const rows = await readReturningOutbox();
+          if (predicate(rows)) return rows;
           await new Promise((resolve) => setTimeout(resolve, 250));
         }
         throw new Error("returning effect outbox did not reach expected state");
       };
       const failedRows = await bounded(
         "returning effect first failure",
-        waitForOutbox((rows) => rows.length === 15 && rows.every((row) => row.status === "Failed")),
+        waitForOutbox(
+          (rows) =>
+            hasExactReturningEffectShape(rows)
+            && rows.every((row) => row.status === "Failed"),
+        ),
         30_000,
       );
-      assert.equal(failedRows.length, 15);
-      assert.ok(failedRows.every((row: { status: string }) => row.status === "Failed"));
-      const heldFailedRows = await pool.query(
-        "SELECT status FROM public.admission_application_outbox WHERE origin='ReturningAssistant' ORDER BY effect_id",
+      assert.equal(failedRows.length, expectedOutboxCount);
+      assert.ok(hasExactReturningEffectShape(failedRows));
+      assert.ok(failedRows.every((row) => row.status === "Failed"));
+      const heldFailedRows = await readReturningOutbox();
+      assert.equal(heldFailedRows.length, expectedOutboxCount);
+      assert.ok(hasExactReturningEffectShape(heldFailedRows));
+      assert.ok(heldFailedRows.every((row) => row.status === "Failed"));
+      recordGate(
+        `returning notification/subscription/audit loopback failure held until deliberate restart (${acceptedReturningRegistrations.rows.length} registrations × ${expectedEffectTypes.length} effects)`,
       );
-      assert.equal(heldFailedRows.rows.length, 15);
-      assert.ok(heldFailedRows.rows.every((row: { status: string }) => row.status === "Failed"));
-      recordGate("returning notification/subscription/audit loopback failure held until deliberate restart");
       await stopPreviewScenarioBackend(backend);
       releaseEffectDelivery = true;
       backend = start("bun", ["apps/backend/src/main.ts"], env);
       await ready(async () => (await fetch(`${api}/health`)).ok);
       const deliveredRows = await bounded(
         "returning effect restart delivery",
-        waitForOutbox((rows) => rows.length === 15 && rows.every((row) => row.status === "Delivered")),
+        waitForOutbox(
+          (rows) =>
+            hasExactReturningEffectShape(rows)
+            && rows.every((row) => row.status === "Delivered"),
+        ),
         90_000,
       );
-      assert.equal(deliveredRows.length, 15);
-      assert.ok(effectCalls.length >= 30);
-      assert.ok(effectCalls.every((call) => [503, 204].includes(call.status)));
-      assert.ok(effectCalls.some((call) => call.attempt === 1 && call.status === 503));
-      assert.ok(effectCalls.some((call) => call.attempt >= 2 && call.status === 204));
+      assert.equal(deliveredRows.length, expectedOutboxCount);
+      assert.ok(hasExactReturningEffectShape(deliveredRows));
+      assert.ok(deliveredRows.every((row) => row.status === "Delivered"));
+      assert.equal(effectCalls.length, expectedOutboxCount * 2);
+      for (const outboxRow of deliveredRows) {
+        const calls = effectCalls
+          .filter((call) => call.effectId === outboxRow.effect_id)
+          .sort((left, right) => left.attempt - right.attempt);
+        assert.deepEqual(calls.map((call) => [call.attempt, call.status]), [[1, 503], [2, 204]]);
+        assert.equal(calls[0]?.commandId, outboxRow.command_id);
+        assert.equal(calls[0]?.kind, outboxRow.effect_type);
+      }
       await writeFile(
         join(artifacts, "returning-effect-evidence.json"),
         JSON.stringify(
           {
             outbox: deliveredRows,
+            registrations: acceptedReturningRegistrations.rows,
             calls: effectCalls,
             restart: true,
           },

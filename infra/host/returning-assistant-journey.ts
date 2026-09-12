@@ -1162,8 +1162,37 @@ export const runReturningAssistantBrowserJourney = async ({
     },
     data: assignmentPayload,
   });
-  assert.equal(assignment.status(), 201);
-  const assignmentBody = (await assignment.json()) as {
+  const assignmentBodyText = await assignment.text();
+  if (assignment.status() !== 201) {
+    const assignmentActorContext = await pool.query(
+      `SELECT
+         membership.person_id,
+         membership.team_id,
+         membership.start_at,
+         membership.end_at,
+         membership.is_team_leader,
+         membership.is_suspended,
+         team.department_id,
+         team.active AS team_active,
+         department.active AS department_active
+       FROM public.organization_memberships membership
+       JOIN public.organization_teams team USING (team_id)
+       JOIN public.organization_departments department USING (department_id)
+       WHERE membership.person_id=$1
+       ORDER BY membership.membership_id`,
+      ["journey-conduct-leader-0063"],
+    );
+    trace.push({
+      phase: "assignment-failure",
+      status: assignment.status(),
+      body: assignmentBodyText,
+      source:
+        "assignment preflight reads target actor/interviewer eligibility in apps/backend/src/recruitment/http.ts:1008-1052; domain assignment then checks current period and live membership in packages/domain/src/recruitment/postgres.ts:843-931",
+      actorContext: assignmentActorContext.rows,
+    });
+    throw new Error(`next assignment failed ${assignment.status()} ${assignmentBodyText}`);
+  }
+  const assignmentBody = JSON.parse(assignmentBodyText) as {
     interviewId?: string;
     applicationId?: string;
   };
