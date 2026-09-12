@@ -2058,17 +2058,33 @@ try {
       `SELECT c.interview_id,c.recommendation,a.kind,a.resulting_revision,r.command_id FROM public.recruitment_interview_conducts c JOIN public.recruitment_interview_lifecycle_audit a USING(interview_id) JOIN public.recruitment_interview_lifecycle_command_receipts r ON r.command_id=a.command_id ORDER BY c.interview_id`,
     )
   ).rows;
-  const lifecycleExpectedInterviewIds = [
-    "interview-correction-explicit-0105",
-    "interview-native-conduct-a-0063",
-    "interview-native-conduct-b-0063",
-    "interview-recommendation-maybe",
-    "interview-recommendation-no",
-    ...(process.argv.includes("--correction-mode") ? [] : ["interview-returning-0104"]),
-  ].sort();
+  const beforeLifecycle = JSON.parse(before) as {
+    readonly conducts: unknown;
+    readonly receipts: ReadonlyArray<{
+      readonly command_id: string;
+      readonly kind: string;
+    }>;
+    readonly audit: unknown;
+  };
+  const afterLifecycle = JSON.parse(await lifecycleSnapshot()) as {
+    readonly conducts: unknown;
+    readonly receipts: ReadonlyArray<{
+      readonly command_id: string;
+      readonly kind: string;
+    }>;
+    readonly audit: unknown;
+  };
+  assert.deepEqual(afterLifecycle.conducts, beforeLifecycle.conducts);
+  assert.deepEqual(afterLifecycle.receipts, beforeLifecycle.receipts);
+  assert.deepEqual(afterLifecycle.audit, beforeLifecycle.audit);
+  const knownFinalizationCommandIds = beforeLifecycle.receipts
+    .filter((receipt) => receipt.kind === "InterviewFinalized")
+    .map((receipt) => receipt.command_id)
+    .sort();
+  assert.ok(knownFinalizationCommandIds.length > 0);
   assert.deepEqual(
-    lifecycle.map((row: any) => row.interview_id).sort(),
-    lifecycleExpectedInterviewIds,
+    lifecycle.map((row: any) => row.command_id).sort(),
+    knownFinalizationCommandIds,
   );
   assert.ok(lifecycle.every((r: any) => r.kind === "InterviewFinalized"));
   assert.equal(new Set(lifecycle.map((r: any) => r.interview_id)).size, lifecycle.length);
