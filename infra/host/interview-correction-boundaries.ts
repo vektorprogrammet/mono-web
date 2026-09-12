@@ -592,6 +592,14 @@ export async function assertInterviewCorrectionBoundaries(
     await locker.query("ROLLBACK").catch(() => undefined);
     locker.release();
   }
+  await pool.query(
+    `DELETE FROM public.applicant_account_links WHERE invitation_id=$1`,
+    [raceInvitation],
+  );
+  await pool.query(
+    `DELETE FROM public.applicant_account_invitations WHERE invitation_id=$1`,
+    [raceInvitation],
+  );
   record("genuine accepted self-link fixture correction is denied or transaction-conflicted after committed self-link; fresh read and exact replay deny");
 
   const current = await detail();
