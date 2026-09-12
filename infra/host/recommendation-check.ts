@@ -427,15 +427,15 @@ try {
       };
       const failedRows = await bounded(
         "returning effect first failure",
-        waitForOutbox((rows) => rows.length === 12 && rows.every((row) => row.status === "Failed")),
+        waitForOutbox((rows) => rows.length === 15 && rows.every((row) => row.status === "Failed")),
         30_000,
       );
-      assert.equal(failedRows.length, 12);
+      assert.equal(failedRows.length, 15);
       assert.ok(failedRows.every((row: { status: string }) => row.status === "Failed"));
       const heldFailedRows = await pool.query(
         "SELECT status FROM public.admission_application_outbox WHERE origin='ReturningAssistant' ORDER BY effect_id",
       );
-      assert.equal(heldFailedRows.rows.length, 12);
+      assert.equal(heldFailedRows.rows.length, 15);
       assert.ok(heldFailedRows.rows.every((row: { status: string }) => row.status === "Failed"));
       recordGate("returning notification/subscription/audit loopback failure held until deliberate restart");
       await stopPreviewScenarioBackend(backend);
@@ -444,11 +444,11 @@ try {
       await ready(async () => (await fetch(`${api}/health`)).ok);
       const deliveredRows = await bounded(
         "returning effect restart delivery",
-        waitForOutbox((rows) => rows.length === 12 && rows.every((row) => row.status === "Delivered")),
+        waitForOutbox((rows) => rows.length === 15 && rows.every((row) => row.status === "Delivered")),
         90_000,
       );
-      assert.equal(deliveredRows.length, 12);
-      assert.ok(effectCalls.length >= 24);
+      assert.equal(deliveredRows.length, 15);
+      assert.ok(effectCalls.length >= 30);
       assert.ok(effectCalls.every((call) => [503, 204].includes(call.status)));
       assert.ok(effectCalls.some((call) => call.attempt === 1 && call.status === 503));
       assert.ok(effectCalls.some((call) => call.attempt >= 2 && call.status === 204));
@@ -1121,7 +1121,7 @@ try {
   } else {
     let detail =
       error instanceof Error
-        ? (error.stack?.split("\n").slice(0, 5).join("\n") ?? error.message)
+        ? (error.stack ?? error.message)
         : String(error);
     const activeQueries = pool
       ? await pool
@@ -1147,7 +1147,7 @@ try {
       result: "Failed",
       revision,
       gates,
-      detail: detail.slice(0, 2000),
+      detail,
       logs: logs.map(safe),
     };
     await writeFile(join(artifacts, "failure.json"), JSON.stringify(failureEvidence, null, 2));

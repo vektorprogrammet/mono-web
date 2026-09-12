@@ -362,10 +362,11 @@ export const runReturningAssistantBrowserJourney = async ({
   readonly errors: string[];
   readonly stage?: (name: string) => void;
 }) => {
+  const trace: Array<Record<string, unknown>> = [];
+  try {
   stage?.("returning:browser.newContext");
   const context = await browser.newContext();
   const responses: string[] = [];
-  const trace: Array<Record<string, unknown>> = [];
   stage?.("returning:browser.newPage");
   const returning = await context.newPage();
   returning.on("request", (request) => {
@@ -901,7 +902,7 @@ export const runReturningAssistantBrowserJourney = async ({
   periodForm = await waitForPeriodForm(admissionPeriodId);
   await expectValue(periodForm.getByRole("combobox", { name: "Opptaksperiode" }), admissionPeriodId);
   await expectValue(periodForm.locator('input[name="expectedRevision"]'), "2");
-  await returning.goBack();
+  await periodSelector.selectOption(nextAdmissionPeriodId);
   await waitForPeriodUrl(nextAdmissionPeriodId);
   periodForm = await waitForPeriodForm(nextAdmissionPeriodId);
   await expectValue(periodForm.getByRole("combobox", { name: "Opptaksperiode" }), nextAdmissionPeriodId);
@@ -969,18 +970,40 @@ export const runReturningAssistantBrowserJourney = async ({
     { admission_period_id: admissionPeriodId, revision: 1, year_of_study: 2, monday_unavailable: false, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: false, friday_unavailable: false, position_weeks: 4, preferred_group: "all", language: "Norsk og engelsk", preferred_school: null, team_interest: false, team_ids: [] },
     { admission_period_id: admissionPeriodId, revision: 2, year_of_study: 3, monday_unavailable: false, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: false, friday_unavailable: false, position_weeks: 4, preferred_group: "all", language: "Engelsk", preferred_school: null, team_interest: false, team_ids: [] },
     { admission_period_id: nextAdmissionPeriodId, revision: 1, year_of_study: 4, monday_unavailable: true, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: true, friday_unavailable: false, position_weeks: 8, preferred_group: "block-1", language: "Norsk og engelsk", preferred_school: "Returning School", team_interest: true, team_ids: [teamId] },
+    { admission_period_id: nextAdmissionPeriodId, revision: 2, year_of_study: 5, monday_unavailable: true, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: true, friday_unavailable: false, position_weeks: 8, preferred_group: "block-1", language: "Norsk og engelsk", preferred_school: "Returning School", team_interest: true, team_ids: [teamId] },
   ]);
   const provenance = await pool.query(
-    `SELECT DISTINCT placement_id,department_id,semester_id
-     FROM public.admission_returning_registrations
-     WHERE person_id=$1`,
+    `SELECT DISTINCT
+       r.admission_period_id,
+       r.department_id AS registration_department_id,
+       r.semester_id AS registration_semester_id,
+       p.placement_id,
+       p.department_id AS placement_department_id,
+       p.semester_id AS placement_semester_id
+     FROM public.admission_returning_registrations r
+     JOIN public.assistant_placements p ON p.placement_id=r.placement_id
+     WHERE r.person_id=$1
+     ORDER BY r.admission_period_id`,
     [person.personId],
   );
-  assert.deepEqual(provenance.rows, [{
-    placement_id: `placement-${"0".repeat(64)}`,
-    department_id: historicalDepartmentId,
-    semester_id: historicalSemesterId,
-  }]);
+  assert.deepEqual(provenance.rows, [
+    {
+      admission_period_id: admissionPeriodId,
+      registration_department_id: departmentId,
+      registration_semester_id: semesterId,
+      placement_id: `placement-${"0".repeat(64)}`,
+      placement_department_id: historicalDepartmentId,
+      placement_semester_id: historicalSemesterId,
+    },
+    {
+      admission_period_id: nextAdmissionPeriodId,
+      registration_department_id: departmentId,
+      registration_semester_id: nextSemesterId,
+      placement_id: `placement-${"0".repeat(64)}`,
+      placement_department_id: historicalDepartmentId,
+      placement_semester_id: historicalSemesterId,
+    },
+  ]);
   trace.push({ phase: "negative-gate", gate: "retained-inactive-cross-department-placement", status: "observed" });
   assert.ok(firstCommandKey);
   assert.ok(firstExpectedRevision !== undefined);
@@ -1111,6 +1134,10 @@ export const runReturningAssistantBrowserJourney = async ({
   await context.close();
   await page.goto(`${ui}/dashboard/intervjuer`);
   return { trace };
+  } catch (cause) {
+    await writeFile(join(artifacts, "returning-registration-trace.json"), JSON.stringify(trace, null, 2));
+    throw cause;
+  }
 };
 
 export const runReturningAssistantLoginProbe = async ({
