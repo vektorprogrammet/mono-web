@@ -1423,10 +1423,8 @@ try {
   await auditPage(page, "finalized-mobile");
   await page.setViewportSize({ width: 1280, height: 900 });
   await stale.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
-  await stale
-    .getByRole("dialog")
-    .getByRole("button", { name: "Fullfør intervju", exact: true })
-    .press("Enter");
+  await stale.getByRole("dialog").waitFor();
+  await stale.getByRole("dialog").locator("button").last().press("Enter");
   await stale
     .getByText(
       "Intervjuet er endret. Utkastet er beholdt; åpne intervjuet på nytt for å hente gjeldende versjon.",
