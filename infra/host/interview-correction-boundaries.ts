@@ -2,16 +2,6 @@ import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 
-export type InterviewCorrectionReplayRequest = Readonly<{
-  key: string;
-  etag: string;
-  payload: {
-    expectedRevision: number;
-    answers: unknown;
-    score: { explanatoryPower: number; roleModel: number; suitability: number };
-    recommendation: "Ja" | "Kanskje" | "Nei";
-  };
-}>;
 
 export type InterviewCorrectionBoundaryContext = Readonly<{
   pool: Pool;
@@ -22,8 +12,8 @@ export type InterviewCorrectionBoundaryContext = Readonly<{
   actorPersonId: string;
   otherPersonId: string;
   membershipId: string;
+  differentLinkedPersonInterviewId: string;
   selfLinkRaceInterviewId: string;
-  acceptedReplay: InterviewCorrectionReplayRequest;
   recordGate?: (...observations: string[]) => void;
 }>;
 
@@ -57,8 +47,8 @@ export async function assertInterviewCorrectionBoundaries(
     actorPersonId,
     otherPersonId,
     membershipId,
+    differentLinkedPersonInterviewId,
     selfLinkRaceInterviewId,
-    acceptedReplay,
   } = context;
   const gates: string[] = [];
   const statuses: Record<string, number> = {};
@@ -83,16 +73,22 @@ export async function assertInterviewCorrectionBoundaries(
        LEFT JOIN public.applicant_account_links l USING(applicant_id)
       WHERE i.interview_id = ANY($1::text[])
       ORDER BY i.interview_id`,
-    [[interviewId, selfLinkRaceInterviewId]],
+    [[interviewId, differentLinkedPersonInterviewId, selfLinkRaceInterviewId]],
   );
-  assert.equal(identityRows.rows.length, 2, "correction fixtures must expose both interviews");
+  assert.equal(identityRows.rows.length, 3, "correction fixtures must expose all identity variants");
   const identityById = new Map(
     identityRows.rows.map((row) => [row.interviewId as string, row as Row]),
   );
   const identity = identityById.get(interviewId);
+  const differentLinkedIdentity = identityById.get(differentLinkedPersonInterviewId);
   const raceIdentity = identityById.get(selfLinkRaceInterviewId);
-  assert.ok(identity && raceIdentity);
+  assert.ok(identity && differentLinkedIdentity && raceIdentity);
   assert.equal(identity.linkedPersonId, null, "target correction fixture must start unlinked");
+  assert.equal(
+    differentLinkedIdentity.linkedPersonId,
+    null,
+    "different-linked-person fixture must start unlinked",
+  );
   assert.equal(raceIdentity.linkedPersonId, null, "self-link race fixture must start unlinked");
 
   const departments = await pool.query(
@@ -147,8 +143,16 @@ export async function assertInterviewCorrectionBoundaries(
       body,
     });
 
-  const interviewIds = [interviewId, selfLinkRaceInterviewId];
-  const applicantIds = [identity.applicantId as string, raceIdentity.applicantId as string];
+  const interviewIds = [
+    interviewId,
+    differentLinkedPersonInterviewId,
+    selfLinkRaceInterviewId,
+  ];
+  const applicantIds = [
+    identity.applicantId as string,
+    differentLinkedIdentity.applicantId as string,
+    raceIdentity.applicantId as string,
+  ];
   const departmentIds = [identity.departmentId as string, differentDepartment];
   const readRows = async (query: string, values: readonly unknown[] = []) =>
     (await pool.query(query, [...values])).rows as unknown as Row[];
@@ -227,7 +231,8 @@ export async function assertInterviewCorrectionBoundaries(
       [departmentIds],
     ),
     sessions: await readRows(
-      `SELECT id, "expiresAt", token, "createdAt", "updatedAt", "ipAddress", "userAgent", "userId"
+      `SELECT id, "expiresAt", md5(token) AS token_digest, "createdAt", "updatedAt",
+              "ipAddress", "userAgent", "userId"
          FROM auth."session"
         WHERE "userId" = $1
         ORDER BY id`,
@@ -325,23 +330,11 @@ export async function assertInterviewCorrectionBoundaries(
     );
     status(`${name}:write`, write.status);
     assert.equal(write.status, expected, `${name} write: ${await write.text()}`);
-    const replay = await post(
-      interviewId,
-      acceptedReplay.payload,
-      acceptedReplay.etag,
-      acceptedReplay.key,
-      requestCookie,
-    );
-    status(`${name}:replay`, replay.status);
-    assert.equal(replay.status, expected, `${name} replay: ${await replay.text()}`);
     await assertSnapshot(before, name);
   };
-
   const initial = await detail();
-  const initialSnapshot = await snapshot();
   await denied("missing-credential", 401, null, initial.body, initial.etag);
-  record("anonymous detail, correction, and replay deny with no native receipt or domain writes");
-
+  record("anonymous detail and correction deny with no native receipt or domain writes");
   const originalInterview = identityRows.rows.find((row) => row.interviewId === interviewId) as Row;
   assert.equal(originalInterview.interviewId, interviewId);
   await withMutation(
@@ -365,7 +358,7 @@ export async function assertInterviewCorrectionBoundaries(
         .then(() => undefined),
     () => denied("wrong-assigned-interviewer", 403, cookie, initial.body, initial.etag),
   );
-  record("wrong interviewer assignment denies detail, correction, and replay");
+  record("wrong interviewer assignment denies detail and correction");
 
   record("native authority models an assigned interviewer only; no synthetic unassigned or co-interviewer role is introduced");
   const originalMembership = (await readRows(
@@ -397,7 +390,7 @@ export async function assertInterviewCorrectionBoundaries(
         .then(() => undefined),
     () => denied("ended-membership", 403, cookie, initial.body, initial.etag),
   );
-  record("ended membership denies detail, correction, and replay");
+  record("ended membership denies detail and correction");
 
   await withMutation(
     (client) =>
@@ -420,28 +413,24 @@ export async function assertInterviewCorrectionBoundaries(
         .then(() => undefined),
     () => denied("suspended-membership", 403, cookie, initial.body, initial.etag),
   );
-  record("suspended membership denies detail, correction, and replay");
+  record("suspended membership denies detail and correction");
 
-  const cookieValue = cookie.match(
-    /(?:^|;\s*)(?:__Secure-)?better-auth\.session_token=([^;]+)/u,
-  )?.[1];
-  assert.ok(cookieValue, "authenticated cookie must include the Better Auth session token");
-  const session = (await readRows(
+  const actorSessions = await readRows(
     `SELECT id, "expiresAt", token, "createdAt", "updatedAt", "ipAddress", "userAgent", "userId"
        FROM auth."session"
-      WHERE token = split_part($1, '.', 1)
-        AND "userId"=$2`,
-    [cookieValue, actorPersonId],
-  ))[0];
-  assert.ok(session, "authenticated cookie must map to an owned Better Auth session");
+      WHERE "userId" = $1
+      ORDER BY id`,
+    [actorPersonId],
+  );
+  assert.ok(actorSessions.length > 0, "authority fixture must provide an actor session");
   await withMutation(
     (client) =>
       client
-        .query(`DELETE FROM auth."session" WHERE id=$1 AND "userId"=$2`, [session.id, actorPersonId])
+        .query(`DELETE FROM auth."session" WHERE "userId"=$1`, [actorPersonId])
         .then(() => undefined),
-    (client) =>
-      client
-        .query(
+    async (client) => {
+      for (const session of actorSessions) {
+        await client.query(
           `INSERT INTO auth."session"
              (id, "expiresAt", token, "createdAt", "updatedAt", "ipAddress", "userAgent", "userId")
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
@@ -455,11 +444,12 @@ export async function assertInterviewCorrectionBoundaries(
             session["userAgent"],
             session["userId"],
           ],
-        )
-        .then(() => undefined),
+        );
+      }
+    },
     () => denied("revoked-credential", 401, cookie, initial.body, initial.etag),
   );
-  record("revoked credential denies detail, correction, and fresh-auth replay");
+  record("actual actor-session deletion denies detail and correction, then restores exact session rows");
 
   const originalDepartment = (await readRows(
     `SELECT department_id, name, short_name, email, address, city, latitude,
@@ -480,7 +470,7 @@ export async function assertInterviewCorrectionBoundaries(
         .then(() => undefined),
     () => denied("inactive-department", 403, cookie, initial.body, initial.etag),
   );
-  record("inactive department denies detail, correction, and replay");
+  record("inactive department denies detail and correction");
 
   await withMutation(
     (client) =>
@@ -499,95 +489,33 @@ export async function assertInterviewCorrectionBoundaries(
         .then(() => undefined),
     () => denied("wrong-department", 403, cookie, initial.body, initial.etag),
   );
-  record("wrong department denies detail, correction, and replay");
+  record("wrong department denies detail and correction");
 
-  const primaryLink = (await readRows(
-    `SELECT applicant_id, person_id, linked_at, invitation_id
-       FROM public.applicant_account_links WHERE applicant_id=$1`,
-    [identity.applicantId],
-  ))[0];
-  assert.equal(primaryLink, undefined, "known-self test needs an unlinked target applicant");
-  const knownSelfInvitation = freshId("correction-boundary-known-self");
-  await withMutation(
-    (client) =>
-      client
-        .query(
-          `INSERT INTO public.applicant_account_invitations
-             (invitation_id, application_id, applicant_id, token_digest, expires_at, state, issued_by, issued_at)
-           VALUES ($1,$2,$3,$4,CURRENT_TIMESTAMP+interval '1 day','Claimed',$5,CURRENT_TIMESTAMP)`,
-          [
-            knownSelfInvitation,
-            identity.applicationId,
-            identity.applicantId,
-            createHash("sha256").update(knownSelfInvitation).digest("hex"),
-            actorPersonId,
-          ],
-        )
-        .then(() =>
-          client.query(
-            `INSERT INTO public.applicant_account_links (applicant_id, person_id, linked_at, invitation_id)
-             VALUES ($1,$2,CURRENT_TIMESTAMP,$3)`,
-            [identity.applicantId, actorPersonId, knownSelfInvitation],
-          ),
-        )
-        .then(() => undefined),
-    async (client) => {
-      await client.query(`DELETE FROM public.applicant_account_links WHERE applicant_id=$1`, [identity.applicantId]);
-      await client.query(`DELETE FROM public.applicant_account_invitations WHERE invitation_id=$1`, [knownSelfInvitation]);
-    },
-    () => denied("known-self", 403, cookie, initial.body, initial.etag),
+
+  const detailFor = async (id: string): Promise<{ body: Detail; etag: string }> => {
+    const response = await get(id);
+    assert.equal(response.status, 200, await response.clone().text());
+    const etag = response.headers.get("etag");
+    if (etag === null) throw new Error("detail response did not include an ETag");
+    return { body: (await response.json()) as Detail, etag };
+  };
+  const raceSeed = await detailFor(selfLinkRaceInterviewId);
+  const raceSeedPayload = validPayload(raceSeed.body);
+  const raceSeedKey = freshId("correction-boundary-self-link-seed");
+  const raceSeedResponse = await post(
+    selfLinkRaceInterviewId,
+    raceSeedPayload,
+    raceSeed.etag,
+    raceSeedKey,
   );
-  record("known self-link denies detail, correction, and replay");
-
-  const differentLinkInvitation = freshId("correction-boundary-different-link");
-  await withMutation(
-    (client) =>
-      client
-        .query(
-          `INSERT INTO public.applicant_account_invitations
-             (invitation_id, application_id, applicant_id, token_digest, expires_at, state, issued_by, issued_at)
-           VALUES ($1,$2,$3,$4,CURRENT_TIMESTAMP+interval '1 day','Claimed',$5,CURRENT_TIMESTAMP)`,
-          [
-            differentLinkInvitation,
-            identity.applicationId,
-            identity.applicantId,
-            createHash("sha256").update(differentLinkInvitation).digest("hex"),
-            actorPersonId,
-          ],
-        )
-        .then(() =>
-          client.query(
-            `INSERT INTO public.applicant_account_links (applicant_id, person_id, linked_at, invitation_id)
-             VALUES ($1,$2,CURRENT_TIMESTAMP,$3)`,
-            [identity.applicantId, otherPersonId, differentLinkInvitation],
-          ),
-        )
-        .then(() => undefined),
-    async (client) => {
-      await client.query(`DELETE FROM public.applicant_account_links WHERE applicant_id=$1`, [identity.applicantId]);
-      await client.query(`DELETE FROM public.applicant_account_invitations WHERE invitation_id=$1`, [differentLinkInvitation]);
-    },
-    async () => {
-      const before = await snapshot();
-      const read = await get(interviewId);
-      status("different-linked-person:read", read.status);
-      assert.equal(read.status, 200, await read.text());
-      await assertSnapshot(before, "different linked person read");
-    },
-  );
-  record("different linked person remains authorized and does not disclose or mutate extra state");
-
+  status("self-link-seed:write", raceSeedResponse.status);
+  assert.equal(raceSeedResponse.status, 200, await raceSeedResponse.text());
+  const acceptedRaceReplay = { key: raceSeedKey, etag: raceSeed.etag, payload: raceSeedPayload };
+  const raceFresh = await detailFor(selfLinkRaceInterviewId);
+  const racePayload = validPayload(raceFresh.body);
   const raceBefore = await snapshot();
-  const raceDetail = await get(selfLinkRaceInterviewId);
-  assert.equal(raceDetail.status, 200, await raceDetail.clone().text());
-  const raceEtag = raceDetail.headers.get("etag");
-  if (raceEtag === null) throw new Error("self-link race detail response did not include an ETag");
-  const raceBody = (await raceDetail.json()) as Detail;
-  const racePayload = validPayload(raceBody);
   const locker = await pool.connect();
   let waiting: Promise<Response> | undefined;
-  let raceCommitted = false;
-  let raceSetupSnapshot: OwnedSnapshot | undefined;
   const raceInvitation = freshId("correction-boundary-self-link-race");
   try {
     await locker.query("BEGIN");
@@ -598,17 +526,14 @@ export async function assertInterviewCorrectionBoundaries(
     waiting = post(
       selfLinkRaceInterviewId,
       racePayload,
-      raceEtag,
+      raceFresh.etag,
       freshId("correction-boundary-self-link-race-request"),
     );
     const lockerPid = Number((await locker.query("SELECT pg_backend_pid() AS pid")).rows[0].pid);
     let blocked = false;
     for (let attempt = 0; attempt < 100; attempt++) {
       const blockingRows = await pool.query(
-        `SELECT pid
-           FROM pg_stat_activity
-          WHERE pid <> $1
-            AND $1 = ANY(pg_blocking_pids(pid))`,
+        `SELECT pid FROM pg_stat_activity WHERE pid <> $1 AND $1 = ANY(pg_blocking_pids(pid))`,
         [lockerPid],
       );
       if (blockingRows.rows.length > 0) {
@@ -635,31 +560,29 @@ export async function assertInterviewCorrectionBoundaries(
        VALUES ($1,$2,CURRENT_TIMESTAMP,$3)`,
       [raceIdentity.applicantId, actorPersonId, raceInvitation],
     );
-    raceCommitted = true;
-    raceSetupSnapshot = await snapshot();
+    await locker.query("COMMIT");
     const raceResponse = await waiting;
     status("self-link-race:write", raceResponse.status);
     assert.equal(raceResponse.status, 403, await raceResponse.text());
+    const deniedRead = await get(selfLinkRaceInterviewId);
+    status("self-link-race:read-after-commit", deniedRead.status);
+    assert.equal(deniedRead.status, 403, await deniedRead.text());
+    const replay = await post(
+      selfLinkRaceInterviewId,
+      acceptedRaceReplay.payload,
+      acceptedRaceReplay.etag,
+      acceptedRaceReplay.key,
+    );
+    status("self-link-race:replay", replay.status);
+    assert.equal(replay.status, 403, await replay.text());
     const raceAfterResponse = await snapshot();
-    assert.ok(raceSetupSnapshot);
-    assertCorrectionRowsUnchanged(raceSetupSnapshot, raceAfterResponse, "self-link race response");
+    assertCorrectionRowsUnchanged(raceBefore, raceAfterResponse, "self-link race response");
   } finally {
     await locker.query("ROLLBACK").catch(() => undefined);
     locker.release();
     await waiting?.catch(() => undefined);
-    if (raceCommitted) {
-      const cleanup = await pool.connect();
-      try {
-        await cleanup.query("BEGIN");
-        await cleanup.query(`DELETE FROM public.applicant_account_links WHERE applicant_id=$1`, [raceIdentity.applicantId]);
-        await cleanup.query(`DELETE FROM public.applicant_account_invitations WHERE invitation_id=$1`, [raceInvitation]);
-        await cleanup.query("COMMIT");
-      } finally {
-        await cleanup.query("ROLLBACK").catch(() => undefined);
-        cleanup.release();
-      }
-    }
   }
+  record("genuine accepted self-link fixture correction is denied after committed self-link, including fresh read and exact replay");
 
   const current = await detail();
   const currentPayload = validPayload(current.body);
@@ -694,23 +617,129 @@ export async function assertInterviewCorrectionBoundaries(
     await assertSnapshot(before, `invalid ${name}`);
   }
   record("malformed JSON maps to 400; strict schema failures map to 422; each leaves exact state unchanged");
+  const rollbackSuffix = randomBytes(8).toString("hex");
+  const rollbackSequence = `test_correction_failure_${rollbackSuffix}_seq`;
+  const rollbackControl = `test_correction_failure_${rollbackSuffix}_control`;
+  const rollbackFunction = `test_correction_failure_${rollbackSuffix}_fn`;
+  const rollbackTriggers = [
+    ["aggregate-revision", "recruitment_interviews", "1", "UPDATE OF revision"],
+    ["assessment", "recruitment_interview_correction_assessments", "2", "INSERT"],
+    ["domain-receipt", "recruitment_interview_correction_command_receipts", "3", "INSERT"],
+    ["audit", "recruitment_interview_correction_audit", "4", "INSERT"],
+  ] as const;
+  const quote = (identifier: string) => `"${identifier}"`;
+  const rollbackClient = await pool.connect();
+  try {
+    await rollbackClient.query("BEGIN");
+    await rollbackClient.query(`CREATE SEQUENCE public.${quote(rollbackSequence)}`);
+    await rollbackClient.query(
+      `CREATE TABLE public.${quote(rollbackControl)} (stage integer NOT NULL CHECK (stage BETWEEN 1 AND 4))`,
+    );
+    await rollbackClient.query(`INSERT INTO public.${quote(rollbackControl)} (stage) VALUES (1)`);
+    await rollbackClient.query(`
+      CREATE FUNCTION public.${quote(rollbackFunction)}() RETURNS trigger LANGUAGE plpgsql AS $$
+      DECLARE configured integer;
+      BEGIN
+        PERFORM nextval('public.${rollbackSequence}');
+        SELECT stage INTO configured FROM public.${rollbackControl} LIMIT 1;
+        IF configured = TG_ARGV[0]::integer THEN
+          RAISE EXCEPTION 'interview correction rollback probe stage %', configured;
+        END IF;
+        RETURN NEW;
+      END $$;
+    `);
+    for (const [, table, stage, event] of rollbackTriggers) {
+      await rollbackClient.query(
+        `CREATE TRIGGER ${quote(`${rollbackFunction}_${stage}`)} AFTER ${event} ON public.${table}
+         FOR EACH ROW EXECUTE FUNCTION public.${quote(rollbackFunction)}('${stage}')`,
+      );
+    }
+    await rollbackClient.query("COMMIT");
+  } finally {
+    await rollbackClient.query("ROLLBACK").catch(() => undefined);
+    rollbackClient.release();
+  }
+  try {
+    for (const [name, , stage] of rollbackTriggers) {
+      const setup = await pool.connect();
+      try {
+        await setup.query("BEGIN");
+        await setup.query(`UPDATE public.${quote(rollbackControl)} SET stage=$1`, [Number(stage)]);
+        await setup.query(`ALTER SEQUENCE public.${quote(rollbackSequence)} RESTART WITH 1`);
+        await setup.query("COMMIT");
+      } finally {
+        await setup.query("ROLLBACK").catch(() => undefined);
+        setup.release();
+      }
+      const before = await snapshot();
+      const response = await post(
+        interviewId,
+        currentPayload,
+        current.etag,
+        freshId(`correction-boundary-rollback-${name}`),
+      );
+      status(`rollback:${name}`, response.status);
+      assert.equal(response.status, 500, await response.text());
+      const marker = await pool.query(
+        `SELECT last_value, is_called FROM public.${quote(rollbackSequence)}`,
+      );
+      assert.equal(marker.rows[0]?.is_called, true, `${name} rollback marker did not fire`);
+      assert.equal(
+        Number(marker.rows[0]?.last_value),
+        Number(stage),
+        `${name} rollback probe stopped before injected stage`,
+      );
+      await assertSnapshot(before, `rollback after ${name}`);
+    }
+    record("each aggregate, assessment, domain-receipt, and audit failure trigger fired and rolled back all domain and native HTTP receipt rows");
+  } finally {
+    const cleanup = await pool.connect();
+    try {
+      await cleanup.query("BEGIN");
+      for (const [, table, stage] of rollbackTriggers) {
+        await cleanup.query(
+          `DROP TRIGGER IF EXISTS ${quote(`${rollbackFunction}_${stage}`)} ON public.${table}`,
+        );
+      }
+      await cleanup.query(`DROP FUNCTION IF EXISTS public.${quote(rollbackFunction)}()`);
+      await cleanup.query(`DROP TABLE IF EXISTS public.${quote(rollbackControl)}`);
+      await cleanup.query(`DROP SEQUENCE IF EXISTS public.${quote(rollbackSequence)}`);
+      await cleanup.query("COMMIT");
+    } finally {
+      await cleanup.query("ROLLBACK").catch(() => undefined);
+      cleanup.release();
+    }
+  }
 
-  const sameKeyBefore = await snapshot();
-  const conflictingPayload = {
-    ...currentPayload,
-    recommendation: currentPayload.recommendation === "Nei" ? "Ja" : "Nei",
-  };
-  const sameKeyResponse = await post(
-    interviewId,
-    conflictingPayload,
-    current.etag,
-    acceptedReplay.key,
-  );
-  status("same-key-different-payload", sameKeyResponse.status);
-  assert.equal(sameKeyResponse.status, 409, await sameKeyResponse.text());
-  await assertSnapshot(sameKeyBefore, "same-key different payload");
-  record("same idempotency key with a different payload returns digest conflict without any owned write");
-
-  await assertSnapshot(initialSnapshot, "complete boundary journey");
+  const differentLinkInvitation = freshId("correction-boundary-different-link");
+  const differentLinkClient = await pool.connect();
+  try {
+    await differentLinkClient.query("BEGIN");
+    await differentLinkClient.query(
+      `INSERT INTO public.applicant_account_invitations
+         (invitation_id, application_id, applicant_id, token_digest, expires_at, state, issued_by, issued_at)
+       VALUES ($1,$2,$3,$4,CURRENT_TIMESTAMP+interval '1 day','Claimed',$5,CURRENT_TIMESTAMP)`,
+      [
+        differentLinkInvitation,
+        identity.applicationId,
+        identity.applicantId,
+        createHash("sha256").update(differentLinkInvitation).digest("hex"),
+        actorPersonId,
+      ],
+    );
+    await differentLinkClient.query(
+      `INSERT INTO public.applicant_account_links (applicant_id, person_id, linked_at, invitation_id)
+       VALUES ($1,$2,CURRENT_TIMESTAMP,$3)`,
+      [identity.applicantId, otherPersonId, differentLinkInvitation],
+    );
+    await differentLinkClient.query("COMMIT");
+  } finally {
+    await differentLinkClient.query("ROLLBACK").catch(() => undefined);
+    differentLinkClient.release();
+  }
+  const differentRead = await get(interviewId);
+  status("different-linked-person:read", differentRead.status);
+  assert.equal(differentRead.status, 200, await differentRead.text());
+  record("different-person applicant link is a committed teardown-owned fixture and remains readable without correction writes");
   return { gates, statuses };
 }
