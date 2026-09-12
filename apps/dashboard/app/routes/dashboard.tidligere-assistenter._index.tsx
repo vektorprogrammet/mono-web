@@ -1,8 +1,9 @@
 import { ReturningAssistantRegistrationInputSchema } from "@vektorprogrammet/domain/application";
+import { PersonId } from "@vektorprogrammet/domain/organization";
 import { IdempotencyHeaders } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
-import { data, useFetcher, useLoaderData } from "react-router";
-import { useState, type FormEvent } from "react";
+import { data, useFetcher, useLoaderData, useRouteError } from "react-router";
+import { useState, useSyncExternalStore, type FormEvent } from "react";
 import { Button } from "../components/ui/button";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
@@ -92,25 +93,109 @@ export async function action({ request }: Route.ActionArgs) {
 const languages = ["Norsk", "Engelsk", "Norsk og engelsk"] as const;
 const groups = ["all", "block-1", "block-2"] as const;
 
+const returningRegistrationRoute = "/dashboard/tidligere-assistenter";
+const returningDraftStoragePrefix = "vektorprogrammet:returning-assistant-draft:";
+const ReturningDraftSchema = Schema.Struct({
+  personId: PersonId,
+  route: Schema.Literal(returningRegistrationRoute),
+  payload: ReturningAssistantRegistrationInputSchema,
+  signature: Schema.String,
+});
+type ReturningPayload = typeof ReturningAssistantRegistrationInputSchema.Type;
+type SavedReturningDraft = typeof ReturningDraftSchema.Type;
+const ReturningDraftJsonSchema = Schema.fromJsonString(ReturningDraftSchema);
+
+const returningDraftStorageKey = (personId: string, admissionPeriodId: string) =>
+  `${returningDraftStoragePrefix}${personId}:${returningRegistrationRoute}:${admissionPeriodId}`;
+const readReturningDrafts = (personId: string | undefined): SavedReturningDraft[] => {
+  if (typeof window === "undefined" || personId === undefined) return [];
+  const candidates: SavedReturningDraft[] = [];
+  const storageKeyPrefix = `${returningDraftStoragePrefix}${personId}:${returningRegistrationRoute}:`;
+  for (let index = 0; index < window.sessionStorage.length; index += 1) {
+    const key = window.sessionStorage.key(index);
+    if (key === null || !key.startsWith(storageKeyPrefix)) continue;
+    try {
+      const value = Schema.decodeUnknownSync(ReturningDraftJsonSchema)(
+        window.sessionStorage.getItem(key) ?? "",
+        { onExcessProperty: "error" },
+      );
+      const admissionPeriodId = key.slice(storageKeyPrefix.length);
+      if (
+        value.personId === personId &&
+        value.route === returningRegistrationRoute &&
+        value.payload.admissionPeriodId === admissionPeriodId
+      )
+        candidates.push(value);
+    } catch {
+      // Ignore stale or malformed browser storage. It must never become form state.
+    }
+  }
+  return candidates;
+};
+
+const payloadFormValues = (payload: ReturningPayload): Map<string, readonly string[]> =>
+  new Map([
+    ["commandId", [payload.commandId]],
+    ["expectedRevision", [String(payload.expectedRevision)]],
+    ["admissionPeriodId", [payload.admissionPeriodId]],
+    ["yearOfStudy", [String(payload.yearOfStudy)]],
+    ["mondayUnavailable", payload.mondayUnavailable ? ["true"] : []],
+    ["tuesdayUnavailable", payload.tuesdayUnavailable ? ["true"] : []],
+    ["wednesdayUnavailable", payload.wednesdayUnavailable ? ["true"] : []],
+    ["thursdayUnavailable", payload.thursdayUnavailable ? ["true"] : []],
+    ["fridayUnavailable", payload.fridayUnavailable ? ["true"] : []],
+    ["positionWeeks", [String(payload.positionWeeks)]],
+    ["preferredGroup", [payload.preferredGroup]],
+    ["language", [payload.language]],
+    ["preferredSchool", [payload.preferredSchool ?? ""]],
+    ["teamInterest", payload.teamInterest ? ["true"] : []],
+    ["teamIds", payload.teamIds.map(String)],
+  ]);
+
+const subscribeHydration = () => () => {};
+const clientSnapshot = () => true;
+const serverSnapshot = () => false;
+
 export default function TidligereAssistenter() {
   const { options, error } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const busy = fetcher.state !== "idle";
-  const [selectedPeriodId, setSelectedPeriodId] = useState(options?.periods[0]?.period.id ?? "");
-  const selectedPeriod = options?.periods.find(({ period }) => period.id === selectedPeriodId)
-    ?? options?.periods[0];
+  const hydrated = useSyncExternalStore(subscribeHydration, clientSnapshot, serverSnapshot);
+  const savedDrafts = hydrated ? readReturningDrafts(options?.personId) : [];
+  const savedDraft = savedDrafts.length === 1 ? savedDrafts[0] : null;
+  const savedPayload = savedDraft?.payload;
+  const [selectedPeriodOverride, setSelectedPeriodOverride] = useState<string>();
+  const selectedPeriodId =
+    selectedPeriodOverride ??
+    savedPayload?.admissionPeriodId ??
+    (savedDrafts.length === 0 ? options?.periods[0]?.period.id ?? "" : "");
+  const selectedPeriod = options?.periods.find(({ period }) => period.id === selectedPeriodId);
   const current = selectedPeriod?.currentPreferences ?? null;
   const currentRevision = selectedPeriod?.currentRevision ?? 0;
-  const selectedId = selectedPeriod?.period.id ?? "";
-  const [draftRevision, setDraftRevision] = useState(currentRevision);
-  const [commandId, setCommandId] = useState("");
-  const [commandDraft, setCommandDraft] = useState("");
+  const selectedId = selectedPeriod?.period.id ?? selectedPeriodId;
+  const restoringDraft = savedPayload?.admissionPeriodId === selectedPeriodId;
+  const savedValues = restoringDraft && savedPayload !== undefined ? payloadFormValues(savedPayload) : null;
+  const restoredValue = (name: string, fallback: string) =>
+    savedValues?.get(name)?.[0] ?? fallback;
+  const restoredChecked = (name: string, fallback: boolean) =>
+    savedValues?.get(name)?.includes("true") ?? fallback;
+  const restoredIncludes = (name: string, value: string, fallback: boolean) =>
+    savedValues?.get(name)?.includes(value) ?? fallback;
+  const [draftRevisionOverride, setDraftRevisionOverride] = useState<number>();
+  const draftRevision =
+    draftRevisionOverride ?? (restoringDraft ? savedPayload?.expectedRevision ?? currentRevision : currentRevision);
+  const [commandIdOverride, setCommandIdOverride] = useState<string>();
+  const commandId = commandIdOverride ?? (restoringDraft ? savedPayload?.commandId ?? "" : "");
+  const [commandDraftOverride, setCommandDraftOverride] = useState<string>();
+  const commandDraft = commandDraftOverride ?? (restoringDraft ? savedDraft?.signature ?? "" : "");
   const [acceptedCommandId, setAcceptedCommandId] = useState("");
   if (fetcher.data?.success === true && fetcher.data.commandId !== acceptedCommandId) {
+    if (typeof window !== "undefined" && options !== null)
+      window.sessionStorage.removeItem(returningDraftStorageKey(options.personId, selectedId));
     setAcceptedCommandId(fetcher.data.commandId);
-    setDraftRevision(fetcher.data.revision);
-    setCommandId("");
-    setCommandDraft("");
+    setDraftRevisionOverride(fetcher.data.revision);
+    setCommandIdOverride("");
+    setCommandDraftOverride("");
   }
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     if (busy || event.currentTarget.dataset.pending === "true") {
@@ -120,20 +205,88 @@ export default function TidligereAssistenter() {
     event.currentTarget.dataset.pending = "true";
     const draft = new FormData(event.currentTarget);
     draft.delete("commandId");
-    const signature = JSON.stringify([...draft]);
+    const entries = [...draft].map(([name, value]) => ({ name, value: String(value) }));
+    const signature = JSON.stringify(entries);
     const field = event.currentTarget.elements.namedItem("commandId");
     if (field instanceof HTMLInputElement && (!field.value || signature !== commandDraft)) {
       const key = crypto.randomUUID();
       field.value = key;
-      setCommandId(key);
-      setCommandDraft(signature);
+      setCommandIdOverride(key);
+      setCommandDraftOverride(signature);
     }
+    if (typeof window !== "undefined" && options !== null) {
+      try {
+        const payloadForm = new FormData(event.currentTarget);
+        const payload = Schema.decodeUnknownSync(ReturningAssistantRegistrationInputSchema)({
+          commandId: String(payloadForm.get("commandId") || ""),
+          admissionPeriodId: payloadForm.get("admissionPeriodId"),
+          expectedRevision: Number(payloadForm.get("expectedRevision")),
+          yearOfStudy: Number(payloadForm.get("yearOfStudy")),
+          mondayUnavailable: boolField(payloadForm, "mondayUnavailable"),
+          tuesdayUnavailable: boolField(payloadForm, "tuesdayUnavailable"),
+          wednesdayUnavailable: boolField(payloadForm, "wednesdayUnavailable"),
+          thursdayUnavailable: boolField(payloadForm, "thursdayUnavailable"),
+          fridayUnavailable: boolField(payloadForm, "fridayUnavailable"),
+          positionWeeks: Number(payloadForm.get("positionWeeks")),
+          preferredGroup: payloadForm.get("preferredGroup"),
+          language: payloadForm.get("language"),
+          preferredSchool: payloadForm.get("preferredSchool") || null,
+          teamInterest: boolField(payloadForm, "teamInterest"),
+          teamIds: payloadForm.getAll("teamIds"),
+        });
+        window.sessionStorage.setItem(
+          returningDraftStorageKey(options.personId, payload.admissionPeriodId),
+          JSON.stringify({
+            personId: options.personId,
+            route: returningRegistrationRoute,
+            payload,
+            signature,
+          }),
+        );
+      } catch {
+        // Do not persist a form that is not a valid canonical registration payload.
+      }
+    }
+  };
+  const discardDraft = () => {
+    if (typeof window !== "undefined")
+      for (const draft of savedDrafts)
+        window.sessionStorage.removeItem(
+          returningDraftStorageKey(draft.personId, draft.payload.admissionPeriodId),
+        );
+    window.location.reload();
   };
   if (error || options === null) {
     return (
       <main className="space-y-4">
         <h1>Tidligere assistenter</h1>
         <p role="alert">{error ?? "Alternativene kunne ikke lastes."}</p>
+      </main>
+    );
+  }
+  if (savedDrafts.length > 1) {
+    return (
+      <main className="space-y-4">
+        <h1>Tidligere assistenter</h1>
+        <p role="alert">
+          Flere lagrede utkast krever et valg før registreringen kan fortsette.
+        </p>
+        <Button type="button" onClick={discardDraft}>
+          Forkast lagrede utkast
+        </Button>
+      </main>
+    );
+  }
+  if (savedDraft !== null && selectedPeriod === undefined) {
+    return (
+      <main className="space-y-4">
+        <h1>Tidligere assistenter</h1>
+        <p role="alert">
+          Det lagrede utkastet gjelder en opptaksperiode som ikke lenger er tilgjengelig.
+        </p>
+        <Button type="button" onClick={discardDraft}>
+          Forkast lagret utkast
+        </Button>
       </main>
     );
   }
@@ -162,12 +315,12 @@ export default function TidligereAssistenter() {
               value={selectedId}
               onChange={(event) => {
                 const nextPeriodId = event.currentTarget.value;
-                setSelectedPeriodId(nextPeriodId);
-                setDraftRevision(
+                setSelectedPeriodOverride(nextPeriodId);
+                setDraftRevisionOverride(
                   options.periods.find(({ period }) => period.id === nextPeriodId)?.currentRevision ?? 0,
                 );
-                setCommandId("");
-                setCommandDraft("");
+                setCommandIdOverride("");
+                setCommandDraftOverride("");
               }}
               className="mt-1 block w-full rounded border p-2"
             >
@@ -181,7 +334,7 @@ export default function TidligereAssistenter() {
           </label>
           {selectedPeriod === undefined && <p role="alert">Ingen åpen opptaksperiode er tilgjengelig.</p>}
           <label className="block">Studieår
-            <select name="yearOfStudy" defaultValue={String(current?.yearOfStudy ?? 1)} required className="mt-1 block w-full rounded border p-2">
+            <select name="yearOfStudy" defaultValue={restoredValue("yearOfStudy", String(current?.yearOfStudy ?? 1))} required className="mt-1 block w-full rounded border p-2">
               {[1, 2, 3, 4, 5].map((year) => <option key={year} value={year}>{year}</option>)}
             </select>
           </label>
@@ -202,19 +355,19 @@ export default function TidligereAssistenter() {
                   type="checkbox"
                   name={name}
                   value="true"
-                  defaultChecked={Boolean(current?.[name as keyof typeof current])}
+                  defaultChecked={restoredChecked(name, Boolean(current?.[name as keyof typeof current]))}
                 />
                 {label}
               </label>
             ))}
           </div>
           <label className="block">Stillingslengde
-            <select name="positionWeeks" defaultValue={String(current?.positionWeeks ?? 4)} required className="mt-1 block w-full rounded border p-2">
+            <select name="positionWeeks" defaultValue={restoredValue("positionWeeks", String(current?.positionWeeks ?? 4))} required className="mt-1 block w-full rounded border p-2">
               <option value="4">4 uker</option><option value="8">8 uker</option>
             </select>
           </label>
           <label className="block">Semesterblokk
-            <select name="preferredGroup" defaultValue={current?.preferredGroup ?? "all"} required className="mt-1 block w-full rounded border p-2">
+            <select name="preferredGroup" defaultValue={restoredValue("preferredGroup", current?.preferredGroup ?? "all")} required className="mt-1 block w-full rounded border p-2">
               {groups.map((group) => <option key={group} value={group}>{group === "all" ? "Hele semesteret" : group}</option>)}
             </select>
           </label>
@@ -222,15 +375,15 @@ export default function TidligereAssistenter() {
         <fieldset disabled={busy} className="space-y-3">
           <legend className="text-lg font-semibold">Ønsker</legend>
           <label className="block">Språk
-            <select name="language" defaultValue={current?.language ?? "Norsk"} required className="mt-1 block w-full rounded border p-2">
+            <select name="language" defaultValue={restoredValue("language", current?.language ?? "Norsk")} required className="mt-1 block w-full rounded border p-2">
               {languages.map((language) => <option key={language} value={language}>{language}</option>)}
             </select>
           </label>
           <label className="block">Ønsket skole (valgfritt)
-            <input name="preferredSchool" defaultValue={current?.preferredSchool ?? ""} className="mt-1 block w-full rounded border p-2" maxLength={255} />
+          <input name="preferredSchool" defaultValue={restoredValue("preferredSchool", current?.preferredSchool ?? "")} className="mt-1 block w-full rounded border p-2" maxLength={255} />
           </label>
           <label className="flex gap-2">
-            <input type="checkbox" name="teamInterest" value="true" defaultChecked={current?.teamInterest ?? false} />
+            <input type="checkbox" name="teamInterest" value="true" defaultChecked={restoredChecked("teamInterest", current?.teamInterest ?? false)} />
             Jeg er interessert i teamarbeid
           </label>
           <fieldset className="space-y-2">
@@ -238,13 +391,18 @@ export default function TidligereAssistenter() {
             {options.teams.length === 0 && <p>Ingen team er tilgjengelige i avdelingen.</p>}
             {options.teams.map((team) => (
               <label key={team.teamId} className="flex gap-2">
-                <input type="checkbox" name="teamIds" value={team.teamId} defaultChecked={current?.teamIds.includes(team.teamId) ?? false} />
+                <input type="checkbox" name="teamIds" value={team.teamId} defaultChecked={restoredIncludes("teamIds", team.teamId, current?.teamIds.includes(team.teamId) ?? false)} />
                 {team.name}
               </label>
             ))}
           </fieldset>
         </fieldset>
         <Button type="submit" disabled={busy}>{busy ? "Lagrer …" : current === null ? "Registrer for semesteret" : "Lagre endringer"}</Button>
+        {restoringDraft && (
+          <Button type="button" onClick={discardDraft}>
+            Forkast lagret utkast
+          </Button>
+        )}
         {fetcher.data && <p role={fetcher.data.success ? "status" : "alert"}>{fetcher.data.message}</p>}
         {fetcher.data?.success === false && fetcher.data.code === "returning.revision-conflict" && (
           <Button type="button" onClick={() => window.location.reload()}>
@@ -252,6 +410,22 @@ export default function TidligereAssistenter() {
           </Button>
         )}
       </fetcher.Form>
+    </main>
+  );
+}
+
+export function ErrorBoundary() {
+  useRouteError();
+  return (
+    <main className="space-y-4">
+      <h1>Tidligere assistenter</h1>
+      <p role="alert">
+        Registreringen ble avbrutt. Utkastet er lagret på denne enheten.
+      </p>
+      <Button type="button" onClick={() => window.location.reload()}>
+        Prøv igjen
+      </Button>
+      <p>Hvis du ikke vil sende utkastet på nytt, velg Forkast lagret utkast etter omlasting.</p>
     </main>
   );
 }
