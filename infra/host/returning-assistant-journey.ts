@@ -410,9 +410,10 @@ export const runReturningAssistantBrowserJourney = async ({
     );
     await returning.screenshot({ path: join(artifacts, `returning-${phase}-failure.png`), fullPage: true });
     const kind = cause instanceof Error ? cause.name : typeof cause;
+    const causeMessage = cause instanceof Error ? cause.message : String(cause);
     await writeFile(join(artifacts, "returning-registration-trace.json"), JSON.stringify(trace, null, 2));
     throw new Error(
-      `returning ${phase} failed phase=browser-action kind=${kind} url=${returning.url()} responses=${responses.join(" | ")}`,
+      `returning ${phase} failed phase=browser-action kind=${kind} cause=${causeMessage} url=${returning.url()} responses=${responses.join(" | ")}`,
       { cause },
     );
   };
