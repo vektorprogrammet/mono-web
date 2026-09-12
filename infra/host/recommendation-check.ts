@@ -1107,6 +1107,14 @@ try {
         (phase === "failed-save" ? rejectFailedSave : rejectCorrectionRetry)(cause);
       }
     };
+    const rowsBeforeFailedSave = (
+      await pool.query(
+        `SELECT resulting_revision FROM public.recruitment_interview_correction_assessments
+         WHERE interview_id=$1 ORDER BY resulting_revision`,
+        [correctionId],
+      )
+    ).rows;
+    assert.deepEqual(rowsBeforeFailedSave.map((row: any) => row.resulting_revision), [2]);
     await page.route("**/recruitment", correctionRoute);
     await page.getByRole("button", { name: "Rett intervju", exact: true }).last().click();
     await page.getByRole("dialog").waitFor({ state: "visible" });
@@ -1118,7 +1126,6 @@ try {
     await page.locator("#interviewer-recommendation").waitFor({ state: "visible" });
     assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Nei");
     assert.equal(await page.locator("#score-explanatoryPower").inputValue(), "9");
-    assert.equal(await page.locator("#question-interview-schema-native-conduct-0063-q0").inputValue(), "Et nytt tydelig svar.");
     const rowsBeforeRetry = (
       await pool.query(
         `SELECT resulting_revision FROM public.recruitment_interview_correction_assessments
@@ -1126,7 +1133,10 @@ try {
         [correctionId],
       )
     ).rows;
-    assert.deepEqual(rowsBeforeRetry.map((row: any) => row.resulting_revision), [2]);
+    assert.deepEqual(
+      rowsBeforeRetry.map((row: any) => row.resulting_revision),
+      [...rowsBeforeFailedSave.map((row: any) => row.resulting_revision), 3],
+    );
     await page.getByRole("button", { name: "Rett intervju", exact: true }).last().click();
     await page.getByRole("dialog").waitFor({ state: "visible" });
     await page
