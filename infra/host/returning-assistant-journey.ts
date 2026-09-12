@@ -681,11 +681,13 @@ export const runReturningAssistantBrowserJourney = async ({
       [person.personId, nextAdmissionPeriodId],
     );
     assert.ok(firstCommandKey);
-    assert.deepEqual(firstCommittedBeforeRetry.rows, [{
+    const expectedFirstCommit = [{
       admission_period_id: nextAdmissionPeriodId,
       revision: 1,
       command_id: firstCommandKey,
-    }]);
+    }];
+    if (JSON.stringify(firstCommittedBeforeRetry.rows) !== JSON.stringify(expectedFirstCommit))
+      throw new Error(`first registration before retry mismatch actual=${JSON.stringify(firstCommittedBeforeRetry.rows)} expected=${JSON.stringify(expectedFirstCommit)}`);
     trace.push({ phase: "first-before-retry", sqlCommitted: firstCommittedBeforeRetry.rows });
     stage?.("returning:mutation:recovery");
     const recovery = returning.getByRole("button", { name: "Prøv igjen", exact: true });
