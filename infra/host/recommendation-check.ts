@@ -45,14 +45,22 @@ if (process.argv.includes("--validate-fixture")) {
 }
 const { chromium } = uiRequire("@playwright/test");
 const AxeBuilder = uiRequire("@axe-core/playwright").default;
-const run = (cmd: string, args: string[], env = process.env, cwd = root) =>
-  execFileSync(cmd, args, {
-    cwd,
-    env,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: 180000,
-  });
+const run = (cmd: string, args: string[], env = process.env, cwd = root): string => {
+  try {
+    return execFileSync(cmd, args, {
+      cwd,
+      env,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 180000,
+    });
+  } catch (cause) {
+    throw new Error(
+      `runtime command failed: ${cmd} ${args.join(" ")}: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause },
+    );
+  }
+};
 assert.equal(run("git", ["status", "--porcelain"]).trim(), "");
 const revision = run("git", ["rev-parse", "HEAD"]).trim();
 const artifacts = await mkdtemp(join(tmpdir(), "vektor-recommendation-0101-"));
