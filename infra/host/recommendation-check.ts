@@ -897,9 +897,10 @@ try {
       await page
         .getByRole("article")
         .filter({ hasText: correctionName })
-        .getByRole("button", { name: "Rett intervju", exact: true })
+        .getByRole("button", { name: "Åpne intervju", exact: true })
         .click();
       await page.getByRole("heading", { name: `Intervju med ${correctionName}` }).waitFor();
+      await page.getByRole("button", { name: "Rett intervju", exact: true }).click();
     };
     const saveCorrection = async (recommendation: "Ja" | "Kanskje" | "Nei") => {
       await fill(page);
