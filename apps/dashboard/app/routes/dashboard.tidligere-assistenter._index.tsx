@@ -2,7 +2,7 @@ import { ReturningAssistantRegistrationInputSchema } from "@vektorprogrammet/dom
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { IdempotencyHeaders } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
-import { data, useFetcher, useLoaderData, useRouteError, useSearchParams } from "react-router";
+import { data, useFetcher, useLoaderData, useNavigation, useRouteError, useSearchParams } from "react-router";
 import { useState, useSyncExternalStore, type FormEvent } from "react";
 import { Button } from "../components/ui/button";
 import { createAuthenticatedClient } from "../lib/api.server";
@@ -182,6 +182,8 @@ export default function TidligereAssistenter() {
   const { options, error } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const busy = fetcher.state !== "idle";
+  const navigation = useNavigation();
+  const formBusy = busy || navigation.state !== "idle";
   const hydrated = useSyncExternalStore(subscribeHydration, clientSnapshot, serverSnapshot);
   const savedDrafts = hydrated ? readReturningDrafts(options?.personId) : [];
   const savedDraft = savedDrafts.length === 1 ? savedDrafts[0] : null;
@@ -267,7 +269,7 @@ export default function TidligereAssistenter() {
     });
   }
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
-    if (busy || event.currentTarget.dataset.pending === "true") {
+    if (formBusy || event.currentTarget.dataset.pending === "true") {
       event.preventDefault();
       return;
     }
@@ -387,10 +389,10 @@ export default function TidligereAssistenter() {
           <div><dt className="font-medium">Studium</dt><dd>{options.fieldOfStudyId}</dd></div>
         </dl>
       </header>
-      <fetcher.Form key={`${selectedId}:${hydrated ? "hydrated" : "server"}`} method="post" onSubmit={onSubmit} data-pending={busy ? "true" : "false"} className="space-y-6" aria-label="Registrer som tidligere assistent">
+      <fetcher.Form key={`${selectedId}:${hydrated ? "hydrated" : "server"}`} method="post" onSubmit={onSubmit} data-pending={formBusy ? "true" : "false"} className="space-y-6" aria-label="Registrer som tidligere assistent">
         <input type="hidden" name="commandId" value={commandId} readOnly />
         <input type="hidden" name="expectedRevision" value={draftRevision} readOnly />
-        <fieldset disabled={busy} className="space-y-4">
+        <fieldset disabled={formBusy} className="space-y-4">
           <legend className="text-lg font-semibold">Opptak og studie</legend>
           <label className="block">Opptaksperiode
             <select
@@ -428,7 +430,7 @@ export default function TidligereAssistenter() {
             </select>
           </label>
         </fieldset>
-        <fieldset disabled={busy} className="space-y-3">
+        <fieldset disabled={formBusy} className="space-y-3">
           <legend className="text-lg font-semibold">Tilgjengelighet</legend>
           <p>Velg dagene du ikke er tilgjengelig.</p>
           <div className="grid gap-2 sm:grid-cols-2">
@@ -461,7 +463,7 @@ export default function TidligereAssistenter() {
             </select>
           </label>
         </fieldset>
-        <fieldset disabled={busy} className="space-y-3">
+        <fieldset disabled={formBusy} className="space-y-3">
           <legend className="text-lg font-semibold">Ønsker</legend>
           <label className="block">Språk
             <select name="language" defaultValue={restoredValue("language", current?.language ?? "Norsk")} required className="mt-1 block w-full rounded border p-2">
@@ -486,16 +488,16 @@ export default function TidligereAssistenter() {
             ))}
           </fieldset>
         </fieldset>
-        <Button type="submit" disabled={busy}>{busy ? "Lagrer …" : current === null ? "Registrer for semesteret" : "Lagre endringer"}</Button>
+        <Button type="submit" disabled={formBusy}>{formBusy ? "Lagrer …" : current === null ? "Registrer for semesteret" : "Lagre endringer"}</Button>
         {persistenceError !== null && <p role="alert">{persistenceError}</p>}
         {restoringDraft && (
-          <Button type="button" onClick={discardDraft}>
+          <Button type="button" onClick={discardDraft} disabled={formBusy}>
             Forkast lagret utkast
           </Button>
         )}
         {fetcher.data && <p role={fetcher.data.success ? "status" : "alert"}>{fetcher.data.message}</p>}
         {fetcher.data?.success === false && fetcher.data.code === "returning.revision-conflict" && (
-          <Button type="button" onClick={() => window.location.reload()}>
+          <Button type="button" onClick={() => window.location.reload()} disabled={formBusy}>
             Last inn siste alternativer
           </Button>
         )}
