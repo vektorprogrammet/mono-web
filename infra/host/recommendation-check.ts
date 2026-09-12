@@ -1344,6 +1344,7 @@ try {
   await page.locator("#interviewer-recommendation").focus();
   await page.keyboard.press("Home");
   await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
   assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Ja");
   const finalResponsePromise = responseFor("finalizeInterview");
   await page.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
