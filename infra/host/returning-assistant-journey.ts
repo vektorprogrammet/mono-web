@@ -16,12 +16,13 @@ const departmentId = "department-native-conduct-0063";
 const semesterId = "semester-native-conduct-0063";
 const admissionPeriodId = "admission-period-native-conduct-0063";
 const nextSemesterId = "semester-returning-next-0104";
+const historicalDepartmentId = "department-returning-history-0104";
+const historicalSemesterId = "semester-returning-history-0104";
 const nextAdmissionPeriodId = "admission-period-returning-next-0104";
 const fieldOfStudyId = "field-native-conduct-0063";
 const applicantId = "applicant-returning-0104";
 const applicationId = "application-returning-0104";
-const placementId = `placement-${"a".repeat(64)}`;
-const invitationId = "invitation-returning-0104";
+const placementId = `placement-${"z".repeat(64)}`;
 const teamId = "team-native-conduct-0063";
 const negativeProbePersons = [
   {
@@ -111,6 +112,20 @@ export const seedReturningAssistant = async ({
        VALUES($1,$2,$3,'2026-08-02T00:00:00Z','2026-12-31T23:59:59.999Z',0,'returning-next-period-seed-0104')
        ON CONFLICT (admission_period_id) DO NOTHING`,
       [nextAdmissionPeriodId, departmentId, nextSemesterId],
+    );
+    await seedQuery(
+      "historical department",
+      `INSERT INTO public.organization_departments(department_id,name,short_name,email,city,active,revision)
+       VALUES($1,'Returning History','RH','returning-history@example.invalid','History City',true,0)
+       ON CONFLICT (department_id) DO NOTHING`,
+      [historicalDepartmentId],
+    );
+    await seedQuery(
+      "historical semester",
+      `INSERT INTO public.admission_period_semesters(semester_id,start_at,end_at,revision)
+       VALUES($1,'2025-01-01T00:00:00Z','2025-06-30T23:59:59.999Z',0)
+       ON CONFLICT (semester_id) DO NOTHING`,
+      [historicalSemesterId],
     );
     await seedQuery("volunteer affiliation", 
       `INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision)
@@ -234,6 +249,23 @@ export const seedReturningAssistant = async ({
       [school.rows[0].school_id, departmentId],
     );
     await seedQuery(
+      "historical school department",
+      "INSERT INTO public.schools_directory_departments(school_id,department_id,revision) VALUES($1,$2,0) ON CONFLICT DO NOTHING",
+      [school.rows[0].school_id, historicalDepartmentId],
+    );
+    await seedQuery(
+      "historical volunteer affiliation",
+      `INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision)
+       VALUES($1,$2,'Inactive',1) ON CONFLICT DO NOTHING`,
+      [person.personId, historicalDepartmentId],
+    );
+    await seedQuery(
+      "historical placement",
+      `INSERT INTO public.assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision)
+       VALUES($1,$2,$3,$4,$5,'Tuesday',4,'1',false,2) ON CONFLICT DO NOTHING`,
+      [`placement-${"0".repeat(64)}`, person.personId, historicalDepartmentId, historicalSemesterId, school.rows[0].school_id],
+    );
+    await seedQuery(
       "placement",
       `INSERT INTO public.assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision)
        VALUES($1,$2,$3,$4,$5,'Monday',4,'1',true,1) ON CONFLICT DO NOTHING`,
@@ -249,6 +281,15 @@ export const seedReturningAssistant = async ({
       `INSERT INTO public.assistant_placement_audit(placement_id,revision,actor_person_id,occurred_at,action,snapshot)
        VALUES($1::text,1,$2::text,'2026-01-04T00:00:00Z','Create',jsonb_build_object('placementId',$1::text,'personId',$2::text,'departmentId',$3::text,'semesterId',$4::text,'schoolId',$5::text,'day','Monday','workdays',4,'block','1','active',true,'revision',1)) ON CONFLICT DO NOTHING`,
       [placementId, person.personId, departmentId, semesterId, school.rows[0].school_id],
+    );
+    await seedQuery(
+      "historical placement audit",
+      `INSERT INTO public.assistant_placement_audit(placement_id,revision,actor_person_id,occurred_at,action,snapshot)
+       VALUES
+       ($1,1,'journey-conduct-leader-0063','2025-01-04T00:00:00Z','Create',jsonb_build_object('placementId',$1::text,'personId',$2::text,'departmentId',$3::text,'semesterId',$4::text,'schoolId',$5::text,'day','Tuesday','workdays',4,'block','1','active',true,'revision',1)),
+       ($1,2,'journey-conduct-leader-0063','2025-06-30T00:00:00Z','Remove',jsonb_build_object('placementId',$1::text,'personId',$2::text,'departmentId',$3::text,'semesterId',$4::text,'schoolId',$5::text,'day','Tuesday','workdays',4,'block','1','active',false,'revision',2))
+       ON CONFLICT DO NOTHING`,
+      [`placement-${"0".repeat(64)}`, person.personId, historicalDepartmentId, historicalSemesterId, school.rows[0].school_id],
     );
     await seedQuery("interview", 
       `INSERT INTO public.recruitment_interviews(interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at,revision)
@@ -399,10 +440,19 @@ export const runReturningAssistantBrowserJourney = async ({
   ) => {
     const probeContext = await browser.newContext();
     try {
-      const signIn = await probeContext.request.post(`${api}/api/auth/sign-in/email`, {
+      let signIn = await probeContext.request.post(`${api}/api/auth/sign-in/email`, {
         headers: { origin: ui, "content-type": "application/json" },
         data: { email: probePerson.email, password: probePerson.password },
       });
+      for (let retry = 0; signIn.status() === 429 && retry < 30; retry += 1) {
+        const cooldown = Promise.withResolvers<void>();
+        setTimeout(cooldown.resolve, 1_000);
+        await cooldown.promise;
+        signIn = await probeContext.request.post(`${api}/api/auth/sign-in/email`, {
+          headers: { origin: ui, "content-type": "application/json" },
+          data: { email: probePerson.email, password: probePerson.password },
+        });
+      }
       assert.equal(signIn.status(), 200, `${gate} sign-in`);
       const before = await negativeMutationSnapshot(probePerson.personId);
       const response = await probeContext.request.get(`${api}/api/returning-assistant/options`, {
@@ -729,6 +779,18 @@ export const runReturningAssistantBrowserJourney = async ({
     { admission_period_id: admissionPeriodId, revision: 2, year_of_study: 3, monday_unavailable: false, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: false, friday_unavailable: false, position_weeks: 4, preferred_group: "all", language: "Engelsk", preferred_school: null, team_interest: false, team_ids: [] },
     { admission_period_id: nextAdmissionPeriodId, revision: 1, year_of_study: 4, monday_unavailable: true, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: true, friday_unavailable: false, position_weeks: 8, preferred_group: "block-1", language: "Norsk og engelsk", preferred_school: "Returning School", team_interest: true, team_ids: [teamId] },
   ]);
+  const provenance = await pool.query(
+    `SELECT DISTINCT placement_id,department_id,semester_id
+     FROM public.admission_returning_registrations
+     WHERE person_id=$1`,
+    [person.personId],
+  );
+  assert.deepEqual(provenance.rows, [{
+    placement_id: `placement-${"0".repeat(64)}`,
+    department_id: historicalDepartmentId,
+    semester_id: historicalSemesterId,
+  }]);
+  trace.push({ phase: "negative-gate", gate: "retained-inactive-cross-department-placement", status: "observed" });
   assert.ok(firstCommandKey);
   assert.ok(firstExpectedRevision !== undefined);
   const firstReplayPayload = {

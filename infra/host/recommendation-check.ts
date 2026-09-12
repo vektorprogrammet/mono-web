@@ -490,7 +490,7 @@ try {
       ["invalid/inactive-study-mapping", "inactive-study-mapping"],
       ["wrong-team", "cross-department-team"],
       ["closed-period", "closed-period"],
-      ["stale/revoked-auth", "stale-revoked-auth"],
+      ["retained inactive placement in different historical department/semester", "retained-inactive-cross-department-placement"],
       ["original-app-receipt-activation-conduct", "preserved-original-receipt-activation-conduct"],
       ["new-period-no-new-interview", "new-period-no-new-interview"],
     ].map(([falsifier, gate]) => ({
