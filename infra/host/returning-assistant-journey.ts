@@ -1335,11 +1335,11 @@ export const runReturningAssistantBrowserJourney = async ({
     answer:
       question.kind === "text"
         ? "Jeg vil utvikle læringsopplegg sammen med andre."
-        : question.kind === "list"
-          ? ["Teknologi"]
-          : question.kind === "radio"
-            ? ["Praksis"]
-            : ["Samarbeid"],
+        : question.kind === "check"
+          ? ["Samarbeid"]
+          : question.kind === "list"
+            ? "Teknologi"
+            : "Praksis",
   }));
   const finalizeKey = "returning-native-finalize-0104";
   const finalizeResponse = await page.request.post(`${conductPath}:finalize`, {
@@ -1355,8 +1355,11 @@ export const runReturningAssistantBrowserJourney = async ({
       recommendation: "Kanskje",
     },
   });
-  assert.equal(finalizeResponse.status(), 200);
-  const finalizeBody = JSON.parse(await finalizeResponse.text()) as {
+  const finalizeBodyText = await finalizeResponse.text();
+  if (finalizeResponse.status() !== 200) {
+    throw new Error(`native finalization failed ${finalizeResponse.status()} ${finalizeBodyText}`);
+  }
+  const finalizeBody = JSON.parse(finalizeBodyText) as {
     interviewId: string;
     finalizedAt: string;
     completionState: string;
