@@ -133,6 +133,7 @@ const ready = async (test: () => Promise<boolean>) => {
   }
   throw new Error("Readiness failed");
 };
+let pool: any, browser: any, page: any, heldIdentityClient: any, backend: any;
 let correctionPre0039Fixture: InterviewCorrectionPre0039Fixture | undefined;
 let effectServer: Server | undefined;
 const effectCalls: EffectReceiverCall[] = [];
