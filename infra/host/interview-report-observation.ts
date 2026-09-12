@@ -72,6 +72,7 @@ type Options = {
   secrets: string[];
   revision: string;
   correctionMode: boolean;
+  expectedHistoricalReportRecommendation?: "Ja" | "Kanskje" | "Nei";
   auditPage: (page: any, state: string) => Promise<void>;
   recordGate: (...observations: string[]) => void;
 };
@@ -358,7 +359,7 @@ export async function observeInterviewReport(o: Options) {
     assert.equal(
       report.rows.find((row) => row.interviewId === "interview-recommendation-history")
         ?.recommendation,
-      "Ja",
+      o.expectedHistoricalReportRecommendation,
     );
   } else {
     assert.ok(report.rows.some((r) => r.recommendation === null));

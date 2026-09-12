@@ -141,6 +141,7 @@ const ready = async (test: () => Promise<boolean>) => {
 let pool: any, browser: any, page: any, heldIdentityClient: any, backend: any;
 let correctionPre0039Fixture: InterviewCorrectionPre0039Fixture | undefined;
 let acceptedCorrectionReplay: InterviewCorrectionReplayRequest | undefined;
+let expectedHistoricalReportRecommendation: "Ja" | "Kanskje" | "Nei" | undefined;
 let effectServer: Server | undefined;
 const effectCalls: EffectReceiverCall[] = [];
 const effectAttempts = new Map<string, number>();
@@ -1422,6 +1423,8 @@ try {
     assert.equal(race.filter((response) => response.status === 200).length, 1);
     assert.equal(race.filter((response) => response.status !== 200).length, 1);
     assert.ok(race.every((response) => [200, 409, 412].includes(response.status)));
+    const winningRaceIndex = race.findIndex((response) => response.status === 200);
+    expectedHistoricalReportRecommendation = winningRaceIndex === 0 ? "Ja" : "Kanskje";
     const afterRaceWrites = await writeCount();
     assert.equal(Number(afterRaceWrites.assessments), Number(beforeRaceWrites.assessments) + 1);
     assert.equal(Number(afterRaceWrites.receipts), Number(beforeRaceWrites.receipts) + 1);
@@ -2112,6 +2115,7 @@ try {
         password,
         secrets,
         correctionMode: process.argv.includes("--correction-mode"),
+        expectedHistoricalReportRecommendation,
         revision,
         auditPage,
         recordGate,
