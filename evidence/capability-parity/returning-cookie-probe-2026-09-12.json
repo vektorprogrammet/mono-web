@@ -1,0 +1,24 @@
+{
+  "command": "bun infra/host/recommendation-check.ts --cookie-probe",
+  "exitCode": 0,
+  "probeRevision": "57ac07a2",
+  "observedAt": "2026-09-12T07:06:13.719Z",
+  "sanitized": true,
+  "observations": {
+    "loginSetCookieCount": 0,
+    "loginSessionCookieSeen": false,
+    "contextCookieCount": 1,
+    "contextSessionCookieSeen": true,
+    "contextSessionValueHash": "22ced03271edd82c",
+    "contextHeaderPairCount": 1,
+    "loginAndContextSessionHashMatch": false,
+    "sessionRowCount": 1,
+    "sessionExpiresAt": "2026-09-19T07:06:13.280Z",
+    "probeNow": "2026-09-12T07:06:13.719Z",
+    "sessionExpiryAfterProbeNow": true,
+    "nativeSessionStatus": 200,
+    "nativeOptionsStatus": 200,
+    "browserOptionsStatus": 200
+  },
+  "interpretation": "The probe observed one valid, unexpired Better Auth session and successful native session/options requests. Playwright exposed no login Set-Cookie header for comparison. The browser options request succeeds only with credentials: include. This does not establish the cause of the earlier manual context.request 401."
+}
