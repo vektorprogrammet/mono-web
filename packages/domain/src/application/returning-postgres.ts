@@ -80,7 +80,11 @@ type CurrentPreferencesRow = {
   readonly teamInterest: boolean;
   readonly teamIds: unknown;
 };
-const fail = (operation: string) => new ReturningAssistantPersistenceError({ operation });
+const fail = (operation: string, cause?: unknown) =>
+  new ReturningAssistantPersistenceError({
+    operation,
+    ...(cause === undefined ? {} : { cause }),
+  });
 const decodeInput = (input: unknown) =>
   Schema.decodeUnknownEffect(ReturningAssistantRegistrationInputSchema)(input, {
     onExcessProperty: "error",
@@ -108,7 +112,7 @@ const readApplicant = (sql: DatabaseShape, personId: string) =>
     if (rows.length === 0) return yield* new ReturningAssistantIdentityMissing();
     if (rows.length !== 1) return yield* new ReturningAssistantIdentityAmbiguous();
     return yield* rowApplicant(rows[0]!);
-  }).pipe(Effect.catchTag("SqlError", () => Effect.fail(fail("read linked applicant"))));
+  }).pipe(Effect.catchTag("SqlError", (cause) => Effect.fail(fail("read linked applicant", cause))));
 const readPlacement = (sql: DatabaseShape, personId: string) =>
   Effect.gen(function* () {
     const rows = yield* sql<{ placementId: string }>`
@@ -119,7 +123,7 @@ const readPlacement = (sql: DatabaseShape, personId: string) =>
       FOR SHARE`;
     if (rows.length === 0) return yield* new ReturningAssistantHistoryMissing();
     return rows[0]!.placementId;
-  }).pipe(Effect.catchTag("SqlError", () => Effect.fail(fail("read assistant placements"))));
+  }).pipe(Effect.catchTag("SqlError", (cause) => Effect.fail(fail("read assistant placements", cause))));
 const readStudy = (sql: DatabaseShape, applicant: typeof ApplicantRecord.Type) =>
   Effect.gen(function* () {
     const rows = yield* sql<{ fieldOfStudyId: string; departmentId: string; active: boolean }>`
@@ -129,7 +133,7 @@ const readStudy = (sql: DatabaseShape, applicant: typeof ApplicantRecord.Type) =
       FOR SHARE`;
     if (rows.length !== 1 || !rows[0]!.active) return yield* new ReturningAssistantStudyMappingInvalid();
     return rows[0]!;
-  }).pipe(Effect.catchTag("SqlError", () => Effect.fail(fail("read current study mapping"))));
+  }).pipe(Effect.catchTag("SqlError", (cause) => Effect.fail(fail("read current study mapping", cause))));
 const readPeriods = (sql: DatabaseShape, departmentId: string, now: string) =>
   sql<ReturningPeriodRow>`
     SELECT p.admission_period_id AS id, p.department_id AS "departmentId", p.semester_id AS "semesterId",
@@ -160,7 +164,7 @@ const authorize = (sql: DatabaseShape, context: { readonly personId: PersonId; r
     const periods = yield* readPeriods(sql, study.departmentId, context.now);
     const teams = yield* readTeams(sql, study.departmentId);
     return { applicant, placementId, departmentId: study.departmentId, fieldOfStudyId: study.fieldOfStudyId, periods, teams } satisfies LinkedIdentity;
-  }).pipe(Effect.catchTag("SqlError", () => Effect.fail(fail("authorize returning assistant"))));
+  }).pipe(Effect.catchTag("SqlError", (cause) => Effect.fail(fail("authorize returning assistant", cause))));
 const validateRegistrationEligibility = (
   sql: DatabaseShape,
   input: Pick<ReturningAssistantRegistrationInput, "admissionPeriodId" | "teamIds">,
@@ -179,7 +183,7 @@ const validateRegistrationEligibility = (
     if (input.teamIds.some((teamId) => !validTeamIds.has(teamId))) {
       return yield* new ReturningAssistantTeamScopeDenied();
     }
-  }).pipe(Effect.catchTag("SqlError", () => Effect.fail(fail("validate returning eligibility"))));
+  }).pipe(Effect.catchTag("SqlError", (cause) => Effect.fail(fail("validate returning eligibility", cause))));
 const projection = (row: ReturningPeriodRow) =>
   Schema.decodeUnknownEffect(AdmissionPeriodProjectionSchema)({
     id: AdmissionPeriodId.make(row.id),
@@ -247,7 +251,7 @@ export const readReturningAssistantOptions = (context: RegistrationContext) =>
         teams: identity.teams.map((team) => ({ teamId: TeamId.make(team.teamId), name: team.name })),
       } satisfies ReturningAssistantOptions;
     }),
-  ).pipe(Effect.catchTag("SqlError", () => Effect.fail(fail("read returning assistant options"))));
+  ).pipe(Effect.catchTag("SqlError", (cause) => Effect.fail(fail("read returning assistant options", cause))));
 export const preflightReturningAssistantRegistration = (
   input: Pick<ReturningAssistantRegistrationInput, "admissionPeriodId" | "teamIds">,
   context: RegistrationContext,
@@ -338,10 +342,10 @@ const registerInTransaction = (input: ReturningAssistantRegistrationInput, conte
       VALUES(${input.commandId},${digest},${sql.json(input)},${sql.json(observation)},${rid},${context.personId},${identity.applicant.id},${now})`;
     const outboxCount = yield* writeReturningOutbox(sql, input, application, identity.applicant, rid, context.personId);
     return { observation, replayed: false, outboxCount };
-  }).pipe(Effect.catchTag("SqlError", () => Effect.fail(fail("returning registration transaction"))));
+  }).pipe(Effect.catchTag("SqlError", (cause) => Effect.fail(fail("returning registration transaction", cause))));
 export const registerReturningAssistant = (input: unknown, context: RegistrationContext) =>
   Effect.gen(function* () {
     const command = yield* decodeInput(input);
     if (!context.personId) return yield* new ReturningAssistantIdentityMissing();
     return yield* Database.use((sql) => sql.withTransaction(registerInTransaction(command, context, sql)));
-  }).pipe(Effect.catchTag("SqlError", () => Effect.fail(fail("returning registration transaction"))));
+  }).pipe(Effect.catchTag("SqlError", (cause) => Effect.fail(fail("returning registration transaction", cause))));

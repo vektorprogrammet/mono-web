@@ -1148,54 +1148,6 @@ export const runReturningAssistantBrowserJourney = async ({
   const concurrentDetails = await Promise.all(
     concurrent.map(async (response) => ({ status: response.status(), body: await response.text() })),
   );
-  const serializationRetryIndex = concurrentDetails.findIndex(({ status }) => status === 503);
-  if (serializationRetryIndex !== -1) {
-    const retryCommandId = serializationRetryIndex === 0
-      ? "returning-concurrent-a-0104"
-      : "returning-concurrent-b-0104";
-    const retryResponse = await context.request.post(`${api}/api/returning-assistant/registrations`, {
-      headers: { "content-type": "application/json", "idempotency-key": retryCommandId, origin: ui },
-      data: serializationRetryIndex === 0
-        ? {
-            commandId: retryCommandId,
-            admissionPeriodId,
-            expectedRevision: 2,
-            yearOfStudy: 4,
-            mondayUnavailable: false,
-            tuesdayUnavailable: false,
-            wednesdayUnavailable: false,
-            thursdayUnavailable: false,
-            fridayUnavailable: false,
-            positionWeeks: 4,
-            preferredGroup: "all",
-            language: "Engelsk",
-            preferredSchool: null,
-            teamInterest: false,
-            teamIds: [],
-          }
-        : {
-            commandId: retryCommandId,
-            admissionPeriodId,
-            expectedRevision: 2,
-            yearOfStudy: 5,
-            mondayUnavailable: false,
-            tuesdayUnavailable: false,
-            wednesdayUnavailable: false,
-            thursdayUnavailable: false,
-            fridayUnavailable: false,
-            positionWeeks: 8,
-            preferredGroup: "block-2",
-            language: "Norsk",
-            preferredSchool: null,
-            teamInterest: false,
-            teamIds: [],
-          },
-    });
-    concurrentDetails[serializationRetryIndex] = {
-      status: retryResponse.status(),
-      body: await retryResponse.text(),
-    };
-  }
   assert.deepEqual(
     concurrentDetails.map(({ status }) => status).sort((left, right) => left - right),
     [201, 412],
@@ -1674,6 +1626,7 @@ export const runReturningAssistantBrowserJourney = async ({
   assert.deepEqual(registrations.rows, [
     { admission_period_id: admissionPeriodId, revision: 1, year_of_study: 2, monday_unavailable: false, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: false, friday_unavailable: false, position_weeks: 4, preferred_group: "all", language: "Norsk og engelsk", preferred_school: null, team_interest: false, team_ids: [] },
     { admission_period_id: admissionPeriodId, revision: 2, year_of_study: 3, monday_unavailable: false, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: false, friday_unavailable: false, position_weeks: 4, preferred_group: "all", language: "Engelsk", preferred_school: null, team_interest: false, team_ids: [] },
+    { admission_period_id: admissionPeriodId, revision: 3, year_of_study: 4, monday_unavailable: false, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: false, friday_unavailable: false, position_weeks: 4, preferred_group: "all", language: "Engelsk", preferred_school: null, team_interest: false, team_ids: [] },
     { admission_period_id: nextAdmissionPeriodId, revision: 1, year_of_study: 4, monday_unavailable: true, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: true, friday_unavailable: false, position_weeks: 8, preferred_group: "block-1", language: "Norsk og engelsk", preferred_school: "Returning School", team_interest: true, team_ids: [teamId] },
     { admission_period_id: nextAdmissionPeriodId, revision: 2, year_of_study: 5, monday_unavailable: true, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: true, friday_unavailable: false, position_weeks: 8, preferred_group: "block-1", language: "Norsk og engelsk", preferred_school: "Returning School", team_interest: true, team_ids: [teamId] },
     { admission_period_id: nextAdmissionPeriodId, revision: 3, year_of_study: 5, monday_unavailable: true, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: true, friday_unavailable: false, position_weeks: 8, preferred_group: "block-1", language: "Norsk og engelsk", preferred_school: "Returning School", team_interest: true, team_ids: [teamId] },
@@ -1738,7 +1691,7 @@ export const runReturningAssistantBrowserJourney = async ({
   assert.deepEqual(nextRevisionAfterReplay.rows, nextRevisionBeforeReplay.rows);
   const closedBefore = await negativeMutationSnapshot(person.personId);
   await pool.query(
-    "UPDATE public.admission_periods SET end_at='2026-01-01T00:00:00Z' WHERE admission_period_id=$1",
+    "UPDATE public.admission_periods SET end_at='2026-08-03T00:00:00Z' WHERE admission_period_id=$1",
     [nextAdmissionPeriodId],
   );
   try {
@@ -1762,7 +1715,7 @@ export const runReturningAssistantBrowserJourney = async ({
   const returningOutbox = await pool.query(
     "SELECT effect_id,status,attempts FROM public.admission_application_outbox WHERE origin='ReturningAssistant' ORDER BY effect_id",
   );
-  assert.equal(returningOutbox.rows.length, 15);
+  assert.equal(returningOutbox.rows.length, 18);
   const revokedBefore = await negativeMutationSnapshot(person.personId);
   const session = await pool.query('SELECT count(*)::int AS count FROM auth.session WHERE "userId"=$1', [person.personId]);
   assert.equal(session.rows[0].count, 1);
@@ -1779,53 +1732,64 @@ export const runReturningAssistantBrowserJourney = async ({
   assert.deepEqual(await negativeMutationSnapshot(person.personId), revokedBefore);
   trace.push({ phase: "negative-gate", gate: "stale-revoked-auth", status: revokedReplay.status() });
   stage?.("returning:report");
-  const reportRows = async (periodId: string) => {
-    await page.goto(
-      `${ui}/dashboard/intervjuer/rapport?admissionPeriodId=${encodeURIComponent(periodId)}`,
+  const reportContext = await browser.newContext();
+  const reportPage = await reportContext.newPage();
+  try {
+    await reportPage.goto(`${ui}/login`);
+    await reportPage.getByLabel("E-post", { exact: true }).fill(coordinatorEmail);
+    await reportPage.getByLabel("Passord", { exact: true }).fill(coordinatorPassword);
+    await reportPage.getByRole("button", { name: "Logg inn", exact: true }).click();
+    await reportPage.waitForURL(/\/dashboard\/?$/);
+    const reportRows = async (periodId: string) => {
+      await reportPage.goto(
+        `${ui}/dashboard/intervjuer/rapport?admissionPeriodId=${encodeURIComponent(periodId)}`,
+      );
+      await reportPage.getByRole("heading", { level: 1, name: "Fullførte intervjuer" }).waitFor();
+      return reportPage.locator("tbody tr").evaluateAll((rows) =>
+        rows.map((row) => (row.textContent ?? "").replace(/\s+/gu, " ").trim()),
+      );
+    };
+    const currentReportRows = await reportRows(admissionPeriodId);
+    const currentRita = currentReportRows.find((row) => row.includes("Rita Tilbake"));
+    assert.ok(currentRita);
+    assert.match(currentRita, /Tilbakevendende/u);
+    assert.match(currentRita, /Ja/u);
+    assert.match(currentRita, /8/u);
+    assert.match(currentRita, /24/u);
+    const currentOrdinary = currentReportRows.find((row) => row.includes("Sofie Gjennomfører"));
+    assert.ok(currentOrdinary);
+    assert.match(currentOrdinary, /Ukjent/u);
+    assert.match(currentOrdinary, /Ja/u);
+    assert.match(currentOrdinary, /8/u);
+    assert.match(currentOrdinary, /24/u);
+    assert.equal(currentReportRows.some((row) => row.includes("Olav Konflikt")), false);
+    await reportPage.reload();
+    assert.equal(
+      (await reportPage.locator("tbody tr").evaluateAll((rows) =>
+        rows.map((row) => (row.textContent ?? "").replace(/\s+/gu, " ").trim()),
+      )).find((row) => row.includes("Rita Tilbake")),
+      currentRita,
     );
-    await page.getByRole("heading", { level: 1, name: "Fullførte intervjuer" }).waitFor();
-    return page.locator("tbody tr").evaluateAll((rows) =>
+    await auditPage(reportPage, "returning-report-existing-period");
+    await reportPage.screenshot({ path: join(artifacts, "returning-report-existing-period.png"), fullPage: true });
+    const nextReportRows = await reportRows(nextAdmissionPeriodId);
+    assert.equal(nextReportRows.length, 1);
+    const nextRita = nextReportRows[0];
+    assert.match(nextRita, /Rita Tilbake/u);
+    assert.match(nextRita, /Tilbakevendende/u);
+    assert.match(nextRita, /Kanskje/u);
+    assert.match(nextRita, /9/u);
+    assert.match(nextRita, /27/u);
+    await reportPage.reload();
+    const reloadedNextRows = await reportPage.locator("tbody tr").evaluateAll((rows) =>
       rows.map((row) => (row.textContent ?? "").replace(/\s+/gu, " ").trim()),
     );
-  };
-  const currentReportRows = await reportRows(admissionPeriodId);
-  const currentRita = currentReportRows.find((row) => row.includes("Rita Tilbake"));
-  assert.ok(currentRita);
-  assert.match(currentRita, /Tilbakevendende/u);
-  assert.match(currentRita, /Ja/u);
-  assert.match(currentRita, /8/u);
-  assert.match(currentRita, /24/u);
-  const currentOrdinary = currentReportRows.find((row) => row.includes("Sofie Gjennomfører"));
-  assert.ok(currentOrdinary);
-  assert.match(currentOrdinary, /Ukjent/u);
-  assert.match(currentOrdinary, /Ja/u);
-  assert.match(currentOrdinary, /8/u);
-  assert.match(currentOrdinary, /24/u);
-  assert.equal(currentReportRows.some((row) => row.includes("Olav Konflikt")), false);
-  await page.reload();
-  assert.equal(
-    (await page.locator("tbody tr").evaluateAll((rows) =>
-      rows.map((row) => (row.textContent ?? "").replace(/\s+/gu, " ").trim()),
-    )).find((row) => row.includes("Rita Tilbake")),
-    currentRita,
-  );
-  await auditPage(page, "returning-report-existing-period");
-  await page.screenshot({ path: join(artifacts, "returning-report-existing-period.png"), fullPage: true });
-  const nextReportRows = await reportRows(nextAdmissionPeriodId);
-  assert.equal(nextReportRows.length, 1);
-  const nextRita = nextReportRows[0];
-  assert.match(nextRita, /Rita Tilbake/u);
-  assert.match(nextRita, /Tilbakevendende/u);
-  assert.match(nextRita, /Kanskje/u);
-  assert.match(nextRita, /9/u);
-  assert.match(nextRita, /27/u);
-  await page.reload();
-  const reloadedNextRows = await page.locator("tbody tr").evaluateAll((rows) =>
-    rows.map((row) => (row.textContent ?? "").replace(/\s+/gu, " ").trim()),
-  );
-  assert.deepEqual(reloadedNextRows, nextReportRows);
-  await auditPage(page, "returning-report-next-period-finalized");
-  await page.screenshot({ path: join(artifacts, "returning-report-next-period-finalized.png"), fullPage: true });
+    assert.deepEqual(reloadedNextRows, nextReportRows);
+    await auditPage(reportPage, "returning-report-next-period-finalized");
+    await reportPage.screenshot({ path: join(artifacts, "returning-report-next-period-finalized.png"), fullPage: true });
+  } finally {
+    await reportContext.close();
+  }
   } finally {
     // Retain the complete journey trace on both successful helper return and
     // failure, before the outer report/effect gates can run or fail.

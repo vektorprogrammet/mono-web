@@ -105,6 +105,7 @@ export class ReturningAssistantRevisionConflict extends Data.TaggedError("Return
 export class ReturningAssistantCommandConflict extends Data.TaggedError("ReturningAssistantCommandConflict")<{}> {}
 export class ReturningAssistantPersistenceError extends Data.TaggedError("ReturningAssistantPersistenceError")<{
   readonly operation: string;
+  readonly cause?: unknown;
 }> {}
 export type ReturningAssistantError =
   | ReturningAssistantDecodeError

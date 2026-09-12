@@ -1,4 +1,5 @@
 import { Data, Effect } from "effect";
+import { isSqlError } from "effect/unstable/sql/SqlError";
 import type { DatabaseShape } from "./database/service.js";
 import { Database } from "./database/service.js";
 
@@ -28,6 +29,26 @@ export interface NativeHttpCommandPlan<E, R> {
   readonly execute: Effect.Effect<NativeHttpResponseCapsule, E, R | Database>;
 }
 
+/**
+ * `serialization-once` re-executes `prepare` and `execute` after rollback.
+ * Callers must keep those effects rollback-safe and limited to database/outbox work.
+ */
+export interface NativeHttpCommandExecutionOptions {
+  readonly retry?: "serialization-once";
+}
+
+const isSerializationOrDeadlock = (
+  cause: unknown,
+  seen = new Set<object>(),
+): boolean => {
+  if (cause === null || typeof cause !== "object" || seen.has(cause)) return false;
+  seen.add(cause);
+  if (isSqlError(cause)) {
+    return cause.reason._tag === "SerializationError" || cause.reason._tag === "DeadlockError";
+  }
+  if (!("cause" in cause)) return false;
+  return isSerializationOrDeadlock(cause.cause, seen);
+};
 interface NativeHttpReceiptRow {
   readonly requestSha256: string;
   readonly operationId: string;
@@ -199,12 +220,13 @@ const writeCompleteReceipt = (
  */
 export const executeNativeHttpCommandPostgres = <E, R>(
   prepare: Effect.Effect<NativeHttpCommandPlan<E, R>, E, R | Database>,
+  options: NativeHttpCommandExecutionOptions = {},
 ): Effect.Effect<
   NativeHttpCommandOutcome,
   E | NativeHttpReceiptInvalid | NativeHttpReceiptPersistenceError,
   R | Database
-> =>
-  Database.use((sql) =>
+> => {
+  const transaction = Database.use((sql) =>
     sql.withTransaction(
       Effect.gen(function* () {
         yield* sql`SET TRANSACTION ISOLATION LEVEL SERIALIZABLE`;
@@ -252,11 +274,17 @@ export const executeNativeHttpCommandPostgres = <E, R>(
         return { _tag: "Committed", response } as const;
       }),
     ),
-  ).pipe(
+  );
+  const executed =
+    options.retry === "serialization-once"
+      ? Effect.retry(transaction, { times: 1, while: isSerializationOrDeadlock })
+      : transaction;
+  return executed.pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(new NativeHttpReceiptPersistenceError({ operation: "execute", cause })),
     ),
   );
+};
 
 /** Redacts all expired response capsules while retaining durable tombstones. */
 export const redactExpiredNativeHttpReceipts = Database.use((sql) =>

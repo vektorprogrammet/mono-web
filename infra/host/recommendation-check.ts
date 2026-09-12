@@ -554,6 +554,9 @@ try {
         readonly effect_type: string;
         readonly ordinal: number;
         readonly status: string;
+        readonly attempts: number;
+        readonly claimed_at: string | null;
+        readonly last_failure_tag: string | null;
         readonly origin: string;
       };
       const expectedEffectTypes = [
@@ -582,7 +585,7 @@ try {
       };
       const readReturningOutbox = async () => (
         await pool.query(
-          `SELECT effect_id,command_id,effect_type,ordinal,status,origin
+          `SELECT effect_id,command_id,effect_type,ordinal,status,attempts,claimed_at,last_failure_tag,origin
            FROM public.admission_application_outbox
            WHERE origin='ReturningAssistant'
            ORDER BY effect_id`,
@@ -603,27 +606,62 @@ try {
         waitForOutbox(
           (rows) =>
             hasExactReturningEffectShape(rows)
-            && rows.every((row) => row.status === "Failed"),
+            && rows.filter((row) => row.ordinal === 0).length === acceptedReturningRegistrations.rows.length
+            && rows.filter((row) => row.ordinal !== 0).length === acceptedReturningRegistrations.rows.length * 2
+            && rows.filter((row) => row.ordinal === 0).every(
+              (row) =>
+                row.status === "Failed"
+                && row.attempts >= 1
+                && row.claimed_at === null
+                && row.last_failure_tag === "PublicApplicationEffectDeliveryError",
+            )
+            && rows.filter((row) => row.ordinal !== 0).every(
+              (row) =>
+                row.status === "Pending"
+                && row.attempts === 0
+                && row.claimed_at === null
+                && row.last_failure_tag === null,
+            ),
         ),
         30_000,
       );
       assert.equal(failedRows.length, expectedOutboxCount);
       assert.ok(hasExactReturningEffectShape(failedRows));
-      assert.ok(failedRows.every((row) => row.status === "Failed"));
+      assert.equal(failedRows.filter((row) => row.ordinal === 0).length, 6);
+      assert.equal(failedRows.filter((row) => row.ordinal !== 0).length, 12);
+      assert.ok(failedRows.filter((row) => row.ordinal === 0).every((row) => row.status === "Failed"));
+      assert.ok(failedRows.filter((row) => row.ordinal !== 0).every((row) => row.status === "Pending"));
       const heldFailedRows = await readReturningOutbox();
       assert.equal(heldFailedRows.length, expectedOutboxCount);
       assert.ok(hasExactReturningEffectShape(heldFailedRows));
-      assert.ok(heldFailedRows.every((row) => row.status === "Failed"));
-      const preRestartEffectCalls = effectCalls.filter((call) => call.origin === "ReturningAssistant");
-      assert.ok(preRestartEffectCalls.some((call) => call.status === 503));
-      const preRestartEffectIds = new Set(
-        preRestartEffectCalls
-          .filter((call) => call.status === 503)
-          .map((call) => call.effectId),
+      assert.ok(
+        heldFailedRows.filter((row) => row.ordinal === 0).every(
+          (row) =>
+            row.status === "Failed"
+            && row.attempts >= 1
+            && row.claimed_at === null
+            && row.last_failure_tag === "PublicApplicationEffectDeliveryError",
+        ),
       );
       assert.ok(
-        heldFailedRows.every((row) => preRestartEffectIds.has(row.effect_id)),
-        "each failed returning effect reached the loopback receiver before restart",
+        heldFailedRows.filter((row) => row.ordinal !== 0).every(
+          (row) =>
+            row.status === "Pending"
+            && row.attempts === 0
+            && row.claimed_at === null
+            && row.last_failure_tag === null,
+        ),
+      );
+      const preRestartEffectCalls = effectCalls.filter((call) => call.origin === "ReturningAssistant");
+      assert.ok(preRestartEffectCalls.length >= 6);
+      assert.ok(preRestartEffectCalls.every((call) => call.status === 503));
+      assert.ok(preRestartEffectCalls.every((call) => call.kind === "SendApplicantActivationOrConfirmation"));
+      const preRestartEffectIds = new Set(preRestartEffectCalls.map((call) => call.effectId));
+      assert.ok(
+        heldFailedRows
+          .filter((row) => row.ordinal === 0)
+          .every((row) => preRestartEffectIds.has(row.effect_id)),
+        "each failed returning activation effect reached the loopback receiver before restart",
       );
       recordGate(
         `returning notification/subscription/audit loopback failure held until deliberate restart (${acceptedReturningRegistrations.rows.length} registrations × ${expectedEffectTypes.length} effects)`,
@@ -667,10 +705,12 @@ try {
         assert.equal(acknowledgements[0]?.commandId, outboxRow.command_id);
         assert.equal(acknowledgements[0]?.origin, outboxRow.origin);
         assert.equal(acknowledgements[0]?.kind, outboxRow.effect_type);
-        assert.ok(
-          calls.some((call) => call.status === 503),
-          `effect ${outboxRow.effect_id} had a pre-restart failure`,
-        );
+        if (outboxRow.ordinal === 0) {
+          assert.ok(
+            calls.some((call) => call.status === 503),
+            `effect ${outboxRow.effect_id} had a pre-restart failure`,
+          );
+        }
       }
       await writeFile(
         join(artifacts, "returning-effect-evidence.json"),
@@ -1367,12 +1407,28 @@ try {
     const safe = (value: string) =>
       secrets.reduce((result, secret) => result.replaceAll(secret, "[redacted]"), value);
     detail = safe(detail);
+    const returningOutbox = pool
+      ? await pool
+          .query(
+            `SELECT effect_id,command_id,effect_type,ordinal,status,attempts,claimed_at,last_failure_tag,origin
+             FROM public.admission_application_outbox
+             WHERE origin='ReturningAssistant'
+             ORDER BY effect_id`,
+          )
+          .then((result: { rows: unknown[] }) => result.rows)
+          .catch(() => [])
+      : [];
+    const returningEffectCalls = effectCalls
+      .filter((call) => call.origin === "ReturningAssistant")
+      .map(({ effectId, commandId, kind, status }) => ({ effectId, commandId, kind, status }));
     const failureEvidence = {
       result: "Failed",
       revision,
       gates,
       detail,
       logs: logs.map(safe),
+      returningOutbox,
+      returningEffectCalls,
     };
     await writeFile(join(artifacts, "failure.json"), JSON.stringify(failureEvidence, null, 2));
     await writeFile(join(artifacts, "runtime.log"), `${logs.map(safe).join("")}${detail}\n`);

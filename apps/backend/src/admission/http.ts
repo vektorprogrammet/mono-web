@@ -360,6 +360,7 @@ const registerReturningAssistant = async (
           ),
         };
       }),
+      { retry: "serialization-once" },
     ),
   );
   return nativeCommandOutcomeResponse(result);
