@@ -16,6 +16,7 @@ import { stopPreviewScenarioBackend } from "./preview-scenario.js";
 import {
   returningAssistantFixture,
   runReturningAssistantBrowserJourney,
+  runReturningAssistantLoginProbe,
   seedReturningAssistant,
 } from "./returning-assistant-journey.ts";
 const root = new URL("../../", import.meta.url).pathname;
@@ -36,6 +37,11 @@ const fixtureKeys = {
   selfCancel: "self-cancel-recommendation-0101",
   linkRace: "identity-race-recommendation-0101",
 } as const;
+class ReturningLoginProbeComplete extends Error {
+  constructor(readonly result: unknown) {
+    super("returning login probe complete");
+  }
+}
 for (const key of Object.values(fixtureKeys)) Schema.decodeUnknownSync(IdempotencyKey)(key);
 if (process.argv.includes("--report")) validateInterviewReportFixture();
 if (process.argv.includes("--validate-fixture")) {
@@ -266,6 +272,10 @@ try {
   await page.getByRole("button", { name: "Logg inn", exact: true }).click();
   await page.waitForURL(/\/dashboard\/?$/);
   await page.goto(`${ui}/dashboard/intervjuer`);
+  if (process.argv.includes("--returning-login-probe")) {
+    const probe = await runReturningAssistantLoginProbe({ browser, pool, api, ui, artifacts });
+    throw new ReturningLoginProbeComplete(probe);
+  }
   assert.equal(await page.getByRole("link", { name: "Søkerkontoer", exact: true }).count(), 0);
   const cookies = await context.cookies();
   const cookie = cookies.map((c: any) => `${c.name}=${c.value}`).join("; ");
@@ -850,7 +860,11 @@ try {
   // oxlint-effect-plugin allow(no-ambient-console): dev only: sanitized local acceptance artifact location.
   console.log(JSON.stringify({ result: "Passed", revision, artifacts, gates }));
 } catch (error) {
-  let detail =
+  if (error instanceof ReturningLoginProbeComplete) {
+    // oxlint-effect-plugin allow(no-ambient-console): bounded local login probe result.
+    console.log(JSON.stringify({ result: "ReturningLoginProbe", revision, artifacts, gates, probe: error.result }));
+  } else {
+    let detail =
     error instanceof Error
       ? (error.stack?.split("\n").slice(0, 5).join("\n") ?? error.message)
       : String(error);
@@ -886,6 +900,7 @@ try {
   // oxlint-effect-plugin allow(no-ambient-console): dev only: redacted local rehearsal failure evidence.
   console.error(JSON.stringify({ ...failureEvidence, artifacts }));
   process.exitCode = 1;
+  }
 } finally {
   await browser?.close();
   if (heldIdentityClient) {

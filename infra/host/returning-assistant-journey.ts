@@ -425,6 +425,88 @@ export const runReturningAssistantBrowserJourney = async ({
   await page.goto(`${ui}/dashboard/intervjuer`);
 };
 
+export const runReturningAssistantLoginProbe = async ({
+  browser,
+  pool,
+  api,
+  ui,
+  artifacts,
+}: {
+  readonly browser: Browser;
+  readonly pool: Pool;
+  readonly api: string;
+  readonly ui: string;
+  readonly artifacts: string;
+}) => {
+  const context = await browser.newContext();
+  const probe = await context.newPage();
+  const events: string[] = [];
+  const dbSnapshot = async (label: string) => ({
+    label,
+    activity: (
+      await pool.query(
+        `SELECT pid,state,wait_event_type,wait_event,left(query,240) AS query
+         FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()
+         ORDER BY pid`,
+      )
+    ).rows,
+    locks: (
+      await pool.query(
+        `SELECT a.pid,l.locktype,l.mode,l.granted,left(a.query,240) AS query
+         FROM pg_stat_activity a JOIN pg_locks l ON l.pid=a.pid
+         WHERE a.datname=current_database() AND a.pid<>pg_backend_pid()
+         ORDER BY a.pid,l.locktype,l.mode`,
+      )
+    ).rows,
+  });
+  probe.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.includes("/login") || url.pathname.includes("/api/auth/"))
+      events.push(`request ${request.method()} ${url.pathname}`);
+  });
+  probe.on("response", (response) => {
+    const url = new URL(response.url());
+    if (url.pathname.includes("/login") || url.pathname.includes("/api/auth/"))
+      events.push(`response ${response.status()} ${url.pathname}`);
+  });
+  probe.on("console", (message) => events.push(`console ${message.type()}`));
+  probe.on("pageerror", (error) => events.push(`pageerror ${error.message}`));
+  const before = await dbSnapshot("before-login");
+  await probe.goto(`${ui}/login?redirectTo=${encodeURIComponent("/dashboard/tidligere-assistenter")}`);
+  await probe.getByLabel("E-post", { exact: true }).fill(person.email);
+  await probe.getByLabel("Passord", { exact: true }).fill(person.password);
+  await probe.screenshot({ path: join(artifacts, "returning-login-before.png"), fullPage: true });
+  let click = "not-started";
+  try {
+    await probe.getByRole("button", { name: "Logg inn", exact: true }).click({
+      timeout: 10_000,
+      noWaitAfter: true,
+    });
+    click = "resolved";
+  } catch (cause) {
+    click = `error:${cause instanceof Error ? cause.name : typeof cause}`;
+  }
+  const afterClick = await dbSnapshot("after-click");
+  let navigation = "not-started";
+  try {
+    await probe.waitForURL(/\/dashboard\/tidligere-assistenter$/, { timeout: 10_000 });
+    navigation = "dashboard";
+  } catch (cause) {
+    navigation = `error:${cause instanceof Error ? cause.name : typeof cause}`;
+  }
+  const afterNavigation = await dbSnapshot("after-navigation");
+  await probe.screenshot({ path: join(artifacts, "returning-login-after.png"), fullPage: true });
+  const html = await probe.content().catch(() => "<unavailable>");
+  await writeFile(
+    join(artifacts, "returning-login-probe.html"),
+    html.replaceAll(person.email, "[redacted]").replaceAll(person.password, "[redacted]"),
+  );
+  const result = { click, navigation, events, before, afterClick, afterNavigation, url: probe.url() };
+  await writeFile(join(artifacts, "returning-login-probe.json"), JSON.stringify(result, null, 2));
+  await context.close();
+  return result;
+};
+
 const assertStatus = async (form: Locator, expected: string) => {
   await form.getByRole("status").filter({ hasText: expected }).waitFor();
 };
