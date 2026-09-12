@@ -1446,7 +1446,7 @@ export const runReturningAssistantBrowserJourney = async ({
       data: assignmentPayload,
     });
     const ambiguousBodyText = await ambiguousAssignment.text();
-    assert.equal(ambiguousAssignment.status(), 403);
+    assert.equal(ambiguousAssignment.status(), 403, ambiguousBodyText);
     const ambiguousBody = JSON.parse(ambiguousBodyText) as {
       readonly code?: unknown;
       readonly status?: unknown;
