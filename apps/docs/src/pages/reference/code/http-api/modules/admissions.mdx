@@ -30,6 +30,8 @@ Since v0.1.0
   - [ListOpenAdmissionPeriodsEndpoint](#listopenadmissionperiodsendpoint)
   - [ReadApplicationCatalogEndpoint](#readapplicationcatalogendpoint)
   - [ReadApplicationConfirmationEndpoint](#readapplicationconfirmationendpoint)
+  - [ReadReturningAssistantOptionsEndpoint](#readreturningassistantoptionsendpoint)
+  - [RegisterReturningAssistantEndpoint](#registerreturningassistantendpoint)
   - [ReviseAdmissionPeriodEndpoint](#reviseadmissionperiodendpoint)
   - [SubmitApplicationEndpoint](#submitapplicationendpoint)
 
@@ -47,7 +49,7 @@ Public applicant and administrative admission endpoints.
 declare class AdmissionsApi
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/admissions.ts#L222)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/admissions.ts#L285)
 
 Since v0.1.0
 
@@ -100,7 +102,7 @@ declare const CreateAdmissionPeriodEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/admissions.ts#L156)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/admissions.ts#L161)
 
 Since v0.1.0 @category Endpoints
 
@@ -160,7 +162,7 @@ declare const ListAdmissionPeriodsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/admissions.ts#L128)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/admissions.ts#L133)
 
 Since v0.1.0 @category Endpoints
 
@@ -218,7 +220,7 @@ declare const ListOpenAdmissionPeriodsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/admissions.ts#L45)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/admissions.ts#L50)
 
 Since v0.1.0 @category Endpoints
 
@@ -279,7 +281,7 @@ declare const ReadApplicationCatalogEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/admissions.ts#L65)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/admissions.ts#L70)
 
 Since v0.1.0 @category Endpoints
 
@@ -311,7 +313,142 @@ declare const ReadApplicationConfirmationEndpoint: HttpApiEndpoint.HttpApiEndpoi
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/admissions.ts#L108)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/admissions.ts#L113)
+
+Since v0.1.0 @category Endpoints
+
+### ReadReturningAssistantOptionsEndpoint
+
+**Signature**
+
+```ts
+declare const ReadReturningAssistantOptionsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
+  "readReturningAssistantOptions",
+  "GET",
+  "/api/returning-assistant/options",
+  never,
+  never,
+  never,
+  never,
+  HttpApiSchema.WithHeaders<
+    toCodecJson<
+      Struct<{
+        readonly personId: brand<String, "PersonId">;
+        readonly applicantId: brand<String, "ApplicantId">;
+        readonly departmentId: brand<String, "DepartmentId">;
+        readonly fieldOfStudyId: brand<NonEmptyString, "AdmissionFieldOfStudyId">;
+        readonly periods: $Array<
+          Struct<{
+            readonly period: Struct<{
+              readonly eligible: Boolean;
+              readonly id: brand<NonEmptyString, "AdmissionPeriodId">;
+              readonly departmentId: brand<String, "DepartmentId">;
+              readonly semesterId: brand<String, "SemesterId">;
+              readonly startAt: String;
+              readonly endAt: String;
+              readonly revision: Int;
+              readonly lastCommandId: brand<NonEmptyString, "AdmissionPeriodCommandId">;
+            }>;
+            readonly semesterName: String;
+            readonly currentRevision: Int;
+            readonly currentPreferences: NullOr<
+              Struct<{
+                readonly yearOfStudy: Int;
+                readonly mondayUnavailable: Boolean;
+                readonly tuesdayUnavailable: Boolean;
+                readonly wednesdayUnavailable: Boolean;
+                readonly thursdayUnavailable: Boolean;
+                readonly fridayUnavailable: Boolean;
+                readonly positionWeeks: Literals<readonly [4, 8]>;
+                readonly preferredGroup: Literals<readonly ["all", "block-1", "block-2"]>;
+                readonly language: Literals<readonly ["Norsk", "Engelsk", "Norsk og engelsk"]>;
+                readonly preferredSchool: NullOr<String>;
+                readonly teamInterest: Boolean;
+                readonly teamIds: $Array<brand<String, "TeamId">>;
+                readonly registrationId: brand<String, "ReturningRegistrationId">;
+                readonly revision: Int;
+              }>
+            >;
+          }>
+        >;
+        readonly teams: $Array<
+          Struct<{ readonly teamId: brand<String, "TeamId">; readonly name: String }>
+        >;
+      }>
+    >,
+    toCodecStringTree<Struct<{ "cache-control": Literal<"no-store">; vary: Literal<"Origin"> }>>
+  >,
+  toCodecJson<Codec<unknown, unknown, never, never>>,
+  PersonSecurity,
+  never
+>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/admissions.ts#L222)
+
+Since v0.1.0 @category Endpoints
+
+### RegisterReturningAssistantEndpoint
+
+**Signature**
+
+```ts
+declare const RegisterReturningAssistantEndpoint: HttpApiEndpoint.HttpApiEndpoint<
+  "registerReturningAssistant",
+  "POST",
+  "/api/returning-assistant/registrations",
+  never,
+  never,
+  toCodecJson<
+    Struct<{
+      readonly yearOfStudy: Int;
+      readonly mondayUnavailable: Boolean;
+      readonly tuesdayUnavailable: Boolean;
+      readonly wednesdayUnavailable: Boolean;
+      readonly thursdayUnavailable: Boolean;
+      readonly fridayUnavailable: Boolean;
+      readonly positionWeeks: Literals<readonly [4, 8]>;
+      readonly preferredGroup: Literals<readonly ["all", "block-1", "block-2"]>;
+      readonly language: Literals<readonly ["Norsk", "Engelsk", "Norsk og engelsk"]>;
+      readonly preferredSchool: NullOr<String>;
+      readonly teamInterest: Boolean;
+      readonly teamIds: $Array<brand<String, "TeamId">>;
+      readonly commandId: brand<String, "ReturningCommandId">;
+      readonly admissionPeriodId: brand<NonEmptyString, "AdmissionPeriodId">;
+      readonly expectedRevision: Int;
+    }>
+  >,
+  toCodecStringTree<Struct<{ readonly "idempotency-key": brand<String, "IdempotencyKey"> }>>,
+  HttpApiSchema.WithHeaders<
+    toCodecJson<
+      Struct<{
+        readonly observation: Struct<{
+          readonly _tag: Literal<"ReturningAssistantRegistered">;
+          readonly commandId: brand<String, "ReturningCommandId">;
+          readonly applicationId: brand<String, "PublicApplicationId">;
+          readonly registrationId: brand<String, "ReturningRegistrationId">;
+          readonly revision: Int;
+        }>;
+        readonly replayed: Boolean;
+        readonly outboxCount: Int;
+      }>
+    >,
+    toCodecStringTree<
+      Struct<{
+        etag: brand<String, "StrongETag">;
+        location: String;
+        "cache-control": Literal<"no-store">;
+        vary: Literal<"Origin">;
+      }>
+    >
+  >,
+  toCodecJson<Codec<unknown, unknown, never, never>>,
+  PersonSecurity,
+  never
+>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/admissions.ts#L249)
 
 Since v0.1.0 @category Endpoints
 
@@ -361,7 +498,7 @@ declare const ReviseAdmissionPeriodEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/admissions.ts#L185)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/admissions.ts#L190)
 
 Since v0.1.0 @category Endpoints
 
@@ -411,6 +548,6 @@ declare const SubmitApplicationEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/admissions.ts#L85)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/admissions.ts#L90)
 
 Since v0.1.0 @category Endpoints

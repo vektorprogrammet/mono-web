@@ -1,0 +1,731 @@
+[
+  {
+    "phase": "negative-gate",
+    "gate": "no-placement-despite-affiliation",
+    "status": 404,
+    "body": "{\"type\":\"urn:vektorprogrammet:problem:v0.2:returning.history-missing\",\"title\":\"Assistant history missing\",\"status\":404,\"detail\":\"Authoritative assistant placement history is required.\",\"code\":\"returning.history-missing\"}"
+  },
+  {
+    "phase": "negative-gate",
+    "gate": "missing-applicant-person-link",
+    "status": 404,
+    "body": "{\"type\":\"urn:vektorprogrammet:problem:v0.2:returning.identity-missing\",\"title\":\"Returning assistant identity missing\",\"status\":404,\"detail\":\"No canonical applicant identity is linked to this account.\",\"code\":\"returning.identity-missing\"}"
+  },
+  {
+    "phase": "negative-gate",
+    "gate": "multiple-applicant-person-links",
+    "status": 409,
+    "body": "{\"type\":\"urn:vektorprogrammet:problem:v0.2:returning.identity-ambiguous\",\"title\":\"Returning assistant identity is ambiguous\",\"status\":409,\"detail\":\"The account resolves to more than one applicant identity.\",\"code\":\"returning.identity-ambiguous\"}"
+  },
+  {
+    "phase": "negative-gate",
+    "gate": "inactive-study-mapping",
+    "status": 409,
+    "body": "{\"type\":\"urn:vektorprogrammet:problem:v0.2:returning.study-invalid\",\"title\":\"Current study mapping invalid\",\"status\":409,\"detail\":\"The linked applicant does not have one active canonical study mapping.\",\"code\":\"returning.study-invalid\"}"
+  },
+  {
+    "phase": "negative-gate",
+    "gate": "ambiguous-study-mapping-structural-primary-key",
+    "status": "proven"
+  },
+  {
+    "phase": "options-probe",
+    "status": 200
+  },
+  {
+    "phase": "negative-gate",
+    "gate": "anonymous-options",
+    "status": 401
+  },
+  {
+    "phase": "negative-gate",
+    "gate": "cross-department-team",
+    "status": 403,
+    "code": "returning.team-scope-denied"
+  },
+  {
+    "phase": "dashboard-post",
+    "form": [
+      [
+        "commandId",
+        "023d5c43-314d-48e9-8ff0-306217e8892a"
+      ],
+      [
+        "expectedRevision",
+        "0"
+      ],
+      [
+        "admissionPeriodId",
+        "admission-period-returning-next-0104"
+      ],
+      [
+        "yearOfStudy",
+        "4"
+      ],
+      [
+        "mondayUnavailable",
+        "true"
+      ],
+      [
+        "thursdayUnavailable",
+        "true"
+      ],
+      [
+        "positionWeeks",
+        "8"
+      ],
+      [
+        "preferredGroup",
+        "block-1"
+      ],
+      [
+        "language",
+        "Norsk og engelsk"
+      ],
+      [
+        "preferredSchool",
+        "Returning School"
+      ],
+      [
+        "teamInterest",
+        "true"
+      ],
+      [
+        "teamIds",
+        "team-native-conduct-0063"
+      ]
+    ],
+    "admissionPeriodId": "admission-period-returning-next-0104",
+    "expectedRevision": "0",
+    "commandId": "023d5c43-314d-48e9-8ff0-306217e8892a"
+  },
+  {
+    "phase": "first",
+    "form": [
+      [
+        "commandId",
+        "023d5c43-314d-48e9-8ff0-306217e8892a"
+      ],
+      [
+        "expectedRevision",
+        "0"
+      ],
+      [
+        "admissionPeriodId",
+        "admission-period-returning-next-0104"
+      ],
+      [
+        "yearOfStudy",
+        "4"
+      ],
+      [
+        "mondayUnavailable",
+        "true"
+      ],
+      [
+        "thursdayUnavailable",
+        "true"
+      ],
+      [
+        "positionWeeks",
+        "8"
+      ],
+      [
+        "preferredGroup",
+        "block-1"
+      ],
+      [
+        "language",
+        "Norsk og engelsk"
+      ],
+      [
+        "preferredSchool",
+        "Returning School"
+      ],
+      [
+        "teamInterest",
+        "true"
+      ],
+      [
+        "teamIds",
+        "team-native-conduct-0063"
+      ]
+    ],
+    "admissionPeriodId": "admission-period-returning-next-0104",
+    "expectedRevision": "0",
+    "commandId": "023d5c43-314d-48e9-8ff0-306217e8892a",
+    "responseStatus": 200
+  },
+  {
+    "phase": "first-delivery",
+    "transport": "aborted",
+    "fetchedStatus": 200
+  },
+  {
+    "phase": "first-before-retry",
+    "sqlCommitted": [
+      {
+        "registration_id": "returning-registration-b2e442e57d7c2b7c988e83c452235b090ed99972ca131d205b9a1149866adf9f",
+        "application_id": "application-7b6881e827f312e2acdc91c8ff3c9a43",
+        "applicant_id": "applicant-returning-0104",
+        "person_id": "journey-returning-assistant-0104",
+        "placement_id": "placement-0000000000000000000000000000000000000000000000000000000000000000",
+        "department_id": "department-native-conduct-0063",
+        "semester_id": "semester-returning-next-0104",
+        "admission_period_id": "admission-period-returning-next-0104",
+        "revision": 1,
+        "command_id": "httpv2_zXyvVMQtAiGoAMw1uMVu3ypxM4DK0_OV5ooLDzw3QWU",
+        "year_of_study": 4,
+        "monday_unavailable": true,
+        "tuesday_unavailable": false,
+        "wednesday_unavailable": false,
+        "thursday_unavailable": true,
+        "friday_unavailable": false,
+        "position_weeks": 8,
+        "preferred_group": "block-1",
+        "language": "Norsk og engelsk",
+        "preferred_school": "Returning School",
+        "team_interest": true,
+        "team_ids": [
+          "team-native-conduct-0063"
+        ],
+        "registered_at": "2026-09-12T14:16:15.630Z"
+      }
+    ]
+  },
+  {
+    "phase": "dashboard-post",
+    "form": [
+      [
+        "commandId",
+        "023d5c43-314d-48e9-8ff0-306217e8892a"
+      ],
+      [
+        "expectedRevision",
+        "0"
+      ],
+      [
+        "admissionPeriodId",
+        "admission-period-returning-next-0104"
+      ],
+      [
+        "yearOfStudy",
+        "4"
+      ],
+      [
+        "mondayUnavailable",
+        "true"
+      ],
+      [
+        "thursdayUnavailable",
+        "true"
+      ],
+      [
+        "positionWeeks",
+        "8"
+      ],
+      [
+        "preferredGroup",
+        "block-1"
+      ],
+      [
+        "language",
+        "Norsk og engelsk"
+      ],
+      [
+        "preferredSchool",
+        "Returning School"
+      ],
+      [
+        "teamInterest",
+        "true"
+      ],
+      [
+        "teamIds",
+        "team-native-conduct-0063"
+      ]
+    ],
+    "admissionPeriodId": "admission-period-returning-next-0104",
+    "expectedRevision": "0",
+    "commandId": "023d5c43-314d-48e9-8ff0-306217e8892a"
+  },
+  {
+    "phase": "retry",
+    "form": [
+      [
+        "commandId",
+        "023d5c43-314d-48e9-8ff0-306217e8892a"
+      ],
+      [
+        "expectedRevision",
+        "0"
+      ],
+      [
+        "admissionPeriodId",
+        "admission-period-returning-next-0104"
+      ],
+      [
+        "yearOfStudy",
+        "4"
+      ],
+      [
+        "mondayUnavailable",
+        "true"
+      ],
+      [
+        "thursdayUnavailable",
+        "true"
+      ],
+      [
+        "positionWeeks",
+        "8"
+      ],
+      [
+        "preferredGroup",
+        "block-1"
+      ],
+      [
+        "language",
+        "Norsk og engelsk"
+      ],
+      [
+        "preferredSchool",
+        "Returning School"
+      ],
+      [
+        "teamInterest",
+        "true"
+      ],
+      [
+        "teamIds",
+        "team-native-conduct-0063"
+      ]
+    ],
+    "admissionPeriodId": "admission-period-returning-next-0104",
+    "expectedRevision": "0",
+    "commandId": "023d5c43-314d-48e9-8ff0-306217e8892a",
+    "responseStatus": 200
+  },
+  {
+    "phase": "dashboard-post",
+    "form": [
+      [
+        "commandId",
+        "7cd6c995-c871-4247-964b-d1ba150b49d1"
+      ],
+      [
+        "expectedRevision",
+        "0"
+      ],
+      [
+        "admissionPeriodId",
+        "admission-period-native-conduct-0063"
+      ],
+      [
+        "yearOfStudy",
+        "2"
+      ],
+      [
+        "positionWeeks",
+        "4"
+      ],
+      [
+        "preferredGroup",
+        "all"
+      ],
+      [
+        "language",
+        "Norsk og engelsk"
+      ],
+      [
+        "preferredSchool",
+        ""
+      ]
+    ],
+    "admissionPeriodId": "admission-period-native-conduct-0063",
+    "expectedRevision": "0",
+    "commandId": "7cd6c995-c871-4247-964b-d1ba150b49d1"
+  },
+  {
+    "phase": "existing-period-after-registration",
+    "sqlCommitted": [
+      {
+        "registration_id": "returning-registration-1071d925282ee0f73b7ce7393b3823aff7496e62eb63e7ec7efb441f8175d029",
+        "application_id": "application-returning-0104",
+        "applicant_id": "applicant-returning-0104",
+        "person_id": "journey-returning-assistant-0104",
+        "placement_id": "placement-0000000000000000000000000000000000000000000000000000000000000000",
+        "department_id": "department-native-conduct-0063",
+        "semester_id": "semester-native-conduct-0063",
+        "admission_period_id": "admission-period-native-conduct-0063",
+        "revision": 1,
+        "command_id": "httpv2_M1aDn1_6W82zf1RByMG9o4hTGL8yeJfhhGjgm9Fh9zg",
+        "year_of_study": 2,
+        "monday_unavailable": false,
+        "tuesday_unavailable": false,
+        "wednesday_unavailable": false,
+        "thursday_unavailable": false,
+        "friday_unavailable": false,
+        "position_weeks": 4,
+        "preferred_group": "all",
+        "language": "Norsk og engelsk",
+        "preferred_school": null,
+        "team_interest": false,
+        "team_ids": [],
+        "registered_at": "2026-09-12T14:16:16.659Z"
+      }
+    ]
+  },
+  {
+    "phase": "dashboard-post",
+    "form": [
+      [
+        "commandId",
+        "4d27fd44-7fa4-4624-94ff-8705b24cd408"
+      ],
+      [
+        "expectedRevision",
+        "1"
+      ],
+      [
+        "admissionPeriodId",
+        "admission-period-native-conduct-0063"
+      ],
+      [
+        "yearOfStudy",
+        "3"
+      ],
+      [
+        "positionWeeks",
+        "4"
+      ],
+      [
+        "preferredGroup",
+        "all"
+      ],
+      [
+        "language",
+        "Engelsk"
+      ],
+      [
+        "preferredSchool",
+        ""
+      ]
+    ],
+    "admissionPeriodId": "admission-period-native-conduct-0063",
+    "expectedRevision": "1",
+    "commandId": "4d27fd44-7fa4-4624-94ff-8705b24cd408"
+  },
+  {
+    "phase": "existing-period-after-update",
+    "sqlCommitted": [
+      {
+        "registration_id": "returning-registration-1071d925282ee0f73b7ce7393b3823aff7496e62eb63e7ec7efb441f8175d029",
+        "application_id": "application-returning-0104",
+        "applicant_id": "applicant-returning-0104",
+        "person_id": "journey-returning-assistant-0104",
+        "placement_id": "placement-0000000000000000000000000000000000000000000000000000000000000000",
+        "department_id": "department-native-conduct-0063",
+        "semester_id": "semester-native-conduct-0063",
+        "admission_period_id": "admission-period-native-conduct-0063",
+        "revision": 1,
+        "command_id": "httpv2_M1aDn1_6W82zf1RByMG9o4hTGL8yeJfhhGjgm9Fh9zg",
+        "year_of_study": 2,
+        "monday_unavailable": false,
+        "tuesday_unavailable": false,
+        "wednesday_unavailable": false,
+        "thursday_unavailable": false,
+        "friday_unavailable": false,
+        "position_weeks": 4,
+        "preferred_group": "all",
+        "language": "Norsk og engelsk",
+        "preferred_school": null,
+        "team_interest": false,
+        "team_ids": [],
+        "registered_at": "2026-09-12T14:16:16.659Z"
+      },
+      {
+        "registration_id": "returning-registration-8218558fcfdda18b819960d605c00daab7a8735309943c1d67017d1e1659da1d",
+        "application_id": "application-returning-0104",
+        "applicant_id": "applicant-returning-0104",
+        "person_id": "journey-returning-assistant-0104",
+        "placement_id": "placement-0000000000000000000000000000000000000000000000000000000000000000",
+        "department_id": "department-native-conduct-0063",
+        "semester_id": "semester-native-conduct-0063",
+        "admission_period_id": "admission-period-native-conduct-0063",
+        "revision": 2,
+        "command_id": "httpv2_xZES5RDNY43T3kDVp99JUhk5ELu460Tbt84GKwq3EDk",
+        "year_of_study": 3,
+        "monday_unavailable": false,
+        "tuesday_unavailable": false,
+        "wednesday_unavailable": false,
+        "thursday_unavailable": false,
+        "friday_unavailable": false,
+        "position_weeks": 4,
+        "preferred_group": "all",
+        "language": "Engelsk",
+        "preferred_school": null,
+        "team_interest": false,
+        "team_ids": [],
+        "registered_at": "2026-09-12T14:16:17.090Z"
+      }
+    ]
+  },
+  {
+    "phase": "dashboard-post",
+    "form": [
+      [
+        "commandId",
+        "476e0a09-2da5-4c2a-9866-2933f9c39a7b"
+      ],
+      [
+        "expectedRevision",
+        "1"
+      ],
+      [
+        "admissionPeriodId",
+        "admission-period-returning-next-0104"
+      ],
+      [
+        "yearOfStudy",
+        "5"
+      ],
+      [
+        "mondayUnavailable",
+        "true"
+      ],
+      [
+        "thursdayUnavailable",
+        "true"
+      ],
+      [
+        "positionWeeks",
+        "8"
+      ],
+      [
+        "preferredGroup",
+        "block-1"
+      ],
+      [
+        "language",
+        "Norsk og engelsk"
+      ],
+      [
+        "preferredSchool",
+        "Returning School"
+      ],
+      [
+        "teamInterest",
+        "true"
+      ],
+      [
+        "teamIds",
+        "team-native-conduct-0063"
+      ]
+    ],
+    "admissionPeriodId": "admission-period-returning-next-0104",
+    "expectedRevision": "1",
+    "commandId": "476e0a09-2da5-4c2a-9866-2933f9c39a7b"
+  },
+  {
+    "phase": "negative-gate",
+    "gate": "returning-stale-draft",
+    "status": 412,
+    "expectedRevision": "1",
+    "commandId": "476e0a09-2da5-4c2a-9866-2933f9c39a7b",
+    "draftYearOfStudy": "5"
+  },
+  {
+    "phase": "dashboard-post",
+    "form": [
+      [
+        "commandId",
+        "aaa92e1d-f58a-4c7a-b8ef-177dfdd66544"
+      ],
+      [
+        "expectedRevision",
+        "2"
+      ],
+      [
+        "admissionPeriodId",
+        "admission-period-returning-next-0104"
+      ],
+      [
+        "yearOfStudy",
+        "5"
+      ],
+      [
+        "mondayUnavailable",
+        "true"
+      ],
+      [
+        "thursdayUnavailable",
+        "true"
+      ],
+      [
+        "positionWeeks",
+        "8"
+      ],
+      [
+        "preferredGroup",
+        "block-1"
+      ],
+      [
+        "language",
+        "Norsk og engelsk"
+      ],
+      [
+        "preferredSchool",
+        "Returning School"
+      ],
+      [
+        "teamInterest",
+        "true"
+      ],
+      [
+        "teamIds",
+        "team-native-conduct-0063"
+      ]
+    ],
+    "admissionPeriodId": "admission-period-returning-next-0104",
+    "expectedRevision": "2",
+    "commandId": "aaa92e1d-f58a-4c7a-b8ef-177dfdd66544"
+  },
+  {
+    "phase": "negative-gate",
+    "gate": "preserved-original-receipt-activation-conduct",
+    "status": "observed"
+  },
+  {
+    "phase": "negative-gate",
+    "gate": "new-period-no-new-interview",
+    "status": "observed"
+  },
+  {
+    "phase": "native-period-ordinary-conduct",
+    "interviewId": "interview-native-conduct-a-0063",
+    "recommendation": "Ja",
+    "total": 24
+  },
+  {
+    "phase": "negative-gate",
+    "gate": "next-assignment-requires-one-open-period",
+    "status": 403,
+    "problemCode": "authority.denied",
+    "problemStatus": 403,
+    "body": "{\"type\":\"urn:vektorprogrammet:problem:v0.2:authority.denied\",\"title\":\"Authority denied\",\"status\":403,\"detail\":\"The authenticated principal is not permitted to perform this operation.\",\"code\":\"authority.denied\"}",
+    "source": "assignmentInTransaction currentPeriod scope check (packages/domain/src/recruitment/postgres.ts:850-857) maps RecruitmentScopeDenied to authority.denied (apps/backend/src/recruitment/http.ts:251-255)",
+    "periodContext": [
+      {
+        "admission_period_id": "admission-period-native-conduct-0063",
+        "start_at": "2026-08-01T00:00:00.000Z",
+        "end_at": "2026-09-30T23:59:59.999Z",
+        "semester_start_at": "2026-01-01T00:00:00.000Z",
+        "semester_end_at": "2027-01-01T00:00:00.000Z",
+        "eligible_now": true
+      },
+      {
+        "admission_period_id": "admission-period-returning-next-0104",
+        "start_at": "2026-08-02T00:00:00.000Z",
+        "end_at": "2026-12-31T23:59:59.999Z",
+        "semester_start_at": "2026-08-02T00:00:00.000Z",
+        "semester_end_at": "2026-12-31T23:59:59.999Z",
+        "eligible_now": true
+      }
+    ]
+  },
+  {
+    "phase": "assignment-authority-resolved",
+    "coordinatorPersonId": "report-coordinator-0103",
+    "coordinatorEmail": "coordinator.report@example.invalid",
+    "coordinatorRole": "DepartmentLeader",
+    "assignedInterviewerPersonId": "journey-conduct-leader-0063",
+    "coordinatorContext": [
+      {
+        "person_id": "report-coordinator-0103",
+        "team_id": "team-native-conduct-0063",
+        "is_team_leader": true,
+        "is_suspended": false,
+        "department_id": "department-native-conduct-0063",
+        "team_active": true,
+        "department_active": true
+      }
+    ],
+    "postClosePeriodContext": [
+      {
+        "admission_period_id": "admission-period-native-conduct-0063",
+        "start_at": "2026-08-01T00:00:00.000Z",
+        "end_at": "2026-09-12T00:00:00.000Z",
+        "semester_start_at": "2026-01-01T00:00:00.000Z",
+        "semester_end_at": "2027-01-01T00:00:00.000Z",
+        "eligible_now": false
+      },
+      {
+        "admission_period_id": "admission-period-returning-next-0104",
+        "start_at": "2026-08-02T00:00:00.000Z",
+        "end_at": "2026-12-31T23:59:59.999Z",
+        "semester_start_at": "2026-08-02T00:00:00.000Z",
+        "semester_end_at": "2026-12-31T23:59:59.999Z",
+        "eligible_now": true
+      }
+    ]
+  },
+  {
+    "phase": "returning:native-schedule",
+    "actorPersonId": "report-coordinator-0103",
+    "interviewId": "recruitment_interview_dc3490b8-ec6d-4696-9601-90aeca46051e",
+    "assignmentETag": "\"vkr2.zPhVfhhmsmC4JqpiD9w82hDRXPLextsCi13aWHYSmPQ\"",
+    "scheduleStatus": 200,
+    "scheduledAt": "2026-09-20T10:00:00.000Z",
+    "responseState": "Pending"
+  },
+  {
+    "phase": "returning:native-invitation-delivered",
+    "interviewId": "recruitment_interview_dc3490b8-ec6d-4696-9601-90aeca46051e",
+    "effectId": "recruitment-invitation:4f229dda0cf2dc1cf7caef829e24f2e83b8229e9717b72bf4f006cba54a588db",
+    "deliveryStatus": "Delivered",
+    "outbox": [
+      {
+        "status": "Delivered",
+        "attempts": 1
+      }
+    ]
+  },
+  {
+    "phase": "returning:native-invitation-accepted",
+    "interviewId": "recruitment_interview_dc3490b8-ec6d-4696-9601-90aeca46051e",
+    "responseState": "Accepted",
+    "confirmStatus": 204
+  },
+  {
+    "phase": "returning:native-finalization",
+    "actorPersonId": "journey-conduct-leader-0063",
+    "interviewerPersonId": "journey-conduct-leader-0063",
+    "interviewId": "recruitment_interview_dc3490b8-ec6d-4696-9601-90aeca46051e",
+    "etagBefore": "\"vkr2.Fg0sh2IPNjQZcybq5qOssbM884I2jWsA-dokVOg6oQA\"",
+    "questionSnapshotIds": [
+      "interview-schema-native-conduct-0063-q0",
+      "interview-schema-native-conduct-0063-q1",
+      "interview-schema-native-conduct-0063-q2",
+      "interview-schema-native-conduct-0063-q3"
+    ],
+    "finalizeStatus": 200,
+    "recommendation": "Kanskje",
+    "scoreTotal": 27
+  },
+  {
+    "phase": "negative-gate",
+    "gate": "retained-inactive-cross-department-placement",
+    "status": "observed"
+  },
+  {
+    "phase": "negative-gate",
+    "gate": "closed-period",
+    "status": 409
+  },
+  {
+    "phase": "negative-gate",
+    "gate": "stale-revoked-auth",
+    "status": 401
+  }
+]

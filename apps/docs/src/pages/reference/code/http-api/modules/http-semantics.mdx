@@ -247,6 +247,14 @@ declare const NativeMethodNotAllowedProblem: Schema.Struct<{
     | "urn:vektorprogrammet:problem:v0.2:recruitment.invitation-not-accepted"
     | "urn:vektorprogrammet:problem:v0.2:recruitment.schedule-in-past"
     | "urn:vektorprogrammet:problem:v0.2:recruitment.unavailable"
+    | "urn:vektorprogrammet:problem:v0.2:returning.identity-missing"
+    | "urn:vektorprogrammet:problem:v0.2:returning.identity-ambiguous"
+    | "urn:vektorprogrammet:problem:v0.2:returning.history-missing"
+    | "urn:vektorprogrammet:problem:v0.2:returning.study-invalid"
+    | "urn:vektorprogrammet:problem:v0.2:returning.period-unavailable"
+    | "urn:vektorprogrammet:problem:v0.2:returning.team-scope-denied"
+    | "urn:vektorprogrammet:problem:v0.2:returning.revision-conflict"
+    | "urn:vektorprogrammet:problem:v0.2:returning.unavailable"
     | "urn:vektorprogrammet:problem:v0.2:request.malformed"
     | "urn:vektorprogrammet:problem:v0.2:request.too-large"
     | "urn:vektorprogrammet:problem:v0.2:contact.unavailable"
@@ -330,6 +338,14 @@ declare const NativeMethodNotAllowedProblem: Schema.Struct<{
     | "Invitation not accepted"
     | "Interview schedule is in the past"
     | "Recruitment unavailable"
+    | "Returning assistant identity missing"
+    | "Returning assistant identity is ambiguous"
+    | "Assistant history missing"
+    | "Current study mapping invalid"
+    | "Admission period unavailable"
+    | "Team scope denied"
+    | "Returning registration changed"
+    | "Returning registration unavailable"
     | "Malformed request"
     | "Request too large"
     | "Contact unavailable"
@@ -417,6 +433,14 @@ declare const NativeMethodNotAllowedProblem: Schema.Struct<{
     | "The recruitment invitation has not been accepted."
     | "The interview cannot be scheduled in the past."
     | "The recruitment service is temporarily unavailable."
+    | "No canonical applicant identity is linked to this account."
+    | "The account resolves to more than one applicant identity."
+    | "Authoritative assistant placement history is required."
+    | "The linked applicant does not have one active canonical study mapping."
+    | "The selected admission period is not available for this returning assistant."
+    | "One or more selected teams are outside the current department."
+    | "The registration changed. Refresh before retrying."
+    | "The returning-assistant registration service is temporarily unavailable."
     | "The request is malformed."
     | "The request body exceeds the permitted size."
     | "The contact message could not be accepted."
@@ -431,7 +455,7 @@ declare const NativeMethodNotAllowedProblem: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L922)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L970)
 
 ### NativeProblem
 
@@ -443,7 +467,7 @@ The closed RFC 9457 core representation used by native API failures.
 declare const NativeProblem: Schema.Union<never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L763)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L811)
 
 ### NativeProblem (type alias)
 
@@ -453,7 +477,7 @@ declare const NativeProblem: Schema.Union<never>;
 type NativeProblem = typeof NativeProblem.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L766)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L814)
 
 ### NativeProblemCode (type alias)
 
@@ -463,7 +487,7 @@ type NativeProblem = typeof NativeProblem.Type;
 type NativeProblemCode = keyof typeof NativeProblemRegistry;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L742)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L790)
 
 ### NativeProblemRegistry
 
@@ -905,6 +929,54 @@ declare const NativeProblemRegistry: {
     readonly status: 503;
     readonly detail: "The recruitment service is temporarily unavailable.";
   };
+  readonly "returning.identity-missing": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:returning.identity-missing";
+    readonly title: "Returning assistant identity missing";
+    readonly status: 404;
+    readonly detail: "No canonical applicant identity is linked to this account.";
+  };
+  readonly "returning.identity-ambiguous": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:returning.identity-ambiguous";
+    readonly title: "Returning assistant identity is ambiguous";
+    readonly status: 409;
+    readonly detail: "The account resolves to more than one applicant identity.";
+  };
+  readonly "returning.history-missing": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:returning.history-missing";
+    readonly title: "Assistant history missing";
+    readonly status: 404;
+    readonly detail: "Authoritative assistant placement history is required.";
+  };
+  readonly "returning.study-invalid": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:returning.study-invalid";
+    readonly title: "Current study mapping invalid";
+    readonly status: 409;
+    readonly detail: "The linked applicant does not have one active canonical study mapping.";
+  };
+  readonly "returning.period-unavailable": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:returning.period-unavailable";
+    readonly title: "Admission period unavailable";
+    readonly status: 409;
+    readonly detail: "The selected admission period is not available for this returning assistant.";
+  };
+  readonly "returning.team-scope-denied": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:returning.team-scope-denied";
+    readonly title: "Team scope denied";
+    readonly status: 403;
+    readonly detail: "One or more selected teams are outside the current department.";
+  };
+  readonly "returning.revision-conflict": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:returning.revision-conflict";
+    readonly title: "Returning registration changed";
+    readonly status: 412;
+    readonly detail: "The registration changed. Refresh before retrying.";
+  };
+  readonly "returning.unavailable": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:returning.unavailable";
+    readonly title: "Returning registration unavailable";
+    readonly status: 503;
+    readonly detail: "The returning-assistant registration service is temporarily unavailable.";
+  };
   readonly "request.malformed": {
     readonly type: "urn:vektorprogrammet:problem:v0.2:request.malformed";
     readonly title: "Malformed request";
@@ -1060,7 +1132,7 @@ declare const NativeValidationMessage: {
 type ProblemDescriptor = readonly [code: NativeProblemCode, status: number];
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L801)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L849)
 
 ### Sha256Hex
 
@@ -1305,7 +1377,7 @@ declare const ValidationProblem: Schema.Union<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L794)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L842)
 
 ### ValidationProblem (type alias)
 
@@ -1315,7 +1387,7 @@ declare const ValidationProblem: Schema.Union<
 type ValidationProblem = typeof ValidationProblem.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L799)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L847)
 
 ### ValidationProblemCode (type alias)
 
@@ -1326,7 +1398,7 @@ type ValidationProblemCode =
   "validation.failed" | "validation.no-change" | "validation.field-not-deletable";
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L743)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L791)
 
 ### createdMutationResponse
 
@@ -1396,7 +1468,7 @@ declare const endpointProblemResponses: <S extends Schema.Top>(
 ) => ReadonlyArray<Schema.Codec<unknown, unknown>>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L851)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L899)
 
 ### entityMutationResponse
 
@@ -1877,6 +1949,54 @@ declare const makeNativeProblem: <Code extends NativeProblemCode>(
     readonly status: 503;
     readonly detail: "The recruitment service is temporarily unavailable.";
   };
+  readonly "returning.identity-missing": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:returning.identity-missing";
+    readonly title: "Returning assistant identity missing";
+    readonly status: 404;
+    readonly detail: "No canonical applicant identity is linked to this account.";
+  };
+  readonly "returning.identity-ambiguous": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:returning.identity-ambiguous";
+    readonly title: "Returning assistant identity is ambiguous";
+    readonly status: 409;
+    readonly detail: "The account resolves to more than one applicant identity.";
+  };
+  readonly "returning.history-missing": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:returning.history-missing";
+    readonly title: "Assistant history missing";
+    readonly status: 404;
+    readonly detail: "Authoritative assistant placement history is required.";
+  };
+  readonly "returning.study-invalid": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:returning.study-invalid";
+    readonly title: "Current study mapping invalid";
+    readonly status: 409;
+    readonly detail: "The linked applicant does not have one active canonical study mapping.";
+  };
+  readonly "returning.period-unavailable": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:returning.period-unavailable";
+    readonly title: "Admission period unavailable";
+    readonly status: 409;
+    readonly detail: "The selected admission period is not available for this returning assistant.";
+  };
+  readonly "returning.team-scope-denied": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:returning.team-scope-denied";
+    readonly title: "Team scope denied";
+    readonly status: 403;
+    readonly detail: "One or more selected teams are outside the current department.";
+  };
+  readonly "returning.revision-conflict": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:returning.revision-conflict";
+    readonly title: "Returning registration changed";
+    readonly status: 412;
+    readonly detail: "The registration changed. Refresh before retrying.";
+  };
+  readonly "returning.unavailable": {
+    readonly type: "urn:vektorprogrammet:problem:v0.2:returning.unavailable";
+    readonly title: "Returning registration unavailable";
+    readonly status: 503;
+    readonly detail: "The returning-assistant registration service is temporarily unavailable.";
+  };
   readonly "request.malformed": {
     readonly type: "urn:vektorprogrammet:problem:v0.2:request.malformed";
     readonly title: "Malformed request";
@@ -1934,7 +2054,7 @@ declare const makeNativeProblem: <Code extends NativeProblemCode>(
 }[Code] & { instance?: string | undefined; code: Code };
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L905)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L953)
 
 ### makeNativeValidationError
 
@@ -1963,7 +2083,7 @@ Standard credential accepted by a cookie-only native endpoint.
 declare const nativeCookieChallenge: 'VektorSession realm="native-api"';
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L931)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L979)
 
 ### nativeProblemSchema
 
@@ -2049,6 +2169,14 @@ declare const nativeProblemSchema: <Code extends NativeProblemCode>(
     | "urn:vektorprogrammet:problem:v0.2:recruitment.invitation-not-accepted"
     | "urn:vektorprogrammet:problem:v0.2:recruitment.schedule-in-past"
     | "urn:vektorprogrammet:problem:v0.2:recruitment.unavailable"
+    | "urn:vektorprogrammet:problem:v0.2:returning.identity-missing"
+    | "urn:vektorprogrammet:problem:v0.2:returning.identity-ambiguous"
+    | "urn:vektorprogrammet:problem:v0.2:returning.history-missing"
+    | "urn:vektorprogrammet:problem:v0.2:returning.study-invalid"
+    | "urn:vektorprogrammet:problem:v0.2:returning.period-unavailable"
+    | "urn:vektorprogrammet:problem:v0.2:returning.team-scope-denied"
+    | "urn:vektorprogrammet:problem:v0.2:returning.revision-conflict"
+    | "urn:vektorprogrammet:problem:v0.2:returning.unavailable"
     | "urn:vektorprogrammet:problem:v0.2:request.malformed"
     | "urn:vektorprogrammet:problem:v0.2:request.too-large"
     | "urn:vektorprogrammet:problem:v0.2:contact.unavailable"
@@ -2132,6 +2260,14 @@ declare const nativeProblemSchema: <Code extends NativeProblemCode>(
     | "Invitation not accepted"
     | "Interview schedule is in the past"
     | "Recruitment unavailable"
+    | "Returning assistant identity missing"
+    | "Returning assistant identity is ambiguous"
+    | "Assistant history missing"
+    | "Current study mapping invalid"
+    | "Admission period unavailable"
+    | "Team scope denied"
+    | "Returning registration changed"
+    | "Returning registration unavailable"
     | "Malformed request"
     | "Request too large"
     | "Contact unavailable"
@@ -2219,6 +2355,14 @@ declare const nativeProblemSchema: <Code extends NativeProblemCode>(
     | "The recruitment invitation has not been accepted."
     | "The interview cannot be scheduled in the past."
     | "The recruitment service is temporarily unavailable."
+    | "No canonical applicant identity is linked to this account."
+    | "The account resolves to more than one applicant identity."
+    | "Authoritative assistant placement history is required."
+    | "The linked applicant does not have one active canonical study mapping."
+    | "The selected admission period is not available for this returning assistant."
+    | "One or more selected teams are outside the current department."
+    | "The registration changed. Refresh before retrying."
+    | "The returning-assistant registration service is temporarily unavailable."
     | "The request is malformed."
     | "The request body exceeds the permitted size."
     | "The contact message could not be accepted."
@@ -2233,7 +2377,7 @@ declare const nativeProblemSchema: <Code extends NativeProblemCode>(
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L804)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L852)
 
 ### nativeUserChallenges
 
@@ -2245,7 +2389,7 @@ Standard credentials accepted by a native user endpoint.
 declare const nativeUserChallenges: (invalidBearer?: boolean) => string;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L927)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L975)
 
 ### noContentMutationResponse
 
@@ -2348,7 +2492,7 @@ declare const problemUnion: (
 ) => Schema.Codec<unknown, unknown>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L821)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L869)
 
 ### publicConditionalResponses
 
@@ -2454,4 +2598,4 @@ declare const validationProblemSchema: <Code extends ValidationProblemCode>(
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L780)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/http-semantics.ts#L828)

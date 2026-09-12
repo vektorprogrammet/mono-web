@@ -208,7 +208,8 @@ const startEffectReceiver = async (
     if (stringField(body, "_tag") === "SendInterviewInvitation") {
       const interviewId = stringField(body, "interviewId");
       const capability = stringField(body, "responseCapability");
-      if (interviewId !== "" && capability !== "") captureInvitationCapability(interviewId, capability);
+      if (interviewId !== "" && capability !== "")
+        captureInvitationCapability(interviewId, capability);
     }
     const effectId = request.headers["idempotency-key"];
     const normalizedEffectId = typeof effectId === "string" ? effectId : "";
@@ -271,7 +272,9 @@ const deliverRecruitmentInvitationOnce = async ({
     NotificationGateway,
     NotificationGateway.of({
       deliverInterviewInvitation: (request) =>
-        deliverJson(request, transport, globalThis.fetch, { "idempotency-key": request.effectId }).pipe(
+        deliverJson(request, transport, globalThis.fetch, {
+          "idempotency-key": request.effectId,
+        }).pipe(
           Effect.map(() =>
             RecruitmentNotificationEvidenceSchema.make({
               effectId: request.effectId,
@@ -288,7 +291,9 @@ const deliverRecruitmentInvitationOnce = async ({
           ),
         ),
       deliverInterviewInvitationResponse: (request) =>
-        deliverJson(request, transport, globalThis.fetch, { "idempotency-key": request.effectId }).pipe(
+        deliverJson(request, transport, globalThis.fetch, {
+          "idempotency-key": request.effectId,
+        }).pipe(
           Effect.map(() =>
             RecruitmentNotificationEvidenceSchema.make({
               effectId: request.effectId,
@@ -488,7 +493,11 @@ try {
       // oxlint-effect-plugin allow(no-ambient-console): dev-only bounded stage evidence.
       console.log(JSON.stringify({ returningStage: name }));
     };
-    const bounded = async <T>(label: string, operation: Promise<T>, timeoutMs = 90_000): Promise<T> => {
+    const bounded = async <T>(
+      label: string,
+      operation: Promise<T>,
+      timeoutMs = 90_000,
+    ): Promise<T> => {
       let timer: NodeJS.Timeout | undefined;
       try {
         return await Promise.race([
@@ -544,8 +553,13 @@ try {
         (call) => call.kind === "SendInterviewInvitation",
       );
       assert.equal(recruitmentInvitationCalls.length, 1);
-      assert.deepEqual(recruitmentInvitationCalls.map((call) => call.status), [204]);
-      recordGate("manually drove existing recruitment invitation delivery helper through loopback ACK");
+      assert.deepEqual(
+        recruitmentInvitationCalls.map((call) => call.status),
+        [204],
+      );
+      recordGate(
+        "manually drove existing recruitment invitation delivery helper through loopback ACK",
+      );
     }
     if (effectMode === "http") {
       type ReturningOutboxRow = {
@@ -568,29 +582,33 @@ try {
         "SELECT command_id,registration_id FROM public.admission_returning_command_receipts ORDER BY command_id",
       );
       assert.equal(acceptedReturningRegistrations.rows.length, 6);
-      const expectedOutboxCount = acceptedReturningRegistrations.rows.length * expectedEffectTypes.length;
+      const expectedOutboxCount =
+        acceptedReturningRegistrations.rows.length * expectedEffectTypes.length;
       const hasExactReturningEffectShape = (rows: ReadonlyArray<ReturningOutboxRow>) => {
         if (rows.length !== expectedOutboxCount) return false;
         if (rows.some((row) => row.origin !== "ReturningAssistant")) return false;
-        return acceptedReturningRegistrations.rows.every(({ command_id }: { command_id: string }) => {
-          const commandRows = rows
-            .filter((row) => row.command_id === command_id)
-            .sort((left, right) => left.ordinal - right.ordinal);
-          return (
-            commandRows.length === expectedEffectTypes.length
-            && commandRows.map((row) => row.ordinal).join(",") === "0,1,2"
-            && commandRows.map((row) => row.effect_type).join(",") === expectedEffectTypes.join(",")
-          );
-        });
+        return acceptedReturningRegistrations.rows.every(
+          ({ command_id }: { command_id: string }) => {
+            const commandRows = rows
+              .filter((row) => row.command_id === command_id)
+              .sort((left, right) => left.ordinal - right.ordinal);
+            return (
+              commandRows.length === expectedEffectTypes.length &&
+              commandRows.map((row) => row.ordinal).join(",") === "0,1,2" &&
+              commandRows.map((row) => row.effect_type).join(",") === expectedEffectTypes.join(",")
+            );
+          },
+        );
       };
-      const readReturningOutbox = async () => (
-        await pool.query(
-          `SELECT effect_id,command_id,effect_type,ordinal,status,attempts,claimed_at,last_failure_tag,origin
+      const readReturningOutbox = async () =>
+        (
+          await pool.query(
+            `SELECT effect_id,command_id,effect_type,ordinal,status,attempts,claimed_at,last_failure_tag,origin
            FROM public.admission_application_outbox
            WHERE origin='ReturningAssistant'
            ORDER BY effect_id`,
-        )
-      ).rows as ReturningOutboxRow[];
+          )
+        ).rows as ReturningOutboxRow[];
       const waitForOutbox = async (
         predicate: (rows: ReadonlyArray<ReturningOutboxRow>) => boolean,
       ) => {
@@ -605,23 +623,29 @@ try {
         "returning effect first failure",
         waitForOutbox(
           (rows) =>
-            hasExactReturningEffectShape(rows)
-            && rows.filter((row) => row.ordinal === 0).length === acceptedReturningRegistrations.rows.length
-            && rows.filter((row) => row.ordinal !== 0).length === acceptedReturningRegistrations.rows.length * 2
-            && rows.filter((row) => row.ordinal === 0).every(
-              (row) =>
-                row.status === "Failed"
-                && row.attempts >= 1
-                && row.claimed_at === null
-                && row.last_failure_tag === "PublicApplicationEffectDeliveryError",
-            )
-            && rows.filter((row) => row.ordinal !== 0).every(
-              (row) =>
-                row.status === "Pending"
-                && row.attempts === 0
-                && row.claimed_at === null
-                && row.last_failure_tag === null,
-            ),
+            hasExactReturningEffectShape(rows) &&
+            rows.filter((row) => row.ordinal === 0).length ===
+              acceptedReturningRegistrations.rows.length &&
+            rows.filter((row) => row.ordinal !== 0).length ===
+              acceptedReturningRegistrations.rows.length * 2 &&
+            rows
+              .filter((row) => row.ordinal === 0)
+              .every(
+                (row) =>
+                  row.status === "Failed" &&
+                  row.attempts >= 1 &&
+                  row.claimed_at === null &&
+                  row.last_failure_tag === "PublicApplicationEffectDeliveryError",
+              ) &&
+            rows
+              .filter((row) => row.ordinal !== 0)
+              .every(
+                (row) =>
+                  row.status === "Pending" &&
+                  row.attempts === 0 &&
+                  row.claimed_at === null &&
+                  row.last_failure_tag === null,
+              ),
         ),
         30_000,
       );
@@ -629,33 +653,47 @@ try {
       assert.ok(hasExactReturningEffectShape(failedRows));
       assert.equal(failedRows.filter((row) => row.ordinal === 0).length, 6);
       assert.equal(failedRows.filter((row) => row.ordinal !== 0).length, 12);
-      assert.ok(failedRows.filter((row) => row.ordinal === 0).every((row) => row.status === "Failed"));
-      assert.ok(failedRows.filter((row) => row.ordinal !== 0).every((row) => row.status === "Pending"));
+      assert.ok(
+        failedRows.filter((row) => row.ordinal === 0).every((row) => row.status === "Failed"),
+      );
+      assert.ok(
+        failedRows.filter((row) => row.ordinal !== 0).every((row) => row.status === "Pending"),
+      );
       const heldFailedRows = await readReturningOutbox();
       assert.equal(heldFailedRows.length, expectedOutboxCount);
       assert.ok(hasExactReturningEffectShape(heldFailedRows));
       assert.ok(
-        heldFailedRows.filter((row) => row.ordinal === 0).every(
-          (row) =>
-            row.status === "Failed"
-            && row.attempts >= 1
-            && row.claimed_at === null
-            && row.last_failure_tag === "PublicApplicationEffectDeliveryError",
-        ),
+        heldFailedRows
+          .filter((row) => row.ordinal === 0)
+          .every(
+            (row) =>
+              row.status === "Failed" &&
+              row.attempts >= 1 &&
+              row.claimed_at === null &&
+              row.last_failure_tag === "PublicApplicationEffectDeliveryError",
+          ),
       );
       assert.ok(
-        heldFailedRows.filter((row) => row.ordinal !== 0).every(
-          (row) =>
-            row.status === "Pending"
-            && row.attempts === 0
-            && row.claimed_at === null
-            && row.last_failure_tag === null,
-        ),
+        heldFailedRows
+          .filter((row) => row.ordinal !== 0)
+          .every(
+            (row) =>
+              row.status === "Pending" &&
+              row.attempts === 0 &&
+              row.claimed_at === null &&
+              row.last_failure_tag === null,
+          ),
       );
-      const preRestartEffectCalls = effectCalls.filter((call) => call.origin === "ReturningAssistant");
+      const preRestartEffectCalls = effectCalls.filter(
+        (call) => call.origin === "ReturningAssistant",
+      );
       assert.ok(preRestartEffectCalls.length >= 6);
       assert.ok(preRestartEffectCalls.every((call) => call.status === 503));
-      assert.ok(preRestartEffectCalls.every((call) => call.kind === "SendApplicantActivationOrConfirmation"));
+      assert.ok(
+        preRestartEffectCalls.every(
+          (call) => call.kind === "SendApplicantActivationOrConfirmation",
+        ),
+      );
       const preRestartEffectIds = new Set(preRestartEffectCalls.map((call) => call.effectId));
       assert.ok(
         heldFailedRows
@@ -674,26 +712,25 @@ try {
         "returning effect restart delivery",
         waitForOutbox(
           (rows) =>
-            hasExactReturningEffectShape(rows)
-            && rows.every((row) => row.status === "Delivered"),
+            hasExactReturningEffectShape(rows) && rows.every((row) => row.status === "Delivered"),
         ),
         90_000,
       );
       assert.equal(deliveredRows.length, expectedOutboxCount);
       assert.ok(hasExactReturningEffectShape(deliveredRows));
       assert.ok(deliveredRows.every((row) => row.status === "Delivered"));
-      const expectedEffectsById = new Map(
-        deliveredRows.map((row) => [row.effect_id, row]),
+      const expectedEffectsById = new Map(deliveredRows.map((row) => [row.effect_id, row]));
+      const returningEffectCalls = effectCalls.filter(
+        (call) => call.origin === "ReturningAssistant",
       );
-      const returningEffectCalls = effectCalls.filter((call) => call.origin === "ReturningAssistant");
       assert.ok(
         returningEffectCalls.every((call) => {
           const outboxRow = expectedEffectsById.get(call.effectId);
           return (
-            outboxRow !== undefined
-            && call.commandId === outboxRow.command_id
-            && call.origin === outboxRow.origin
-            && call.kind === outboxRow.effect_type
+            outboxRow !== undefined &&
+            call.commandId === outboxRow.command_id &&
+            call.origin === outboxRow.origin &&
+            call.kind === outboxRow.effect_type
           );
         }),
         "effect receiver observed only the immutable expected envelopes",
@@ -747,7 +784,10 @@ try {
     );
     const observedReturningGates = new Set(
       returningResult.trace
-        .filter((entry): entry is { phase: "negative-gate"; gate: string; status: unknown } => entry.phase === "negative-gate")
+        .filter(
+          (entry): entry is { phase: "negative-gate"; gate: string; status: unknown } =>
+            entry.phase === "negative-gate",
+        )
         .map((entry) => entry.gate),
     );
     const reportGates = Array.isArray(reportEvidence?.gates) ? reportEvidence.gates : [];
@@ -760,7 +800,10 @@ try {
       ["invalid/inactive-study-mapping", "inactive-study-mapping"],
       ["wrong-team", "cross-department-team"],
       ["closed-period", "closed-period"],
-      ["retained inactive placement in different historical department/semester", "retained-inactive-cross-department-placement"],
+      [
+        "retained inactive placement in different historical department/semester",
+        "retained-inactive-cross-department-placement",
+      ],
       ["original-app-receipt-activation-conduct", "preserved-original-receipt-activation-conduct"],
       ["new-period-no-new-interview", "new-period-no-new-interview"],
     ].map(([falsifier, gate]) => ({
@@ -772,7 +815,9 @@ try {
       {
         falsifier: "report-self-privacy/read-only",
         gate: "0103 report observer",
-        status: reportGates.some((gate) => typeof gate === "string" && gate.includes("no report writes"))
+        status: reportGates.some(
+          (gate) => typeof gate === "string" && gate.includes("no report writes"),
+        )
           ? "observed"
           : "missing",
       },
@@ -1378,15 +1423,28 @@ try {
 } catch (error) {
   if (error instanceof ReturningLoginProbeComplete) {
     // oxlint-effect-plugin allow(no-ambient-console): bounded local login probe result.
-    console.log(JSON.stringify({ result: "ReturningLoginProbe", revision, artifacts, gates, probe: error.result }));
+    console.log(
+      JSON.stringify({
+        result: "ReturningLoginProbe",
+        revision,
+        artifacts,
+        gates,
+        probe: error.result,
+      }),
+    );
   } else if (error instanceof ReturningTargetedComplete) {
     // oxlint-effect-plugin allow(no-ambient-console): bounded returning/report result.
-    console.log(JSON.stringify({ result: "ReturningTargeted", revision, artifacts, gates, journey: error.result }));
+    console.log(
+      JSON.stringify({
+        result: "ReturningTargeted",
+        revision,
+        artifacts,
+        gates,
+        journey: error.result,
+      }),
+    );
   } else {
-    let detail =
-      error instanceof Error
-        ? (error.stack ?? error.message)
-        : String(error);
+    let detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
     const activeQueries = pool
       ? await pool
           .query(

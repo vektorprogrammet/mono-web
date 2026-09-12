@@ -74,10 +74,7 @@ type Options = {
   auditPage: (page: any, state: string) => Promise<void>;
   recordGate: (...observations: string[]) => void;
 };
-export async function seedInterviewReportCoordinator(o: {
-  pool: any;
-  secrets: string[];
-}) {
+export async function seedInterviewReportCoordinator(o: { pool: any; secrets: string[] }) {
   const { pool, secrets } = o;
   const clone = async (table: string, where: string, values: Record<string, unknown>) =>
     pool.query(
@@ -398,7 +395,10 @@ export async function observeInterviewReport(o: Options) {
   }
   for (const filter of ["Returning", "Unknown"]) {
     const filtered = await read({ admissionPeriodId: ids.period, participation: filter });
-    assert.deepEqual(filtered.rows, report.rows.filter((r) => r.participation === filter));
+    assert.deepEqual(
+      filtered.rows,
+      report.rows.filter((r) => r.participation === filter),
+    );
     assert.ok(filtered.rows.length > 0);
   }
   for (const sort of ["applicant", "recommendation", "total"])
@@ -599,7 +599,13 @@ export async function observeInterviewReport(o: Options) {
     await expect(page.getByRole("status")).toContainText("Velg en opptaksperiode");
     const submit = async () => {
       const fields = new URLSearchParams();
-      for (const name of ["admissionPeriodId", "recommendation", "participation", "sort", "direction"])
+      for (const name of [
+        "admissionPeriodId",
+        "recommendation",
+        "participation",
+        "sort",
+        "direction",
+      ])
         fields.set(name, await page.locator(`[name="${name}"]`).inputValue());
       const target = new URL(page.url());
       target.search = fields.toString();

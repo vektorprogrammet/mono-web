@@ -639,6 +639,9 @@ declare const ReadInterviewReportEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       readonly recommendation: Schema.optional<
         Schema.Literals<readonly ["all", "Ja", "Kanskje", "Nei", "not-recorded"]>
       >;
+      readonly participation: Schema.optional<
+        Schema.Literals<readonly ["all", "Returning", "Unknown"]>
+      >;
       readonly sort: Schema.optional<
         Schema.Literals<readonly ["applicant", "recommendation", "total"]>
       >;
@@ -669,6 +672,7 @@ declare const ReadInterviewReportEndpoint: HttpApiEndpoint.HttpApiEndpoint<
         readonly recommendation: Schema.Literals<
           readonly ["all", "Ja", "Kanskje", "Nei", "not-recorded"]
         >;
+        readonly participation: Schema.Literals<readonly ["all", "Returning", "Unknown"]>;
         readonly sort: Schema.Literals<readonly ["applicant", "recommendation", "total"]>;
         readonly direction: Schema.Literals<readonly ["asc", "desc"]>;
         readonly rows: Schema.$Array<
@@ -683,6 +687,7 @@ declare const ReadInterviewReportEndpoint: HttpApiEndpoint.HttpApiEndpoint<
             readonly recommendation: Schema.NullOr<
               Schema.Literals<readonly ["Ja", "Kanskje", "Nei"]>
             >;
+            readonly participation: Schema.Literals<readonly ["Returning", "Unknown"]>;
           }>
         >;
       }>

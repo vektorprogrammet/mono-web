@@ -30,9 +30,11 @@ showAskAi: false
   - [PublicApplicationOutboxRequestSchema](#publicapplicationoutboxrequestschema)
   - [PublicApplicationRecordingInterpreter (interface)](#publicapplicationrecordinginterpreter-interface)
   - [PublicApplicationRecordingProof (interface)](#publicapplicationrecordingproof-interface)
+  - [ReturningAssistantOutboxInput (interface)](#returningassistantoutboxinput-interface)
   - [makePublicApplicationEffectInterpreter](#makepublicapplicationeffectinterpreter)
   - [makePublicApplicationOutboxRequests](#makepublicapplicationoutboxrequests)
   - [makeRecordingPublicApplicationEffectInterpreter](#makerecordingpublicapplicationeffectinterpreter)
+  - [makeReturningAssistantOutboxRequests](#makereturningassistantoutboxrequests)
   - [recordPublicApplicationEffects](#recordpublicapplicationeffects)
   - [runPublicApplicationRecordingProof](#runpublicapplicationrecordingproof)
 
@@ -48,7 +50,7 @@ showAskAi: false
 declare class PublicApplicationEffectDeliveryError
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L58)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L87)
 
 ### PublicApplicationEffectEvidence (type alias)
 
@@ -58,7 +60,7 @@ declare class PublicApplicationEffectDeliveryError
 type PublicApplicationEffectEvidence = typeof PublicApplicationEffectEvidenceSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L56)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L85)
 
 ### PublicApplicationEffectEvidenceSchema
 
@@ -80,7 +82,7 @@ declare const PublicApplicationEffectEvidenceSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L48)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L77)
 
 ### PublicApplicationEffectInterpreter (interface)
 
@@ -96,7 +98,7 @@ export interface PublicApplicationEffectInterpreter {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L63)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L92)
 
 ### PublicApplicationEffectKind (type alias)
 
@@ -106,7 +108,7 @@ export interface PublicApplicationEffectInterpreter {
 type PublicApplicationEffectKind = typeof PublicApplicationEffectKindSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L28)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L38)
 
 ### PublicApplicationEffectKindSchema
 
@@ -122,7 +124,7 @@ declare const PublicApplicationEffectKindSchema: Schema.Literals<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L23)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L33)
 
 ### PublicApplicationEffectPorts (interface)
 
@@ -148,7 +150,7 @@ export interface PublicApplicationEffectPorts {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L71)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L100)
 
 ### PublicApplicationOutboxRequest (type alias)
 
@@ -158,50 +160,96 @@ export interface PublicApplicationEffectPorts {
 type PublicApplicationOutboxRequest = typeof PublicApplicationOutboxRequestSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L46)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L75)
 
 ### PublicApplicationOutboxRequestSchema
 
 **Signature**
 
 ```ts
-declare const PublicApplicationOutboxRequestSchema: Schema.TaggedUnion<{
-  readonly SendApplicantActivationOrConfirmation: Schema.TaggedStruct<
-    "SendApplicantActivationOrConfirmation",
-    {
-      readonly email: Schema.String;
-      readonly activationToken: Schema.optional<Schema.String>;
-      readonly effectId: Schema.brand<Schema.String, "PublicApplicationEffectId">;
-      readonly commandId: Schema.brand<Schema.String, "PublicApplicationCommandId">;
-      readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-      readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
-    }
-  >;
-  readonly CreateAdmissionSubscription: Schema.TaggedStruct<
-    "CreateAdmissionSubscription",
-    {
-      readonly email: Schema.String;
-      readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
-      readonly effectId: Schema.brand<Schema.String, "PublicApplicationEffectId">;
-      readonly commandId: Schema.brand<Schema.String, "PublicApplicationCommandId">;
-      readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-      readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
-    }
-  >;
-  readonly WriteApplicationAudit: Schema.TaggedStruct<
-    "WriteApplicationAudit",
-    {
-      readonly action: Schema.Literals<readonly ["PublicApplicationSubmitted"]>;
-      readonly effectId: Schema.brand<Schema.String, "PublicApplicationEffectId">;
-      readonly commandId: Schema.brand<Schema.String, "PublicApplicationCommandId">;
-      readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
-      readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
-    }
-  >;
-}>;
+declare const PublicApplicationOutboxRequestSchema: Schema.Union<
+  readonly [
+    Schema.TaggedUnion<{
+      readonly SendApplicantActivationOrConfirmation: Schema.TaggedStruct<
+        "SendApplicantActivationOrConfirmation",
+        {
+          readonly email: Schema.String;
+          readonly activationToken: Schema.optional<Schema.String>;
+          readonly effectId: Schema.brand<Schema.String, "PublicApplicationEffectId">;
+          readonly commandId: Schema.brand<Schema.String, "PublicApplicationCommandId">;
+          readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+          readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
+        }
+      >;
+      readonly CreateAdmissionSubscription: Schema.TaggedStruct<
+        "CreateAdmissionSubscription",
+        {
+          readonly email: Schema.String;
+          readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+          readonly effectId: Schema.brand<Schema.String, "PublicApplicationEffectId">;
+          readonly commandId: Schema.brand<Schema.String, "PublicApplicationCommandId">;
+          readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+          readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
+        }
+      >;
+      readonly WriteApplicationAudit: Schema.TaggedStruct<
+        "WriteApplicationAudit",
+        {
+          readonly action: Schema.Literal<"PublicApplicationSubmitted">;
+          readonly effectId: Schema.brand<Schema.String, "PublicApplicationEffectId">;
+          readonly commandId: Schema.brand<Schema.String, "PublicApplicationCommandId">;
+          readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+          readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
+        }
+      >;
+    }>,
+    Schema.TaggedUnion<{
+      readonly SendApplicantActivationOrConfirmation: Schema.TaggedStruct<
+        "SendApplicantActivationOrConfirmation",
+        {
+          readonly email: Schema.String;
+          readonly origin: Schema.Literal<"ReturningAssistant">;
+          readonly registrationId: Schema.brand<Schema.String, "ReturningRegistrationId">;
+          readonly personId: Schema.brand<Schema.String, "PersonId">;
+          readonly effectId: Schema.brand<Schema.String, "PublicApplicationEffectId">;
+          readonly commandId: Schema.brand<Schema.String, "PublicApplicationCommandId">;
+          readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+          readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
+        }
+      >;
+      readonly CreateAdmissionSubscription: Schema.TaggedStruct<
+        "CreateAdmissionSubscription",
+        {
+          readonly email: Schema.String;
+          readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+          readonly origin: Schema.Literal<"ReturningAssistant">;
+          readonly registrationId: Schema.brand<Schema.String, "ReturningRegistrationId">;
+          readonly personId: Schema.brand<Schema.String, "PersonId">;
+          readonly effectId: Schema.brand<Schema.String, "PublicApplicationEffectId">;
+          readonly commandId: Schema.brand<Schema.String, "PublicApplicationCommandId">;
+          readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+          readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
+        }
+      >;
+      readonly WriteApplicationAudit: Schema.TaggedStruct<
+        "WriteApplicationAudit",
+        {
+          readonly action: Schema.Literal<"ReturningAssistantRegistered">;
+          readonly origin: Schema.Literal<"ReturningAssistant">;
+          readonly registrationId: Schema.brand<Schema.String, "ReturningRegistrationId">;
+          readonly personId: Schema.brand<Schema.String, "PersonId">;
+          readonly effectId: Schema.brand<Schema.String, "PublicApplicationEffectId">;
+          readonly commandId: Schema.brand<Schema.String, "PublicApplicationCommandId">;
+          readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+          readonly applicantId: Schema.brand<Schema.String, "ApplicantId">;
+        }
+      >;
+    }>,
+  ]
+>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L30)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L71)
 
 ### PublicApplicationRecordingInterpreter (interface)
 
@@ -215,7 +263,7 @@ export interface PublicApplicationRecordingInterpreter extends PublicApplication
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L111)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L140)
 
 ### PublicApplicationRecordingProof (interface)
 
@@ -230,7 +278,25 @@ export interface PublicApplicationRecordingProof {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L205)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L283)
+
+### ReturningAssistantOutboxInput (interface)
+
+**Signature**
+
+```ts
+export interface ReturningAssistantOutboxInput {
+  readonly commandId: PublicApplicationCommandId;
+  readonly applicationId: PublicApplicationId;
+  readonly applicantId: ApplicantId;
+  readonly email: string;
+  readonly departmentId: DepartmentId;
+  readonly registrationId: string;
+  readonly personId: PersonId;
+}
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L189)
 
 ### makePublicApplicationEffectInterpreter
 
@@ -242,7 +308,7 @@ declare const makePublicApplicationEffectInterpreter: (
 ) => PublicApplicationEffectInterpreter;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L89)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L118)
 
 ### makePublicApplicationOutboxRequests
 
@@ -258,7 +324,7 @@ declare const makePublicApplicationOutboxRequests: (
 ) => ReadonlyArray<PublicApplicationOutboxRequest>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L120)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L149)
 
 ### makeRecordingPublicApplicationEffectInterpreter
 
@@ -268,7 +334,19 @@ declare const makePublicApplicationOutboxRequests: (
 declare const makeRecordingPublicApplicationEffectInterpreter: () => PublicApplicationRecordingInterpreter;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L160)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L238)
+
+### makeReturningAssistantOutboxRequests
+
+**Signature**
+
+```ts
+declare const makeReturningAssistantOutboxRequests: (
+  input: ReturningAssistantOutboxInput,
+) => ReadonlyArray<PublicApplicationOutboxRequest>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L198)
 
 ### recordPublicApplicationEffects
 
@@ -284,7 +362,7 @@ declare const recordPublicApplicationEffects: (
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L197)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L275)
 
 ### runPublicApplicationRecordingProof
 
@@ -296,4 +374,4 @@ declare const runPublicApplicationRecordingProof: (
 ) => Effect.Effect<PublicApplicationRecordingProof, PublicApplicationEffectDeliveryError>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L212)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/effects.ts#L290)

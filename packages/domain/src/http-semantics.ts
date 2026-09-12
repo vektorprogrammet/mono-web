@@ -37,10 +37,7 @@ export interface NativeHttpCommandExecutionOptions {
   readonly retry?: "serialization-once";
 }
 
-const isSerializationOrDeadlock = (
-  cause: unknown,
-  seen = new Set<object>(),
-): boolean => {
+const isSerializationOrDeadlock = (cause: unknown, seen = new Set<object>()): boolean => {
   if (cause === null || typeof cause !== "object" || seen.has(cause)) return false;
   seen.add(cause);
   if (isSqlError(cause)) {

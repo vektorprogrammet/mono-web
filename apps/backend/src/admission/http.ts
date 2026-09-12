@@ -218,7 +218,9 @@ const returningPersonResource = (personId: string) => ({
 const returningAuthorization = async (
   request: Request,
   input: AdmissionApiHttpOptions,
-  endpoint: typeof ReadReturningAssistantOptionsEndpoint | typeof RegisterReturningAssistantEndpoint,
+  endpoint:
+    | typeof ReadReturningAssistantOptionsEndpoint
+    | typeof RegisterReturningAssistantEndpoint,
   txRun: BackendRun,
 ) => {
   const authorization = await resolveRequestPersonAuthorityInTransaction(request, {

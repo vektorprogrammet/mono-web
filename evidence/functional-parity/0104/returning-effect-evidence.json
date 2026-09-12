@@ -1,0 +1,529 @@
+{
+  "outbox": [
+    {
+      "effect_id": "returning-assistant:returning-registration-1071d925282ee0f73b7ce7393b3823aff7496e62eb63e7ec7efb441f8175d029:audit",
+      "command_id": "httpv2_M1aDn1_6W82zf1RByMG9o4hTGL8yeJfhhGjgm9Fh9zg",
+      "effect_type": "WriteApplicationAudit",
+      "ordinal": 2,
+      "status": "Delivered",
+      "attempts": 1,
+      "claimed_at": null,
+      "last_failure_tag": null,
+      "origin": "ReturningAssistant"
+    },
+    {
+      "effect_id": "returning-assistant:returning-registration-1071d925282ee0f73b7ce7393b3823aff7496e62eb63e7ec7efb441f8175d029:confirmation",
+      "command_id": "httpv2_M1aDn1_6W82zf1RByMG9o4hTGL8yeJfhhGjgm9Fh9zg",
+      "effect_type": "SendApplicantActivationOrConfirmation",
+      "ordinal": 0,
+      "status": "Delivered",
+      "attempts": 3,
+      "claimed_at": null,
+      "last_failure_tag": null,
+      "origin": "ReturningAssistant"
+    },
+    {
+      "effect_id": "returning-assistant:returning-registration-1071d925282ee0f73b7ce7393b3823aff7496e62eb63e7ec7efb441f8175d029:subscription",
+      "command_id": "httpv2_M1aDn1_6W82zf1RByMG9o4hTGL8yeJfhhGjgm9Fh9zg",
+      "effect_type": "CreateAdmissionSubscription",
+      "ordinal": 1,
+      "status": "Delivered",
+      "attempts": 1,
+      "claimed_at": null,
+      "last_failure_tag": null,
+      "origin": "ReturningAssistant"
+    },
+    {
+      "effect_id": "returning-assistant:returning-registration-8218558fcfdda18b819960d605c00daab7a8735309943c1d67017d1e1659da1d:audit",
+      "command_id": "httpv2_xZES5RDNY43T3kDVp99JUhk5ELu460Tbt84GKwq3EDk",
+      "effect_type": "WriteApplicationAudit",
+      "ordinal": 2,
+      "status": "Delivered",
+      "attempts": 1,
+      "claimed_at": null,
+      "last_failure_tag": null,
+      "origin": "ReturningAssistant"
+    },
+    {
+      "effect_id": "returning-assistant:returning-registration-8218558fcfdda18b819960d605c00daab7a8735309943c1d67017d1e1659da1d:confirmation",
+      "command_id": "httpv2_xZES5RDNY43T3kDVp99JUhk5ELu460Tbt84GKwq3EDk",
+      "effect_type": "SendApplicantActivationOrConfirmation",
+      "ordinal": 0,
+      "status": "Delivered",
+      "attempts": 3,
+      "claimed_at": null,
+      "last_failure_tag": null,
+      "origin": "ReturningAssistant"
+    },
+    {
+      "effect_id": "returning-assistant:returning-registration-8218558fcfdda18b819960d605c00daab7a8735309943c1d67017d1e1659da1d:subscription",
+      "command_id": "httpv2_xZES5RDNY43T3kDVp99JUhk5ELu460Tbt84GKwq3EDk",
+      "effect_type": "CreateAdmissionSubscription",
+      "ordinal": 1,
+      "status": "Delivered",
+      "attempts": 1,
+      "claimed_at": null,
+      "last_failure_tag": null,
+      "origin": "ReturningAssistant"
+    },
+    {
+      "effect_id": "returning-assistant:returning-registration-b2e442e57d7c2b7c988e83c452235b090ed99972ca131d205b9a1149866adf9f:audit",
+      "command_id": "httpv2_zXyvVMQtAiGoAMw1uMVu3ypxM4DK0_OV5ooLDzw3QWU",
+      "effect_type": "WriteApplicationAudit",
+      "ordinal": 2,
+      "status": "Delivered",
+      "attempts": 1,
+      "claimed_at": null,
+      "last_failure_tag": null,
+      "origin": "ReturningAssistant"
+    },
+    {
+      "effect_id": "returning-assistant:returning-registration-b2e442e57d7c2b7c988e83c452235b090ed99972ca131d205b9a1149866adf9f:confirmation",
+      "command_id": "httpv2_zXyvVMQtAiGoAMw1uMVu3ypxM4DK0_OV5ooLDzw3QWU",
+      "effect_type": "SendApplicantActivationOrConfirmation",
+      "ordinal": 0,
+      "status": "Delivered",
+      "attempts": 3,
+      "claimed_at": null,
+      "last_failure_tag": null,
+      "origin": "ReturningAssistant"
+    },
+    {
+      "effect_id": "returning-assistant:returning-registration-b2e442e57d7c2b7c988e83c452235b090ed99972ca131d205b9a1149866adf9f:subscription",
+      "command_id": "httpv2_zXyvVMQtAiGoAMw1uMVu3ypxM4DK0_OV5ooLDzw3QWU",
+      "effect_type": "CreateAdmissionSubscription",
+      "ordinal": 1,
+      "status": "Delivered",
+      "attempts": 1,
+      "claimed_at": null,
+      "last_failure_tag": null,
+      "origin": "ReturningAssistant"
+    },
+    {
+      "effect_id": "returning-assistant:returning-registration-d4a58007e975ac180a6899772e90f3f459b6cf187e1de3e5be6cf07c4647a3ec:audit",
+      "command_id": "httpv2_VHipFD5cAMcC63lwkXCME3kybIUoZXuz5btPTd2GlHk",
+      "effect_type": "WriteApplicationAudit",
+      "ordinal": 2,
+      "status": "Delivered",
+      "attempts": 1,
+      "claimed_at": null,
+      "last_failure_tag": null,
+      "origin": "ReturningAssistant"
+    },
+    {
+      "effect_id": "returning-assistant:returning-registration-d4a58007e975ac180a6899772e90f3f459b6cf187e1de3e5be6cf07c4647a3ec:confirmation",
+      "command_id": "httpv2_VHipFD5cAMcC63lwkXCME3kybIUoZXuz5btPTd2GlHk",
+      "effect_type": "SendApplicantActivationOrConfirmation",
+      "ordinal": 0,
+      "status": "Delivered",
+      "attempts": 2,
+      "claimed_at": null,
+      "last_failure_tag": null,
+      "origin": "ReturningAssistant"
+    },
+    {
+      "effect_id": "returning-assistant:returning-registration-d4a58007e975ac180a6899772e90f3f459b6cf187e1de3e5be6cf07c4647a3ec:subscription",
+      "command_id": "httpv2_VHipFD5cAMcC63lwkXCME3kybIUoZXuz5btPTd2GlHk",
+      "effect_type": "CreateAdmissionSubscription",
+      "ordinal": 1,
+      "status": "Delivered",
+      "attempts": 1,
+      "claimed_at": null,
+      "last_failure_tag": null,
+      "origin": "ReturningAssistant"
+    },
+    {
+      "effect_id": "returning-assistant:returning-registration-e676af57a8e62cb05628003ce951f0a310dee418b53e104a03d07fbd2bf8a490:audit",
+      "command_id": "httpv2_W2QlS81JSxzERetQ0CZWZAwfB48Jw2pBkbRnPADzA9A",
+      "effect_type": "WriteApplicationAudit",
+      "ordinal": 2,
+      "status": "Delivered",
+      "attempts": 1,
+      "claimed_at": null,
+      "last_failure_tag": null,
+      "origin": "ReturningAssistant"
+    },
+    {
+      "effect_id": "returning-assistant:returning-registration-e676af57a8e62cb05628003ce951f0a310dee418b53e104a03d07fbd2bf8a490:confirmation",
+      "command_id": "httpv2_W2QlS81JSxzERetQ0CZWZAwfB48Jw2pBkbRnPADzA9A",
+      "effect_type": "SendApplicantActivationOrConfirmation",
+      "ordinal": 0,
+      "status": "Delivered",
+      "attempts": 2,
+      "claimed_at": null,
+      "last_failure_tag": null,
+      "origin": "ReturningAssistant"
+    },
+    {
+      "effect_id": "returning-assistant:returning-registration-e676af57a8e62cb05628003ce951f0a310dee418b53e104a03d07fbd2bf8a490:subscription",
+      "command_id": "httpv2_W2QlS81JSxzERetQ0CZWZAwfB48Jw2pBkbRnPADzA9A",
+      "effect_type": "CreateAdmissionSubscription",
+      "ordinal": 1,
+      "status": "Delivered",
+      "attempts": 1,
+      "claimed_at": null,
+      "last_failure_tag": null,
+      "origin": "ReturningAssistant"
+    },
+    {
+      "effect_id": "returning-assistant:returning-registration-f479bd862a685a08ef1cbb93383f3bfa70043ec93ec3dfcddef32b6af217f8df:audit",
+      "command_id": "httpv2_Cb2M3OZheDtin_ivw0-0p7YQKgALrmH3HX5QVjE7KCs",
+      "effect_type": "WriteApplicationAudit",
+      "ordinal": 2,
+      "status": "Delivered",
+      "attempts": 1,
+      "claimed_at": null,
+      "last_failure_tag": null,
+      "origin": "ReturningAssistant"
+    },
+    {
+      "effect_id": "returning-assistant:returning-registration-f479bd862a685a08ef1cbb93383f3bfa70043ec93ec3dfcddef32b6af217f8df:confirmation",
+      "command_id": "httpv2_Cb2M3OZheDtin_ivw0-0p7YQKgALrmH3HX5QVjE7KCs",
+      "effect_type": "SendApplicantActivationOrConfirmation",
+      "ordinal": 0,
+      "status": "Delivered",
+      "attempts": 2,
+      "claimed_at": null,
+      "last_failure_tag": null,
+      "origin": "ReturningAssistant"
+    },
+    {
+      "effect_id": "returning-assistant:returning-registration-f479bd862a685a08ef1cbb93383f3bfa70043ec93ec3dfcddef32b6af217f8df:subscription",
+      "command_id": "httpv2_Cb2M3OZheDtin_ivw0-0p7YQKgALrmH3HX5QVjE7KCs",
+      "effect_type": "CreateAdmissionSubscription",
+      "ordinal": 1,
+      "status": "Delivered",
+      "attempts": 1,
+      "claimed_at": null,
+      "last_failure_tag": null,
+      "origin": "ReturningAssistant"
+    }
+  ],
+  "registrations": [
+    {
+      "command_id": "httpv2_Cb2M3OZheDtin_ivw0-0p7YQKgALrmH3HX5QVjE7KCs",
+      "registration_id": "returning-registration-f479bd862a685a08ef1cbb93383f3bfa70043ec93ec3dfcddef32b6af217f8df"
+    },
+    {
+      "command_id": "httpv2_M1aDn1_6W82zf1RByMG9o4hTGL8yeJfhhGjgm9Fh9zg",
+      "registration_id": "returning-registration-1071d925282ee0f73b7ce7393b3823aff7496e62eb63e7ec7efb441f8175d029"
+    },
+    {
+      "command_id": "httpv2_VHipFD5cAMcC63lwkXCME3kybIUoZXuz5btPTd2GlHk",
+      "registration_id": "returning-registration-d4a58007e975ac180a6899772e90f3f459b6cf187e1de3e5be6cf07c4647a3ec"
+    },
+    {
+      "command_id": "httpv2_W2QlS81JSxzERetQ0CZWZAwfB48Jw2pBkbRnPADzA9A",
+      "registration_id": "returning-registration-e676af57a8e62cb05628003ce951f0a310dee418b53e104a03d07fbd2bf8a490"
+    },
+    {
+      "command_id": "httpv2_xZES5RDNY43T3kDVp99JUhk5ELu460Tbt84GKwq3EDk",
+      "registration_id": "returning-registration-8218558fcfdda18b819960d605c00daab7a8735309943c1d67017d1e1659da1d"
+    },
+    {
+      "command_id": "httpv2_zXyvVMQtAiGoAMw1uMVu3ypxM4DK0_OV5ooLDzw3QWU",
+      "registration_id": "returning-registration-b2e442e57d7c2b7c988e83c452235b090ed99972ca131d205b9a1149866adf9f"
+    }
+  ],
+  "calls": [
+    {
+      "effectId": "returning-assistant:returning-registration-b2e442e57d7c2b7c988e83c452235b090ed99972ca131d205b9a1149866adf9f:confirmation",
+      "commandId": "httpv2_zXyvVMQtAiGoAMw1uMVu3ypxM4DK0_OV5ooLDzw3QWU",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 1,
+      "status": 503
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-1071d925282ee0f73b7ce7393b3823aff7496e62eb63e7ec7efb441f8175d029:confirmation",
+      "commandId": "httpv2_M1aDn1_6W82zf1RByMG9o4hTGL8yeJfhhGjgm9Fh9zg",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 1,
+      "status": 503
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-8218558fcfdda18b819960d605c00daab7a8735309943c1d67017d1e1659da1d:confirmation",
+      "commandId": "httpv2_xZES5RDNY43T3kDVp99JUhk5ELu460Tbt84GKwq3EDk",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 1,
+      "status": 503
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-e676af57a8e62cb05628003ce951f0a310dee418b53e104a03d07fbd2bf8a490:confirmation",
+      "commandId": "httpv2_W2QlS81JSxzERetQ0CZWZAwfB48Jw2pBkbRnPADzA9A",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 1,
+      "status": 503
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-d4a58007e975ac180a6899772e90f3f459b6cf187e1de3e5be6cf07c4647a3ec:confirmation",
+      "commandId": "httpv2_VHipFD5cAMcC63lwkXCME3kybIUoZXuz5btPTd2GlHk",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 1,
+      "status": 503
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-f479bd862a685a08ef1cbb93383f3bfa70043ec93ec3dfcddef32b6af217f8df:confirmation",
+      "commandId": "httpv2_Cb2M3OZheDtin_ivw0-0p7YQKgALrmH3HX5QVjE7KCs",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 1,
+      "status": 503
+    },
+    {
+      "effectId": "recruitment-invitation:4f229dda0cf2dc1cf7caef829e24f2e83b8229e9717b72bf4f006cba54a588db",
+      "commandId": "httpv2_zAoOYpGOiMWVi98EdCTv8M4JPJy8f2Vu_wEVRquapTk",
+      "origin": "",
+      "kind": "SendInterviewInvitation",
+      "attempt": 1,
+      "status": 204
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-b2e442e57d7c2b7c988e83c452235b090ed99972ca131d205b9a1149866adf9f:confirmation",
+      "commandId": "httpv2_zXyvVMQtAiGoAMw1uMVu3ypxM4DK0_OV5ooLDzw3QWU",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 2,
+      "status": 503
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-1071d925282ee0f73b7ce7393b3823aff7496e62eb63e7ec7efb441f8175d029:confirmation",
+      "commandId": "httpv2_M1aDn1_6W82zf1RByMG9o4hTGL8yeJfhhGjgm9Fh9zg",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 2,
+      "status": 503
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-8218558fcfdda18b819960d605c00daab7a8735309943c1d67017d1e1659da1d:confirmation",
+      "commandId": "httpv2_xZES5RDNY43T3kDVp99JUhk5ELu460Tbt84GKwq3EDk",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 2,
+      "status": 503
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-e676af57a8e62cb05628003ce951f0a310dee418b53e104a03d07fbd2bf8a490:confirmation",
+      "commandId": "httpv2_W2QlS81JSxzERetQ0CZWZAwfB48Jw2pBkbRnPADzA9A",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 2,
+      "status": 204
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-e676af57a8e62cb05628003ce951f0a310dee418b53e104a03d07fbd2bf8a490:subscription",
+      "commandId": "httpv2_W2QlS81JSxzERetQ0CZWZAwfB48Jw2pBkbRnPADzA9A",
+      "origin": "ReturningAssistant",
+      "kind": "CreateAdmissionSubscription",
+      "attempt": 1,
+      "status": 204
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-e676af57a8e62cb05628003ce951f0a310dee418b53e104a03d07fbd2bf8a490:audit",
+      "commandId": "httpv2_W2QlS81JSxzERetQ0CZWZAwfB48Jw2pBkbRnPADzA9A",
+      "origin": "ReturningAssistant",
+      "kind": "WriteApplicationAudit",
+      "attempt": 1,
+      "status": 204
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-d4a58007e975ac180a6899772e90f3f459b6cf187e1de3e5be6cf07c4647a3ec:confirmation",
+      "commandId": "httpv2_VHipFD5cAMcC63lwkXCME3kybIUoZXuz5btPTd2GlHk",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 2,
+      "status": 204
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-d4a58007e975ac180a6899772e90f3f459b6cf187e1de3e5be6cf07c4647a3ec:subscription",
+      "commandId": "httpv2_VHipFD5cAMcC63lwkXCME3kybIUoZXuz5btPTd2GlHk",
+      "origin": "ReturningAssistant",
+      "kind": "CreateAdmissionSubscription",
+      "attempt": 1,
+      "status": 204
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-d4a58007e975ac180a6899772e90f3f459b6cf187e1de3e5be6cf07c4647a3ec:audit",
+      "commandId": "httpv2_VHipFD5cAMcC63lwkXCME3kybIUoZXuz5btPTd2GlHk",
+      "origin": "ReturningAssistant",
+      "kind": "WriteApplicationAudit",
+      "attempt": 1,
+      "status": 204
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-f479bd862a685a08ef1cbb93383f3bfa70043ec93ec3dfcddef32b6af217f8df:confirmation",
+      "commandId": "httpv2_Cb2M3OZheDtin_ivw0-0p7YQKgALrmH3HX5QVjE7KCs",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 2,
+      "status": 204
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-f479bd862a685a08ef1cbb93383f3bfa70043ec93ec3dfcddef32b6af217f8df:subscription",
+      "commandId": "httpv2_Cb2M3OZheDtin_ivw0-0p7YQKgALrmH3HX5QVjE7KCs",
+      "origin": "ReturningAssistant",
+      "kind": "CreateAdmissionSubscription",
+      "attempt": 1,
+      "status": 204
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-f479bd862a685a08ef1cbb93383f3bfa70043ec93ec3dfcddef32b6af217f8df:audit",
+      "commandId": "httpv2_Cb2M3OZheDtin_ivw0-0p7YQKgALrmH3HX5QVjE7KCs",
+      "origin": "ReturningAssistant",
+      "kind": "WriteApplicationAudit",
+      "attempt": 1,
+      "status": 204
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-b2e442e57d7c2b7c988e83c452235b090ed99972ca131d205b9a1149866adf9f:confirmation",
+      "commandId": "httpv2_zXyvVMQtAiGoAMw1uMVu3ypxM4DK0_OV5ooLDzw3QWU",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 3,
+      "status": 204
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-b2e442e57d7c2b7c988e83c452235b090ed99972ca131d205b9a1149866adf9f:subscription",
+      "commandId": "httpv2_zXyvVMQtAiGoAMw1uMVu3ypxM4DK0_OV5ooLDzw3QWU",
+      "origin": "ReturningAssistant",
+      "kind": "CreateAdmissionSubscription",
+      "attempt": 1,
+      "status": 204
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-b2e442e57d7c2b7c988e83c452235b090ed99972ca131d205b9a1149866adf9f:audit",
+      "commandId": "httpv2_zXyvVMQtAiGoAMw1uMVu3ypxM4DK0_OV5ooLDzw3QWU",
+      "origin": "ReturningAssistant",
+      "kind": "WriteApplicationAudit",
+      "attempt": 1,
+      "status": 204
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-1071d925282ee0f73b7ce7393b3823aff7496e62eb63e7ec7efb441f8175d029:confirmation",
+      "commandId": "httpv2_M1aDn1_6W82zf1RByMG9o4hTGL8yeJfhhGjgm9Fh9zg",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 3,
+      "status": 204
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-1071d925282ee0f73b7ce7393b3823aff7496e62eb63e7ec7efb441f8175d029:subscription",
+      "commandId": "httpv2_M1aDn1_6W82zf1RByMG9o4hTGL8yeJfhhGjgm9Fh9zg",
+      "origin": "ReturningAssistant",
+      "kind": "CreateAdmissionSubscription",
+      "attempt": 1,
+      "status": 204
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-1071d925282ee0f73b7ce7393b3823aff7496e62eb63e7ec7efb441f8175d029:audit",
+      "commandId": "httpv2_M1aDn1_6W82zf1RByMG9o4hTGL8yeJfhhGjgm9Fh9zg",
+      "origin": "ReturningAssistant",
+      "kind": "WriteApplicationAudit",
+      "attempt": 1,
+      "status": 204
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-8218558fcfdda18b819960d605c00daab7a8735309943c1d67017d1e1659da1d:confirmation",
+      "commandId": "httpv2_xZES5RDNY43T3kDVp99JUhk5ELu460Tbt84GKwq3EDk",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 3,
+      "status": 204
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-8218558fcfdda18b819960d605c00daab7a8735309943c1d67017d1e1659da1d:subscription",
+      "commandId": "httpv2_xZES5RDNY43T3kDVp99JUhk5ELu460Tbt84GKwq3EDk",
+      "origin": "ReturningAssistant",
+      "kind": "CreateAdmissionSubscription",
+      "attempt": 1,
+      "status": 204
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-8218558fcfdda18b819960d605c00daab7a8735309943c1d67017d1e1659da1d:audit",
+      "commandId": "httpv2_xZES5RDNY43T3kDVp99JUhk5ELu460Tbt84GKwq3EDk",
+      "origin": "ReturningAssistant",
+      "kind": "WriteApplicationAudit",
+      "attempt": 1,
+      "status": 204
+    }
+  ],
+  "preRestartCalls": [
+    {
+      "effectId": "returning-assistant:returning-registration-b2e442e57d7c2b7c988e83c452235b090ed99972ca131d205b9a1149866adf9f:confirmation",
+      "commandId": "httpv2_zXyvVMQtAiGoAMw1uMVu3ypxM4DK0_OV5ooLDzw3QWU",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 1,
+      "status": 503
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-1071d925282ee0f73b7ce7393b3823aff7496e62eb63e7ec7efb441f8175d029:confirmation",
+      "commandId": "httpv2_M1aDn1_6W82zf1RByMG9o4hTGL8yeJfhhGjgm9Fh9zg",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 1,
+      "status": 503
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-8218558fcfdda18b819960d605c00daab7a8735309943c1d67017d1e1659da1d:confirmation",
+      "commandId": "httpv2_xZES5RDNY43T3kDVp99JUhk5ELu460Tbt84GKwq3EDk",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 1,
+      "status": 503
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-e676af57a8e62cb05628003ce951f0a310dee418b53e104a03d07fbd2bf8a490:confirmation",
+      "commandId": "httpv2_W2QlS81JSxzERetQ0CZWZAwfB48Jw2pBkbRnPADzA9A",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 1,
+      "status": 503
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-d4a58007e975ac180a6899772e90f3f459b6cf187e1de3e5be6cf07c4647a3ec:confirmation",
+      "commandId": "httpv2_VHipFD5cAMcC63lwkXCME3kybIUoZXuz5btPTd2GlHk",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 1,
+      "status": 503
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-f479bd862a685a08ef1cbb93383f3bfa70043ec93ec3dfcddef32b6af217f8df:confirmation",
+      "commandId": "httpv2_Cb2M3OZheDtin_ivw0-0p7YQKgALrmH3HX5QVjE7KCs",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 1,
+      "status": 503
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-b2e442e57d7c2b7c988e83c452235b090ed99972ca131d205b9a1149866adf9f:confirmation",
+      "commandId": "httpv2_zXyvVMQtAiGoAMw1uMVu3ypxM4DK0_OV5ooLDzw3QWU",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 2,
+      "status": 503
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-1071d925282ee0f73b7ce7393b3823aff7496e62eb63e7ec7efb441f8175d029:confirmation",
+      "commandId": "httpv2_M1aDn1_6W82zf1RByMG9o4hTGL8yeJfhhGjgm9Fh9zg",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 2,
+      "status": 503
+    },
+    {
+      "effectId": "returning-assistant:returning-registration-8218558fcfdda18b819960d605c00daab7a8735309943c1d67017d1e1659da1d:confirmation",
+      "commandId": "httpv2_xZES5RDNY43T3kDVp99JUhk5ELu460Tbt84GKwq3EDk",
+      "origin": "ReturningAssistant",
+      "kind": "SendApplicantActivationOrConfirmation",
+      "attempt": 2,
+      "status": 503
+    }
+  ],
+  "restart": true
+}
