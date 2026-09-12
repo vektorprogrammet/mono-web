@@ -47095,6 +47095,52 @@
                       "properties": {
                         "code": {
                           "enum": [
+                            "application.ambiguous-period"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "More than one admission period matches this application."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            409
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Ambiguous admission period"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:application.ambiguous-period"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
                             "recruitment.application-already-assigned"
                           ],
                           "type": "string"
