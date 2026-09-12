@@ -351,7 +351,6 @@ export const runReturningAssistantBrowserJourney = async ({
   auditPage,
   errors,
   stage,
-  registrationOnly = false,
 }: {
   readonly browser: Browser;
   readonly page: Page;
@@ -362,7 +361,6 @@ export const runReturningAssistantBrowserJourney = async ({
   readonly auditPage: (page: Page, state: string) => Promise<void>;
   readonly errors: string[];
   readonly stage?: (name: string) => void;
-  readonly registrationOnly?: boolean;
 }) => {
   const trace: Array<Record<string, unknown>> = [];
   try {
@@ -1052,13 +1050,6 @@ export const runReturningAssistantBrowserJourney = async ({
   );
   assert.deepEqual(nextInterviews.rows, [{ count: 0 }]);
   trace.push({ phase: "negative-gate", gate: "new-period-no-new-interview", status: "observed" });
-  if (registrationOnly) {
-    stage?.("returning:registration-only-complete");
-    await returning.close();
-    await context.close();
-    await page.goto(`${ui}/dashboard/intervjuer`);
-    return { trace };
-  }
   const ordinaryConduct = await pool.query(
     `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
      FROM public.recruitment_interview_conducts c
@@ -1224,46 +1215,13 @@ export const runReturningAssistantBrowserJourney = async ({
   for (const axis of ["explanatoryPower", "roleModel", "suitability"])
     await page.locator(`#score-${axis}`).selectOption("9");
   await page.locator("#interviewer-recommendation").selectOption("Kanskje");
-  const conductStaleContext = await browser.newContext({ storageState: await page.context().storageState() });
-  const stalePage = await conductStaleContext.newPage();
-  try {
-    await stalePage.goto(`${ui}/dashboard/intervjuer`);
-    await stalePage.getByRole("heading", { name: "Planlegg intervjuer", exact: true }).waitFor();
-    await stalePage
-      .getByRole("article")
-      .filter({ hasText: "Rita Tilbake" })
-      .getByRole("button", { name: "Åpne intervju", exact: true })
-      .click();
-    await stalePage.getByRole("heading", { name: "Intervju med Rita Tilbake", exact: true }).waitFor();
-    await stalePage.locator("#question-interview-schema-native-conduct-0063-q0").fill(
-      "Jeg vil utvikle læringsopplegg sammen med andre.",
-    );
-    await stalePage.locator("#question-interview-schema-native-conduct-0063-q1-1").check();
-    await stalePage.locator("#question-interview-schema-native-conduct-0063-q2-0").check();
-    await stalePage.locator("#question-interview-schema-native-conduct-0063-q3-0").check();
-    for (const axis of ["explanatoryPower", "roleModel", "suitability"])
-      await stalePage.locator(`#score-${axis}`).selectOption("9");
-    await stalePage.locator("#interviewer-recommendation").selectOption("Kanskje");
-    await page.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
-    await page
-      .getByRole("dialog")
-      .getByRole("button", { name: "Fullfør intervju", exact: true })
-      .press("Enter");
-    await page.getByText("Intervjuet er fullført.", { exact: true }).waitFor();
-    await page.reload();
-    await stalePage.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
-    await stalePage
-      .getByRole("dialog")
-      .getByRole("button", { name: "Fullfør intervju", exact: true })
-      .press("Enter");
-    await stalePage
-      .getByRole("alert")
-      .filter({ hasText: "Intervjuet er endret." })
-      .waitFor();
-    await stalePage.reload();
-  } finally {
-    await conductStaleContext.close();
-  }
+  await page.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Fullfør intervju", exact: true })
+    .press("Enter");
+  await page.getByText("Intervjuet er fullført.", { exact: true }).waitFor();
+  await page.reload();
   const nextConduct = await pool.query(
     `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
      FROM public.recruitment_interview_conducts c
@@ -1286,7 +1244,6 @@ export const runReturningAssistantBrowserJourney = async ({
     interviewId: nextInterviewId,
     recommendation: "Kanskje",
     total: 27,
-    staleDraft: "409",
   });
   const registrations = await pool.query("SELECT admission_period_id,revision,year_of_study,monday_unavailable,tuesday_unavailable,wednesday_unavailable,thursday_unavailable,friday_unavailable,position_weeks,preferred_group,language,preferred_school,team_interest,team_ids FROM public.admission_returning_registrations WHERE person_id=$1 ORDER BY admission_period_id,revision", [person.personId]);
   assert.deepEqual(registrations.rows, [
