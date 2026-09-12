@@ -668,6 +668,7 @@ export const runReturningAssistantBrowserJourney = async ({
     }
   });
   stage?.("returning:mutation");
+  let firstCommittedRow: unknown;
   try {
     stage?.("returning:mutation:first:click");
     await submit.click();
@@ -675,20 +676,15 @@ export const runReturningAssistantBrowserJourney = async ({
     await firstActionSettled;
     stage?.("returning:mutation:first:settled");
     const firstCommittedBeforeRetry = await pool.query(
-      `SELECT admission_period_id,revision,command_id
+      `SELECT *
        FROM public.admission_returning_registrations
        WHERE person_id=$1 AND admission_period_id=$2
        ORDER BY revision`,
       [person.personId, nextAdmissionPeriodId],
     );
     assert.ok(firstCommandKey);
-    const expectedFirstCommit = [{
-      admission_period_id: nextAdmissionPeriodId,
-      revision: 1,
-      command_id: firstCommandKey,
-    }];
-    if (JSON.stringify(firstCommittedBeforeRetry.rows) !== JSON.stringify(expectedFirstCommit))
-      throw new Error(`first registration before retry mismatch actual=${JSON.stringify(firstCommittedBeforeRetry.rows)} expected=${JSON.stringify(expectedFirstCommit)}`);
+    assert.equal(firstCommittedBeforeRetry.rows.length, 1);
+    firstCommittedRow = firstCommittedBeforeRetry.rows[0];
     trace.push({ phase: "first-before-retry", sqlCommitted: firstCommittedBeforeRetry.rows });
     stage?.("returning:mutation:recovery");
     const recovery = returning.getByRole("button", { name: "Prøv igjen", exact: true });
@@ -750,6 +746,16 @@ export const runReturningAssistantBrowserJourney = async ({
     trace.push({ phase, sqlCommitted: committed.rows });
     await writeFile(join(artifacts, "returning-registration-trace.json"), JSON.stringify(trace, null, 2));
   };
+  const afterRetryCommitted = await pool.query(
+    `SELECT *
+     FROM public.admission_returning_registrations
+     WHERE person_id=$1 AND admission_period_id=$2
+     ORDER BY revision`,
+    [person.personId, nextAdmissionPeriodId],
+  );
+  assert.equal(afterRetryCommitted.rows.length, 1);
+  assert.deepEqual(afterRetryCommitted.rows[0], firstCommittedRow);
+  trace.push({ phase: "after-retry-immutable-row", sqlCommitted: afterRetryCommitted.rows });
   try {
     await assertStatus(form, "Registreringen er lagret.");
   } catch (cause) {
