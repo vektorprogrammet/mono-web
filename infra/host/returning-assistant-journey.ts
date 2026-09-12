@@ -159,7 +159,7 @@ export const seedReturningAssistant = async ({
         applicantId: "applicant-returning-invalid-study-0104",
         personId: negativeProbePersons[3].personId,
         email: negativeProbePersons[3].email,
-        field: "field-returning-invalid-0104",
+        field: fieldOfStudyId,
         applicationId: "application-returning-invalid-study-0104",
       },
       {
@@ -420,7 +420,18 @@ export const runReturningAssistantBrowserJourney = async ({
   await probeNegativeOptions("no-placement-despite-affiliation", negativeProbePersons[0], 404);
   await probeNegativeOptions("missing-applicant-person-link", negativeProbePersons[1], 404);
   await probeNegativeOptions("multiple-applicant-person-links", negativeProbePersons[2], 409);
-  await probeNegativeOptions("invalid-study-mapping", negativeProbePersons[3], 409);
+  await pool.query(
+    "UPDATE public.admission_period_fields_of_study SET active=false WHERE field_of_study_id=$1",
+    [fieldOfStudyId],
+  );
+  try {
+    await probeNegativeOptions("inactive-study-mapping", negativeProbePersons[3], 409);
+  } finally {
+    await pool.query(
+      "UPDATE public.admission_period_fields_of_study SET active=true WHERE field_of_study_id=$1",
+      [fieldOfStudyId],
+    );
+  }
   const mappingKey = await pool.query(
     `SELECT array_agg(a.attname ORDER BY k.ordinality) AS columns
      FROM pg_index i
