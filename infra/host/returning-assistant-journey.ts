@@ -449,6 +449,28 @@ export const runReturningAssistantBrowserJourney = async ({
     });
     return { status: response.status };
   }, `${api}/api/returning-assistant/options`);
+  const originalCustody = await pool.query(
+    `SELECT
+       to_jsonb(application) - 'year_of_study' - 'revision' AS application_immutable,
+       to_jsonb(applicant) - 'activation_digest' AS applicant_profile,
+       applicant.activation_digest,
+       COALESCE((
+         SELECT jsonb_agg(to_jsonb(receipt) ORDER BY receipt.command_id)
+         FROM public.admission_application_command_receipts receipt
+         WHERE receipt.application_id=application.application_id
+       ), '[]'::jsonb) AS public_receipts,
+       COALESCE((
+         SELECT jsonb_agg(to_jsonb(conduct) ORDER BY conduct.interview_id)
+         FROM public.recruitment_interviews interview
+         JOIN public.recruitment_interview_conducts conduct USING(interview_id)
+         WHERE interview.application_id=application.application_id
+       ), '[]'::jsonb) AS conducts
+     FROM public.admission_applications application
+     JOIN public.admission_applicants applicant USING(applicant_id)
+     WHERE application.application_id=$1`,
+    [applicationId],
+  );
+  assert.equal(originalCustody.rows.length, 1);
   let form: Locator;
   stage?.("returning:form");
   try {
@@ -669,6 +691,38 @@ export const runReturningAssistantBrowserJourney = async ({
   await expectValue(updated.getByRole("combobox", { name: "Studieår" }), "3");
   await expectValue(updated.getByRole("combobox", { name: "Språk" }), "Engelsk");
   await auditPage(returning, "returning-registration");
+  const finalCustody = await pool.query(
+    `SELECT
+       to_jsonb(application) - 'year_of_study' - 'revision' AS application_immutable,
+       to_jsonb(applicant) - 'activation_digest' AS applicant_profile,
+       applicant.activation_digest,
+       COALESCE((
+         SELECT jsonb_agg(to_jsonb(receipt) ORDER BY receipt.command_id)
+         FROM public.admission_application_command_receipts receipt
+         WHERE receipt.application_id=application.application_id
+       ), '[]'::jsonb) AS public_receipts,
+       COALESCE((
+         SELECT jsonb_agg(to_jsonb(conduct) ORDER BY conduct.interview_id)
+         FROM public.recruitment_interviews interview
+         JOIN public.recruitment_interview_conducts conduct USING(interview_id)
+         WHERE interview.application_id=application.application_id
+       ), '[]'::jsonb) AS conducts
+     FROM public.admission_applications application
+     JOIN public.admission_applicants applicant USING(applicant_id)
+     WHERE application.application_id=$1`,
+    [applicationId],
+  );
+  assert.deepEqual(finalCustody.rows, originalCustody.rows);
+  trace.push({ phase: "negative-gate", gate: "preserved-original-receipt-activation-conduct", status: "observed" });
+  const nextInterviews = await pool.query(
+    `SELECT count(*)::int AS count
+     FROM public.recruitment_interviews interview
+     JOIN public.admission_applications application USING(application_id)
+     WHERE application.admission_period_id=$1`,
+    [nextAdmissionPeriodId],
+  );
+  assert.deepEqual(nextInterviews.rows, [{ count: 0 }]);
+  trace.push({ phase: "negative-gate", gate: "new-period-no-new-interview", status: "observed" });
   const registrations = await pool.query("SELECT admission_period_id,revision,year_of_study,monday_unavailable,tuesday_unavailable,wednesday_unavailable,thursday_unavailable,friday_unavailable,position_weeks,preferred_group,language,preferred_school,team_interest,team_ids FROM public.admission_returning_registrations WHERE person_id=$1 ORDER BY admission_period_id,revision", [person.personId]);
   assert.deepEqual(registrations.rows, [
     { admission_period_id: admissionPeriodId, revision: 1, year_of_study: 2, monday_unavailable: false, tuesday_unavailable: false, wednesday_unavailable: false, thursday_unavailable: false, friday_unavailable: false, position_weeks: 4, preferred_group: "all", language: "Norsk og engelsk", preferred_school: null, team_interest: false, team_ids: [] },

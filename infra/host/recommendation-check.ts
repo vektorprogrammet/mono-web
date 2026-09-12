@@ -475,9 +475,52 @@ try {
         recordGate,
       }),
     );
+    const observedReturningGates = new Set(
+      returningResult.trace
+        .filter((entry): entry is { phase: "negative-gate"; gate: string; status: unknown } => entry.phase === "negative-gate")
+        .map((entry) => entry.gate),
+    );
+    const reportGates = Array.isArray(reportEvidence?.gates) ? reportEvidence.gates : [];
+    const returningFalsifierManifest = [
+      ["anonymous", "anonymous-options"],
+      ["no-history/team-only", "no-placement-despite-affiliation"],
+      ["missing-linkedPerson", "missing-applicant-person-link"],
+      ["multiple-linkedPerson", "multiple-applicant-person-links"],
+      ["ambiguous-study-mapping", "ambiguous-study-mapping-structural-primary-key"],
+      ["invalid/inactive-study-mapping", "inactive-study-mapping"],
+      ["wrong-team", "cross-department-team"],
+      ["closed-period", "closed-period"],
+      ["stale/revoked-auth", "stale-revoked-auth"],
+      ["original-app-receipt-activation-conduct", "preserved-original-receipt-activation-conduct"],
+      ["new-period-no-new-interview", "new-period-no-new-interview"],
+    ].map(([falsifier, gate]) => ({
+      falsifier,
+      gate,
+      status: observedReturningGates.has(gate) ? "observed" : "missing",
+    }));
+    returningFalsifierManifest.push(
+      {
+        falsifier: "report-self-privacy/read-only",
+        gate: "0103 report observer",
+        status: reportGates.some((gate) => typeof gate === "string" && gate.includes("no report writes"))
+          ? "observed"
+          : "missing",
+      },
+      {
+        falsifier: "report-exact-period/classification/filter-reload",
+        gate: "0103 report observer",
+        status: reportGates.some((gate) => typeof gate === "string" && gate.includes("period"))
+          ? "observed"
+          : "missing",
+      },
+    );
     await writeFile(
       join(artifacts, "returning-targeted-evidence.json"),
-      JSON.stringify({ revision, returningStages, returningResult, reportEvidence }, null, 2),
+      JSON.stringify(
+        { revision, returningStages, returningResult, returningFalsifierManifest, reportEvidence },
+        null,
+        2,
+      ),
     );
     throw new ReturningTargetedComplete({ returningStages, reportEvidence });
   }
