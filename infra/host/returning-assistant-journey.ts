@@ -325,6 +325,7 @@ export const runReturningAssistantBrowserJourney = async ({
     stage?.(`returning:mutation:${phase}:request`);
     const response = await route.fetch({ timeout: 30_000 });
     stage?.(`returning:mutation:${phase}:response`);
+    const status = response.status();
     trace.push({
       phase,
       admissionPeriodId: formData.get("admissionPeriodId"),
