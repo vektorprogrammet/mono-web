@@ -620,6 +620,7 @@ export async function observeInterviewReport(o: Options) {
       const expectedRows = (await read(query)).rows;
       const expectedCells = expectedRows.map((r) => [
         `${r.firstName} ${r.lastName}`,
+        r.participation === "Returning" ? "Tilbakevendende" : "Ukjent",
         r.recommendation ?? "Ikke registrert",
         String(r.explanatoryPower),
         String(r.roleModel),
@@ -631,7 +632,7 @@ export async function observeInterviewReport(o: Options) {
           page.locator("tbody tr").evaluateAll((elements: any[]) =>
             elements.map((element: any) =>
               Array.from(element.querySelectorAll("th,td"))
-                .filter((_, index) => index !== 1)
+                .filter((_, index) => index !== 2)
                 .map((cell: any) => cell.textContent.trim()),
             ),
           ),
