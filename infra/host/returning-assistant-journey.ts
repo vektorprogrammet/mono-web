@@ -816,7 +816,13 @@ export const runReturningAssistantBrowserJourney = async ({
   await expectValue(updated.getByRole("combobox", { name: "Opptaksperiode" }), admissionPeriodId);
   stage?.("returning:period-history");
   const periodSelector = updated.getByRole("combobox", { name: "Opptaksperiode" });
+  const waitForPeriodUrl = async (periodId: string) => {
+    await returning.waitForURL(
+      new RegExp(`/dashboard/tidligere-assistenter\\?admissionPeriodId=${periodId}$`),
+    );
+  };
   await periodSelector.selectOption(nextAdmissionPeriodId);
+  await waitForPeriodUrl(nextAdmissionPeriodId);
   let periodForm = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
   await periodForm.waitFor({ state: "visible" });
   await expectValue(periodForm.getByRole("combobox", { name: "Opptaksperiode" }), nextAdmissionPeriodId);
@@ -824,6 +830,7 @@ export const runReturningAssistantBrowserJourney = async ({
   await expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "4");
   await expectValue(periodForm.getByRole("combobox", { name: "Stillingslengde" }), "8");
   await periodSelector.selectOption(admissionPeriodId);
+  await waitForPeriodUrl(admissionPeriodId);
   periodForm = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
   await periodForm.waitFor({ state: "visible" });
   await expectValue(periodForm.getByRole("combobox", { name: "Opptaksperiode" }), admissionPeriodId);
@@ -831,12 +838,14 @@ export const runReturningAssistantBrowserJourney = async ({
   await expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "3");
   await expectValue(periodForm.getByRole("combobox", { name: "Språk" }), "Engelsk");
   await returning.goBack();
+  await waitForPeriodUrl(nextAdmissionPeriodId);
   periodForm = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
   await periodForm.waitFor({ state: "visible" });
   await expectValue(periodForm.getByRole("combobox", { name: "Opptaksperiode" }), nextAdmissionPeriodId);
   await expectValue(periodForm.locator('input[name="expectedRevision"]'), "1");
   await expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "4");
   await returning.goForward();
+  await waitForPeriodUrl(admissionPeriodId);
   periodForm = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
   await periodForm.waitFor({ state: "visible" });
   await expectValue(periodForm.getByRole("combobox", { name: "Opptaksperiode" }), admissionPeriodId);
