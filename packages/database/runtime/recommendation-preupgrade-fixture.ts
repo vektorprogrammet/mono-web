@@ -8,6 +8,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { Pool } from "pg";
 import { databaseMigrationDefinitions } from "../src/migrations.js";
 const url = process.env.JOURNEY_SEED_PG_URL!;
+if (new URL(url).hostname !== "127.0.0.1") throw new Error("Loopback fixture only");
 type MigrationDefinition = { readonly id: string; readonly url: URL };
 const applyMigrations = async (definitions: ReadonlyArray<MigrationDefinition>): Promise<void> => {
   await Effect.runPromise(
