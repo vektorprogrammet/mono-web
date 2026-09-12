@@ -244,7 +244,7 @@ export const runReturningAssistantBrowserJourney = async ({
   };
   returning.on("request", (request) => {
     const url = new URL(request.url());
-    if (request.method() === "POST" && url.pathname === "/dashboard/tidligere-assistenter.data") {
+    if (request.method() === "POST" && url.pathname.startsWith("/dashboard/tidligere-assistenter")) {
       const body = new URLSearchParams(request.postData() ?? "");
       const row = {
         phase: "dashboard-post",
@@ -312,7 +312,7 @@ export const runReturningAssistantBrowserJourney = async ({
   const secondActionSettled = new Promise<void>((resolve) => {
     resolveSecondAction = resolve;
   });
-  await returning.route("**/dashboard/tidligere-assistenter.data", async (route) => {
+  await returning.route("**/dashboard/tidligere-assistenter*", async (route) => {
     if (route.request().method() !== "POST") {
       await route.continue();
       return;
@@ -380,8 +380,7 @@ export const runReturningAssistantBrowserJourney = async ({
   } catch (cause) {
     await captureReturningFailure("submit-status", cause);
   }
-  await captureCommitted("new-period-after-retry", nextAdmissionPeriodId);
-  await returning.unroute("**/dashboard/tidligere-assistenter.data");
+  await returning.unroute("**/dashboard/tidligere-assistenter*");
   await returning.reload();
   const reloaded = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
   await expectValue(reloaded.getByRole("combobox", { name: "Opptaksperiode" }), nextAdmissionPeriodId);
