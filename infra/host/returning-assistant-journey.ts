@@ -182,8 +182,9 @@ export const runReturningAssistantBrowserJourney = async ({
   await returning.getByLabel("E-post", { exact: true }).fill(person.email);
   await returning.getByLabel("Passord", { exact: true }).fill(person.password);
   await returning.getByRole("button", { name: "Logg inn", exact: true }).click();
+  const cookieHeader = (await context.cookies()).map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
   const optionsResponse = await context.request.get(`${api}/api/returning-assistant/options`, {
-    headers: { origin: ui, accept: "application/json" },
+    headers: { origin: ui, accept: "application/json", cookie: cookieHeader },
   });
   responses.push(
     `${optionsResponse.status()} ${optionsResponse.url()} ${JSON.stringify(await optionsResponse.json().catch(() => null))}`,
