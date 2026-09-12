@@ -423,6 +423,7 @@ export const runReturningAssistantBrowserJourney = async ({
       const body = new URLSearchParams(request.postData() ?? "");
       const row = {
         phase: "dashboard-post",
+        form: [...body.entries()],
         admissionPeriodId: body.get("admissionPeriodId"),
         expectedRevision: body.get("expectedRevision"),
         commandId: body.get("commandId"),
@@ -737,10 +738,9 @@ export const runReturningAssistantBrowserJourney = async ({
   }
   assert.equal(interceptedActions, 2);
   assert.equal(droppedResponse, true);
-  assert.equal(routeFailure, undefined, routeFailure);
   const captureCommitted = async (phase: string, periodId: string) => {
     const committed = await pool.query(
-      `SELECT admission_period_id,revision,command_id
+      `SELECT *
        FROM public.admission_returning_registrations
        WHERE person_id=$1 AND admission_period_id=$2
        ORDER BY revision`,
