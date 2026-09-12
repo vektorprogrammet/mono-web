@@ -130,7 +130,6 @@ export const runReturningAssistantBrowserJourney = async ({
   await form.getByRole("combobox", { name: "Studieår" }).selectOption("2");
   await form.getByLabel("Mandag").check();
   await form.getByRole("combobox", { name: "Språk" }).selectOption("Norsk og engelsk");
-  await form.locator('input[name="commandId"]').fill("returning-browser-registration-0104");
   await form.getByRole("button", { name: "Registrer for semesteret" }).click();
   await assertStatus(form, "Registreringen er lagret.");
   await returning.reload();
@@ -139,7 +138,6 @@ export const runReturningAssistantBrowserJourney = async ({
   await expectValue(reloaded.getByRole("combobox", { name: "Språk" }), "Norsk og engelsk");
   await reloaded.getByRole("combobox", { name: "Studieår" }).selectOption("3");
   await reloaded.getByRole("combobox", { name: "Språk" }).selectOption("Engelsk");
-  await reloaded.locator('input[name="commandId"]').fill("returning-browser-registration-0104-revision-2");
   await reloaded.getByRole("button", { name: "Lagre endringer" }).click();
   await assertStatus(reloaded, "Registreringen er lagret.");
   await returning.reload();
