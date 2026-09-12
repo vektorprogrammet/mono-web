@@ -705,9 +705,14 @@ export const runReturningAssistantBrowserJourney = async ({
       const restoredEntries = await form.evaluate((node) =>
         [...new FormData(node as HTMLFormElement)].map(([name, value]) => [name, String(value)]),
       );
-      assert.deepEqual(restoredEntries, firstRequest.form);
-      assert.equal(await form.locator('input[name="commandId"]').inputValue(), firstCommandKey);
-      assert.equal(await form.locator('input[name="expectedRevision"]').inputValue(), firstExpectedRevision);
+      if (JSON.stringify(restoredEntries) !== JSON.stringify(firstRequest.form))
+        throw new Error(`recovered form intent mismatch actual=${JSON.stringify(restoredEntries)} expected=${JSON.stringify(firstRequest.form)}`);
+      const recoveredCommandId = await form.locator('input[name="commandId"]').inputValue();
+      if (recoveredCommandId !== firstCommandKey)
+        throw new Error(`recovered command id mismatch actual=${recoveredCommandId} expected=${firstCommandKey}`);
+      const recoveredRevision = await form.locator('input[name="expectedRevision"]').inputValue();
+      if (recoveredRevision !== firstExpectedRevision)
+        throw new Error(`recovered base revision mismatch actual=${recoveredRevision} expected=${firstExpectedRevision}`);
     };
     await assertRecoveredIntent();
     if (hasRecoveryControl) {
