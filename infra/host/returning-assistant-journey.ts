@@ -1888,6 +1888,7 @@ export const runReturningAssistantBrowserJourney = async ({
     // failure, before the outer report/effect gates can run or fail.
     await writeFile(join(artifacts, "returning-registration-trace.json"), JSON.stringify(trace, null, 2));
   }
+  return { trace };
 };
 
 export const runReturningAssistantLoginProbe = async ({
