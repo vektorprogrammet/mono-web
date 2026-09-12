@@ -1466,6 +1466,12 @@ export const runReturningAssistantBrowserJourney = async ({
        ORDER BY p.admission_period_id`,
       [departmentId],
     );
+    assert.equal(nextApplication.rows.length, 1);
+    const assignmentPayload = {
+      interviewerPersonId: "journey-conduct-leader-0063",
+      interviewSchemaId: "interview-schema-native-conduct-0063",
+    };
+    const assignmentPath = `${api}/api/recruitment/applications/${encodeURIComponent(nextApplicationId)}/interviews`;
     const ambiguousAssignment = await page.request.post(assignmentPath, {
       headers: {
         "content-type": "application/json",
