@@ -384,7 +384,7 @@ try {
       console.log(JSON.stringify({ returningStage: name }));
     };
     const bounded = async <T>(label: string, operation: Promise<T>, timeoutMs = 90_000): Promise<T> => {
-      let timer: NodeJS.Timeout;
+      let timer: NodeJS.Timeout | undefined;
       try {
         return await Promise.race([
           operation,
@@ -396,7 +396,7 @@ try {
           }),
         ]);
       } finally {
-        clearTimeout(timer);
+        if (timer !== undefined) clearTimeout(timer);
       }
     };
     const returningResult = await bounded(
@@ -1109,7 +1109,7 @@ try {
   await browser?.close();
   if (effectServer !== undefined) {
     const closed = Promise.withResolvers<void>();
-    effectServer.close(closed.resolve);
+    effectServer.close(() => closed.resolve());
     await closed.promise;
   }
   if (heldIdentityClient) {

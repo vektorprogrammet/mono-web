@@ -23,6 +23,36 @@ const applicationId = "application-returning-0104";
 const placementId = `placement-${"a".repeat(64)}`;
 const invitationId = "invitation-returning-0104";
 const teamId = "team-native-conduct-0063";
+const negativeProbePersons = [
+  {
+    personId: "journey-returning-no-placement-0104",
+    firstName: "Ingen",
+    lastName: "Plassering",
+    email: "returning.no-placement@example.invalid",
+    password: "returning-negative-0104-password",
+  },
+  {
+    personId: "journey-returning-no-link-0104",
+    firstName: "Ingen",
+    lastName: "Kobling",
+    email: "returning.no-link@example.invalid",
+    password: "returning-negative-0104-password",
+  },
+  {
+    personId: "journey-returning-multi-link-0104",
+    firstName: "Flere",
+    lastName: "Koblinger",
+    email: "returning.multi-link@example.invalid",
+    password: "returning-negative-0104-password",
+  },
+  {
+    personId: "journey-returning-invalid-study-0104",
+    firstName: "Ugyldig",
+    lastName: "Studie",
+    email: "returning.invalid-study@example.invalid",
+    password: "returning-negative-0104-password",
+  },
+] as const;
 
 export const returningAssistantFixture = {
   person,
@@ -49,9 +79,8 @@ export const seedReturningAssistant = async ({
   run("bun", ["run", "identity:seed"], {
     ...env,
     IDENTITY_SEED_PG_URL: env.JOURNEY_SEED_PG_URL,
-    IDENTITY_SEED_PERSONS: JSON.stringify([person]),
     NATIVE_IDENTITY_TRUSTED_ORIGINS: env.NATIVE_IDENTITY_TRUSTED_ORIGINS,
-    NATIVE_IDENTITY_DEPLOYMENT: env.NATIVE_IDENTITY_DEPLOYMENT,
+    IDENTITY_SEED_PERSONS: JSON.stringify([person, ...negativeProbePersons]),
     BETTER_AUTH_SECRET: env.BETTER_AUTH_SECRET,
   }, join(root, "packages/database"));
   const client = await pool.connect();
@@ -118,6 +147,80 @@ export const seedReturningAssistant = async ({
        VALUES($1,$2,'2026-01-03T00:00:00Z',$3) ON CONFLICT DO NOTHING`,
       [applicantId, person.personId, invitationId],
     );
+    const negativeApplicants = [
+      {
+        applicantId: "applicant-returning-no-placement-0104",
+        personId: negativeProbePersons[0].personId,
+        email: negativeProbePersons[0].email,
+        field: fieldOfStudyId,
+        applicationId: "application-returning-no-placement-0104",
+      },
+      {
+        applicantId: "applicant-returning-invalid-study-0104",
+        personId: negativeProbePersons[3].personId,
+        email: negativeProbePersons[3].email,
+        field: "field-returning-invalid-0104",
+        applicationId: "application-returning-invalid-study-0104",
+      },
+      {
+        applicantId: "applicant-returning-multi-a-0104",
+        personId: negativeProbePersons[2].personId,
+        email: "returning.multi-a@example.invalid",
+        field: fieldOfStudyId,
+        applicationId: "application-returning-multi-a-0104",
+      },
+      {
+        applicantId: "applicant-returning-multi-b-0104",
+        personId: negativeProbePersons[2].personId,
+        email: "returning.multi-b@example.invalid",
+        field: fieldOfStudyId,
+        applicationId: "application-returning-multi-b-0104",
+      },
+    ] as const;
+    for (const [index, negative] of negativeApplicants.entries()) {
+      await seedQuery(
+        `negative applicant ${index}`,
+        `INSERT INTO public.admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study,activation_digest)
+         VALUES($1,$2,$2,'Negative','Probe','9000010${index}',0,$3,2,NULL) ON CONFLICT DO NOTHING`,
+        [negative.applicantId, negative.email, negative.field],
+      );
+      await seedQuery(
+        `negative application ${index}`,
+        `INSERT INTO public.admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at,revision)
+         VALUES($1,$2,$3,$4,$5,2,'2026-08-20T10:00:00Z',0) ON CONFLICT DO NOTHING`,
+        [negative.applicationId, negative.applicantId, admissionPeriodId, departmentId, negative.field],
+      );
+      const negativeInvitation = `invitation-returning-negative-${index}-0104`;
+      await seedQuery(
+        `negative invitation ${index}`,
+        `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at)
+         VALUES($1,$2,$3,$4,'2026-12-31T00:00:00Z','Claimed','journey-conduct-leader-0063','2026-01-02T00:00:00Z') ON CONFLICT DO NOTHING`,
+        [
+          negativeInvitation,
+          negative.applicationId,
+          negative.applicantId,
+          createHash("sha256").update(negativeInvitation).digest("hex"),
+        ],
+      );
+      await seedQuery(
+        `negative account link ${index}`,
+        `INSERT INTO public.applicant_account_links(applicant_id,person_id,linked_at,invitation_id)
+         VALUES($1,$2,'2026-01-03T00:00:00Z',$3) ON CONFLICT DO NOTHING`,
+        [negative.applicantId, negative.personId, negativeInvitation],
+      );
+    }
+    await seedQuery(
+      "no-placement affiliation",
+      `INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision)
+       VALUES($1,$2,'Active',1) ON CONFLICT DO NOTHING`,
+      [negativeProbePersons[0].personId, departmentId],
+    );
+    await seedQuery(
+      "invalid-study affiliation",
+      `INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision)
+       VALUES($1,$2,'Active',1) ON CONFLICT DO NOTHING`,
+      [negativeProbePersons[3].personId, departmentId],
+    );
     await seedQuery("school", 
       `INSERT INTO public.schools_directory_schools(name,contact_person,email,phone,language,active,revision)
        VALUES('Returning School','School Contact','school-returning@example.invalid','+47 900000106','Norwegian',true,0) ON CONFLICT DO NOTHING`,
@@ -130,10 +233,17 @@ export const seedReturningAssistant = async ({
       "INSERT INTO public.schools_directory_departments(school_id,department_id,revision) VALUES($1,$2,0) ON CONFLICT DO NOTHING",
       [school.rows[0].school_id, departmentId],
     );
-    await seedQuery("placement", 
+    await seedQuery(
+      "placement",
       `INSERT INTO public.assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision)
        VALUES($1,$2,$3,$4,$5,'Monday',4,'1',true,1) ON CONFLICT DO NOTHING`,
       [placementId, person.personId, departmentId, semesterId, school.rows[0].school_id],
+    );
+    await seedQuery(
+      "invalid-study placement",
+      `INSERT INTO public.assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision)
+       VALUES($1,$2,$3,$4,$5,'Monday',4,'1',true,1) ON CONFLICT DO NOTHING`,
+      [`placement-${"b".repeat(64)}`, negativeProbePersons[3].personId, departmentId, semesterId, school.rows[0].school_id],
     );
     await seedQuery("placement audit",
       `INSERT INTO public.assistant_placement_audit(placement_id,revision,actor_person_id,occurred_at,action,snapshot)
@@ -274,6 +384,53 @@ export const runReturningAssistantBrowserJourney = async ({
     headers: { origin: ui, accept: "application/json", cookie: cookieHeader },
   });
   responses.push(`context.request options ${optionsResponse.status()}`);
+  const negativeMutationSnapshot = async (personId: string) =>
+    (await pool.query(
+      `SELECT
+         (SELECT count(*)::int FROM public.applicant_account_links WHERE person_id=$1) AS links,
+         (SELECT count(*)::int FROM public.admission_applications a JOIN public.applicant_account_links l USING(applicant_id) WHERE l.person_id=$1) AS applications,
+         (SELECT count(*)::int FROM public.admission_returning_registrations WHERE person_id=$1) AS registrations`,
+      [personId],
+    )).rows[0];
+  const probeNegativeOptions = async (
+    gate: string,
+    probePerson: (typeof negativeProbePersons)[number],
+    expectedStatus: number,
+  ) => {
+    const probeContext = await browser.newContext();
+    try {
+      const signIn = await probeContext.request.post(`${api}/api/auth/sign-in/email`, {
+        headers: { origin: ui, "content-type": "application/json" },
+        data: { email: probePerson.email, password: probePerson.password },
+      });
+      assert.equal(signIn.status(), 200, `${gate} sign-in`);
+      const before = await negativeMutationSnapshot(probePerson.personId);
+      const response = await probeContext.request.get(`${api}/api/returning-assistant/options`, {
+        headers: { origin: ui, accept: "application/json" },
+      });
+      const body = await response.text();
+      assert.equal(response.status(), expectedStatus, `${gate} status body=${body}`);
+      const after = await negativeMutationSnapshot(probePerson.personId);
+      assert.deepEqual(after, before, `${gate} must not mutate`);
+      trace.push({ phase: "negative-gate", gate, status: response.status(), body });
+    } finally {
+      await probeContext.close();
+    }
+  };
+  await probeNegativeOptions("no-placement-despite-affiliation", negativeProbePersons[0], 404);
+  await probeNegativeOptions("missing-applicant-person-link", negativeProbePersons[1], 404);
+  await probeNegativeOptions("multiple-applicant-person-links", negativeProbePersons[2], 409);
+  await probeNegativeOptions("invalid-study-mapping", negativeProbePersons[3], 409);
+  const mappingKey = await pool.query(
+    `SELECT array_agg(a.attname ORDER BY k.ordinality) AS columns
+     FROM pg_index i
+     CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ordinality)
+     JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum
+     WHERE i.indrelid='public.admission_period_fields_of_study'::regclass AND i.indisprimary
+     GROUP BY i.indexrelid`,
+  );
+  assert.deepEqual(mappingKey.rows, [{ columns: ["field_of_study_id"] }]);
+  trace.push({ phase: "negative-gate", gate: "ambiguous-study-mapping-structural-primary-key", status: "proven" });
   const browserOptions = await returning.evaluate(async (endpoint) => {
     const response = await fetch(endpoint, {
       credentials: "include",
@@ -320,6 +477,26 @@ export const runReturningAssistantBrowserJourney = async ({
     teamInterest: true,
     teamIds: [teamId],
   } as const;
+  const anonymousBefore = await negativeMutationSnapshot(person.personId);
+  const anonymous = await fetch(`${api}/api/returning-assistant/options`, {
+    headers: { origin: ui, accept: "application/json" },
+  });
+  assert.equal(anonymous.status, 401);
+  assert.deepEqual(await negativeMutationSnapshot(person.personId), anonymousBefore);
+  trace.push({ phase: "negative-gate", gate: "anonymous-options", status: anonymous.status });
+  const foreignTeam = await pool.query(
+    "SELECT team_id FROM public.organization_teams WHERE department_id<>$1 ORDER BY team_id LIMIT 1",
+    [departmentId],
+  );
+  assert.equal(foreignTeam.rows.length, 1);
+  const wrongTeamBefore = await negativeMutationSnapshot(person.personId);
+  const wrongTeam = await context.request.post(`${api}/api/returning-assistant/registrations`, {
+    headers: { "content-type": "application/json", "idempotency-key": "returning-wrong-team-0104", origin: ui },
+    data: { ...firstPayload, commandId: "returning-wrong-team-0104", teamInterest: true, teamIds: [foreignTeam.rows[0].team_id] },
+  });
+  assert.equal(wrongTeam.status(), 409);
+  assert.deepEqual(await negativeMutationSnapshot(person.personId), wrongTeamBefore);
+  trace.push({ phase: "negative-gate", gate: "cross-department-team", status: wrongTeam.status() });
   let resolveFirstAction!: () => void;
   let rejectFirstAction!: (cause: unknown) => void;
   let resolveSecondAction!: () => void;
@@ -512,6 +689,7 @@ export const runReturningAssistantBrowserJourney = async ({
     [person.personId, nextAdmissionPeriodId],
   );
   assert.deepEqual(nextRevisionAfterReplay.rows, nextRevisionBeforeReplay.rows);
+  const closedBefore = await negativeMutationSnapshot(person.personId);
   await pool.query(
     "UPDATE public.admission_periods SET end_at='2026-01-01T00:00:00Z' WHERE admission_period_id=$1",
     [nextAdmissionPeriodId],
@@ -526,6 +704,8 @@ export const runReturningAssistantBrowserJourney = async ({
       data: firstReplayPayload,
     });
     assert.equal(closedReplay.status(), 409);
+    assert.deepEqual(await negativeMutationSnapshot(person.personId), closedBefore);
+    trace.push({ phase: "negative-gate", gate: "closed-period", status: closedReplay.status() });
   } finally {
     await pool.query(
       "UPDATE public.admission_periods SET end_at='2026-12-31T23:59:59.999Z' WHERE admission_period_id=$1",
@@ -584,6 +764,7 @@ export const runReturningAssistantBrowserJourney = async ({
     "SELECT effect_id,status,attempts FROM public.admission_application_outbox WHERE origin='ReturningAssistant' ORDER BY effect_id",
   );
   assert.equal(returningOutbox.rows.length, 12);
+  const revokedBefore = await negativeMutationSnapshot(person.personId);
   const session = await pool.query('SELECT count(*)::int AS count FROM auth.session WHERE "userId"=$1', [person.personId]);
   assert.equal(session.rows[0].count, 1);
   await pool.query('DELETE FROM auth.session WHERE "userId"=$1', [person.personId]);
@@ -596,6 +777,8 @@ export const runReturningAssistantBrowserJourney = async ({
     data: firstReplayPayload,
   });
   assert.equal(revokedReplay.status(), 401);
+  assert.deepEqual(await negativeMutationSnapshot(person.personId), revokedBefore);
+  trace.push({ phase: "negative-gate", gate: "stale-revoked-auth", status: revokedReplay.status() });
   stage?.("returning:report");
   await page.goto(`${ui}/dashboard/intervjuer/rapport?admissionPeriodId=${encodeURIComponent(admissionPeriodId)}`);
   await page.getByRole("heading", { level: 1, name: "Fullførte intervjuer" }).waitFor();
