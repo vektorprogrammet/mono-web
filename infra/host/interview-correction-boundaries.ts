@@ -587,6 +587,7 @@ export async function assertInterviewCorrectionBoundaries(
   const locker = await pool.connect();
   let waiting: Promise<Response> | undefined;
   let raceCommitted = false;
+  let raceSetupSnapshot: OwnedSnapshot | undefined;
   const raceInvitation = freshId("correction-boundary-self-link-race");
   try {
     await locker.query("BEGIN");
@@ -634,13 +635,14 @@ export async function assertInterviewCorrectionBoundaries(
        VALUES ($1,$2,CURRENT_TIMESTAMP,$3)`,
       [raceIdentity.applicantId, actorPersonId, raceInvitation],
     );
-    await locker.query("COMMIT");
     raceCommitted = true;
+    raceSetupSnapshot = await snapshot();
     const raceResponse = await waiting;
     status("self-link-race:write", raceResponse.status);
     assert.equal(raceResponse.status, 403, await raceResponse.text());
     const raceAfterResponse = await snapshot();
-    assertCorrectionRowsUnchanged(raceBefore, raceAfterResponse, "self-link race response");
+    assert.ok(raceSetupSnapshot);
+    assertCorrectionRowsUnchanged(raceSetupSnapshot, raceAfterResponse, "self-link race response");
   } finally {
     await locker.query("ROLLBACK").catch(() => undefined);
     locker.release();
