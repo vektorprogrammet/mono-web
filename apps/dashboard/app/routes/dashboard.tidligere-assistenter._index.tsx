@@ -20,7 +20,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     return privateData({ options: result.body, error: null as string | null });
   } catch (cause) {
     const problem = nativeProblemFrom(cause);
-    console.error(`returning options loader failed: ${problem?.code ?? "unknown"}`);
+    const causeDetail = cause instanceof Error ? cause.message : JSON.stringify(cause);
+    console.error(`returning options loader failed: ${problem?.code ?? "unknown"} ${causeDetail}`);
     const messages: Record<string, string> = {
       "returning.identity-missing": "Fant ikke en koblet søkersidentitet for kontoen.",
       "returning.history-missing": "Fant ingen tidligere assistentplassering for kontoen.",
