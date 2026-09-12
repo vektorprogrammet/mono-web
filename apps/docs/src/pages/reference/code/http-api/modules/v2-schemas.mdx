@@ -30,6 +30,9 @@ Public request and response schemas frozen by 0080.1.
   - [CancelInterviewRequest](#cancelinterviewrequest)
   - [CancelInterviewResponse](#cancelinterviewresponse)
   - [ContentArticleDetailSchema](#contentarticledetailschema)
+  - [CorrectInterviewAssessmentRequest](#correctinterviewassessmentrequest)
+  - [CorrectInterviewAssessmentRequest (type alias)](#correctinterviewassessmentrequest-type-alias)
+  - [CorrectInterviewAssessmentResponse](#correctinterviewassessmentresponse)
   - [CreateAdmissionPeriodRequest](#createadmissionperiodrequest)
   - [CreateAdmissionPeriodRequest (type alias)](#createadmissionperiodrequest-type-alias)
   - [CreateApplicationInterviewRequest](#createapplicationinterviewrequest)
@@ -90,7 +93,7 @@ declare const AdmissionPeriodManagementItem: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L228)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L239)
 
 ### AdmissionPeriodManagementListResponse
 
@@ -113,7 +116,7 @@ declare const AdmissionPeriodManagementListResponse: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L238)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L249)
 
 ### AdmissionPeriodMergePatch
 
@@ -126,7 +129,7 @@ declare const AdmissionPeriodMergePatch: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L125)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L127)
 
 ### AdmissionPeriodMergePatch (type alias)
 
@@ -136,7 +139,7 @@ declare const AdmissionPeriodMergePatch: Schema.Struct<{
 type AdmissionPeriodMergePatch = typeof AdmissionPeriodMergePatch.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L129)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L131)
 
 ### ArticleMergePatch
 
@@ -153,7 +156,7 @@ declare const ArticleMergePatch: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L188)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L199)
 
 ### ArticleMergePatch (type alias)
 
@@ -163,7 +166,7 @@ declare const ArticleMergePatch: Schema.Struct<{
 type ArticleMergePatch = typeof ArticleMergePatch.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L204)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L215)
 
 ### CancelInterviewRequest
 
@@ -173,7 +176,7 @@ type ArticleMergePatch = typeof ArticleMergePatch.Type;
 declare const CancelInterviewRequest: Schema.Struct<{}>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L67)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L69)
 
 ### CancelInterviewResponse
 
@@ -188,7 +191,7 @@ declare const CancelInterviewResponse: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L261)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L281)
 
 ### ContentArticleDetailSchema
 
@@ -213,7 +216,58 @@ declare const ContentArticleDetailSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L283)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L303)
+
+### CorrectInterviewAssessmentRequest
+
+**Signature**
+
+```ts
+declare const CorrectInterviewAssessmentRequest: Schema.Struct<{
+  readonly expectedRevision: Schema.Int;
+  readonly answers: Schema.$Array<
+    Schema.Struct<{
+      readonly questionId: Schema.String;
+      readonly answer: Schema.Union<readonly [Schema.String, Schema.$Array<Schema.String>]>;
+    }>
+  >;
+  readonly score: Schema.Struct<{
+    readonly explanatoryPower: Schema.Int;
+    readonly roleModel: Schema.Int;
+    readonly suitability: Schema.Int;
+  }>;
+  readonly recommendation: Schema.Literals<readonly ["Ja", "Kanskje", "Nei"]>;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L159)
+
+### CorrectInterviewAssessmentRequest (type alias)
+
+**Signature**
+
+```ts
+type CorrectInterviewAssessmentRequest = typeof CorrectInterviewAssessmentRequest.Type;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L165)
+
+### CorrectInterviewAssessmentResponse
+
+**Signature**
+
+```ts
+declare const CorrectInterviewAssessmentResponse: Schema.Struct<{
+  readonly _tag: Schema.Literals<readonly ["InterviewCorrected"]>;
+  readonly commandId: Schema.brand<Schema.String, "RecruitmentInterviewCorrectionCommandId">;
+  readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
+  readonly predecessorRevision: Schema.Int;
+  readonly resultingRevision: Schema.Int;
+  readonly replayed: Schema.Boolean;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L272)
 
 ### CreateAdmissionPeriodRequest
 
@@ -228,7 +282,7 @@ declare const CreateAdmissionPeriodRequest: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L117)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L119)
 
 ### CreateAdmissionPeriodRequest (type alias)
 
@@ -238,7 +292,7 @@ declare const CreateAdmissionPeriodRequest: Schema.Struct<{
 type CreateAdmissionPeriodRequest = typeof CreateAdmissionPeriodRequest.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L123)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L125)
 
 ### CreateApplicationInterviewRequest
 
@@ -251,7 +305,7 @@ declare const CreateApplicationInterviewRequest: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L132)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L134)
 
 ### CreateApplicationInterviewRequest (type alias)
 
@@ -261,7 +315,7 @@ declare const CreateApplicationInterviewRequest: Schema.Struct<{
 type CreateApplicationInterviewRequest = typeof CreateApplicationInterviewRequest.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L136)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L138)
 
 ### CreateArticleRequest
 
@@ -276,7 +330,7 @@ declare const CreateArticleRequest: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L174)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L185)
 
 ### CreateArticleRequest (type alias)
 
@@ -286,7 +340,7 @@ declare const CreateArticleRequest: Schema.Struct<{
 type CreateArticleRequest = typeof CreateArticleRequest.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L186)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L197)
 
 ### CreateDepartmentRequest
 
@@ -304,7 +358,7 @@ declare const CreateDepartmentRequest: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L89)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L91)
 
 ### CreateDepartmentRequest (type alias)
 
@@ -314,7 +368,7 @@ declare const CreateDepartmentRequest: Schema.Struct<{
 type CreateDepartmentRequest = typeof CreateDepartmentRequest.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L92)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L94)
 
 ### CreateFieldOfStudyRequest
 
@@ -328,7 +382,7 @@ declare const CreateFieldOfStudyRequest: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L99)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L101)
 
 ### CreateFieldOfStudyRequest (type alias)
 
@@ -338,7 +392,7 @@ declare const CreateFieldOfStudyRequest: Schema.Struct<{
 type CreateFieldOfStudyRequest = typeof CreateFieldOfStudyRequest.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L102)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L104)
 
 ### CreateTeamRequest
 
@@ -357,7 +411,7 @@ declare const CreateTeamRequest: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L94)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L96)
 
 ### CreateTeamRequest (type alias)
 
@@ -367,7 +421,7 @@ declare const CreateTeamRequest: Schema.Struct<{
 type CreateTeamRequest = typeof CreateTeamRequest.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L97)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L99)
 
 ### EmptyJsonRequest
 
@@ -379,7 +433,7 @@ Strict `{}` body for state transitions without public payload fields.
 declare const EmptyJsonRequest: Schema.Struct<{}>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L62)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L64)
 
 ### FinalizeInterviewRequest
 
@@ -402,7 +456,7 @@ declare const FinalizeInterviewRequest: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L149)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L151)
 
 ### FinalizeInterviewRequest (type alias)
 
@@ -412,7 +466,7 @@ declare const FinalizeInterviewRequest: Schema.Struct<{
 type FinalizeInterviewRequest = typeof FinalizeInterviewRequest.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L154)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L156)
 
 ### FinalizeInterviewResponse
 
@@ -427,7 +481,7 @@ declare const FinalizeInterviewResponse: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L254)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L265)
 
 ### OpenAdmissionPeriod
 
@@ -443,7 +497,7 @@ declare const OpenAdmissionPeriod: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L214)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L225)
 
 ### OpenAdmissionPeriod (type alias)
 
@@ -453,7 +507,7 @@ declare const OpenAdmissionPeriod: Schema.Struct<{
 type OpenAdmissionPeriod = typeof OpenAdmissionPeriod.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L221)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L232)
 
 ### OpenAdmissionPeriodListResponse
 
@@ -474,7 +528,7 @@ declare const OpenAdmissionPeriodListResponse: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L223)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L234)
 
 ### ProfileMergePatch
 
@@ -489,7 +543,7 @@ declare const ProfileMergePatch: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L206)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L217)
 
 ### ProfileMergePatch (type alias)
 
@@ -499,7 +553,7 @@ declare const ProfileMergePatch: Schema.Struct<{
 type ProfileMergePatch = typeof ProfileMergePatch.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L212)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L223)
 
 ### PublicApplicationConfirmationSchema
 
@@ -512,7 +566,7 @@ declare const PublicApplicationConfirmationSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L283)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L303)
 
 ### PublishArticleRequest
 
@@ -522,7 +576,7 @@ declare const PublicApplicationConfirmationSchema: Schema.Struct<{
 declare const PublishArticleRequest: Schema.Struct<{}>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L82)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L84)
 
 ### PublishArticleResponse
 
@@ -536,7 +590,7 @@ declare const PublishArticleResponse: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L273)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L293)
 
 ### ReceiptResource
 
@@ -560,7 +614,7 @@ declare const ReceiptResource: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L268)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L288)
 
 ### RecruitmentInterviewResource
 
@@ -579,7 +633,7 @@ declare const RecruitmentInterviewResource: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L243)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L254)
 
 ### RefundReceiptRequest
 
@@ -589,7 +643,7 @@ declare const RecruitmentInterviewResource: Schema.Struct<{
 declare const RefundReceiptRequest: Schema.Struct<{}>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L73)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L75)
 
 ### RejectReceiptRequest
 
@@ -599,7 +653,7 @@ declare const RefundReceiptRequest: Schema.Struct<{}>;
 declare const RejectReceiptRequest: Schema.Struct<{}>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L76)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L78)
 
 ### ReopenReceiptRequest
 
@@ -609,7 +663,7 @@ declare const RejectReceiptRequest: Schema.Struct<{}>;
 declare const ReopenReceiptRequest: Schema.Struct<{}>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L79)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L81)
 
 ### ReviseReceiptMultipartV2
 
@@ -627,7 +681,7 @@ declare const ReviseReceiptMultipartV2: Schema.brand<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L165)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L176)
 
 ### ScheduleInterviewRequest
 
@@ -643,7 +697,7 @@ declare const ScheduleInterviewRequest: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L139)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L141)
 
 ### ScheduleInterviewRequest (type alias)
 
@@ -653,7 +707,7 @@ declare const ScheduleInterviewRequest: Schema.Struct<{
 type ScheduleInterviewRequest = typeof ScheduleInterviewRequest.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L146)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L148)
 
 ### ScheduleInterviewResponse
 
@@ -672,7 +726,7 @@ declare const ScheduleInterviewResponse: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L247)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L258)
 
 ### SubmitApplicationRequest
 
@@ -691,7 +745,7 @@ declare const SubmitApplicationRequest: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L105)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L107)
 
 ### SubmitApplicationRequest (type alias)
 
@@ -701,7 +755,7 @@ declare const SubmitApplicationRequest: Schema.Struct<{
 type SubmitApplicationRequest = typeof SubmitApplicationRequest.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L115)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L117)
 
 ### SubmitReceiptMultipartV2
 
@@ -719,7 +773,7 @@ declare const SubmitReceiptMultipartV2: Schema.brand<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L156)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L167)
 
 ### UnpublishArticleRequest
 
@@ -729,7 +783,7 @@ declare const SubmitReceiptMultipartV2: Schema.brand<
 declare const UnpublishArticleRequest: Schema.Struct<{}>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L85)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L87)
 
 ### UnpublishArticleResponse
 
@@ -741,7 +795,7 @@ declare const UnpublishArticleResponse: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L279)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L299)
 
 ### WithdrawReceiptRequest
 
@@ -751,4 +805,4 @@ declare const UnpublishArticleResponse: Schema.Struct<{
 declare const WithdrawReceiptRequest: Schema.Struct<{}>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L70)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/v2-schemas.ts#L72)

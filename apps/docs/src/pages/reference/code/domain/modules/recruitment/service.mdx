@@ -39,7 +39,7 @@ Since v0.1.0
 declare class Recruitment
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/service.ts#L150)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/service.ts#L156)
 
 ### RecruitmentFailure (type alias)
 
@@ -81,7 +81,7 @@ type RecruitmentFailure =
   | ProfileFailure;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/service.ts#L69)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/service.ts#L71)
 
 ### RecruitmentShape (interface)
 
@@ -133,7 +133,11 @@ export interface RecruitmentShape {
     command: CancelInterviewCommand,
     context: RecruitmentConductContext,
   ) => Effect.Effect<CancelInterviewResult, RecruitmentFailure>;
+  readonly correctInterviewAssessment: (
+    command: CorrectInterviewAssessmentCommand,
+    context: RecruitmentConductContext,
+  ) => Effect.Effect<CorrectInterviewAssessmentResult, RecruitmentFailure>;
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/service.ts#L103)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/service.ts#L105)

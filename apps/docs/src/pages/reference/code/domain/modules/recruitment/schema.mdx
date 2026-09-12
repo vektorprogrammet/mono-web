@@ -29,6 +29,14 @@ Since v0.1.0
   - [CancelInterviewObservationSchema](#cancelinterviewobservationschema)
   - [CancelInterviewResult (type alias)](#cancelinterviewresult-type-alias)
   - [CancelInterviewResultSchema](#cancelinterviewresultschema)
+  - [CorrectInterviewAssessmentCommand (type alias)](#correctinterviewassessmentcommand-type-alias)
+  - [CorrectInterviewAssessmentCommandSchema](#correctinterviewassessmentcommandschema)
+  - [CorrectInterviewAssessmentObservation (type alias)](#correctinterviewassessmentobservation-type-alias)
+  - [CorrectInterviewAssessmentObservationSchema](#correctinterviewassessmentobservationschema)
+  - [CorrectInterviewAssessmentResult (type alias)](#correctinterviewassessmentresult-type-alias)
+  - [CorrectInterviewAssessmentResultSchema](#correctinterviewassessmentresultschema)
+  - [CorrectionHistoryEntrySchema](#correctionhistoryentryschema)
+  - [CorrectionHistoryOriginalSchema](#correctionhistoryoriginalschema)
   - [FinalizeInterviewCommand (type alias)](#finalizeinterviewcommand-type-alias)
   - [FinalizeInterviewCommandSchema](#finalizeinterviewcommandschema)
   - [FinalizeInterviewObservation (type alias)](#finalizeinterviewobservation-type-alias)
@@ -94,6 +102,12 @@ Since v0.1.0
   - [RecruitmentInterviewConductObservationSchema](#recruitmentinterviewconductobservationschema)
   - [RecruitmentInterviewConductSelect (type alias)](#recruitmentinterviewconductselect-type-alias)
   - [RecruitmentInterviewConductValue (type alias)](#recruitmentinterviewconductvalue-type-alias)
+  - [RecruitmentInterviewCorrection (type alias)](#recruitmentinterviewcorrection-type-alias)
+  - [RecruitmentInterviewCorrectionCommandId](#recruitmentinterviewcorrectioncommandid)
+  - [RecruitmentInterviewCorrectionCommandId (type alias)](#recruitmentinterviewcorrectioncommandid-type-alias)
+  - [RecruitmentInterviewCorrectionHistoryEntry (type alias)](#recruitmentinterviewcorrectionhistoryentry-type-alias)
+  - [RecruitmentInterviewCorrectionHistoryEntrySchema](#recruitmentinterviewcorrectionhistoryentryschema)
+  - [RecruitmentInterviewCorrectionSchema](#recruitmentinterviewcorrectionschema)
   - [RecruitmentInterviewId](#recruitmentinterviewid)
   - [RecruitmentInterviewId (type alias)](#recruitmentinterviewid-type-alias)
   - [RecruitmentInterviewInsert (type alias)](#recruitmentinterviewinsert-type-alias)
@@ -180,7 +194,7 @@ Since v0.1.0
 type CancelInterviewCommand = typeof CancelInterviewCommandSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L859)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L877)
 
 ### CancelInterviewCommandSchema
 
@@ -194,7 +208,7 @@ declare const CancelInterviewCommandSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L854)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L872)
 
 ### CancelInterviewObservation (type alias)
 
@@ -204,7 +218,7 @@ declare const CancelInterviewCommandSchema: Schema.Struct<{
 type CancelInterviewObservation = typeof CancelInterviewObservationSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L881)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L951)
 
 ### CancelInterviewObservationSchema
 
@@ -222,7 +236,7 @@ declare const CancelInterviewObservationSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L872)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L942)
 
 ### CancelInterviewResult (type alias)
 
@@ -232,7 +246,7 @@ declare const CancelInterviewObservationSchema: Schema.Struct<{
 type CancelInterviewResult = typeof CancelInterviewResultSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L893)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L963)
 
 ### CancelInterviewResultSchema
 
@@ -253,6 +267,154 @@ declare const CancelInterviewResultSchema: Schema.Struct<{
 }>;
 ```
 
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L959)
+
+### CorrectInterviewAssessmentCommand (type alias)
+
+**Signature**
+
+```ts
+type CorrectInterviewAssessmentCommand = typeof CorrectInterviewAssessmentCommandSchema.Type;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L887)
+
+### CorrectInterviewAssessmentCommandSchema
+
+**Signature**
+
+```ts
+declare const CorrectInterviewAssessmentCommandSchema: Schema.Struct<{
+  readonly commandId: Schema.brand<Schema.String, "RecruitmentInterviewCorrectionCommandId">;
+  readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
+  readonly expectedRevision: Schema.Int;
+  readonly answers: Schema.$Array<
+    Schema.Struct<{
+      readonly questionId: Schema.String;
+      readonly answer: Schema.Union<readonly [Schema.String, Schema.$Array<Schema.String>]>;
+    }>
+  >;
+  readonly score: Schema.Struct<{
+    readonly explanatoryPower: Schema.Int;
+    readonly roleModel: Schema.Int;
+    readonly suitability: Schema.Int;
+  }>;
+  readonly recommendation: Schema.Literals<readonly ["Ja", "Kanskje", "Nei"]>;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L879)
+
+### CorrectInterviewAssessmentObservation (type alias)
+
+**Signature**
+
+```ts
+type CorrectInterviewAssessmentObservation =
+  typeof CorrectInterviewAssessmentObservationSchema.Type;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L923)
+
+### CorrectInterviewAssessmentObservationSchema
+
+**Signature**
+
+```ts
+declare const CorrectInterviewAssessmentObservationSchema: Schema.Struct<{
+  readonly _tag: Schema.Literals<readonly ["InterviewCorrected"]>;
+  readonly commandId: Schema.brand<Schema.String, "RecruitmentInterviewCorrectionCommandId">;
+  readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
+  readonly predecessorRevision: Schema.Int;
+  readonly resultingRevision: Schema.Int;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L916)
+
+### CorrectInterviewAssessmentResult (type alias)
+
+**Signature**
+
+```ts
+type CorrectInterviewAssessmentResult = typeof CorrectInterviewAssessmentResultSchema.Type;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L929)
+
+### CorrectInterviewAssessmentResultSchema
+
+**Signature**
+
+```ts
+declare const CorrectInterviewAssessmentResultSchema: Schema.Struct<{
+  readonly observation: Schema.Struct<{
+    readonly _tag: Schema.Literals<readonly ["InterviewCorrected"]>;
+    readonly commandId: Schema.brand<Schema.String, "RecruitmentInterviewCorrectionCommandId">;
+    readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
+    readonly predecessorRevision: Schema.Int;
+    readonly resultingRevision: Schema.Int;
+  }>;
+  readonly replayed: Schema.Boolean;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L925)
+
+### CorrectionHistoryEntrySchema
+
+**Signature**
+
+```ts
+declare const CorrectionHistoryEntrySchema: Schema.Struct<{
+  readonly _tag: Schema.Literals<readonly ["Correction"]>;
+  readonly revision: Schema.Int;
+  readonly predecessorRevision: Schema.Int;
+  readonly answers: Schema.$Array<
+    Schema.Struct<{
+      readonly questionId: Schema.String;
+      readonly answer: Schema.Union<readonly [Schema.String, Schema.$Array<Schema.String>]>;
+    }>
+  >;
+  readonly score: Schema.Struct<{
+    readonly explanatoryPower: Schema.Int;
+    readonly roleModel: Schema.Int;
+    readonly suitability: Schema.Int;
+  }>;
+  readonly recommendation: Schema.Literals<readonly ["Ja", "Kanskje", "Nei"]>;
+  readonly correctedByPersonId: Schema.brand<Schema.String, "PersonId">;
+  readonly correctedAt: Schema.String;
+  readonly commandId: Schema.brand<Schema.String, "RecruitmentInterviewCorrectionCommandId">;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L898)
+
+### CorrectionHistoryOriginalSchema
+
+**Signature**
+
+```ts
+declare const CorrectionHistoryOriginalSchema: Schema.Struct<{
+  readonly _tag: Schema.Literals<readonly ["Original"]>;
+  readonly revision: Schema.Int;
+  readonly answers: Schema.$Array<
+    Schema.Struct<{
+      readonly questionId: Schema.String;
+      readonly answer: Schema.Union<readonly [Schema.String, Schema.$Array<Schema.String>]>;
+    }>
+  >;
+  readonly score: Schema.Struct<{
+    readonly explanatoryPower: Schema.Int;
+    readonly roleModel: Schema.Int;
+    readonly suitability: Schema.Int;
+  }>;
+  readonly recommendation: Schema.NullOr<Schema.Literals<readonly ["Ja", "Kanskje", "Nei"]>>;
+  readonly finalizedByPersonId: Schema.brand<Schema.String, "PersonId">;
+  readonly finalizedAt: Schema.String;
+}>;
+```
+
 [Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L889)
 
 ### FinalizeInterviewCommand (type alias)
@@ -263,7 +425,7 @@ declare const CancelInterviewResultSchema: Schema.Struct<{
 type FinalizeInterviewCommand = typeof FinalizeInterviewCommandSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L852)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L870)
 
 ### FinalizeInterviewCommandSchema
 
@@ -289,7 +451,7 @@ declare const FinalizeInterviewCommandSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L844)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L862)
 
 ### FinalizeInterviewObservation (type alias)
 
@@ -299,7 +461,7 @@ declare const FinalizeInterviewCommandSchema: Schema.Struct<{
 type FinalizeInterviewObservation = typeof FinalizeInterviewObservationSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L870)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L940)
 
 ### FinalizeInterviewObservationSchema
 
@@ -317,7 +479,7 @@ declare const FinalizeInterviewObservationSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L861)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L931)
 
 ### FinalizeInterviewResult (type alias)
 
@@ -327,7 +489,7 @@ declare const FinalizeInterviewObservationSchema: Schema.Struct<{
 type FinalizeInterviewResult = typeof FinalizeInterviewResultSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L887)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L957)
 
 ### FinalizeInterviewResultSchema
 
@@ -348,7 +510,7 @@ declare const FinalizeInterviewResultSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L883)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L953)
 
 ### InterviewQuestionDefinition (type alias)
 
@@ -385,7 +547,7 @@ declare const InterviewQuestionDefinitionSchema: Schema.Struct<{
 type InterviewRecommendation = typeof InterviewRecommendationSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L739)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L744)
 
 ### InterviewRecommendationSchema
 
@@ -395,7 +557,7 @@ type InterviewRecommendation = typeof InterviewRecommendationSchema.Type;
 declare const InterviewRecommendationSchema: Schema.Literals<readonly ["Ja", "Kanskje", "Nei"]>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L738)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L743)
 
 ### InterviewSchema (class)
 
@@ -855,7 +1017,7 @@ type RecruitmentCancellationCommandId = typeof RecruitmentCancellationCommandId.
 type RecruitmentConductActor = typeof RecruitmentConductActorSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L903)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L973)
 
 ### RecruitmentConductActorSchema
 
@@ -872,7 +1034,7 @@ declare const RecruitmentConductActorSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L895)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L965)
 
 ### RecruitmentConductCommandId
 
@@ -909,7 +1071,7 @@ export interface RecruitmentConductContext {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L915)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L985)
 
 ### RecruitmentConductState (interface)
 
@@ -927,7 +1089,7 @@ export interface RecruitmentConductState {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L905)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L975)
 
 ### RecruitmentInstantSchema
 
@@ -957,7 +1119,7 @@ declare class RecruitmentInterview
 type RecruitmentInterviewAnswer = typeof RecruitmentInterviewAnswerSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L735)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L740)
 
 ### RecruitmentInterviewAnswerSchema
 
@@ -970,7 +1132,7 @@ declare const RecruitmentInterviewAnswerSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L731)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L736)
 
 ### RecruitmentInterviewCancellation (class)
 
@@ -980,7 +1142,7 @@ declare const RecruitmentInterviewAnswerSchema: Schema.Struct<{
 declare class RecruitmentInterviewCancellation
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L811)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L829)
 
 ### RecruitmentInterviewCancellationInsert (type alias)
 
@@ -991,7 +1153,7 @@ type RecruitmentInterviewCancellationInsert =
   typeof RecruitmentInterviewCancellation.insert.Encoded;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L838)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L856)
 
 ### RecruitmentInterviewCancellationJson (type alias)
 
@@ -1001,7 +1163,7 @@ type RecruitmentInterviewCancellationInsert =
 type RecruitmentInterviewCancellationJson = typeof RecruitmentInterviewCancellation.json.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L840)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L858)
 
 ### RecruitmentInterviewCancellationSelect (type alias)
 
@@ -1011,7 +1173,7 @@ type RecruitmentInterviewCancellationJson = typeof RecruitmentInterviewCancellat
 type RecruitmentInterviewCancellationSelect = typeof RecruitmentInterviewCancellation.Encoded;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L836)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L854)
 
 ### RecruitmentInterviewCancellationValue (type alias)
 
@@ -1021,7 +1183,7 @@ type RecruitmentInterviewCancellationSelect = typeof RecruitmentInterviewCancell
 type RecruitmentInterviewCancellationValue = typeof RecruitmentInterviewCancellation.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L842)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L860)
 
 ### RecruitmentInterviewConduct (class)
 
@@ -1031,7 +1193,7 @@ type RecruitmentInterviewCancellationValue = typeof RecruitmentInterviewCancella
 declare class RecruitmentInterviewConduct
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L766)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L771)
 
 ### RecruitmentInterviewConductInsert (type alias)
 
@@ -1041,7 +1203,7 @@ declare class RecruitmentInterviewConduct
 type RecruitmentInterviewConductInsert = typeof RecruitmentInterviewConduct.insert.Encoded;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L807)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L825)
 
 ### RecruitmentInterviewConductJson (type alias)
 
@@ -1051,7 +1213,7 @@ type RecruitmentInterviewConductInsert = typeof RecruitmentInterviewConduct.inse
 type RecruitmentInterviewConductJson = typeof RecruitmentInterviewConduct.json.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L808)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L826)
 
 ### RecruitmentInterviewConductObservation (type alias)
 
@@ -1062,7 +1224,7 @@ type RecruitmentInterviewConductObservation =
   typeof RecruitmentInterviewConductObservationSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L943)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L1016)
 
 ### RecruitmentInterviewConductObservationSchema
 
@@ -1080,6 +1242,8 @@ declare const RecruitmentInterviewConductObservationSchema: Schema.Struct<{
   readonly schedule: typeof RecruitmentInterviewSchedule;
   readonly invitationResponse: Schema.Literals<readonly ["Accepted"]>;
   readonly questions: Schema.$Array<typeof RecruitmentInterviewQuestionSnapshot>;
+  readonly finalizedByPersonId: Schema.NullOr<Schema.brand<Schema.String, "PersonId">>;
+  readonly finalizedAt: Schema.NullOr<Schema.String>;
   readonly answers: Schema.$Array<
     Schema.Struct<{
       readonly questionId: Schema.String;
@@ -1096,7 +1260,56 @@ declare const RecruitmentInterviewConductObservationSchema: Schema.Struct<{
   readonly recommendation: Schema.NullOr<Schema.Literals<readonly ["Ja", "Kanskje", "Nei"]>>;
   readonly completionState: Schema.Literals<readonly ["NotCompleted", "Completed"]>;
   readonly cancellationState: Schema.Literals<readonly ["NotCancelled", "Cancelled"]>;
-  readonly finalizedAt: Schema.NullOr<Schema.String>;
+  readonly effectiveRevision: Schema.Int;
+  readonly history: Schema.$Array<
+    Schema.Union<
+      readonly [
+        Schema.Struct<{
+          readonly _tag: Schema.Literals<readonly ["Original"]>;
+          readonly revision: Schema.Int;
+          readonly answers: Schema.$Array<
+            Schema.Struct<{
+              readonly questionId: Schema.String;
+              readonly answer: Schema.Union<readonly [Schema.String, Schema.$Array<Schema.String>]>;
+            }>
+          >;
+          readonly score: Schema.Struct<{
+            readonly explanatoryPower: Schema.Int;
+            readonly roleModel: Schema.Int;
+            readonly suitability: Schema.Int;
+          }>;
+          readonly recommendation: Schema.NullOr<
+            Schema.Literals<readonly ["Ja", "Kanskje", "Nei"]>
+          >;
+          readonly finalizedByPersonId: Schema.brand<Schema.String, "PersonId">;
+          readonly finalizedAt: Schema.String;
+        }>,
+        Schema.Struct<{
+          readonly _tag: Schema.Literals<readonly ["Correction"]>;
+          readonly revision: Schema.Int;
+          readonly predecessorRevision: Schema.Int;
+          readonly answers: Schema.$Array<
+            Schema.Struct<{
+              readonly questionId: Schema.String;
+              readonly answer: Schema.Union<readonly [Schema.String, Schema.$Array<Schema.String>]>;
+            }>
+          >;
+          readonly score: Schema.Struct<{
+            readonly explanatoryPower: Schema.Int;
+            readonly roleModel: Schema.Int;
+            readonly suitability: Schema.Int;
+          }>;
+          readonly recommendation: Schema.Literals<readonly ["Ja", "Kanskje", "Nei"]>;
+          readonly correctedByPersonId: Schema.brand<Schema.String, "PersonId">;
+          readonly correctedAt: Schema.String;
+          readonly commandId: Schema.brand<
+            Schema.String,
+            "RecruitmentInterviewCorrectionCommandId"
+          >;
+        }>,
+      ]
+    >
+  >;
   readonly cancelledAt: Schema.NullOr<Schema.String>;
   readonly revision: Schema.Int;
   readonly canFinalize: Schema.Boolean;
@@ -1104,7 +1317,7 @@ declare const RecruitmentInterviewConductObservationSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L921)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L991)
 
 ### RecruitmentInterviewConductSelect (type alias)
 
@@ -1114,7 +1327,7 @@ declare const RecruitmentInterviewConductObservationSchema: Schema.Struct<{
 type RecruitmentInterviewConductSelect = typeof RecruitmentInterviewConduct.Encoded;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L806)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L824)
 
 ### RecruitmentInterviewConductValue (type alias)
 
@@ -1124,7 +1337,131 @@ type RecruitmentInterviewConductSelect = typeof RecruitmentInterviewConduct.Enco
 type RecruitmentInterviewConductValue = typeof RecruitmentInterviewConduct.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L809)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L827)
+
+### RecruitmentInterviewCorrection (type alias)
+
+**Signature**
+
+```ts
+type RecruitmentInterviewCorrection = typeof RecruitmentInterviewCorrectionSchema.Type;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L821)
+
+### RecruitmentInterviewCorrectionCommandId
+
+**Signature**
+
+```ts
+declare const RecruitmentInterviewCorrectionCommandId: Schema.brand<
+  Schema.String,
+  "RecruitmentInterviewCorrectionCommandId"
+>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L730)
+
+### RecruitmentInterviewCorrectionCommandId (type alias)
+
+**Signature**
+
+```ts
+type RecruitmentInterviewCorrectionCommandId = typeof RecruitmentInterviewCorrectionCommandId.Type;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L733)
+
+### RecruitmentInterviewCorrectionHistoryEntry (type alias)
+
+**Signature**
+
+```ts
+type RecruitmentInterviewCorrectionHistoryEntry =
+  typeof RecruitmentInterviewCorrectionHistoryEntrySchema.Type;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L913)
+
+### RecruitmentInterviewCorrectionHistoryEntrySchema
+
+**Signature**
+
+```ts
+declare const RecruitmentInterviewCorrectionHistoryEntrySchema: Schema.Union<
+  readonly [
+    Schema.Struct<{
+      readonly _tag: Schema.Literals<readonly ["Original"]>;
+      readonly revision: Schema.Int;
+      readonly answers: Schema.$Array<
+        Schema.Struct<{
+          readonly questionId: Schema.String;
+          readonly answer: Schema.Union<readonly [Schema.String, Schema.$Array<Schema.String>]>;
+        }>
+      >;
+      readonly score: Schema.Struct<{
+        readonly explanatoryPower: Schema.Int;
+        readonly roleModel: Schema.Int;
+        readonly suitability: Schema.Int;
+      }>;
+      readonly recommendation: Schema.NullOr<Schema.Literals<readonly ["Ja", "Kanskje", "Nei"]>>;
+      readonly finalizedByPersonId: Schema.brand<Schema.String, "PersonId">;
+      readonly finalizedAt: Schema.String;
+    }>,
+    Schema.Struct<{
+      readonly _tag: Schema.Literals<readonly ["Correction"]>;
+      readonly revision: Schema.Int;
+      readonly predecessorRevision: Schema.Int;
+      readonly answers: Schema.$Array<
+        Schema.Struct<{
+          readonly questionId: Schema.String;
+          readonly answer: Schema.Union<readonly [Schema.String, Schema.$Array<Schema.String>]>;
+        }>
+      >;
+      readonly score: Schema.Struct<{
+        readonly explanatoryPower: Schema.Int;
+        readonly roleModel: Schema.Int;
+        readonly suitability: Schema.Int;
+      }>;
+      readonly recommendation: Schema.Literals<readonly ["Ja", "Kanskje", "Nei"]>;
+      readonly correctedByPersonId: Schema.brand<Schema.String, "PersonId">;
+      readonly correctedAt: Schema.String;
+      readonly commandId: Schema.brand<Schema.String, "RecruitmentInterviewCorrectionCommandId">;
+    }>,
+  ]
+>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L909)
+
+### RecruitmentInterviewCorrectionSchema
+
+**Signature**
+
+```ts
+declare const RecruitmentInterviewCorrectionSchema: Schema.Struct<{
+  readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
+  readonly predecessorRevision: Schema.Int;
+  readonly resultingRevision: Schema.Int;
+  readonly answers: Schema.$Array<
+    Schema.Struct<{
+      readonly questionId: Schema.String;
+      readonly answer: Schema.Union<readonly [Schema.String, Schema.$Array<Schema.String>]>;
+    }>
+  >;
+  readonly score: Schema.Struct<{
+    readonly explanatoryPower: Schema.Int;
+    readonly roleModel: Schema.Int;
+    readonly suitability: Schema.Int;
+  }>;
+  readonly recommendation: Schema.Literals<readonly ["Ja", "Kanskje", "Nei"]>;
+  readonly correctedByPersonId: Schema.brand<Schema.String, "PersonId">;
+  readonly correctedAt: Schema.String;
+  readonly commandId: Schema.brand<Schema.String, "RecruitmentInterviewCorrectionCommandId">;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L810)
 
 ### RecruitmentInterviewId
 
@@ -1334,7 +1671,7 @@ declare const RecruitmentInterviewSchemaOptionSchema: Schema.Struct<{
 type RecruitmentInterviewScore = typeof RecruitmentInterviewScoreSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L764)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L769)
 
 ### RecruitmentInterviewScoreSchema
 
@@ -1348,7 +1685,7 @@ declare const RecruitmentInterviewScoreSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L741)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L746)
 
 ### RecruitmentInterviewSelect (type alias)
 
@@ -2258,7 +2595,7 @@ declare const RecruitmentSchedulingInterviewerSchema: Schema.Struct<{
 declare const interviewRecommendations: readonly ["Ja", "Kanskje", "Nei"];
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L737)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/schema.ts#L742)
 
 ### isRecruitmentNow
 

@@ -32,6 +32,7 @@ Since v0.1.0
   - [CancelInterviewEndpoint](#cancelinterviewendpoint)
   - [ConductObservation](#conductobservation)
   - [ConfirmInvitationEndpoint](#confirminvitationendpoint)
+  - [CorrectInterviewAssessmentEndpoint](#correctinterviewassessmentendpoint)
   - [FinalizeInterviewEndpoint](#finalizeinterviewendpoint)
   - [InvitationRejectInput](#invitationrejectinput)
   - [InvitationRequestNewTimeInput](#invitationrequestnewtimeinput)
@@ -61,7 +62,7 @@ Recruitment assignment, scheduling, conduct, and invitation API.
 declare class RecruitmentApi
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L583)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L614)
 
 Since v0.1.0
 
@@ -77,7 +78,7 @@ Exact empty JSON object required when accepting an invitation.
 declare const ConfirmInvitationPayload: Schema.Codec<{}, {}, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L199)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L202)
 
 Since v0.1.0
 
@@ -133,7 +134,7 @@ declare const AssignApplicantEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L436)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L439)
 
 Since v0.1.0 @category Endpoints
 
@@ -191,7 +192,7 @@ declare const AssignmentBoard: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L230)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L233)
 
 ### CancelInterviewEndpoint
 
@@ -236,7 +237,7 @@ declare const CancelInterviewEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L550)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L581)
 
 Since v0.1.0 @category Endpoints
 
@@ -256,6 +257,8 @@ declare const ConductObservation: Schema.Struct<{
   readonly schedule: typeof RecruitmentInterviewSchedule;
   readonly invitationResponse: Schema.Literals<readonly ["Accepted"]>;
   readonly questions: Schema.$Array<typeof RecruitmentInterviewQuestionSnapshot>;
+  readonly finalizedByPersonId: Schema.NullOr<Schema.brand<Schema.String, "PersonId">>;
+  readonly finalizedAt: Schema.NullOr<Schema.String>;
   readonly answers: Schema.$Array<
     Schema.Struct<{
       readonly questionId: Schema.String;
@@ -272,7 +275,56 @@ declare const ConductObservation: Schema.Struct<{
   readonly recommendation: Schema.NullOr<Schema.Literals<readonly ["Ja", "Kanskje", "Nei"]>>;
   readonly completionState: Schema.Literals<readonly ["NotCompleted", "Completed"]>;
   readonly cancellationState: Schema.Literals<readonly ["NotCancelled", "Cancelled"]>;
-  readonly finalizedAt: Schema.NullOr<Schema.String>;
+  readonly effectiveRevision: Schema.Int;
+  readonly history: Schema.$Array<
+    Schema.Union<
+      readonly [
+        Schema.Struct<{
+          readonly _tag: Schema.Literals<readonly ["Original"]>;
+          readonly revision: Schema.Int;
+          readonly answers: Schema.$Array<
+            Schema.Struct<{
+              readonly questionId: Schema.String;
+              readonly answer: Schema.Union<readonly [Schema.String, Schema.$Array<Schema.String>]>;
+            }>
+          >;
+          readonly score: Schema.Struct<{
+            readonly explanatoryPower: Schema.Int;
+            readonly roleModel: Schema.Int;
+            readonly suitability: Schema.Int;
+          }>;
+          readonly recommendation: Schema.NullOr<
+            Schema.Literals<readonly ["Ja", "Kanskje", "Nei"]>
+          >;
+          readonly finalizedByPersonId: Schema.brand<Schema.String, "PersonId">;
+          readonly finalizedAt: Schema.String;
+        }>,
+        Schema.Struct<{
+          readonly _tag: Schema.Literals<readonly ["Correction"]>;
+          readonly revision: Schema.Int;
+          readonly predecessorRevision: Schema.Int;
+          readonly answers: Schema.$Array<
+            Schema.Struct<{
+              readonly questionId: Schema.String;
+              readonly answer: Schema.Union<readonly [Schema.String, Schema.$Array<Schema.String>]>;
+            }>
+          >;
+          readonly score: Schema.Struct<{
+            readonly explanatoryPower: Schema.Int;
+            readonly roleModel: Schema.Int;
+            readonly suitability: Schema.Int;
+          }>;
+          readonly recommendation: Schema.Literals<readonly ["Ja", "Kanskje", "Nei"]>;
+          readonly correctedByPersonId: Schema.brand<Schema.String, "PersonId">;
+          readonly correctedAt: Schema.String;
+          readonly commandId: Schema.brand<
+            Schema.String,
+            "RecruitmentInterviewCorrectionCommandId"
+          >;
+        }>,
+      ]
+    >
+  >;
   readonly cancelledAt: Schema.NullOr<Schema.String>;
   readonly revision: Schema.Int;
   readonly canFinalize: Schema.Boolean;
@@ -280,7 +332,7 @@ declare const ConductObservation: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L255)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L258)
 
 ### ConfirmInvitationEndpoint
 
@@ -317,7 +369,72 @@ declare const ConfirmInvitationEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L281)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L284)
+
+Since v0.1.0 @category Endpoints
+
+### CorrectInterviewAssessmentEndpoint
+
+**Signature**
+
+```ts
+declare const CorrectInterviewAssessmentEndpoint: HttpApiEndpoint.HttpApiEndpoint<
+  "correctInterviewAssessment",
+  "POST",
+  "/api/recruitment/interviews/:interviewId([^:]+)::correct",
+  Schema.toCodecStringTree<
+    Schema.Struct<{ interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId"> }>
+  >,
+  never,
+  Schema.toCodecJson<
+    Schema.Struct<{
+      readonly expectedRevision: Schema.Int;
+      readonly answers: Schema.$Array<
+        Schema.Struct<{
+          readonly questionId: Schema.String;
+          readonly answer: Schema.Union<readonly [Schema.String, Schema.$Array<Schema.String>]>;
+        }>
+      >;
+      readonly score: Schema.Struct<{
+        readonly explanatoryPower: Schema.Int;
+        readonly roleModel: Schema.Int;
+        readonly suitability: Schema.Int;
+      }>;
+      readonly recommendation: Schema.Literals<readonly ["Ja", "Kanskje", "Nei"]>;
+    }>
+  >,
+  Schema.toCodecStringTree<
+    Schema.Struct<{
+      readonly "idempotency-key": Schema.brand<Schema.String, "IdempotencyKey">;
+      readonly "if-match": Schema.brand<Schema.String, "StrongETag">;
+    }>
+  >,
+  HttpApiSchema.WithHeaders<
+    Schema.toCodecJson<
+      Schema.Struct<{
+        readonly _tag: Schema.Literals<readonly ["InterviewCorrected"]>;
+        readonly commandId: Schema.brand<Schema.String, "RecruitmentInterviewCorrectionCommandId">;
+        readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
+        readonly predecessorRevision: Schema.Int;
+        readonly resultingRevision: Schema.Int;
+        readonly replayed: Schema.Boolean;
+      }>
+    >,
+    Schema.toCodecStringTree<
+      Schema.Struct<{
+        etag: Schema.brand<Schema.String, "StrongETag">;
+        "cache-control": Schema.Literal<"no-store">;
+        vary: Schema.Literal<"Origin">;
+      }>
+    >
+  >,
+  Schema.toCodecJson<Schema.Codec<unknown, unknown, never, never>>,
+  PersonSecurity,
+  never
+>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L553)
 
 Since v0.1.0 @category Endpoints
 
@@ -379,7 +496,7 @@ declare const FinalizeInterviewEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L522)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L525)
 
 Since v0.1.0 @category Endpoints
 
@@ -396,7 +513,7 @@ declare const InvitationRejectInput: Schema.Codec<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L207)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L210)
 
 ### InvitationRequestNewTimeInput
 
@@ -411,7 +528,7 @@ declare const InvitationRequestNewTimeInput: Schema.Codec<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L215)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L218)
 
 ### InvitationResponseObservation
 
@@ -447,7 +564,7 @@ declare const InvitationResponseObservation: Schema.Union<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L223)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L226)
 
 ### ReadAssignmentBoardEndpoint
 
@@ -529,7 +646,7 @@ declare const ReadAssignmentBoardEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L350)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L353)
 
 Since v0.1.0 @category Endpoints
 
@@ -566,6 +683,8 @@ declare const ReadInterviewConductEndpoint: HttpApiEndpoint.HttpApiEndpoint<
           readonly schedule: typeof RecruitmentInterviewSchedule;
           readonly invitationResponse: Schema.Literals<readonly ["Accepted"]>;
           readonly questions: Schema.$Array<typeof RecruitmentInterviewQuestionSnapshot>;
+          readonly finalizedByPersonId: Schema.NullOr<Schema.brand<Schema.String, "PersonId">>;
+          readonly finalizedAt: Schema.NullOr<Schema.String>;
           readonly answers: Schema.$Array<
             Schema.Struct<{
               readonly questionId: Schema.String;
@@ -584,7 +703,60 @@ declare const ReadInterviewConductEndpoint: HttpApiEndpoint.HttpApiEndpoint<
           >;
           readonly completionState: Schema.Literals<readonly ["NotCompleted", "Completed"]>;
           readonly cancellationState: Schema.Literals<readonly ["NotCancelled", "Cancelled"]>;
-          readonly finalizedAt: Schema.NullOr<Schema.String>;
+          readonly effectiveRevision: Schema.Int;
+          readonly history: Schema.$Array<
+            Schema.Union<
+              readonly [
+                Schema.Struct<{
+                  readonly _tag: Schema.Literals<readonly ["Original"]>;
+                  readonly revision: Schema.Int;
+                  readonly answers: Schema.$Array<
+                    Schema.Struct<{
+                      readonly questionId: Schema.String;
+                      readonly answer: Schema.Union<
+                        readonly [Schema.String, Schema.$Array<Schema.String>]
+                      >;
+                    }>
+                  >;
+                  readonly score: Schema.Struct<{
+                    readonly explanatoryPower: Schema.Int;
+                    readonly roleModel: Schema.Int;
+                    readonly suitability: Schema.Int;
+                  }>;
+                  readonly recommendation: Schema.NullOr<
+                    Schema.Literals<readonly ["Ja", "Kanskje", "Nei"]>
+                  >;
+                  readonly finalizedByPersonId: Schema.brand<Schema.String, "PersonId">;
+                  readonly finalizedAt: Schema.String;
+                }>,
+                Schema.Struct<{
+                  readonly _tag: Schema.Literals<readonly ["Correction"]>;
+                  readonly revision: Schema.Int;
+                  readonly predecessorRevision: Schema.Int;
+                  readonly answers: Schema.$Array<
+                    Schema.Struct<{
+                      readonly questionId: Schema.String;
+                      readonly answer: Schema.Union<
+                        readonly [Schema.String, Schema.$Array<Schema.String>]
+                      >;
+                    }>
+                  >;
+                  readonly score: Schema.Struct<{
+                    readonly explanatoryPower: Schema.Int;
+                    readonly roleModel: Schema.Int;
+                    readonly suitability: Schema.Int;
+                  }>;
+                  readonly recommendation: Schema.Literals<readonly ["Ja", "Kanskje", "Nei"]>;
+                  readonly correctedByPersonId: Schema.brand<Schema.String, "PersonId">;
+                  readonly correctedAt: Schema.String;
+                  readonly commandId: Schema.brand<
+                    Schema.String,
+                    "RecruitmentInterviewCorrectionCommandId"
+                  >;
+                }>,
+              ]
+            >
+          >;
           readonly cancelledAt: Schema.NullOr<Schema.String>;
           readonly revision: Schema.Int;
           readonly canFinalize: Schema.Boolean;
@@ -615,7 +787,7 @@ declare const ReadInterviewConductEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L492)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L495)
 
 Since v0.1.0 @category Endpoints
 
@@ -705,7 +877,7 @@ declare const ReadInterviewReportEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L379)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L382)
 
 ### ReadInvitationResponseEndpoint
 
@@ -779,7 +951,7 @@ declare const ReadInvitationResponseEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L262)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L265)
 
 Since v0.1.0 @category Endpoints
 
@@ -944,7 +1116,7 @@ declare const ReadSchedulingBoardEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L408)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L411)
 
 Since v0.1.0 @category Endpoints
 
@@ -990,7 +1162,7 @@ declare const RejectInvitationEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L303)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L306)
 
 Since v0.1.0 @category Endpoints
 
@@ -1031,7 +1203,7 @@ declare const RequestNewInvitationTimeEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L325)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L328)
 
 Since v0.1.0 @category Endpoints
 
@@ -1090,7 +1262,7 @@ declare const ScheduleInterviewEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L464)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L467)
 
 Since v0.1.0 @category Endpoints
 
@@ -1228,7 +1400,7 @@ declare const SchedulingBoard: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L246)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L249)
 
 ### SchedulingInterview
 
@@ -1351,4 +1523,4 @@ declare const SchedulingInterview: Schema.Union<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L236)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/recruitment.ts#L239)

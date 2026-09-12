@@ -62,6 +62,7 @@ Generated from the frozen 0080.1 endpoint-specific Problem Details table.
   - [ReceiptsWithdrawReceiptProblem](#receiptswithdrawreceiptproblem)
   - [RecruitmentCancelInterviewProblem](#recruitmentcancelinterviewproblem)
   - [RecruitmentConfirmInvitationProblem](#recruitmentconfirminvitationproblem)
+  - [RecruitmentCorrectInterviewAssessmentProblem](#recruitmentcorrectinterviewassessmentproblem)
   - [RecruitmentCreateApplicationInterviewProblem](#recruitmentcreateapplicationinterviewproblem)
   - [RecruitmentFinalizeInterviewProblem](#recruitmentfinalizeinterviewproblem)
   - [RecruitmentReadAssignmentBoardProblem](#recruitmentreadassignmentboardproblem)
@@ -200,7 +201,7 @@ Problems for `content.createArticle`.
 declare const ContentCreateArticleProblem: Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L953)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L970)
 
 ### ContentListNewsProblem
 
@@ -212,7 +213,7 @@ Problems for `content.listNews`.
 declare const ContentListNewsProblem: Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L1073)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L1090)
 
 ### ContentPublishArticleProblem
 
@@ -224,7 +225,7 @@ Problems for `content.publishArticle`.
 declare const ContentPublishArticleProblem: Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L1021)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L1038)
 
 ### ContentReadArticleProblem
 
@@ -236,7 +237,7 @@ Problems for `content.readArticle`.
 declare const ContentReadArticleProblem: Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L976)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L993)
 
 ### ContentReadContentWorkspaceProblem
 
@@ -248,7 +249,7 @@ Problems for `content.readContentWorkspace`.
 declare const ContentReadContentWorkspaceProblem: Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L937)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L954)
 
 ### ContentReadNewsArticleProblem
 
@@ -260,7 +261,7 @@ Problems for `content.readNewsArticle`.
 declare const ContentReadNewsArticleProblem: Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L1084)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L1101)
 
 ### ContentReviseArticleProblem
 
@@ -272,7 +273,7 @@ Problems for `content.reviseArticle`.
 declare const ContentReviseArticleProblem: Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L992)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L1009)
 
 ### ContentUnpublishArticleProblem
 
@@ -284,7 +285,7 @@ Problems for `content.unpublishArticle`.
 declare const ContentUnpublishArticleProblem: Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L1047)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L1064)
 
 ### DirectoryListPeopleProblem
 
@@ -320,7 +321,7 @@ Problems for `internal.readReceiptEvidence`.
 declare const InternalReadReceiptEvidenceProblem: Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L1096)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L1113)
 
 ### OrganizationCreateDepartmentProblem
 
@@ -452,7 +453,7 @@ Problems for `receipts.listReceiptsForApproval`.
 declare const ReceiptsListReceiptsForApprovalProblem: Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L844)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L861)
 
 ### ReceiptsListReceiptsProblem
 
@@ -464,7 +465,7 @@ Problems for `receipts.listReceipts`.
 declare const ReceiptsListReceiptsProblem: Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L832)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L849)
 
 ### ReceiptsReadReceiptFileProblem
 
@@ -476,7 +477,7 @@ Problems for `receipts.readReceiptFile`.
 declare const ReceiptsReadReceiptFileProblem: Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L1112)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L1129)
 
 ### ReceiptsRefundReceiptProblem
 
@@ -488,7 +489,7 @@ Problems for `receipts.refundReceipt`.
 declare const ReceiptsRefundReceiptProblem: Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L859)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L876)
 
 ### ReceiptsRejectReceiptProblem
 
@@ -500,7 +501,7 @@ Problems for `receipts.rejectReceipt`.
 declare const ReceiptsRejectReceiptProblem: Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L885)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L902)
 
 ### ReceiptsReopenReceiptProblem
 
@@ -512,7 +513,7 @@ Problems for `receipts.reopenReceipt`.
 declare const ReceiptsReopenReceiptProblem: Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L911)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L928)
 
 ### ReceiptsReviseReceiptProblem
 
@@ -524,7 +525,7 @@ Problems for `receipts.reviseReceipt`.
 declare const ReceiptsReviseReceiptProblem: Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L777)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L794)
 
 ### ReceiptsSubmitReceiptProblem
 
@@ -536,7 +537,7 @@ Problems for `receipts.submitReceipt`.
 declare const ReceiptsSubmitReceiptProblem: Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L754)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L771)
 
 ### ReceiptsWithdrawReceiptProblem
 
@@ -548,7 +549,7 @@ Problems for `receipts.withdrawReceipt`.
 declare const ReceiptsWithdrawReceiptProblem: Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L806)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L823)
 
 ### RecruitmentCancelInterviewProblem
 
@@ -560,7 +561,7 @@ Problems for `recruitment.cancelInterview`.
 declare const RecruitmentCancelInterviewProblem: Codec<unknown, unknown, never, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L728)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L745)
 
 ### RecruitmentConfirmInvitationProblem
 
@@ -573,6 +574,18 @@ declare const RecruitmentConfirmInvitationProblem: Codec<unknown, unknown, never
 ```
 
 [Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L497)
+
+### RecruitmentCorrectInterviewAssessmentProblem
+
+Problems for `recruitment.correctInterviewAssessment`.
+
+**Signature**
+
+```ts
+declare const RecruitmentCorrectInterviewAssessmentProblem: Codec<unknown, unknown, never, never>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/endpoint-problems.ts#L728)
 
 ### RecruitmentCreateApplicationInterviewProblem
 

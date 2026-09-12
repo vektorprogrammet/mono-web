@@ -20,8 +20,10 @@ showAskAi: false
 
 - [utils](#utils)
   - [CancelTransition (interface)](#canceltransition-interface)
+  - [CorrectionTransition (interface)](#correctiontransition-interface)
   - [FinalizeTransition (interface)](#finalizetransition-interface)
   - [cancelInterview](#cancelinterview)
+  - [correctInterviewAssessment](#correctinterviewassessment)
   - [finalizeInterview](#finalizeinterview)
   - [recruitmentInterviewAnswerIsValid](#recruitmentinterviewanswerisvalid)
 
@@ -40,7 +42,21 @@ export interface CancelTransition {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L36)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L41)
+
+### CorrectionTransition (interface)
+
+**Signature**
+
+```ts
+export interface CorrectionTransition {
+  readonly observation: CorrectInterviewAssessmentObservation;
+  readonly correction: RecruitmentInterviewCorrection;
+  readonly state: RecruitmentConductState;
+}
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L318)
 
 ### FinalizeTransition (interface)
 
@@ -53,7 +69,7 @@ export interface FinalizeTransition {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L31)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L36)
 
 ### cancelInterview
 
@@ -68,7 +84,22 @@ declare const cancelInterview: (
 ) => Effect.Effect<CancelTransition, ConductFailure>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L267)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L272)
+
+### correctInterviewAssessment
+
+**Signature**
+
+```ts
+declare const correctInterviewAssessment: (
+  state: RecruitmentConductState,
+  command: CorrectInterviewAssessmentCommand,
+  actor: RecruitmentConductActor,
+  now: string,
+) => Effect.Effect<CorrectionTransition, ConductFailure>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L324)
 
 ### finalizeInterview
 
@@ -83,7 +114,7 @@ declare const finalizeInterview: (
 ) => Effect.Effect<FinalizeTransition, ConductFailure>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L207)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L212)
 
 ### recruitmentInterviewAnswerIsValid
 
@@ -95,4 +126,4 @@ declare const recruitmentInterviewAnswerIsValid: (
 ) => value is RecruitmentInterviewAnswer;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L314)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/conduct.ts#L392)
