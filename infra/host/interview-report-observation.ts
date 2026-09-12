@@ -359,6 +359,7 @@ export async function observeInterviewReport(o: Options) {
   assert.ok(report.rows.some((r) => r.recommendation === null));
   for (const row of report.rows) {
     assert.deepEqual(
+      Object.keys(row).sort(),
       [
         "interviewId",
         "firstName",
