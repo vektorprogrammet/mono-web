@@ -25,6 +25,8 @@ const applicationId = "application-returning-0104";
 const invitationId = "invitation-returning-0104";
 const placementId = `placement-${"f".repeat(64)}`;
 const teamId = "team-native-conduct-0063";
+const foreignDepartmentId = "department-returning-foreign-0104";
+const foreignTeamId = "team-returning-foreign-0104";
 const negativeProbePersons = [
   {
     personId: "journey-returning-no-placement-0104",
@@ -120,6 +122,20 @@ export const seedReturningAssistant = async ({
        VALUES($1,'Returning History','RH','returning-history@example.invalid','History City',true,0)
        ON CONFLICT (department_id) DO NOTHING`,
       [historicalDepartmentId],
+    );
+    await seedQuery(
+      "foreign department",
+      `INSERT INTO public.organization_departments(department_id,name,short_name,email,city,active,revision)
+       VALUES($1,'Returning Foreign','RF','returning-foreign@example.invalid','Foreign City',true,0)
+       ON CONFLICT (department_id) DO NOTHING`,
+      [foreignDepartmentId],
+    );
+    await seedQuery(
+      "foreign team",
+      `INSERT INTO public.organization_teams(team_id,department_id,name)
+       VALUES($1,$2,'Returning Foreign Team')
+       ON CONFLICT (team_id) DO NOTHING`,
+      [foreignTeamId, foreignDepartmentId],
     );
     await seedQuery(
       "historical semester",
@@ -484,14 +500,14 @@ export const runReturningAssistantBrowserJourney = async ({
     );
   }
   const mappingKey = await pool.query(
-    `SELECT array_agg(a.attname ORDER BY k.ordinality) AS columns
+    `SELECT to_jsonb(array_agg(a.attname::text ORDER BY k.ordinality)) AS columns
      FROM pg_index i
      CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ordinality)
      JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum
      WHERE i.indrelid='public.admission_period_fields_of_study'::regclass AND i.indisprimary
      GROUP BY i.indexrelid`,
   );
-  const expectedMappingKey = [{ columns: "{field_of_study_id}" }];
+  const expectedMappingKey = [{ columns: ["field_of_study_id"] }];
   if (JSON.stringify(mappingKey.rows) !== JSON.stringify(expectedMappingKey))
     throw new Error(`ambiguous-study-mapping structural key mismatch actual=${JSON.stringify(mappingKey.rows)} expected=${JSON.stringify(expectedMappingKey)}`);
   trace.push({ phase: "negative-gate", gate: "ambiguous-study-mapping-structural-primary-key", status: "proven" });
