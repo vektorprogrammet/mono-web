@@ -695,17 +695,27 @@ export const runReturningAssistantBrowserJourney = async ({
     const firstRequest = trace.find((entry) => entry.phase === "first");
     assert.ok(firstRequest && Array.isArray(firstRequest.form));
     const assertRecoveredIntent = async () => {
-      const restoredEntries = await form.evaluate((node) =>
-        [...new FormData(node as HTMLFormElement)].map(([name, value]) => [name, String(value)]),
-      );
-      if (JSON.stringify(restoredEntries) !== JSON.stringify(firstRequest.form))
-        throw new Error(`recovered form intent mismatch actual=${JSON.stringify(restoredEntries)} expected=${JSON.stringify(firstRequest.form)}`);
-      const recoveredCommandId = await form.locator('input[name="commandId"]').inputValue();
-      if (recoveredCommandId !== firstCommandKey)
-        throw new Error(`recovered command id mismatch actual=${recoveredCommandId} expected=${firstCommandKey}`);
-      const recoveredRevision = await form.locator('input[name="expectedRevision"]').inputValue();
-      if (recoveredRevision !== firstExpectedRevision)
-        throw new Error(`recovered base revision mismatch actual=${recoveredRevision} expected=${firstExpectedRevision}`);
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        try {
+          const restoredEntries = await form.evaluate((node) =>
+            [...new FormData(node as HTMLFormElement)].map(([name, value]) => [name, String(value)]),
+          );
+          if (JSON.stringify(restoredEntries) !== JSON.stringify(firstRequest.form))
+            throw new Error(`recovered form intent mismatch actual=${JSON.stringify(restoredEntries)} expected=${JSON.stringify(firstRequest.form)}`);
+          const recoveredCommandId = await form.locator('input[name="commandId"]').inputValue();
+          if (recoveredCommandId !== firstCommandKey)
+            throw new Error(`recovered command id mismatch actual=${recoveredCommandId} expected=${firstCommandKey}`);
+          const recoveredRevision = await form.locator('input[name="expectedRevision"]').inputValue();
+          if (recoveredRevision !== firstExpectedRevision)
+            throw new Error(`recovered base revision mismatch actual=${recoveredRevision} expected=${firstExpectedRevision}`);
+          return;
+        } catch (cause) {
+          lastError = cause;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+      throw lastError;
     };
     if (hasRecoveryControl) await recovery.click();
     form = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
