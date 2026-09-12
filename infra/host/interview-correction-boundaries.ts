@@ -525,6 +525,7 @@ export async function assertInterviewCorrectionBoundaries(
   const raceBefore = await snapshot();
   const locker = await pool.connect();
   let waiting: Promise<Response> | undefined;
+  let exactReplayWaiting: Promise<Response> | undefined;
   const raceInvitation = freshId("correction-boundary-self-link-race");
   try {
     await locker.query("BEGIN");
@@ -532,26 +533,35 @@ export async function assertInterviewCorrectionBoundaries(
       `SELECT applicant_id FROM public.admission_applicants WHERE applicant_id=$1 FOR UPDATE`,
       [raceIdentity.applicantId],
     );
-    waiting = post(
+    exactReplayWaiting = post(
       selfLinkRaceInterviewId,
-      racePayload,
-      raceFresh.etag,
-      freshId("correction-boundary-self-link-race-request"),
+      acceptedRaceReplay.payload,
+      acceptedRaceReplay.etag,
+      acceptedRaceReplay.key,
     );
     const lockerPid = Number((await locker.query("SELECT pg_backend_pid() AS pid")).rows[0].pid);
-    let blocked = false;
+    let exactReplayBlocked = false;
     for (let attempt = 0; attempt < 100; attempt++) {
       const blockingRows = await pool.query(
         `SELECT pid FROM pg_stat_activity WHERE pid <> $1 AND $1 = ANY(pg_blocking_pids(pid))`,
         [lockerPid],
       );
       if (blockingRows.rows.length > 0) {
-        blocked = true;
+        exactReplayBlocked = true;
         break;
       }
       await sleep(10);
     }
-    assert.ok(blocked, `correction request was not blocked by lockerPid=${lockerPid}`);
+    assert.ok(
+      exactReplayBlocked,
+      `exact replay was not blocked by canonical applicant lock lockerPid=${lockerPid}`,
+    );
+    waiting = post(
+      selfLinkRaceInterviewId,
+      racePayload,
+      raceFresh.etag,
+      freshId("correction-boundary-self-link-race-request"),
+    );
     await locker.query(
       `INSERT INTO public.applicant_account_invitations
          (invitation_id, application_id, applicant_id, token_digest, expires_at, state, issued_by, issued_at)
@@ -570,6 +580,13 @@ export async function assertInterviewCorrectionBoundaries(
       [raceIdentity.applicantId, actorPersonId, raceInvitation],
     );
     await locker.query("COMMIT");
+    const exactReplayResponse = await exactReplayWaiting;
+    status("self-link-race:exact-replay-while-committing", exactReplayResponse.status);
+    const exactReplayBody = (await exactReplayResponse.json()) as { readonly code?: unknown };
+    assert.ok([403, 409].includes(exactReplayResponse.status), JSON.stringify(exactReplayBody));
+    if (exactReplayResponse.status === 409) {
+      assert.equal(exactReplayBody.code, "transaction.conflict");
+    }
     const raceResponse = await waiting;
     status("self-link-race:write", raceResponse.status);
     const raceBody = (await raceResponse.json()) as { readonly code?: unknown };

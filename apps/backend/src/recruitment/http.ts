@@ -1105,6 +1105,7 @@ const interviewAuthorizationInTransaction = async (
     run: txRun,
     now: input.config.now,
   });
+  await txRun(guardInterviewApplicantIdentity(interviewId, authorization.authority.personId));
   const source = await txRun(
     readRecruitmentInterviewHttpSourcePostgres(interviewId, authorization.authority.personId),
   );
