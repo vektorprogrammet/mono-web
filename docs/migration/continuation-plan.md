@@ -43,6 +43,20 @@ assessments before deriving either rows or totals. Separate recommendation count
 exist in an unused legacy partial; the live table establishes total rows and
 sortable recommendations/scores, not currently rendered per-choice counts.
 
+Returning registration, 2026-09-12: [0104](../../design-specs/0104-returning-assistant-registration.md)
+delivers the authenticated native returning-assistant journey. It resolves the
+canonical person and admission period, enforces current eligibility and scope,
+and commits one idempotent registration identity. Repeated registration returns
+the existing result; a conflicting command returns `412`, while a successful
+registration returns `201`. Immutable original-receipt provenance, audit and
+retained digest custody, later-period finalization, and acknowledged notification,
+subscription and audit effects were observed in the real dashboard/API/PostgreSQL
+journey. See the [acceptance manifest](../../evidence/functional-parity/0104/acceptance-manifest.json)
+and [sealed evidence](../../evidence/functional-parity/0104/SHA256SUMS).
+This closes the native registration implementation gap. Historical first-time
+classification and exact legacy reporting population remain separate because
+public-submission provenance does not prove absence of prior service.
+
 Finance source correction: legacy administrators can return rejected claims to
 Pending so owners can edit the same claim. [0102](../../design-specs/0102-reopen-rejected-receipt.md)
 restores that correction journey under the existing native scoped approval
