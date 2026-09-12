@@ -1230,6 +1230,7 @@ export const runReturningAssistantBrowserJourney = async ({
   const coordinatorContext = await browser.newContext();
   let assignmentStatus!: number;
   let assignmentBodyText!: string;
+  let assignmentETag!: string;
   let nextInterviewId!: string;
   try {
     stage?.("returning:next-period-assignment:coordinator-login");
@@ -1249,6 +1250,7 @@ export const runReturningAssistantBrowserJourney = async ({
     });
     assignmentStatus = assignmentResponse.status();
     assignmentBodyText = await assignmentResponse.text();
+    assignmentETag = assignmentResponse.headers()["etag"] ?? "";
     if (assignmentStatus !== 201) {
       const assignmentActorContext = await pool.query(
         `SELECT
@@ -1300,18 +1302,8 @@ export const runReturningAssistantBrowserJourney = async ({
       },
     ]);
     stage?.("returning:next-period-schedule");
-    const assignedInterview = await coordinatorPage.request.get(
-      `${api}/api/recruitment/interviews/${encodeURIComponent(nextInterviewId)}`,
-      { headers: { origin: ui } },
-    );
-    const assignedInterviewText = await assignedInterview.text();
-    if (assignedInterview.status() !== 200) {
-      throw new Error(
-        `next interview read failed ${assignedInterview.status()} ${assignedInterviewText}`,
-      );
-    }
-    const assignedETag = assignedInterview.headers()["etag"];
-    assert.ok(assignedETag);
+    assert.ok(assignmentETag);
+    const assignedETag = assignmentETag;
     const scheduleResponse = await coordinatorPage.request.post(
       `${api}/api/recruitment/interviews/${encodeURIComponent(nextInterviewId)}:schedule`,
       {
