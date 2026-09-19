@@ -1,4 +1,17 @@
-# Migration Roadmap
+# Migration reference
+
+Use [STATE.md](../../STATE.md) for current implementation and the accepted
+[continuation plan](continuation-plan.md) for sequencing and acceptance boundaries.
+The [repository source map](../../README.md#current-migration) points to the native
+application and retained legacy source.
+
+The architecture and progress tables below describe an earlier Symfony-backed
+frontend migration. They are historical context, not the current capability
+inventory or proof of production state. Current journey contracts live in
+[design-specs](../../design-specs), with revision-scoped observations in
+[evidence/functional-parity](../../evidence/functional-parity).
+
+## Earlier frontend migration
 
 Incremental migration from Symfony/Twig monolith to TypeScript React apps. See [ADR-0000](../adr/0000-migrate-tech-stack-to-typescript-from-php.md) for motivation.
 

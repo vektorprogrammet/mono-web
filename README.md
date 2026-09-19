@@ -2,6 +2,49 @@
 
 Turborepo monorepo for [Vektorprogrammet](https://vektorprogrammet.no) — a Norwegian university tutoring program connecting STEM students with primary schools.
 
+## Current migration
+
+The active migration builds the native TypeScript application while retaining
+Symfony as a source of legacy behavior. Start with [STATE.md](STATE.md) for
+current work and the accepted [continuation plan](docs/migration/continuation-plan.md)
+for sequencing and acceptance boundaries. Local implementation, synthetic
+acceptance, and production cutover are separate milestones.
+
+| Concern | Source |
+|---|---|
+| Native API transport and runtime | [apps/backend](apps/backend) |
+| Domain behavior | [packages/domain](packages/domain) |
+| PostgreSQL schema and migrations | [packages/database](packages/database) |
+| HTTP contracts and generated OpenAPI | [packages/http-api](packages/http-api) |
+| Client API | [packages/sdk](packages/sdk) |
+| Native dashboard journeys | [apps/dashboard/app/foldkit](apps/dashboard/app/foldkit) |
+| Accepted journey contracts | [design-specs](design-specs) |
+| Retained runtime observations | [evidence/functional-parity](evidence/functional-parity) |
+
+The [root package manifest](package.json) owns workspace commands; each app's
+manifest owns its runtime and package checks. Follow a journey's design-spec
+and existing disposable runtime harness under [infra/host](infra/host) for its
+browser/API/database acceptance. The [agent guide](AGENTS.md) gives working rules.
+
+## Review an integration candidate
+
+Read the acceptance manifest referenced by `STATE.md` from the candidate's
+committed tree. It identifies the observed runtime revision, command, checksums,
+scope, and skipped checks. Verify retained files with `sha256sum --check` using
+that manifest's checksum path, then compare the candidate against the recorded
+runtime revision. Executable changes need fresh relevant verification.
+
+Worktree names, uncommitted status notes, and timestamps do not select the
+accepted artifact. Preserve operator edits when comparing branches. Checksum
+and source-equivalence checks establish integrity and provenance of retained
+evidence; they do not rerun the application or establish production deployment.
+
+## Historical Symfony-backed frontend guide
+
+The sections below retain the earlier frontend migration's structure and local
+development examples. They are historical context, not the current capability
+inventory. Use the current sources above for native application work.
+
 ## Project Structure
 
 ```
