@@ -1,9 +1,9 @@
 {
   "specId": "0106",
   "result": "Passed",
-  "revision": "a8eafdfc84256694a129ec87043fd2176d53da01",
+  "revision": "d680359312340732e98d5d3bef162877dc44ba08",
   "command": "bun infra/host/recommendation-check.ts --co-interviewer-mode",
-  "artifactDirectory": "/tmp/vektor-recommendation-0101-k8vODH (copied into evidence/functional-parity/0106 and removed after checksum verification)",
+  "artifactDirectory": "/tmp/vektor-recommendation-0101-lRH3MN (copied into evidence/functional-parity/0106 and removed after checksum verification)",
   "evidenceDirectory": "evidence/functional-parity/0106",
   "checksums": "evidence/functional-parity/0106/SHA256SUMS",
   "gates": [
@@ -80,14 +80,14 @@
     "No global parity claim is made beyond the explicitly recorded capability-parity freshness check"
   ],
   "sourceEquivalence": {
-    "runtimeRevision": "a8eafdfc84256694a129ec87043fd2176d53da01",
-    "finalExecutableSourceRevision": "a8eafdfc84256694a129ec87043fd2176d53da01",
+    "runtimeRevision": "d680359312340732e98d5d3bef162877dc44ba08",
+    "finalExecutableSourceRevision": "d680359312340732e98d5d3bef162877dc44ba08",
     "verified": true,
-    "verification": "The passing runtime ran from a clean checkout at runtimeRevision. Later changes update database test expectations and generated documentation, parity and retained evidence only; no executable source changed."
+    "verification": "The passing runtime ran from a clean checkout at runtimeRevision. Later changes update retained evidence, state/spec references, package-validation records, and generated documentation only; no executable source changed."
   },
   "cleanup": {
     "ownedDisposablePostgres": "stopped and removed by the runtime harness",
-    "ownedRuntimeArtifact": "/tmp/vektor-recommendation-0101-k8vODH copied into evidence/functional-parity/0106, byte-compared, checksummed and removed",
+    "ownedRuntimeArtifact": "/tmp/vektor-recommendation-0101-lRH3MN copied into evidence/functional-parity/0106, byte-compared, checksummed and removed",
     "failedDiagnosticArtifacts": "owned failed-run directories and temporary capture logs removed",
     "productionOrExternalResources": "none used"
   }

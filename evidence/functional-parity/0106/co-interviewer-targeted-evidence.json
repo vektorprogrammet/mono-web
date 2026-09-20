@@ -1,5 +1,5 @@
 {
-  "revision": "a8eafdfc84256694a129ec87043fd2176d53da01",
+  "revision": "d680359312340732e98d5d3bef162877dc44ba08",
   "fixture": {
     "interviewId": "interview-recommendation-history",
     "primaryPersonId": "journey-conduct-leader-0063",
@@ -61,7 +61,7 @@
       "wrong-department:replay": 403,
       "self-link-seed:write": 200,
       "self-link-race:exact-replay-while-committing": 409,
-      "self-link-race:write": 409,
+      "self-link-race:write": 403,
       "self-link-race:read-after-commit": 403,
       "self-link-race:replay": 403,
       "invalid:malformed-json": 400,
