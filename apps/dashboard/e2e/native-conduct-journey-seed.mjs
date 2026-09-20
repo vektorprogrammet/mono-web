@@ -16,6 +16,13 @@ export const persons = {
     email: "lina.conduct@example.invalid",
     password: "journey-conduct-secret-0123456789",
   },
+  applicant: {
+    personId: "journey-conduct-applicant-0063",
+    firstName: "Sofie",
+    lastName: "Gjennomfører",
+    email: "sofie.conduct@example.invalid",
+    password: "journey-conduct-applicant-secret-0123456789",
+  },
 };
 
 const departmentId = "department-native-conduct-0063";
@@ -74,6 +81,12 @@ VALUES
  ('${applicationA}', '${applicantA}', '${periodId}', '${departmentId}', '${fieldId}', 3, '2026-08-20T10:00:00.000Z', 0),
  ('${applicationB}', '${applicantB}', '${periodId}', '${departmentId}', '${fieldId}', 2, '2026-08-20T10:01:00.000Z', 0)
 ON CONFLICT (application_id) DO NOTHING;
+INSERT INTO applicant_account_invitations (invitation_id, application_id, applicant_id, token_digest, expires_at, state, issued_by, issued_at)
+VALUES ('applicant-account-native-conduct-a-0063', '${applicationA}', '${applicantA}', repeat('c', 64), '2027-01-01T00:00:00.000Z', 'Claimed', '${persons.leader.personId}', '2026-09-01T00:00:00.000Z')
+ON CONFLICT (invitation_id) DO NOTHING;
+INSERT INTO applicant_account_links (applicant_id, person_id, linked_at, invitation_id)
+VALUES ('${applicantA}', '${persons.applicant.personId}', '2026-09-01T00:00:00.000Z', 'applicant-account-native-conduct-a-0063')
+ON CONFLICT (applicant_id) DO NOTHING;
 INSERT INTO organization_departments (department_id, name, short_name, email, city, active, revision)
 VALUES ('${departmentId}', 'Vektorprogrammet Trondheim', 'Trondheim', 'trondheim.conduct@example.invalid', 'Trondheim', TRUE, 0)
 ON CONFLICT (department_id) DO NOTHING;

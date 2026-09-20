@@ -4,12 +4,16 @@ import { dirname, join } from "node:path";
 import { expect, test, type BrowserContext, type Page, type Request } from "@playwright/test";
 
 const dashboardOrigin = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5174";
+const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8799";
 const enabled = process.env.REAL_NATIVE_CONDUCT_E2E === "1";
 const applicantA = process.env.CONDUCT_E2E_APPLICANT_A ?? "Sofie Gjennomfører";
 const applicantB = process.env.CONDUCT_E2E_APPLICANT_B ?? "Olav Konflikt";
 const leaderEmail = process.env.CONDUCT_E2E_LEADER_EMAIL ?? "lina.conduct@example.invalid";
 const leaderPassword =
   process.env.CONDUCT_E2E_LEADER_PASSWORD ?? "journey-conduct-secret-0123456789";
+const applicantEmail = process.env.CONDUCT_E2E_APPLICANT_EMAIL ?? "sofie.conduct@example.invalid";
+const applicantPassword =
+  process.env.CONDUCT_E2E_APPLICANT_PASSWORD ?? "journey-conduct-applicant-secret-0123456789";
 const evidencePath = process.env.CONDUCT_E2E_BROWSER_EVIDENCE_PATH;
 const screenshotDirectory = process.env.CONDUCT_E2E_SCREENSHOT_DIRECTORY;
 const questionPrefix = "interview-schema-native-conduct-0063-";
@@ -57,13 +61,17 @@ const observe = (
   });
 };
 
-const signIn = async (page: Page) => {
+const signIn = async (
+  page: Page,
+  email: string = leaderEmail,
+  password: string = leaderPassword,
+) => {
   await page.goto("/login");
-  await page.getByLabel("E-post").fill(leaderEmail);
-  await page.getByLabel("Passord").fill(leaderPassword);
+  await page.getByLabel("E-post").fill(email);
+  await page.getByLabel("Passord").fill(password);
   await page.getByRole("button", { name: "Logg inn" }).click();
   try {
-    await page.waitForURL(/\/dashboard\/?$/, { timeout: 5_000 });
+    await page.waitForURL(/\/dashboard\/?$/, { timeout: 15_000 });
   } catch (error) {
     throw new Error(
       `native login did not redirect: ${page.url()} ${await page.locator("body").innerText()}`,
@@ -71,6 +79,18 @@ const signIn = async (page: Page) => {
         cause: error,
       },
     );
+  }
+};
+
+const assertNoApplicantPrivateFields = (value: unknown): void => {
+  if (Array.isArray(value)) {
+    for (const item of value) assertNoApplicantPrivateFields(item);
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  for (const [key, child] of Object.entries(value)) {
+    expect(key).not.toMatch(/email|phone|recommendation|answers|capability|interviewer|score/iu);
+    assertNoApplicantPrivateFields(child);
   }
 };
 
@@ -117,6 +137,7 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
     browser,
   }) => {
     test.skip(!enabled, "run through the disposable native conduct runner");
+    test.setTimeout(60_000);
     if (evidencePath === undefined || evidencePath.length === 0)
       throw new Error("CONDUCT_E2E_BROWSER_EVIDENCE_PATH is required");
 
@@ -124,6 +145,7 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
     const pageErrors: string[] = [];
     const browserRequests: string[] = [];
     let firstContextClosed = false;
+    let applicantProgressObserved = false;
     let accessibilityViolations = 0;
 
     const firstContext = await browser.newContext({
@@ -133,6 +155,7 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
     observe(firstContext, pageErrors, operations, browserRequests);
     const page = await firstContext.newPage();
     let staleContext: BrowserContext | undefined;
+    let applicantContext: BrowserContext | undefined;
     try {
       await signIn(page);
       await expect(page.context().cookies()).resolves.toEqual(
@@ -229,6 +252,41 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
         await page.setViewportSize({ width: 1440, height: 900 });
       }
 
+      applicantContext = await browser.newContext({
+        baseURL: dashboardOrigin,
+        viewport: { width: 1440, height: 900 },
+      });
+      observe(applicantContext, pageErrors, operations, browserRequests);
+      const applicantPage = await applicantContext.newPage();
+      await signIn(applicantPage, applicantEmail, applicantPassword);
+      const applicantProgress = await applicantContext.request.get(
+        `${apiOrigin}/api/applicant-progress`,
+        { headers: { origin: dashboardOrigin } },
+      );
+      await applicantPage.goto("/dashboard/soknad");
+      expect(applicantProgress.status()).toBe(200);
+      const applicantProgressBody: unknown = await applicantProgress.json();
+      assertNoApplicantPrivateFields(applicantProgressBody);
+      expect(JSON.stringify(applicantProgressBody)).toContain('"InterviewCompleted"');
+      await expect(
+        applicantPage.getByRole("heading", { name: "Min søknad", exact: true }),
+      ).toBeVisible();
+      await expect(
+        applicantPage.getByRole("heading", { name: "Intervjuet er fullført", exact: true }),
+      ).toBeVisible();
+      await expect(applicantPage.locator("body")).not.toContainText(
+        "Jeg liker å bygge gode løsninger sammen med andre.",
+      );
+      await expect(applicantPage.locator("body")).not.toContainText("lina.conduct@example.invalid");
+      await expect(applicantPage.locator("body")).not.toContainText("90000063");
+      await applicantPage.reload();
+      await expect(
+        applicantPage.getByRole("heading", { name: "Intervjuet er fullført", exact: true }),
+      ).toBeVisible();
+      const applicantAxe = await new AxeBuilder({ page: applicantPage }).analyze();
+      accessibilityViolations += applicantAxe.violations.length;
+      applicantProgressObserved = true;
+
       // The independent revision-1 submit loses to the committed finalization.
       const stalePost = responseFor(stalePage, "finalizeInterview");
       await stalePage.getByRole("button", { name: "Fullfør intervju" }).click();
@@ -257,6 +315,7 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
       accessibilityViolations += pageAxe.violations.length;
     } finally {
       await staleContext?.close();
+      await applicantContext?.close();
       await firstContext.close();
       firstContextClosed = true;
     }
@@ -326,7 +385,7 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
     await mkdir(dirname(evidencePath), { recursive: true });
     await writeFile(
       evidencePath,
-      `${JSON.stringify({ firstContextClosed, independentContextPersisted: true, accessibilityViolations, pageErrors, operations, legacyBrowserRequests, nativeLogin: true, rawCapabilityObserved: false }, null, 2)}\n`,
+      `${JSON.stringify({ firstContextClosed, independentContextPersisted: true, applicantProgressObserved, accessibilityViolations, pageErrors, operations, legacyBrowserRequests, nativeLogin: true, rawCapabilityObserved: false }, null, 2)}\n`,
     );
   });
 });

@@ -329,6 +329,8 @@ const main = async () => {
       CONDUCT_E2E_APPLICANT_B: "Olav Konflikt",
       CONDUCT_E2E_LEADER_EMAIL: "lina.conduct@example.invalid",
       CONDUCT_E2E_LEADER_PASSWORD: "journey-conduct-secret-0123456789",
+      CONDUCT_E2E_APPLICANT_EMAIL: "sofie.conduct@example.invalid",
+      CONDUCT_E2E_APPLICANT_PASSWORD: "journey-conduct-applicant-secret-0123456789",
     };
     dashboard = start(
       "node",
