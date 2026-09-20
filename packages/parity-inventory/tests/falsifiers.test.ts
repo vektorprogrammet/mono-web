@@ -26,7 +26,11 @@ import {
   unsafeSourceTextReason,
 } from "../src/source-manifest.js";
 import { COMMITTED_PROJECTIONS, run, type FalsifierId } from "../src/runner.js";
-import { readPinnedIntentRegisterEffect, scanRootEffect } from "../src/runtime.js";
+import {
+  readPinnedIntentRegisterEffect,
+  readProjectionDirectoryEffect,
+  scanRootEffect,
+} from "../src/runtime.js";
 import {
   canonicalRuntimeEvidenceBytes,
   makeRuntimeEvidenceReceipt,
@@ -306,6 +310,22 @@ test("terminal claims require the closed generated artifact bundle", async () =>
     false,
   );
 });
+test("projection listings ignore co-located acceptance evidence directories", async () => {
+  const root = mkdtempSync("/tmp/functional-parity-projections-");
+  try {
+    putFixture(root, "evidence/functional-parity/source-manifest.json", "{}");
+    putFixture(root, "evidence/functional-parity/0051/runtime.json", "{}");
+    const entries = await Effect.runPromise(
+      readProjectionDirectoryEffect(root, "evidence/functional-parity").pipe(
+        Effect.provide(NodeRuntimeLayer),
+      ),
+    );
+    expect(entries).toEqual(["source-manifest.json"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 const gitFixture = (): string => {
   const root = mkdtempSync("/tmp/functional-parity-git-");
   execFileSync("git", ["-C", root, "init", "-q"]);

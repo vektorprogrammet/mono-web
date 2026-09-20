@@ -941,12 +941,14 @@ export const readProjectionDirectoryEffect = (
         if (!fileSystem.lstat(directory).isDirectory())
           throw new Error(`projection target is not a directory: ${directory}`);
         const entries = fileSystem.readDirectory(directory);
-        for (const entry of entries) {
+        const projectionEntries = entries.filter((entry) => {
           const target = join(directory, entry.name);
           assertNoSymlinkPath(fileSystem, target);
+          if (entry.isDirectory()) return false;
           if (!entry.isFile()) throw new Error(`unsupported projection entry: ${target}`);
-        }
-        return entries.map((entry) => entry.name).sort(compareByteOrder);
+          return true;
+        });
+        return projectionEntries.map((entry) => entry.name).sort(compareByteOrder);
       },
       catch: (cause) =>
         new ParityRuntimeError({
@@ -966,6 +968,7 @@ const assertProjectionDirectoryEntries = (
   for (const entry of fileSystem.readDirectory(directory)) {
     const source = join(directory, entry.name);
     assertNoSymlinkPath(fileSystem, source);
+    if (entry.isDirectory()) continue;
     if (!entry.isFile()) throw new Error(`unsupported projection entry: ${source}`);
     if (!allowed.has(entry.name)) throw new Error(`unknown projection entry: ${source}`);
   }
