@@ -27,6 +27,12 @@
     {
       "group": "admissions",
       "method": "GET",
+      "operationId": "admissions.readApplicantProgress",
+      "path": "/api/applicant-progress"
+    },
+    {
+      "group": "admissions",
+      "method": "GET",
       "operationId": "admissions.readApplicationConfirmation",
       "path": "/api/applications/{applicationId}"
     },

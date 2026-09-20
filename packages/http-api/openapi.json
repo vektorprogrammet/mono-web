@@ -334,7 +334,7 @@
                 "interviewer": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_68"
+                      "$ref": "#/components/schemas/Objects_69"
                     },
                     {
                       "type": "null"
@@ -344,7 +344,7 @@
                 "interviewSchema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_69"
+                      "$ref": "#/components/schemas/Objects_70"
                     },
                     {
                       "type": "null"
@@ -398,13 +398,13 @@
           },
           "interviewers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_68"
+              "$ref": "#/components/schemas/Objects_69"
             },
             "type": "array"
           },
           "interviewSchemas": {
             "items": {
-              "$ref": "#/components/schemas/Objects_69"
+              "$ref": "#/components/schemas/Objects_70"
             },
             "type": "array"
           }
@@ -490,7 +490,7 @@
           },
           "periods": {
             "items": {
-              "$ref": "#/components/schemas/Objects_67"
+              "$ref": "#/components/schemas/Objects_68"
             },
             "type": "array"
           },
@@ -645,7 +645,7 @@
         "properties": {
           "answers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_72"
+              "$ref": "#/components/schemas/Objects_73"
             },
             "type": "array"
           },
@@ -748,7 +748,7 @@
                     },
                     "answers": {
                       "items": {
-                        "$ref": "#/components/schemas/Objects_72"
+                        "$ref": "#/components/schemas/Objects_73"
                       },
                       "type": "array"
                     },
@@ -777,7 +777,7 @@
                       "type": "integer"
                     },
                     "score": {
-                      "$ref": "#/components/schemas/Objects_73"
+                      "$ref": "#/components/schemas/Objects_74"
                     }
                   },
                   "required": [
@@ -806,7 +806,7 @@
                     },
                     "answers": {
                       "items": {
-                        "$ref": "#/components/schemas/Objects_72"
+                        "$ref": "#/components/schemas/Objects_73"
                       },
                       "type": "array"
                     },
@@ -839,7 +839,7 @@
                       "type": "integer"
                     },
                     "score": {
-                      "$ref": "#/components/schemas/Objects_73"
+                      "$ref": "#/components/schemas/Objects_74"
                     }
                   },
                   "required": [
@@ -902,7 +902,7 @@
           "score": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Objects_73"
+                "$ref": "#/components/schemas/Objects_74"
               },
               {
                 "type": "null"
@@ -1013,7 +1013,7 @@
         "properties": {
           "answers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_72"
+              "$ref": "#/components/schemas/Objects_73"
             },
             "type": "array"
           },
@@ -1029,7 +1029,7 @@
             "$ref": "#/components/schemas/Union_20"
           },
           "score": {
-            "$ref": "#/components/schemas/Objects_73"
+            "$ref": "#/components/schemas/Objects_74"
           }
         },
         "required": [
@@ -1618,7 +1618,7 @@
         "properties": {
           "answers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_72"
+              "$ref": "#/components/schemas/Objects_73"
             },
             "type": "array"
           },
@@ -1626,7 +1626,7 @@
             "$ref": "#/components/schemas/Union_20"
           },
           "score": {
-            "$ref": "#/components/schemas/Objects_73"
+            "$ref": "#/components/schemas/Objects_74"
           }
         },
         "required": [
@@ -5035,6 +5035,54 @@
       "Objects_67": {
         "additionalProperties": false,
         "properties": {
+          "campus": {
+            "anyOf": [
+              {
+                "allOf": [
+                  {
+                    "minLength": 1
+                  }
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mapLink": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "room": {
+            "allOf": [
+              {
+                "minLength": 1
+              }
+            ],
+            "type": "string"
+          },
+          "scheduledAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scheduledAt",
+          "room",
+          "campus",
+          "mapLink"
+        ],
+        "type": "object"
+      },
+      "Objects_68": {
+        "additionalProperties": false,
+        "properties": {
           "departmentId": {
             "type": "string"
           },
@@ -5087,7 +5135,7 @@
         ],
         "type": "object"
       },
-      "Objects_68": {
+      "Objects_69": {
         "additionalProperties": false,
         "properties": {
           "displayName": {
@@ -5105,49 +5153,6 @@
         "required": [
           "personId",
           "displayName"
-        ],
-        "type": "object"
-      },
-      "Objects_69": {
-        "additionalProperties": false,
-        "properties": {
-          "active": {
-            "type": "boolean"
-          },
-          "interviewSchemaId": {
-            "type": "string"
-          },
-          "name": {
-            "allOf": [
-              {
-                "maxLength": 250
-              }
-            ],
-            "type": "string"
-          },
-          "questionCount": {
-            "allOf": [
-              {
-                "minimum": 0
-              }
-            ],
-            "type": "integer"
-          },
-          "revision": {
-            "allOf": [
-              {
-                "minimum": 0
-              }
-            ],
-            "type": "integer"
-          }
-        },
-        "required": [
-          "interviewSchemaId",
-          "name",
-          "questionCount",
-          "active",
-          "revision"
         ],
         "type": "object"
       },
@@ -5204,6 +5209,49 @@
       "Objects_70": {
         "additionalProperties": false,
         "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "interviewSchemaId": {
+            "type": "string"
+          },
+          "name": {
+            "allOf": [
+              {
+                "maxLength": 250
+              }
+            ],
+            "type": "string"
+          },
+          "questionCount": {
+            "allOf": [
+              {
+                "minimum": 0
+              }
+            ],
+            "type": "integer"
+          },
+          "revision": {
+            "allOf": [
+              {
+                "minimum": 0
+              }
+            ],
+            "type": "integer"
+          }
+        },
+        "required": [
+          "interviewSchemaId",
+          "name",
+          "questionCount",
+          "active",
+          "revision"
+        ],
+        "type": "object"
+      },
+      "Objects_71": {
+        "additionalProperties": false,
+        "properties": {
           "displayName": {
             "allOf": [
               {
@@ -5230,7 +5278,7 @@
         ],
         "type": "object"
       },
-      "Objects_71": {
+      "Objects_72": {
         "additionalProperties": false,
         "properties": {
           "applicantId": {
@@ -5262,7 +5310,7 @@
         ],
         "type": "object"
       },
-      "Objects_72": {
+      "Objects_73": {
         "additionalProperties": false,
         "properties": {
           "answer": {
@@ -5288,7 +5336,7 @@
         ],
         "type": "object"
       },
-      "Objects_73": {
+      "Objects_74": {
         "additionalProperties": false,
         "properties": {
           "explanatoryPower": {
@@ -5308,7 +5356,7 @@
         ],
         "type": "object"
       },
-      "Objects_74": {
+      "Objects_75": {
         "additionalProperties": false,
         "properties": {
           "articleId": {
@@ -7243,7 +7291,7 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_71"
+                "$ref": "#/components/schemas/Objects_72"
               },
               "applicationId": {
                 "type": "string"
@@ -7258,7 +7306,7 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_70"
+                "$ref": "#/components/schemas/Objects_71"
               },
               "interviewId": {
                 "type": "string"
@@ -7304,7 +7352,7 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_71"
+                "$ref": "#/components/schemas/Objects_72"
               },
               "applicationId": {
                 "type": "string"
@@ -7319,7 +7367,7 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_70"
+                "$ref": "#/components/schemas/Objects_71"
               },
               "interviewId": {
                 "type": "string"
@@ -7369,7 +7417,7 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_71"
+                "$ref": "#/components/schemas/Objects_72"
               },
               "applicationId": {
                 "type": "string"
@@ -7384,7 +7432,7 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_70"
+                "$ref": "#/components/schemas/Objects_71"
               },
               "interviewId": {
                 "type": "string"
@@ -7444,7 +7492,7 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_71"
+                "$ref": "#/components/schemas/Objects_72"
               },
               "applicationId": {
                 "type": "string"
@@ -7459,7 +7507,7 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_70"
+                "$ref": "#/components/schemas/Objects_71"
               },
               "interviewId": {
                 "type": "string"
@@ -11912,6 +11960,775 @@
             "Person"
           ],
           "requirements": []
+        },
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      }
+    },
+    "/api/applicant-progress": {
+      "get": {
+        "description": "Returns current-semester recruitment progress for the signed-in applicant.",
+        "operationId": "admissions.readApplicantProgress",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "applications": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "admissionPeriodId": {
+                            "allOf": [
+                              {
+                                "minLength": 1
+                              }
+                            ],
+                            "type": "string"
+                          },
+                          "applicationId": {
+                            "type": "string"
+                          },
+                          "departmentId": {
+                            "type": "string"
+                          },
+                          "departmentName": {
+                            "allOf": [
+                              {
+                                "minLength": 1
+                              }
+                            ],
+                            "type": "string"
+                          },
+                          "progress": {
+                            "anyOf": [
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "_tag": {
+                                    "enum": [
+                                      "ApplicationReceived"
+                                    ],
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "_tag"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "_tag": {
+                                    "enum": [
+                                      "InvitedToInterview"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "schedule": {
+                                    "$ref": "#/components/schemas/Objects_67"
+                                  }
+                                },
+                                "required": [
+                                  "_tag",
+                                  "schedule"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "_tag": {
+                                    "enum": [
+                                      "InterviewAccepted"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "schedule": {
+                                    "$ref": "#/components/schemas/Objects_67"
+                                  }
+                                },
+                                "required": [
+                                  "_tag",
+                                  "schedule"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "_tag": {
+                                    "enum": [
+                                      "AwaitingNewInterviewTime"
+                                    ],
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "_tag"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "_tag": {
+                                    "enum": [
+                                      "Cancelled"
+                                    ],
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "_tag"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "_tag": {
+                                    "enum": [
+                                      "InterviewCompleted"
+                                    ],
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "_tag"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "_tag": {
+                                    "enum": [
+                                      "AssignedToSchool"
+                                    ],
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "_tag"
+                                ],
+                                "type": "object"
+                              }
+                            ]
+                          },
+                          "semesterId": {
+                            "type": "string"
+                          },
+                          "submittedAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "applicationId",
+                          "admissionPeriodId",
+                          "departmentId",
+                          "departmentName",
+                          "semesterId",
+                          "submittedAt",
+                          "progress"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "observedAt": {
+                      "type": "string"
+                    },
+                    "personId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "personId",
+                    "observedAt",
+                    "applications"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.malformed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request is malformed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Malformed request"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:request.malformed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "header.malformed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "A request header is malformed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Malformed header"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:header.malformed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "credential.missing"
+                              ],
+                              "type": "string"
+                            },
+                            "detail": {
+                              "enum": [
+                                "A credential is required for this operation."
+                              ],
+                              "type": "string"
+                            },
+                            "instance": {
+                              "$ref": "#/components/schemas/Union_"
+                            },
+                            "status": {
+                              "enum": [
+                                401
+                              ],
+                              "type": "number"
+                            },
+                            "title": {
+                              "enum": [
+                                "Credential required"
+                              ],
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "urn:vektorprogrammet:problem:v0.2:credential.missing"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "detail"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "credential.invalid"
+                              ],
+                              "type": "string"
+                            },
+                            "detail": {
+                              "enum": [
+                                "The supplied credential is invalid."
+                              ],
+                              "type": "string"
+                            },
+                            "instance": {
+                              "$ref": "#/components/schemas/Union_"
+                            },
+                            "status": {
+                              "enum": [
+                                401
+                              ],
+                              "type": "number"
+                            },
+                            "title": {
+                              "enum": [
+                                "Invalid credential"
+                              ],
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "urn:vektorprogrammet:problem:v0.2:credential.invalid"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "detail"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionUnauthorizedProblem"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Closed RFC 9457 error union for SessionUnauthorizedProblem.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_3"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_4"
+                }
+              },
+              "www-authenticate": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "authority.denied"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The authenticated principal is not permitted to perform this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            403
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Authority denied"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:authority.denied"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "origin.denied"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The browser origin is not trusted for this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            403
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Origin denied"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:origin.denied"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "internal.error"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The server encountered an unexpected error."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            500
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Internal error"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:internal.error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "admissions.unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The admissions service is temporarily unavailable."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            503
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Admissions unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:admissions.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "retry-after": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "5"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieHeader": []
+          },
+          {
+            "oauthUserBearer": []
+          }
+        ],
+        "summary": "Read applicant progress",
+        "tags": [
+          "Admissions"
+        ],
+        "x-vektor-access": {
+          "acceptedCredentials": [
+            "BetterAuthCookie",
+            "OAuthUserBearer"
+          ],
+          "canonicalScopeResolver": "profile.current-person",
+          "capabilities": {
+            "one": "admissions.read-applicant-progress"
+          },
+          "concealment": {
+            "mode": "Reveal",
+            "stages": []
+          },
+          "decisionTime": "SnapshotRead",
+          "exposure": "External",
+          "principalKinds": [
+            "Person"
+          ],
+          "requirements": [
+            {
+              "id": "profile.owner"
+            }
+          ]
         },
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
@@ -16807,7 +17624,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Objects_74"
+                  "$ref": "#/components/schemas/Objects_75"
                 }
               }
             },
@@ -17696,7 +18513,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Objects_74"
+                  "$ref": "#/components/schemas/Objects_75"
                 }
               }
             },
@@ -60731,7 +61548,7 @@
                             "type": "integer"
                           },
                           "period": {
-                            "$ref": "#/components/schemas/Objects_67"
+                            "$ref": "#/components/schemas/Objects_68"
                           },
                           "semesterName": {
                             "type": "string"

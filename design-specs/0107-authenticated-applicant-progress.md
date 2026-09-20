@@ -1,9 +1,10 @@
 # 0107 — Authenticated applicant progress
 
-Status: frozen for local implementation, 2026-09-20. Production release unclaimed.
+Status: implemented and observed locally, 2026-09-20. Production release unclaimed.
 
 Baseline: `a1291cb4075f9d74f4ef01c42316d39ecc603b54` (`migration/assistant-operations-0906`).
 The accepted tree contains no `0107` design spec. This document claims `0107` for this bounded journey.
+Acceptance: runtime revision `f5a98af9e2f2b887f9a79c54dea9ed4bdad36405`; see [the acceptance manifest](../evidence/functional-parity/0107/acceptance-manifest.json).
 
 ## Goal and product boundary
 

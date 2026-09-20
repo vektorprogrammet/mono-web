@@ -28,6 +28,14 @@ Since v0.1.0
   - [ApplicantContactProjectionSchema](#applicantcontactprojectionschema)
   - [ApplicantId (type alias)](#applicantid-type-alias)
   - [ApplicantIdSchema](#applicantidschema)
+  - [ApplicantInterviewSchedule (type alias)](#applicantinterviewschedule-type-alias)
+  - [ApplicantInterviewScheduleSchema](#applicantinterviewscheduleschema)
+  - [ApplicantProgressItem (type alias)](#applicantprogressitem-type-alias)
+  - [ApplicantProgressItemSchema](#applicantprogressitemschema)
+  - [ApplicantProgressResponse (type alias)](#applicantprogressresponse-type-alias)
+  - [ApplicantProgressResponseSchema](#applicantprogressresponseschema)
+  - [ApplicantProgressState (type alias)](#applicantprogressstate-type-alias)
+  - [ApplicantProgressStateSchema](#applicantprogressstateschema)
   - [ApplicantRecord (class)](#applicantrecord-class)
   - [ApplicantRecordSchema](#applicantrecordschema)
   - [ApplicantSchema](#applicantschema)
@@ -71,6 +79,7 @@ Since v0.1.0
   - [SubmitPublicApplicationCommandSchema](#submitpublicapplicationcommandschema)
   - [SubmitPublicApplicationInput (type alias)](#submitpublicapplicationinput-type-alias)
   - [SubmitPublicApplicationInputSchema](#submitpublicapplicationinputschema)
+  - [decodeApplicantProgressResponse](#decodeapplicantprogressresponse)
   - [decodePublicApplicationConfirmation](#decodepublicapplicationconfirmation)
   - [isPublicApplicationEmail](#ispublicapplicationemail)
   - [isPublicApplicationInstant](#ispublicapplicationinstant)
@@ -140,6 +149,197 @@ declare const ApplicantIdSchema: Schema.brand<Schema.String, "ApplicantId">;
 ```
 
 [Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L32)
+
+### ApplicantInterviewSchedule (type alias)
+
+**Signature**
+
+```ts
+type ApplicantInterviewSchedule = typeof ApplicantInterviewScheduleSchema.Type;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L296)
+
+### ApplicantInterviewScheduleSchema
+
+**Signature**
+
+```ts
+declare const ApplicantInterviewScheduleSchema: Schema.Struct<{
+  readonly scheduledAt: Schema.String;
+  readonly room: Schema.NonEmptyString;
+  readonly campus: Schema.NullOr<Schema.NonEmptyString>;
+  readonly mapLink: Schema.NullOr<Schema.String>;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L290)
+
+### ApplicantProgressItem (type alias)
+
+**Signature**
+
+```ts
+type ApplicantProgressItem = typeof ApplicantProgressItemSchema.Type;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L322)
+
+### ApplicantProgressItemSchema
+
+**Signature**
+
+```ts
+declare const ApplicantProgressItemSchema: Schema.Struct<{
+  readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+  readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
+  readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+  readonly departmentName: Schema.NonEmptyString;
+  readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
+  readonly submittedAt: Schema.String;
+  readonly progress: Schema.TaggedUnion<{
+    readonly Cancelled: Schema.TaggedStruct<"Cancelled", {}>;
+    readonly ApplicationReceived: Schema.TaggedStruct<"ApplicationReceived", {}>;
+    readonly InvitedToInterview: Schema.TaggedStruct<
+      "InvitedToInterview",
+      {
+        readonly schedule: Schema.Struct<{
+          readonly scheduledAt: Schema.String;
+          readonly room: Schema.NonEmptyString;
+          readonly campus: Schema.NullOr<Schema.NonEmptyString>;
+          readonly mapLink: Schema.NullOr<Schema.String>;
+        }>;
+      }
+    >;
+    readonly InterviewAccepted: Schema.TaggedStruct<
+      "InterviewAccepted",
+      {
+        readonly schedule: Schema.Struct<{
+          readonly scheduledAt: Schema.String;
+          readonly room: Schema.NonEmptyString;
+          readonly campus: Schema.NullOr<Schema.NonEmptyString>;
+          readonly mapLink: Schema.NullOr<Schema.String>;
+        }>;
+      }
+    >;
+    readonly AwaitingNewInterviewTime: Schema.TaggedStruct<"AwaitingNewInterviewTime", {}>;
+    readonly InterviewCompleted: Schema.TaggedStruct<"InterviewCompleted", {}>;
+    readonly AssignedToSchool: Schema.TaggedStruct<"AssignedToSchool", {}>;
+  }>;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L313)
+
+### ApplicantProgressResponse (type alias)
+
+**Signature**
+
+```ts
+type ApplicantProgressResponse = typeof ApplicantProgressResponseSchema.Type;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L329)
+
+### ApplicantProgressResponseSchema
+
+**Signature**
+
+```ts
+declare const ApplicantProgressResponseSchema: Schema.Struct<{
+  readonly personId: Schema.brand<Schema.String, "PersonId">;
+  readonly observedAt: Schema.String;
+  readonly applications: Schema.$Array<
+    Schema.Struct<{
+      readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+      readonly admissionPeriodId: Schema.brand<Schema.NonEmptyString, "AdmissionPeriodId">;
+      readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
+      readonly departmentName: Schema.NonEmptyString;
+      readonly semesterId: Schema.brand<Schema.String, "SemesterId">;
+      readonly submittedAt: Schema.String;
+      readonly progress: Schema.TaggedUnion<{
+        readonly Cancelled: Schema.TaggedStruct<"Cancelled", {}>;
+        readonly ApplicationReceived: Schema.TaggedStruct<"ApplicationReceived", {}>;
+        readonly InvitedToInterview: Schema.TaggedStruct<
+          "InvitedToInterview",
+          {
+            readonly schedule: Schema.Struct<{
+              readonly scheduledAt: Schema.String;
+              readonly room: Schema.NonEmptyString;
+              readonly campus: Schema.NullOr<Schema.NonEmptyString>;
+              readonly mapLink: Schema.NullOr<Schema.String>;
+            }>;
+          }
+        >;
+        readonly InterviewAccepted: Schema.TaggedStruct<
+          "InterviewAccepted",
+          {
+            readonly schedule: Schema.Struct<{
+              readonly scheduledAt: Schema.String;
+              readonly room: Schema.NonEmptyString;
+              readonly campus: Schema.NullOr<Schema.NonEmptyString>;
+              readonly mapLink: Schema.NullOr<Schema.String>;
+            }>;
+          }
+        >;
+        readonly AwaitingNewInterviewTime: Schema.TaggedStruct<"AwaitingNewInterviewTime", {}>;
+        readonly InterviewCompleted: Schema.TaggedStruct<"InterviewCompleted", {}>;
+        readonly AssignedToSchool: Schema.TaggedStruct<"AssignedToSchool", {}>;
+      }>;
+    }>
+  >;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L324)
+
+### ApplicantProgressState (type alias)
+
+**Signature**
+
+```ts
+type ApplicantProgressState = typeof ApplicantProgressStateSchema.Type;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L311)
+
+### ApplicantProgressStateSchema
+
+**Signature**
+
+```ts
+declare const ApplicantProgressStateSchema: Schema.TaggedUnion<{
+  readonly Cancelled: Schema.TaggedStruct<"Cancelled", {}>;
+  readonly ApplicationReceived: Schema.TaggedStruct<"ApplicationReceived", {}>;
+  readonly InvitedToInterview: Schema.TaggedStruct<
+    "InvitedToInterview",
+    {
+      readonly schedule: Schema.Struct<{
+        readonly scheduledAt: Schema.String;
+        readonly room: Schema.NonEmptyString;
+        readonly campus: Schema.NullOr<Schema.NonEmptyString>;
+        readonly mapLink: Schema.NullOr<Schema.String>;
+      }>;
+    }
+  >;
+  readonly InterviewAccepted: Schema.TaggedStruct<
+    "InterviewAccepted",
+    {
+      readonly schedule: Schema.Struct<{
+        readonly scheduledAt: Schema.String;
+        readonly room: Schema.NonEmptyString;
+        readonly campus: Schema.NullOr<Schema.NonEmptyString>;
+        readonly mapLink: Schema.NullOr<Schema.String>;
+      }>;
+    }
+  >;
+  readonly AwaitingNewInterviewTime: Schema.TaggedStruct<"AwaitingNewInterviewTime", {}>;
+  readonly InterviewCompleted: Schema.TaggedStruct<"InterviewCompleted", {}>;
+  readonly AssignedToSchool: Schema.TaggedStruct<"AssignedToSchool", {}>;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L298)
 
 ### ApplicantRecord (class)
 
@@ -219,7 +419,7 @@ declare const PublicApplicationActivationTokenSchema: Schema.String;
 type PublicApplicationCatalog = typeof PublicApplicationCatalogSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L308)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L353)
 
 ### PublicApplicationCatalogContext (interface)
 
@@ -231,7 +431,7 @@ export interface PublicApplicationCatalogContext {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L317)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L362)
 
 ### PublicApplicationCatalogDepartment (type alias)
 
@@ -241,7 +441,7 @@ export interface PublicApplicationCatalogContext {
 type PublicApplicationCatalogDepartment = typeof PublicApplicationCatalogDepartmentSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L302)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L347)
 
 ### PublicApplicationCatalogDepartmentSchema
 
@@ -261,7 +461,7 @@ declare const PublicApplicationCatalogDepartmentSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L296)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L341)
 
 ### PublicApplicationCatalogHttpSource (interface)
 
@@ -277,7 +477,7 @@ export interface PublicApplicationCatalogHttpSource {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L309)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L354)
 
 ### PublicApplicationCatalogSchema
 
@@ -301,7 +501,7 @@ declare const PublicApplicationCatalogSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L305)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L350)
 
 ### PublicApplicationCommandId (type alias)
 
@@ -390,7 +590,7 @@ declare const PublicApplicationEmailSchema: Schema.String;
 type PublicApplicationFieldOfStudy = typeof PublicApplicationFieldOfStudySchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L294)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L339)
 
 ### PublicApplicationFieldOfStudySchema
 
@@ -403,7 +603,7 @@ declare const PublicApplicationFieldOfStudySchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L290)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L335)
 
 ### PublicApplicationGender (type alias)
 
@@ -539,7 +739,7 @@ export interface PublicApplicationSubmitContext {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L321)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L366)
 
 ### PublicApplicationSubmitInput (type alias)
 
@@ -611,7 +811,7 @@ export interface PublicApplicationSubmitResult {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L330)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L375)
 
 ### PublicApplicationYearOfStudySchema
 
@@ -688,6 +888,16 @@ declare const SubmitPublicApplicationInputSchema: Schema.Struct<{
 
 [Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L255)
 
+### decodeApplicantProgressResponse
+
+**Signature**
+
+```ts
+declare const decodeApplicantProgressResponse: (input: unknown) => ApplicantProgressResponse;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L330)
+
 ### decodePublicApplicationConfirmation
 
 **Signature**
@@ -703,7 +913,7 @@ declare const decodePublicApplicationConfirmation: (input: unknown) => Effect<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L336)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L381)
 
 ### isPublicApplicationEmail
 

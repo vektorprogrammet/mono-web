@@ -34,7 +34,7 @@ showAskAi: false
 declare class Admissions
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/admissions/service.ts#L49)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/admissions/service.ts#L54)
 
 ### AdmissionsShape (interface)
 
@@ -65,7 +65,11 @@ export interface AdmissionsShape {
   readonly readApplicantContacts: (
     applicationIds: ReadonlyArray<PublicApplicationId>,
   ) => Effect.Effect<ReadonlyArray<ApplicantContactProjection>, ApplicantContactProjectionFailure>;
+  readonly readApplicantProgress: (
+    personId: string,
+    now: string,
+  ) => Effect.Effect<ApplicantProgressResponse, PublicApplicationError>;
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/admissions/service.ts#L23)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/admissions/service.ts#L24)

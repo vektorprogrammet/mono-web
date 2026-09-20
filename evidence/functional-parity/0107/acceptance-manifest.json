@@ -1,0 +1,35 @@
+{
+  "specId": "0107",
+  "result": "Passed",
+  "revision": "f5a98af9e2f2b887f9a79c54dea9ed4bdad36405",
+  "command": "bun infra/host/recommendation-check.ts --applicant-progress-mode",
+  "artifactDirectory": "evidence/functional-parity/0107",
+  "gates": [
+    "disposable PostgreSQL is ready",
+    "previous-schema history fixture migrated",
+    "seeded 0105 pre-0039 correction rows from existing native base",
+    "seeded synthetic current-semester applicant progress states",
+    "immutable historical row survived actual0037 upgrade without invented recommendation",
+    "0039/0040 upgrades preserved original interview/schedule/invitation/conduct/lifecycle rows",
+    "seeded native credentials accepted by real identity engine",
+    "observed applicant-owned progress through the real browser/API/PostgreSQL path"
+  ],
+  "assertions": [
+    "generated SDK and direct HTTP decoded the same stable projection",
+    "anonymous, expired and revoked credentials returned 401",
+    "an authenticated unlinked person received an empty application list",
+    "request selectors were rejected",
+    "all seven semantic states rendered without private assessment or contact fields",
+    "newest-first ordering was deterministic across linked departments",
+    "a pending invitation changed to accepted after source mutation and reload",
+    "the schedule map link accepted keyboard focus",
+    "desktop and mobile captures had zero Axe violations and no page errors"
+  ],
+  "checksums": {
+    "accessibility.json": "83a4a81f8d726a1387a117433b78d86d9d1b2651f09b43b2c1dcb6079644694c",
+    "applicant-progress-desktop.png": "b38c43d0bd8e5f9657807fd9701122d1af3e2aa397f610af1c978ac2e9e7c88c",
+    "applicant-progress-mobile.png": "25c5b2a75d2202a3413b8ea3b43dc003f937c24f721ed9d6914423cc38159f9b",
+    "applicant-progress-targeted-evidence.json": "8ab49077ddcb00ae43aac383440667290cd7b98f43d9b8353cb7f3b4f73c2e68"
+  },
+  "scope": "Disposable loopback PostgreSQL, native backend, generated SDK, dashboard server and headless Chromium only. No production, provider, remote, deployment or notification effect was used."
+}
