@@ -37,6 +37,7 @@ import {
   IdempotencyIfMatchHeaders,
   noStoreReadResponse,
   privateConditionalResponses,
+  privateReadResponse,
 } from "./http-semantics.js";
 import {
   AdmissionPeriodManagementItem,
@@ -136,7 +137,7 @@ export const ReadApplicantProgressEndpoint = HttpApiEndpoint.get(
   "readApplicantProgress",
   "/api/applicant-progress",
   {
-    success: noStoreReadResponse(ApplicantProgressResponseSchema),
+    success: privateReadResponse(ApplicantProgressResponseSchema),
     error: endpointProblemResponses(AdmissionsReadApplicantProgressProblem),
   },
 )

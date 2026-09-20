@@ -780,11 +780,11 @@ const privateReadOperations = [
   "receipts.listReceipts",
   "receipts.listReceiptsForApproval",
   "content.readContentWorkspace",
+  "admissions.readApplicantProgress",
 ] as const;
 const noStoreReadOperations = [
   "system.health",
   "admissions.readApplicationConfirmation",
-  "admissions.readApplicantProgress",
   "admissions.readReturningAssistantOptions",
 ] as const;
 
