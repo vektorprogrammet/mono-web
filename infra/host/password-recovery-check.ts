@@ -7,6 +7,7 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
+import { Console, Effect } from "effect";
 import { stopPreviewScenarioBackend } from "./preview-scenario.js";
 import { drainPasswordResetMail } from "../../packages/database/src/password-recovery.js";
 import { makeHttpPasswordResetDelivery } from "../../apps/backend/src/password-recovery/http-delivery.js";
@@ -485,7 +486,9 @@ try {
       2,
     ),
   );
-  console.log(JSON.stringify({ result: "Passed", artifacts, revision, gates }));
+  await Effect.runPromise(
+    Console.log(JSON.stringify({ result: "Passed", artifacts, revision, gates })),
+  );
 } catch (error) {
   let text = page
     ? await page
@@ -494,21 +497,24 @@ try {
         .catch(() => "")
     : "";
   for (const secret of secrets) text = text.replaceAll(secret, "[redacted]");
-  console.error(
-    JSON.stringify({
-      failure: error instanceof Error ? error.name : "Failure",
-      assertion:
-        error !== null && typeof error === "object" && "actual" in error && "expected" in error
-          ? {
-              actual: typeof error.actual === "number" ? error.actual : typeof error.actual,
-              expected: typeof error.expected === "number" ? error.expected : typeof error.expected,
-            }
-          : null,
-      gates,
-      submissions,
-      pageText: text.slice(0, 1800),
-      artifacts,
-    }),
+  await Effect.runPromise(
+    Console.error(
+      JSON.stringify({
+        failure: error instanceof Error ? error.name : "Failure",
+        assertion:
+          error !== null && typeof error === "object" && "actual" in error && "expected" in error
+            ? {
+                actual: typeof error.actual === "number" ? error.actual : typeof error.actual,
+                expected:
+                  typeof error.expected === "number" ? error.expected : typeof error.expected,
+              }
+            : null,
+        gates,
+        submissions,
+        pageText: text.slice(0, 1800),
+        artifacts,
+      }),
+    ),
   );
   process.exitCode = 1;
 } finally {

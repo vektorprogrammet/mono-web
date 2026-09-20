@@ -978,6 +978,7 @@ export const runReturningAssistantBrowserJourney = async ({
     }
     assert.equal(interceptedActions, 2);
     assert.equal(droppedResponse, true);
+    assert.equal(routeFailure, undefined);
     const captureCommitted = async (phase: string, periodId: string) => {
       const committed = await pool.query(
         `SELECT *
@@ -1295,9 +1296,11 @@ export const runReturningAssistantBrowserJourney = async ({
      WHERE application.application_id=$1`,
       [applicationId],
     );
-    assert.equal(finalCustody.rows[0]?.activation_digest, originalActivationDigest);
-    assert.ok((finalCustody.rows[0]?.public_receipts as ReadonlyArray<unknown>).length > 0);
-    assert.ok((finalCustody.rows[0]?.public_audit as ReadonlyArray<unknown>).length > 0);
+    const finalCustodyRow = finalCustody.rows[0];
+    assert.ok(finalCustodyRow);
+    assert.equal(finalCustodyRow.activation_digest, originalActivationDigest);
+    assert.ok((finalCustodyRow.public_receipts as ReadonlyArray<unknown>).length > 0);
+    assert.ok((finalCustodyRow.public_audit as ReadonlyArray<unknown>).length > 0);
     assert.deepEqual(finalCustody.rows, originalCustody.rows);
     trace.push({
       phase: "negative-gate",

@@ -58,7 +58,7 @@ type Element = DefaultTreeAdapterTypes.Element;
 const unsafeScheme = (value: string): string | undefined => {
   const canonical = value
     .normalize("NFKC")
-    .replace(/[\u0000-\u0020\u007f-\u009f\u00a0]|\p{White_Space}/gu, "")
+    .replace(/\p{Cc}|\p{White_Space}/gu, "")
     .toLowerCase();
   const separator = canonical.indexOf(":");
   if (separator <= 0) return undefined;
@@ -67,7 +67,7 @@ const unsafeScheme = (value: string): string | undefined => {
 };
 
 const sanitizeChildren = (parent: ParentNode): string | undefined => {
-  for (const node of [...parent.childNodes]) {
+  for (const node of parent.childNodes.slice()) {
     if (defaultTreeAdapter.isCommentNode(node)) {
       defaultTreeAdapter.detachNode(node);
       continue;

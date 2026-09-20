@@ -24,13 +24,13 @@ const effectConfig = {
   technology: "effect-v4",
   groups: [
     group({
-      files: ["packages/domain/src/**/*.ts"],
+      files: ["packages/domain/src/**/!(*.test|*.spec).ts"],
       role: "effect-library",
       platform: "node",
       strictness: "recommended",
     }),
     group({
-      files: ["packages/database/src/**/*.ts"],
+      files: ["packages/database/src/**/!(*.test|*.spec|*-main|*-cli).ts"],
       role: "runtime-adapter",
       platform: "node",
       strictness: "recommended",
@@ -42,20 +42,20 @@ const effectConfig = {
       strictness: "recommended",
     }),
     group({
-      files: ["packages/sdk/src/**/*.ts"],
+      files: ["packages/sdk/src/**/!(*.test|*.spec).ts"],
       role: "effect-library",
       platform: "portable",
       strictness: "recommended",
     }),
     group({
-      files: ["apps/backend/src/main.ts", "infra/**/*.ts", "scripts/**/*.ts"],
-      role: "composition-root",
+      files: ["apps/backend/src/**/!(main|*.test|*.spec|*-main).ts"],
+      role: "runtime-adapter",
       platform: "node",
       strictness: "recommended",
     }),
     group({
-      files: ["apps/backend/src/**/*.ts"],
-      role: "runtime-adapter",
+      files: ["infra/**/*.ts", "scripts/**/*.ts"],
+      role: "composition-root",
       platform: "node",
       strictness: "recommended",
     }),
@@ -71,11 +71,75 @@ const effectConfig = {
       platform: "browser",
       strictness: "recommended",
     }),
+    group({
+      files: ["apps/backend/src/test/**/*.ts"],
+      role: "runtime-adapter",
+      platform: "bun",
+      strictness: "recommended",
+    }),
+    group({
+      files: [
+        "apps/backend/src/main.ts",
+        "apps/backend/src/**/*-main.ts",
+        "packages/database/src/**/*-main.ts",
+        "packages/database/src/**/*-cli.ts",
+      ],
+      role: "composition-root",
+      platform: "node",
+      strictness: "recommended",
+    }),
   ],
 } satisfies ExpandInput;
 
+const expandedEffectConfig = expandDomains(effectConfig);
+
 export default defineConfig({
-  ...expandDomains(effectConfig),
+  ...expandedEffectConfig,
+  overrides: [
+    ...expandedEffectConfig.overrides,
+    {
+      files: ["apps/backend/src/main.ts"],
+      rules: {
+        // Bun's backend root intentionally combines platform-bun with Node-compatible process APIs.
+        "effect/no-cross-runtime": "off",
+      },
+    },
+    {
+      files: [
+        "apps/backend/src/native-operation.ts",
+        "packages/database/src/oauth-live.ts",
+        "packages/database/src/password-recovery.ts",
+        "packages/sdk/src/effect-client.ts",
+        "packages/sdk/src/promise.ts",
+      ],
+      rules: {
+        // These named adapters are the explicit Effect-to-Promise or synchronous interoperability seam.
+        "effect/no-premature-execution": "off",
+      },
+    },
+    {
+      files: [
+        "infra/alchemy/scripts/docs-cli.test.ts",
+        "packages/parity-inventory/tests/claim-evidence.test.ts",
+        "packages/parity-inventory/tests/cli-contract.test.ts",
+        "packages/parity-inventory/tests/convention-alias.test.ts",
+        "packages/parity-inventory/tests/journey-evidence.test.ts",
+        "packages/parity-inventory/tests/legacy-journey-evidence.test.ts",
+        "packages/parity-inventory/tests/unsafe-diagnostics.test.ts",
+      ],
+      rules: {
+        // Bun owns these exact suites; they deliberately exercise Node-compatible filesystem seams.
+        "effect/no-cross-runtime": "off",
+      },
+    },
+    {
+      files: ["infra/host/password-recovery-check.ts", "scripts/changelog.ts"],
+      rules: {
+        // These Bun entrypoints intentionally use Bun-native lifecycle APIs beside Node compatibility APIs.
+        "effect/no-cross-runtime": "off",
+      },
+    },
+  ],
   ignorePatterns: [
     "apps/server/**",
     "**/build/**",

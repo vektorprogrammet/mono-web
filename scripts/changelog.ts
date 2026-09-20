@@ -1,4 +1,5 @@
 import { unlink, rename } from "node:fs/promises";
+import { Console, Effect } from "effect";
 
 const check = Bun.argv.includes("--check");
 const outputPath = "CHANGELOG.md";
@@ -31,12 +32,14 @@ if (check) {
   await unlink(temporaryPath);
 
   if (expected === null || !Buffer.from(expected).equals(Buffer.from(actual))) {
-    console.error("CHANGELOG.md is out of date. Run `bun run changelog` and commit the result.");
+    await Effect.runPromise(
+      Console.error("CHANGELOG.md is out of date. Run `bun run changelog` and commit the result."),
+    );
     process.exit(1);
   }
 
-  console.log("CHANGELOG.md matches git history.");
+  await Effect.runPromise(Console.log("CHANGELOG.md matches git history."));
 } else {
   await rename(temporaryPath, outputPath);
-  console.log("Generated CHANGELOG.md from conventional commits.");
+  await Effect.runPromise(Console.log("Generated CHANGELOG.md from conventional commits."));
 }

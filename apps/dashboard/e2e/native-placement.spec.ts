@@ -238,9 +238,9 @@ test("0096 existing volunteer requests affiliation and coordinator places them w
     await expect(self.getByText("Status: Inaktiv", { exact: true })).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
     await axe(page, "mobile retained placement history");
-    expect(
-      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
-    ).toBe(true);
+    expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
+      true,
+    );
     await page.screenshot({
       path: join(manifest.artifacts, "placements-mobile.png"),
       fullPage: true,
