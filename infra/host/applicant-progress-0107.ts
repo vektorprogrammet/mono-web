@@ -297,6 +297,12 @@ export const runApplicantProgress0107 = async (input: {
   const unlinkedResponse = await request("/api/applicant-progress", unlinkedCookie);
   assert.equal(unlinkedResponse.status, 200);
   assert.deepEqual(decodeApplicantProgressResponse(await unlinkedResponse.json()).applications, []);
+  const expiredSessions = await input.pool.query(
+    `UPDATE auth.session SET "expiresAt"=CURRENT_TIMESTAMP-interval '1 minute' WHERE "userId"=$1`,
+    [applicantProgressUnlinkedIdentity.personId],
+  );
+  assert.ok((expiredSessions.rowCount ?? 0) >= 1);
+  assert.equal((await request("/api/applicant-progress", unlinkedCookie)).status, 401);
   const body = decodeApplicantProgressResponse(await response.json());
   const tags = body.applications.map((application) => application.progress._tag);
   const sdk = createPromiseClient(input.api, { cookie: input.cookie, origin: input.ui });
@@ -322,6 +328,18 @@ export const runApplicantProgress0107 = async (input: {
   ] as const) {
     assert.ok(tags.includes(tag), `missing applicant progress state ${tag}`);
   }
+  for (let index = 1; index < body.applications.length; index += 1) {
+    const previous = body.applications[index - 1];
+    const current = body.applications[index];
+    assert.ok(previous);
+    assert.ok(current);
+    assert.ok(
+      previous.submittedAt > current.submittedAt ||
+        (previous.submittedAt === current.submittedAt &&
+          previous.applicationId.localeCompare(current.applicationId) <= 0),
+      "applicant progress is not in deterministic newest-first order",
+    );
+  }
   assertNoForbiddenKeys(body);
 
   await input.page.goto(`${input.ui}/dashboard/soknad`);
@@ -345,6 +363,12 @@ export const runApplicantProgress0107 = async (input: {
   assert.equal(forbidden.test(renderedText), false);
   const violations = await input.audit(input.page);
   assert.deepEqual(violations, []);
+  const mapLink = input.page.getByRole("link", { name: "Åpne kart", exact: true }).first();
+  await mapLink.focus();
+  assert.equal(
+    await mapLink.evaluate((element) => element.ownerDocument.activeElement === element),
+    true,
+  );
   await input.page.screenshot({
     path: join(input.artifacts, "applicant-progress-desktop.png"),
     fullPage: true,
