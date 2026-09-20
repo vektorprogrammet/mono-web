@@ -530,7 +530,36 @@ export async function assertInterviewCorrectionBoundaries(
 
   const detailFor = async (id: string): Promise<{ body: Detail; etag: string }> => {
     const response = await get(id);
-    assert.equal(response.status, 200, await response.clone().text());
+    if (response.status !== 200) {
+      const diagnostic = await pool.query(
+        `SELECT i.interview_id, i.department_id, i.interviewer_person_id,
+                i.co_interviewer_person_id, link.person_id AS linked_applicant_person_id,
+                EXISTS (
+                  SELECT 1 FROM public.recruitment_interview_conducts AS conduct
+                  WHERE conduct.interview_id=i.interview_id
+                ) AS has_conduct,
+                EXISTS (
+                  SELECT 1
+                    FROM public.organization_memberships AS membership
+                    JOIN public.organization_teams AS team USING(team_id)
+                    JOIN public.organization_departments AS department USING(department_id)
+                   WHERE membership.person_id=$2
+                     AND team.department_id=i.department_id
+                     AND membership.end_at IS NULL
+                     AND NOT membership.is_suspended
+                     AND team.active
+                     AND department.active
+                ) AS active_member
+           FROM public.recruitment_interviews AS i
+           JOIN public.admission_applications AS application USING(application_id)
+           LEFT JOIN public.applicant_account_links AS link USING(applicant_id)
+          WHERE i.interview_id=$1`,
+        [id, actorPersonId],
+      );
+      assert.fail(
+        `detail ${id} returned ${response.status}: ${await response.text()}; source=${JSON.stringify(diagnostic.rows)}`,
+      );
+    }
     const etag = response.headers.get("etag");
     if (etag === null) throw new Error("detail response did not include an ETag");
     return { body: (await response.json()) as Detail, etag };
