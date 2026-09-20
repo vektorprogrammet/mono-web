@@ -4,7 +4,7 @@ import { PublicApplicationIdSchema } from "../application/schema.js";
 import { Database, type DatabaseShape } from "../database/service.js";
 import type { Profile } from "../profile/service.js";
 import { DepartmentId, PersonId } from "../organization/schema.js";
-import { canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
+import { sha256Hex } from "../tutor/evidence.js";
 import { Effect, Schema } from "effect";
 import {
   RecruitmentApplicationNotFound,
@@ -24,10 +24,12 @@ import {
   RecruitmentInterviewId,
   RecruitmentInvitationCapabilitySchema,
   RecruitmentInvitationId,
+  RecruitmentInvitationResponseObservationSchema,
   RecruitmentInvitationResponseStateSchema,
   type RecruitmentActor,
   type RecruitmentInvitationCapability,
   type RecruitmentInvitationResponseMessage,
+  type RecruitmentInvitationResponseObservation,
   type RecruitmentInvitationResponseResult,
 } from "./schema.js";
 
@@ -44,6 +46,12 @@ const RecruitmentInvitationHttpSourceSchema = Schema.Struct({
   supersededAt: Schema.NullOr(RecruitmentInstantSchema),
 });
 export type RecruitmentInvitationHttpSource = typeof RecruitmentInvitationHttpSourceSchema.Type;
+
+const RecruitmentInvitationHttpSnapshotSchema = Schema.Struct({
+  source: RecruitmentInvitationHttpSourceSchema,
+  observation: RecruitmentInvitationResponseObservationSchema,
+});
+export type RecruitmentInvitationHttpSnapshot = typeof RecruitmentInvitationHttpSnapshotSchema.Type;
 
 const RecruitmentApplicationHttpAccessSchema = Schema.Struct({
   applicationId: PublicApplicationIdSchema,
@@ -79,11 +87,11 @@ const persistenceError = (operation: string, cause: unknown) =>
 const capabilityDigest = (capability: RecruitmentInvitationCapability): string =>
   sha256Hex(new TextEncoder().encode(capability));
 
-/** Canonical capability-selected source for invitation access and ETags. */
-export const readRecruitmentInvitationHttpSourcePostgres = (
+/** One capability-selected snapshot for invitation authorization, representation, and ETags. */
+export const readRecruitmentInvitationHttpSnapshotPostgres = (
   capabilityInput: RecruitmentInvitationCapability,
 ): Effect.Effect<
-  RecruitmentInvitationHttpSource,
+  RecruitmentInvitationHttpSnapshot,
   RecruitmentInvitationNotFound | RecruitmentDecodeError | RecruitmentPersistenceError,
   Database
 > =>
@@ -94,7 +102,9 @@ export const readRecruitmentInvitationHttpSourcePostgres = (
         { onExcessProperty: "error" },
       ).pipe(Effect.mapError(() => new RecruitmentInvitationNotFound({})));
       const capabilitySha256 = capabilityDigest(capability);
-      const rows = yield* database`
+      const rows = yield* database<
+        RecruitmentInvitationHttpSource & RecruitmentInvitationResponseObservation
+      >`
         SELECT
           ${capabilitySha256}::text AS "capabilitySha256",
           invitation.invitation_id AS "invitationId",
@@ -103,6 +113,13 @@ export const readRecruitmentInvitationHttpSourcePostgres = (
           invitation.schedule_revision AS "scheduleRevision",
           invitation.response_revision AS "responseRevision",
           invitation.response_state AS "responseState",
+          invitation.response_message AS "responseMessage",
+          to_char(
+            schedule.scheduled_at AT TIME ZONE 'UTC',
+            'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+          ) AS "scheduledAt",
+          schedule.room,
+          schedule.campus,
           CASE WHEN invitation.superseded_at IS NULL THEN NULL
             ELSE to_char(
               invitation.superseded_at AT TIME ZONE 'UTC',
@@ -112,21 +129,57 @@ export const readRecruitmentInvitationHttpSourcePostgres = (
         FROM public.recruitment_invitations AS invitation
         INNER JOIN public.recruitment_interviews AS interview
           ON interview.interview_id = invitation.interview_id
+        INNER JOIN public.recruitment_interview_schedules AS schedule
+          ON schedule.interview_id = invitation.interview_id
+          AND schedule.schedule_revision = invitation.schedule_revision
         WHERE invitation.capability_sha256 = ${capabilitySha256}
           AND invitation.superseded_at IS NULL
       `.pipe(
         Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("read recruitment invitation HTTP source", cause)),
+          Effect.fail(persistenceError("read recruitment invitation HTTP snapshot", cause)),
         ),
       );
       const row = rows[0];
       if (row === undefined) return yield* new RecruitmentInvitationNotFound({});
-      return yield* Schema.decodeUnknownEffect(RecruitmentInvitationHttpSourceSchema)(row, {
-        onExcessProperty: "error",
-      }).pipe(
-        Effect.mapError((cause) => decodeError("decode recruitment invitation HTTP source", cause)),
+      return yield* Schema.decodeUnknownEffect(RecruitmentInvitationHttpSnapshotSchema)(
+        {
+          source: {
+            capabilitySha256: row.capabilitySha256,
+            invitationId: row.invitationId,
+            interviewId: row.interviewId,
+            departmentId: row.departmentId,
+            scheduleRevision: row.scheduleRevision,
+            responseRevision: row.responseRevision,
+            responseState: row.responseState,
+            supersededAt: row.supersededAt,
+          },
+          observation: {
+            scheduledAt: row.scheduledAt,
+            room: row.room,
+            campus: row.campus,
+            responseState: row.responseState,
+            responseMessage: row.responseMessage,
+          },
+        },
+        { onExcessProperty: "error" },
+      ).pipe(
+        Effect.mapError((cause) =>
+          decodeError("decode recruitment invitation HTTP snapshot", cause),
+        ),
       );
     }),
+  );
+
+/** Canonical capability-selected source for invitation access and ETags. */
+export const readRecruitmentInvitationHttpSourcePostgres = (
+  capabilityInput: RecruitmentInvitationCapability,
+): Effect.Effect<
+  RecruitmentInvitationHttpSource,
+  RecruitmentInvitationNotFound | RecruitmentDecodeError | RecruitmentPersistenceError,
+  Database
+> =>
+  readRecruitmentInvitationHttpSnapshotPostgres(capabilityInput).pipe(
+    Effect.map((snapshot) => snapshot.source),
   );
 
 /** Application scope and target-interviewer eligibility for native access evaluation. */
@@ -401,55 +454,22 @@ export type RecruitmentInvitationHttpTransition =
   | { readonly _tag: "Reject"; readonly message?: RecruitmentInvitationResponseMessage }
   | { readonly _tag: "RequestNewTime"; readonly message: RecruitmentInvitationResponseMessage };
 
-/** Runs one capability command and records its internal HTTP command identity in the domain transaction. */
-export const executeRecruitmentInvitationHttpTransitionPostgres = (input: {
-  readonly commandId: string;
+/** Runs one non-replayable invitation transition in its domain transaction. */
+export const executeRecruitmentInvitationTransitionPostgres = (input: {
   readonly capability: RecruitmentInvitationCapability;
   readonly transition: RecruitmentInvitationHttpTransition;
   readonly now: string;
 }): Effect.Effect<RecruitmentInvitationResponseResult, unknown, Database | Admissions | Profile> =>
-  Effect.gen(function* () {
-    const before = yield* readRecruitmentInvitationHttpSourcePostgres(input.capability);
-    const result = yield* input.transition._tag === "Confirm"
-      ? confirmInvitation(input.capability, { now: input.now })
-      : input.transition._tag === "Reject"
-        ? rejectInvitation(
-            input.capability,
-            input.transition.message === undefined ? {} : { message: input.transition.message },
-            { now: input.now },
-          )
-        : requestNewInvitationTime(
-            input.capability,
-            { message: input.transition.message },
-            { now: input.now },
-          );
-    const digest = sha256Hex(
-      canonicalJsonBytes({
-        commandId: input.commandId,
-        capabilitySha256: before.capabilitySha256,
-        transition: input.transition,
-      }),
-    );
-    const database = yield* Database;
-    yield* database`
-      INSERT INTO public.recruitment_invitation_response_command_receipts (
-        command_id,
-        command_sha256,
-        invitation_id,
-        resulting_response_revision,
-        committed_at
-      ) VALUES (
-        ${input.commandId},
-        ${digest},
-        ${before.invitationId},
-        ${result.responseRevision},
-        ${input.now}
-      )
-    `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("write invitation response HTTP command receipt", cause)),
-      ),
-      Effect.asVoid,
-    );
-    return result;
-  });
+  input.transition._tag === "Confirm"
+    ? confirmInvitation(input.capability, { now: input.now })
+    : input.transition._tag === "Reject"
+      ? rejectInvitation(
+          input.capability,
+          input.transition.message === undefined ? {} : { message: input.transition.message },
+          { now: input.now },
+        )
+      : requestNewInvitationTime(
+          input.capability,
+          { message: input.transition.message },
+          { now: input.now },
+        );

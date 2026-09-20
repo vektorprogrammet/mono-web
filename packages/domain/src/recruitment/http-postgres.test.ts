@@ -1,10 +1,11 @@
 import { Database, type DatabaseShape } from "../database/service.js";
 import { PersonId } from "../organization/schema.js";
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
-import { RecruitmentInterviewId } from "./schema.js";
+import { Effect, Schema } from "effect";
+import { RecruitmentInterviewId, RecruitmentInvitationCapabilitySchema } from "./schema.js";
 import {
   readRecruitmentInterviewHttpSourcePostgres,
+  readRecruitmentInvitationHttpSnapshotPostgres,
   readRecruitmentPersonAuthorityHttpSourcesPostgres,
 } from "./http-postgres.js";
 
@@ -40,6 +41,62 @@ describe("recruitment HTTP persistence", () => {
       expect(statements[0]).toContain("UNION ALL");
       expect(statements[0]).toContain("ORDER BY kind_order, identity");
       expect(parameters).toEqual([[personId, personId]]);
+    }),
+  );
+
+  it.effect("reads the invitation representation and ETag source from one snapshot", () =>
+    Effect.gen(function* () {
+      const statements: Array<string> = [];
+      const database = ((
+        strings: TemplateStringsArray,
+        ..._values: ReadonlyArray<unknown>
+      ): Effect.Effect<ReadonlyArray<unknown>> => {
+        statements.push(strings.join("?").replaceAll(/\s+/gu, " ").trim());
+        return Effect.succeed([
+          {
+            capabilitySha256: "f".repeat(64),
+            invitationId: "invitation-1",
+            interviewId: "interview-1",
+            departmentId: "department-1",
+            scheduleRevision: 2,
+            responseRevision: 1,
+            responseState: "Accepted",
+            responseMessage: null,
+            scheduledAt: "2031-09-15T12:00:00.000Z",
+            room: "A1",
+            campus: "Gløshaugen",
+            supersededAt: null,
+          },
+        ]);
+      }) as unknown as DatabaseShape;
+      const capability = Schema.decodeUnknownSync(RecruitmentInvitationCapabilitySchema)(
+        "a".repeat(43),
+      );
+
+      const snapshot = yield* readRecruitmentInvitationHttpSnapshotPostgres(capability).pipe(
+        Effect.provideService(Database, database),
+      );
+
+      expect(statements).toHaveLength(1);
+      expect(snapshot).toEqual({
+        source: {
+          capabilitySha256: "f".repeat(64),
+          invitationId: "invitation-1",
+          interviewId: "interview-1",
+          departmentId: "department-1",
+          scheduleRevision: 2,
+          responseRevision: 1,
+          responseState: "Accepted",
+          supersededAt: null,
+        },
+        observation: {
+          scheduledAt: "2031-09-15T12:00:00.000Z",
+          room: "A1",
+          campus: "Gløshaugen",
+          responseState: "Accepted",
+          responseMessage: null,
+        },
+      });
     }),
   );
 

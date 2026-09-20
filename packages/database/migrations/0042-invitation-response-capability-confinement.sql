@@ -1,3 +1,5 @@
+DROP TABLE IF EXISTS public.recruitment_invitation_response_command_receipts;
+
 ALTER TABLE recruitment_invitations
   DROP CONSTRAINT IF EXISTS recruitment_invitations_response_message;
 
@@ -51,6 +53,5 @@ ALTER TABLE recruitment_invitation_response_outbox
     )
   ),
   ADD CONSTRAINT recruitment_invitation_response_outbox_payload_confinement CHECK (
-    (payload_json ->> 'responseMessage') IS NULL
-    OR (payload_json ->> 'responseMessage') !~ '[A-Za-z0-9_-]{43}'
+    payload_json::text !~ '[A-Za-z0-9_-]{43}'
   );

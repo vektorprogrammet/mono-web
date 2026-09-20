@@ -526,6 +526,74 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
         }),
       ),
     );
+    const outboxNestedPayload = yield* Effect.result(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* stageRejectedInvitation(ordinaryMessage);
+          yield* insertAudit(ordinaryMessage);
+          yield* sql`
+            INSERT INTO recruitment_invitation_response_outbox (
+              effect_id,
+              effect_type,
+              invitation_id,
+              interview_id,
+              schedule_revision,
+              response_revision,
+              response_state,
+              response_message,
+              ordinal,
+              payload_json
+            ) VALUES (
+              ${outboxEffectId},
+              'SendInterviewInvitationResponse',
+              ${cohort.raceInvitationId},
+              ${cohort.raceInterviewId},
+              1,
+              1,
+              'Rejected',
+              ${ordinaryMessage},
+              0,
+              jsonb_build_object('note', ${embeddedCapabilitySequence})
+            )
+          `;
+          return yield* Effect.fail("OutboxNestedPayloadConfinementMissing");
+        }),
+      ),
+    );
+    const outboxNamedCapabilityPayload = yield* Effect.result(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* stageRejectedInvitation(ordinaryMessage);
+          yield* insertAudit(ordinaryMessage);
+          yield* sql`
+            INSERT INTO recruitment_invitation_response_outbox (
+              effect_id,
+              effect_type,
+              invitation_id,
+              interview_id,
+              schedule_revision,
+              response_revision,
+              response_state,
+              response_message,
+              ordinal,
+              payload_json
+            ) VALUES (
+              ${outboxEffectId},
+              'SendInterviewInvitationResponse',
+              ${cohort.raceInvitationId},
+              ${cohort.raceInterviewId},
+              1,
+              1,
+              'Rejected',
+              ${ordinaryMessage},
+              0,
+              jsonb_build_object('capabilitySha256', 'redacted')
+            )
+          `;
+          return yield* Effect.fail("OutboxNamedCapabilityPayloadConfinementMissing");
+        }),
+      ),
+    );
     const after = yield* sql<{
       readonly responseState: string;
       readonly responseMessage: string | null;
@@ -555,6 +623,8 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
       auditMessage,
       outboxMessage,
       outboxPayload,
+      outboxNestedPayload,
+      outboxNamedCapabilityPayload,
     ].map(
       (result) =>
         result._tag === "Failure" &&
@@ -569,6 +639,8 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
       auditMessageRejected: constraintRejections[1] === true,
       outboxMessageRejected: constraintRejections[2] === true,
       outboxPayloadRejected: constraintRejections[3] === true,
+      outboxNestedPayloadRejected: constraintRejections[4] === true,
+      outboxNamedCapabilityPayloadRejected: constraintRejections[5] === true,
       rollbackPreserved: canonicalJson(before) === canonicalJson(after),
     };
   });
@@ -886,6 +958,8 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
       auditMessageRejected: true,
       outboxMessageRejected: true,
       outboxPayloadRejected: true,
+      outboxNestedPayloadRejected: true,
+      outboxNamedCapabilityPayloadRejected: true,
       rollbackPreserved: true,
       validNearbyMessageStored: true,
     });

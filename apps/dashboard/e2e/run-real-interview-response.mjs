@@ -867,6 +867,7 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
       record.responseJson = responseJson ?? null;
       record.responseEtag = upstream.headers.get("etag");
       record.responseContentType = upstream.headers.get("content-type");
+      record.responseVary = upstream.headers.get("vary");
       record.responseHasResponseCapabilityField = [
         "responseCapability",
         "invitationCapability",
@@ -1028,13 +1029,13 @@ async function exerciseNativeBoundaryFailures() {
 
 const semanticResponseHeaders = (headers) =>
   Object.fromEntries(
-    ["cache-control", "content-type", "etag", "location", "retry-after"].map((name) => [
+    ["cache-control", "content-type", "etag", "location", "retry-after", "vary"].map((name) => [
       name,
       headers.get(name),
     ]),
   );
 
-async function exerciseExactHttpReplay(records) {
+async function exerciseNonReplayableRepeat(records) {
   const original = records.find(
     (record) =>
       record.invitationActor === "accepted" &&
@@ -1047,39 +1048,36 @@ async function exerciseExactHttpReplay(records) {
     typeof original.idempotencyKey !== "string" ||
     typeof original.ifMatch !== "string"
   ) {
-    throw new Error("Native replay rehearsal could not locate the accepted command receipt");
+    throw new Error("Non-replay rehearsal could not locate the accepted invitation command");
   }
-  const execute = async () => {
-    const response = await fetch(new URL(original.path, backendOrigin), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": original.idempotencyKey,
-        "if-match": original.ifMatch,
-        [invitationCapabilityHeader]: rawCapabilitiesByCase.accepted,
-      },
-      body: JSON.stringify(original.requestJson ?? {}),
-    });
-    const body = Buffer.from(await response.arrayBuffer());
-    return {
-      status: response.status,
-      bodySha256: createHash("sha256").update(body).digest("hex"),
-      bodyBytes: body.byteLength,
-      headers: semanticResponseHeaders(response.headers),
-    };
-  };
-  const first = await execute();
-  const second = await execute();
-  assertEqual(first, second, "Exact native HTTP command replay");
+  const response = await fetch(new URL(original.path, backendOrigin), {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": original.idempotencyKey,
+      "if-match": original.ifMatch,
+      [invitationCapabilityHeader]: rawCapabilitiesByCase.accepted,
+    },
+    body: JSON.stringify(original.requestJson ?? {}),
+  });
+  const body = Buffer.from(await response.arrayBuffer());
+  assertNoRawCapability(body.toString("utf8"), "Non-replayable invitation repeat");
+  const problem = parseJsonBody(body);
   if (
-    first.status !== 204 ||
-    first.bodyBytes !== 0 ||
-    first.headers.etag !== original.responseEtag ||
-    first.headers["cache-control"] !== "no-store"
+    response.status !== 409 ||
+    problem?.code !== "invitation.already-responded" ||
+    !response.headers.get("content-type")?.startsWith("application/problem+json")
   ) {
-    throw new Error("Exact native HTTP command replay changed its response capsule");
+    throw new Error("A repeated invitation command replayed instead of returning typed conflict");
   }
-  return { ...first, repeatedIdentically: true };
+  return {
+    status: response.status,
+    code: problem.code,
+    reusedIdempotencyKey: true,
+    replayedResponse: false,
+    recovery: "required-fresh-read",
+    headers: semanticResponseHeaders(response.headers),
+  };
 }
 
 function summarizeNativeContracts(records) {
@@ -1822,6 +1820,7 @@ function assertNativeTransport(records) {
     if (record.status === 204) {
       if (
         record.responseJson !== null ||
+        record.responseVary !== "Origin" ||
         !/^"vkr2\.[A-Za-z0-9_-]{43}"$/u.test(record.responseEtag ?? "")
       ) {
         throw new Error("Invitation mutation did not return the generated 204 response contract");
@@ -2226,7 +2225,7 @@ async function main() {
     assertBrowserEvidence(browser);
     assertNativeTransport(proxy.records);
     const nativeContractObservations = summarizeNativeContracts(proxy.records);
-    const exactHttpReplay = await exerciseExactHttpReplay(proxy.records);
+    const nonReplayableRepeat = await exerciseNonReplayableRepeat(proxy.records);
     if (apiProcess.rawCapabilityObserved() || dashboardProcess.rawCapabilityObserved()) {
       throw new Error("A native process log contained a raw invitation capability");
     }
@@ -2288,7 +2287,7 @@ async function main() {
         rawCapabilityObserved: false,
         contractObservations: nativeContractObservations,
         boundaryFailures: nativeBoundaryFailures,
-        exactHttpReplay,
+        nonReplayableRepeat,
       },
       postgres: {
         seeded: seededEvidence,

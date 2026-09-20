@@ -78,13 +78,13 @@ import {
   assignApplicantPostgres,
   cancelInterviewPostgres,
   correctInterviewAssessmentPostgres,
-  executeRecruitmentInvitationHttpTransitionPostgres,
+  executeRecruitmentInvitationTransitionPostgres,
   finalizeInterviewPostgres,
   readInterviewConductInTransaction,
-  readInvitationResponsePostgres,
   readRecruitmentApplicationHttpAccessPostgres,
   readRecruitmentInterviewHttpSourcePostgres,
   readRecruitmentPersonAuthorityHttpSourcesPostgres,
+  readRecruitmentInvitationHttpSnapshotPostgres,
   readRecruitmentInvitationHttpSourcePostgres,
   readRecruitmentTargetActorPostgres,
   readRecruitmentTargetAuthorityPostgres,
@@ -218,10 +218,6 @@ export const RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS = {
 export const RECRUITMENT_NATIVE_OPERATION_IDS = Object.values(
   RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS,
 ).map((registration) => registration.operationId);
-
-const NativeHttpCommandId = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^httpv2_[A-Za-z0-9_-]+$/u)),
-);
 
 const NO_STORE = "no-store";
 const PRIVATE_NO_STORE = "private, no-store";
@@ -778,17 +774,16 @@ const readInvitationResponse = async (
   noQuery(request);
   const capability = await invitationCapability(request, input.run);
   const now = input.config.now();
-  const source = await input.run(readRecruitmentInvitationHttpSourcePostgres(capability));
+  const snapshot = await input.run(readRecruitmentInvitationHttpSnapshotPostgres(capability));
   await authorizeInvitationOperation({
     spec: Option.getOrThrow(reflectAccessSpec(ReadInvitationResponseEndpoint)),
     request,
-    source,
+    source: snapshot.source,
     authorizationInstant: now,
     run: input.run,
   });
-  const observation = await input.run(readInvitationResponsePostgres(capability));
-  const output = await strictOutput(InvitationResponseObservation, observation, input.run);
-  return conditionalJsonResponse(request, output, invitationETag(source));
+  const output = await strictOutput(InvitationResponseObservation, snapshot.observation, input.run);
+  return conditionalJsonResponse(request, output, invitationETag(snapshot.source));
 };
 
 const invitationMutation = async (
@@ -798,6 +793,7 @@ const invitationMutation = async (
 ): Promise<Response> => {
   noQuery(request);
   const ifMatch = parseRequiredIfMatch(headerValues(request, "if-match"));
+  parseIdempotencyKey(headerValues(request, "idempotency-key"));
   const capability = await invitationCapability(request, input.run);
   const endpoint =
     operation === "Confirm"
@@ -805,32 +801,24 @@ const invitationMutation = async (
       : operation === "Reject"
         ? RejectInvitationEndpoint
         : RequestNewInvitationTimeEndpoint;
-  let commandInput: {
-    readonly body: unknown;
-    readonly transition: RecruitmentInvitationHttpTransition;
-  };
+  let transition: RecruitmentInvitationHttpTransition;
   if (operation === "Confirm") {
-    commandInput = {
-      body: await strictDecode(
-        ConfirmInvitationPayload,
-        await readJsonBody(request, input.config.maxBodyBytes, true),
-        input.run,
-        { code: "request.malformed", status: 400 },
-      ),
-      transition: { _tag: "Confirm" },
-    };
+    await strictDecode(
+      ConfirmInvitationPayload,
+      await readJsonBody(request, input.config.maxBodyBytes, true),
+      input.run,
+      { code: "request.malformed", status: 400 },
+    );
+    transition = { _tag: "Confirm" };
   } else if (operation === "Reject") {
     const body = await strictDecode(
       InvitationRejectInput,
       await readJsonBody(request, input.config.maxBodyBytes),
       input.run,
     );
-    commandInput = {
-      body,
-      transition: {
-        _tag: "Reject",
-        ...(body.message === undefined ? {} : { message: body.message }),
-      },
+    transition = {
+      _tag: "Reject",
+      ...(body.message === undefined ? {} : { message: body.message }),
     };
   } else {
     const body = await strictDecode(
@@ -838,61 +826,37 @@ const invitationMutation = async (
       await readJsonBody(request, input.config.maxBodyBytes),
       input.run,
     );
-    commandInput = {
-      body,
-      transition: { _tag: "RequestNewTime", message: body.message },
-    };
+    transition = { _tag: "RequestNewTime", message: body.message };
   }
-  const operationId =
-    operation === "Confirm"
-      ? "recruitment.confirmInvitation"
-      : operation === "Reject"
-        ? "recruitment.rejectInvitation"
-        : "recruitment.requestNewInvitationTime";
-  const suffix =
-    operation === "Confirm" ? "confirm" : operation === "Reject" ? "reject" : "request-new-time";
-  return executeCommand({
+  const now = input.config.now();
+  const source = await input.run(readRecruitmentInvitationHttpSourcePostgres(capability));
+  await authorizeInvitationOperation({
+    spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
     request,
-    operationId,
-    routeTemplate: `/api/recruitment/invitation-response:${suffix}`,
-    identities: {},
-    semanticRequest: semanticMutationRequest(commandInput.body, ifMatch),
-    commandIdSchema: NativeHttpCommandId,
+    source,
+    authorizationInstant: now,
     run: input.run,
-    retry: "serialization-once",
-    prepare: async (txRun) => {
-      const now = input.config.now();
-      const source = await txRun(readRecruitmentInvitationHttpSourcePostgres(capability));
-      await authorizeInvitationOperation({
-        spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
-        request,
-        source,
-        authorizationInstant: now,
-        run: txRun,
-      });
-      if (source.responseState === "Pending") {
-        const precondition = evaluateMutationPrecondition(invitationETag(source), ifMatch);
-        if (precondition._tag === "Failed") {
-          throw new HttpSemanticFailure(precondition.code, precondition.status);
-        }
-      }
-      return {
-        credentialSubject: `Capability:${source.capabilitySha256}`,
-        execute: (commandId) =>
-          Effect.gen(function* () {
-            yield* executeRecruitmentInvitationHttpTransitionPostgres({
-              commandId,
-              capability,
-              transition: commandInput.transition,
-              now,
-            });
-            const updated = yield* readRecruitmentInvitationHttpSourcePostgres(capability);
-            return new Response(null, {
-              status: 204,
-              headers: { "cache-control": NO_STORE, etag: invitationETag(updated) },
-            });
-          }),
-      };
+  });
+  if (source.responseState === "Pending") {
+    const precondition = evaluateMutationPrecondition(invitationETag(source), ifMatch);
+    if (precondition._tag === "Failed") {
+      throw new HttpSemanticFailure(precondition.code, precondition.status);
+    }
+  }
+  await input.run(
+    executeRecruitmentInvitationTransitionPostgres({
+      capability,
+      transition,
+      now,
+    }),
+  );
+  const updated = await input.run(readRecruitmentInvitationHttpSourcePostgres(capability));
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "cache-control": NO_STORE,
+      etag: invitationETag(updated),
+      vary: "Origin",
     },
   });
 };
