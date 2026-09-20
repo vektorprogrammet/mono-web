@@ -642,6 +642,29 @@ describe("DatabaseTest", () => {
           interviewerPersonId: PersonId.make("recruitment-interviewer"),
           interviewSchemaId: InterviewSchemaId.make("recruitment-schema"),
         };
+        yield* database`
+          UPDATE recruitment_interview_schemas
+          SET active = FALSE
+          WHERE interview_schema_id = 'recruitment-schema'
+        `;
+        const inactiveSchema = yield* Effect.flip(
+          recruitment.assignApplicant(
+            {
+              ...command,
+              commandId: RecruitmentAssignmentCommandId.make("inactive-schema-command"),
+            },
+            {
+              actor,
+              now,
+              interviewId: RecruitmentInterviewId.make("inactive-schema-interview"),
+            },
+          ),
+        );
+        yield* database`
+          UPDATE recruitment_interview_schemas
+          SET active = TRUE
+          WHERE interview_schema_id = 'recruitment-schema'
+        `;
         const assigned = yield* recruitment.assignApplicant(command, {
           actor,
           now,
@@ -853,6 +876,7 @@ describe("DatabaseTest", () => {
         );
         return {
           before,
+          inactiveSchema,
           assigned,
           snapshotMutation,
           replayed,
@@ -892,6 +916,7 @@ describe("DatabaseTest", () => {
         displayName: "Lise Leader",
       },
     ]);
+    expect(evidence.inactiveSchema._tag).toBe("RecruitmentInterviewSchemaInactive");
     expect(evidence.assigned).toEqual({
       observation: {
         _tag: "ApplicantAssigned",

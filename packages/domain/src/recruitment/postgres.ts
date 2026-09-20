@@ -16,6 +16,7 @@ import {
   RecruitmentDecodeError,
   RecruitmentInactiveActor,
   RecruitmentInterviewerNotEligible,
+  RecruitmentInterviewSchemaInactive,
   RecruitmentInterviewSchemaNotFound,
   RecruitmentInvalidContext,
   RecruitmentPersistenceError,
@@ -890,6 +891,11 @@ const assignmentInTransaction = (
     const interviewSchema = yield* readInterviewSchema(sql, command.interviewSchemaId);
     if (interviewSchema === undefined) {
       return yield* new RecruitmentInterviewSchemaNotFound({
+        interviewSchemaId: command.interviewSchemaId,
+      });
+    }
+    if (!interviewSchema.active) {
+      return yield* new RecruitmentInterviewSchemaInactive({
         interviewSchemaId: command.interviewSchemaId,
       });
     }
