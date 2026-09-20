@@ -51,7 +51,7 @@ const ScoreSchema = Schema.Struct({
 const DetailSchema = Schema.Struct({
   answers: Schema.Unknown,
   score: Schema.NullOr(ScoreSchema),
-  recommendation: Schema.NullOr(Schema.Literal("Ja", "Kanskje", "Nei")),
+  recommendation: Schema.NullOr(Schema.Literals(["Ja", "Kanskje", "Nei"])),
   revision: Schema.Number,
   effectiveRevision: Schema.Number,
   history: Schema.Array(Schema.Unknown),
