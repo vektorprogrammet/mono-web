@@ -7,11 +7,10 @@ import {
 } from "../lib/interview-bridge.server";
 import type { Route } from "./+types/interview-response.$capability";
 
-const redactedLocation = "/interview-response/redacted";
-
 export async function loader({ params, request }: Route.LoaderArgs) {
   const exchangeUrl = new URL(request.url);
   exchangeUrl.pathname = exchangeUrl.pathname.replace(/\/+$/u, "");
+  const redactedLocation = new URL("./redacted", exchangeUrl).pathname;
   const bridgePath = new URL("../interview", exchangeUrl).pathname;
   const capability = params.capability;
   if (capability === undefined || capability === "redacted") {
