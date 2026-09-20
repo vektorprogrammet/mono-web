@@ -427,7 +427,7 @@ export const seedCoInterviewerCorrection0106Fixture = async ({
         `INSERT INTO public.admission_period_departments
            SELECT (jsonb_populate_record(
              NULL::public.admission_period_departments,
-             to_jsonb(department) || jsonb_build_object('department_id', $1)
+             to_jsonb(department) || jsonb_build_object('department_id', $1::text)
            )).*
              FROM public.admission_period_departments AS department
             WHERE department.department_id=$2
