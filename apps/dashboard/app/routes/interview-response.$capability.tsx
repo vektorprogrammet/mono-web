@@ -10,7 +10,9 @@ import type { Route } from "./+types/interview-response.$capability";
 const redactedLocation = "/interview-response/redacted";
 
 export async function loader({ params, request }: Route.LoaderArgs) {
-  const bridgePath = new URL("../interview", request.url).pathname;
+  const exchangeUrl = new URL(request.url);
+  exchangeUrl.pathname = exchangeUrl.pathname.replace(/\/+$/u, "");
+  const bridgePath = new URL("../interview", exchangeUrl).pathname;
   const capability = params.capability;
   if (capability === undefined || capability === "redacted") {
     throw redirect(redactedLocation, { headers: responseHeaders });

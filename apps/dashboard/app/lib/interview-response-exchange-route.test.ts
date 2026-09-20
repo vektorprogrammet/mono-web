@@ -22,11 +22,14 @@ import { loader } from "../routes/interview-response.$capability";
 const thrownRedirect = async (
   capability: string,
   mount: "/" | "/dashboard/" = "/",
+  trailingSlash = false,
 ): Promise<Response> => {
   try {
     await loader({
       params: { capability },
-      request: new Request(`http://dashboard.test${mount}interview-response/${capability}`),
+      request: new Request(
+        `http://dashboard.test${mount}interview-response/${capability}${trailingSlash ? "/" : ""}`,
+      ),
     } as never);
   } catch (response) {
     if (response instanceof Response) return response;
@@ -100,7 +103,7 @@ describe("recruitment invitation capability exchange", () => {
     const interactionId = "c".repeat(32);
     bridge.createInvitationInteractionId.mockReturnValueOnce(interactionId);
 
-    const response = await thrownRedirect(capability, "/dashboard/");
+    const response = await thrownRedirect(capability, "/dashboard/", true);
 
     expect(response.headers.get("location")).toBe(
       `/interview-response/redacted?interactionId=${interactionId}`,
