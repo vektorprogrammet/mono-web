@@ -503,7 +503,7 @@ try {
   assert.ok(correctionPre0039Fixture);
   await assertInterviewCorrectionPre0039Preserved(pool, correctionPre0039Fixture);
   recordGate(
-    "0039 upgrade preserved original interview/schedule/invitation/conduct/lifecycle rows",
+    "0039/0040 upgrades preserved original interview/schedule/invitation/conduct/lifecycle rows",
   );
   run("bun", ["run", "build"], env, join(root, "packages/sdk"));
   run("bun", ["run", "build"], env, join(root, "apps/dashboard"));

@@ -227,7 +227,7 @@ export const readInterviewCorrectionPre0039Snapshot = async (
 ): Promise<InterviewCorrectionPre0039Snapshot> => {
   const result = await connection.query(
     `SELECT
-       COALESCE((SELECT jsonb_agg(to_jsonb(entry) ORDER BY entry.interview_id)
+       COALESCE((SELECT jsonb_agg(to_jsonb(entry) - 'co_interviewer_person_id' ORDER BY entry.interview_id)
                  FROM public.recruitment_interviews entry WHERE entry.interview_id = ANY($1::text[])), '[]'::jsonb) AS interviews,
        COALESCE((SELECT jsonb_agg(to_jsonb(entry) ORDER BY entry.interview_id)
                  FROM public.recruitment_interview_schedules entry WHERE entry.interview_id = ANY($1::text[])), '[]'::jsonb) AS schedules,
@@ -349,7 +349,7 @@ export const assertInterviewCorrectionPre0039Preserved = async (
   fixture: InterviewCorrectionPre0039Fixture,
 ): Promise<void> => {
   const after0039 = await readInterviewCorrectionPre0039Snapshot(connection);
-  assert.deepEqual(after0039, fixture.before0039, "0039 changed pre-existing recruitment records");
+  assert.deepEqual(after0039, fixture.before0039, "migration changed pre-existing recruitment records");
 };
 
 export const seedCoInterviewerCorrection0106Fixture = async ({
