@@ -84,7 +84,7 @@ const deriveCanonicalMigrationExpectation = (definitions, schemaRevision) => {
       `canonical migration registry head ${head.revision} does not have maximum numeric id ${maximumId}`,
     );
   }
-  if (schemaRevision !== head.revision) {
+  if (schemaRevision !== head.revision.replaceAll("-", "_")) {
     throw new Error(
       `canonical migration registry/revision disagreement: ${JSON.stringify({
         registryHead: head.revision,
@@ -112,7 +112,7 @@ const expectedMigrationEvidence = {
 };
 const postgresPort = 55446;
 const backendPort = 8800;
-const dashboardPort = 5194;
+const dashboardPort = 5174;
 const postgresUrl = `postgres://postgres@127.0.0.1:${postgresPort}/postgres`;
 const backendOrigin = `http://127.0.0.1:${backendPort}`;
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
@@ -624,6 +624,8 @@ const main = async () => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-native-recruitment-0049-1-"));
   const postgresRoot = join(temporaryRoot, "postgres");
   const browserEvidencePath = join(temporaryRoot, "browser-evidence.json");
+  const receiptStagingRoot = join(temporaryRoot, "receipt-staging");
+  const receiptCommittedRoot = join(temporaryRoot, "receipt-committed");
   const baseEnvironment = { ...process.env };
   for (const name of [
     "API_MODE",
@@ -645,8 +647,15 @@ const main = async () => {
     BETTER_AUTH_SECRET: betterAuthSecret,
     NATIVE_IDENTITY_DEPLOYMENT: "local",
     NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
+    OAUTH_CANONICAL_ORIGIN: backendOrigin,
+    OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
+    OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     ADMISSION_FIXED_NOW: fixedClock,
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+    RECEIPT_STAGING_ROOT: receiptStagingRoot,
+    RECEIPT_COMMITTED_ROOT: receiptCommittedRoot,
+    RECEIPT_MAX_FILE_BYTES: "10485760",
+    RECEIPT_E2E_TEST_MODE: "1",
   };
 
   let postgresStarted = false;
@@ -808,7 +817,7 @@ const main = async () => {
     const browser = await readJsonFile(browserEvidencePath, "native recruitment browser evidence");
     const expectedBridge = [
       { operation: "readAssignmentBoard", status: 200, authorizationHeaderPresent: false },
-      { operation: "assignApplicant", status: 200, authorizationHeaderPresent: false },
+      { operation: "createApplicationInterview", status: 200, authorizationHeaderPresent: false },
       { operation: "readAssignmentBoard", status: 200, authorizationHeaderPresent: false },
       { operation: "readAssignmentBoard", status: 200, authorizationHeaderPresent: false },
     ];
@@ -903,6 +912,7 @@ const main = async () => {
           "applicationId",
           "assignedAt",
           "assignedByPersonId",
+          "coInterviewerPersonId",
           "departmentId",
           "interviewId",
           "interviewSchemaId",
@@ -913,6 +923,7 @@ const main = async () => {
       createRequest.requestJson.interviewSchemaId !== interviewSchemaId ||
       !/^"vkr2\.[A-Za-z0-9_-]{43}"$/u.test(createRequest.responseEtag ?? "") ||
       createRequest.responseJson?.applicationId !== applicationId ||
+      createRequest.responseJson?.coInterviewerPersonId !== null ||
       createRequest.responseJson?.interviewerPersonId !== interviewerPersonId ||
       createRequest.responseJson?.interviewSchemaId !== interviewSchemaId ||
       createRequest.responseJson?.assignedByPersonId !== leaderPersonId ||

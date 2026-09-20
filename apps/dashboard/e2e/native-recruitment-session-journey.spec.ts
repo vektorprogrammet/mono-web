@@ -170,12 +170,12 @@ test.describe("Native recruitment assignment journey (spec 0049.2)", () => {
     await expect(schemaSelect).toHaveValue("interview-schema-native-journey-0049");
 
     const assignResponse = page.waitForResponse(
-      (response) => bridgeOperation(response.request()) === "assignApplicant",
+      (response) => bridgeOperation(response.request()) === "createApplicationInterview",
     );
     const freshNewFilterResponse = page.waitForResponse(
       (response) =>
         bridgeOperation(response.request()) === "readAssignmentBoard" &&
-        bridgeRequests.some(({ operation }) => operation === "assignApplicant"),
+        bridgeRequests.some(({ operation }) => operation === "createApplicationInterview"),
     );
     await dialog.getByRole("button", { name: "Tildel intervju", exact: true }).click();
     expect((await assignResponse).status()).toBe(200);
@@ -206,13 +206,13 @@ test.describe("Native recruitment assignment journey (spec 0049.2)", () => {
     expect(accessibility.violations).toEqual([]);
     expect(bridgeRequests.map(({ operation }) => operation)).toEqual([
       "readAssignmentBoard",
-      "assignApplicant",
+      "createApplicationInterview",
       "readAssignmentBoard",
       "readAssignmentBoard",
     ]);
     expect(bridgeResponses).toEqual([
       { operation: "readAssignmentBoard", status: 200, authorizationHeaderPresent: false },
-      { operation: "assignApplicant", status: 200, authorizationHeaderPresent: false },
+      { operation: "createApplicationInterview", status: 200, authorizationHeaderPresent: false },
       { operation: "readAssignmentBoard", status: 200, authorizationHeaderPresent: false },
       { operation: "readAssignmentBoard", status: 200, authorizationHeaderPresent: false },
     ]);
