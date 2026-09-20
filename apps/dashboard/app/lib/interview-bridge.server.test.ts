@@ -134,6 +134,15 @@ describe("server-held recruitment invitation bridge", () => {
         ),
       ),
     ).resolves.toEqual({ operation: "confirmInvitation", etag });
+    const multibyteMessage = "€".repeat(2_000);
+    await expect(
+      decodeOperationRequest(
+        request(
+          "http://dashboard.test/interview",
+          JSON.stringify({ operation: "rejectInvitation", etag, message: multibyteMessage }),
+        ),
+      ),
+    ).resolves.toEqual({ operation: "rejectInvitation", etag, message: multibyteMessage });
     await expect(
       decodeOperationRequest(request("http://dashboard.test/interview?operation=confirm", "{}")),
     ).rejects.toMatchObject({ _tag: "InvitationDecodeError" });
@@ -158,7 +167,7 @@ describe("server-held recruitment invitation bridge", () => {
     ).rejects.toMatchObject({ _tag: "InvitationDecodeError" });
     await expect(
       decodeOperationRequest(
-        request("http://dashboard.test/interview", JSON.stringify({ value: "x".repeat(4_096) })),
+        request("http://dashboard.test/interview", JSON.stringify({ value: "x".repeat(16_384) })),
       ),
     ).rejects.toMatchObject({ _tag: "InvitationDecodeError" });
   });

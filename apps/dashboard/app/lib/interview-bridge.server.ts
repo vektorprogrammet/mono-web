@@ -18,7 +18,7 @@ import {
 } from "../foldkit/interview/bridge";
 
 export const InvitationCapabilityCookiePrefix = "recruitment_invitation_capability_";
-const MaximumBridgeBodyBytes = 4_096;
+const MaximumBridgeBodyBytes = 16_384;
 const SecureCookieAttribute = process.env.NODE_ENV === "production" ? "; Secure" : "";
 const isInvitationResponseMessage = S.is(RecruitmentInvitationResponseMessageSchema);
 
