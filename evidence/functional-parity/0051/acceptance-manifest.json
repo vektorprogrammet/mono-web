@@ -2,7 +2,7 @@
   "specId": "0051",
   "result": "Passed",
   "runtimeRevision": "c0968c587a87ffb107c98e30b7d114ecf94d9698",
-  "validationRevision": "c525e369b67974ddabc386d32b6cb49d7c54bc75",
+  "validationRevision": "d565987df4846c0bf6dbc7d03db180d8ff4d822d",
   "sourceRevisionRef": "rev-mono-sha256:cdda8cf06c007bb12f4f598f5eabee1a1474774076f1862f950e8a10f77d02a6",
   "command": "bun apps/dashboard/e2e/run-real-interview-response.mjs",
   "topology": {
@@ -72,7 +72,7 @@
       "scope": "root-static",
       "command": "bun run check",
       "result": "Passed",
-      "notes": "format, generated docs, lint and workspace type checks passed; five existing warnings were reported"
+      "notes": "format, generated docs, lint and workspace type checks passed without lint warnings; the NativeAPI generator reported its current operation count"
     },
     {
       "scope": "resource-bounded-workspace-tests",
