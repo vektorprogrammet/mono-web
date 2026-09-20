@@ -334,7 +334,16 @@ export async function runCoInterviewerCorrectionJourney(
     await page.goto(`${ui}/login`);
     await page.getByLabel("E-post", { exact: true }).fill(identity.email);
     await page.getByLabel("Passord", { exact: true }).fill(identity.password);
+    const signInResponsePromise = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/api/auth/sign-in/email",
+    );
     await page.getByRole("button", { name: "Logg inn", exact: true }).click();
+    const signInResponse = await signInResponsePromise;
+    assert.equal(
+      signInResponse.status(),
+      200,
+      `${label} native login failed: ${await signInResponse.text()}`,
+    );
     await page.waitForURL(/\/dashboard\/?$/);
     await page.goto(`${ui}/dashboard/intervjuer`);
     const cookies = await browserContext.cookies();
