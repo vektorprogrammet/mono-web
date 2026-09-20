@@ -4307,17 +4307,26 @@ const safeEndpoint = (raw: string, reasons: string[]): string | null => {
     const secretPath = url.pathname
       .split("/")
       .some((segment) => secretShapedEndpointSegment(segment));
+    const credentialQuery = /(?:^|[?&])(token|secret|password|key|authorization)=([^&#]*)/i.exec(
+      raw,
+    );
+    const symbolicCredentialQuery =
+      credentialQuery !== null && /(?:\$[A-Za-z_{]|\{[^}]*\})/.test(credentialQuery[2] ?? "");
     if (
       url.username.length > 0 ||
       url.password.length > 0 ||
       credentialPath ||
       secretHost ||
       secretPath ||
-      /(?:^|[?&])(token|secret|password|key|authorization)=/i.test(url.search)
+      (credentialQuery !== null && !symbolicCredentialQuery)
     ) {
       reasons.push("UNSAFE_SOURCE");
       return null;
     }
+    url.pathname = url.pathname
+      .split("/")
+      .map((segment) => (/(?:\$|%24|%7b|%7d)/i.test(segment) ? ":dynamic" : segment))
+      .join("/");
     url.search = "";
     url.hash = "";
     return normalizeSafe(url.toString().replace(/\/$/, ""), "endpoint_ref", reasons);
@@ -4959,7 +4968,7 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
 const productionIntegrationSource = (path: string): boolean =>
   !/(?:^|\/)(?:test|tests|e2e|fixtures)(?:\/|$)|\.(?:test|spec)\.[^/]+$/i.test(path);
 const integrationCallPattern =
-  /\b(?:fetch|curl_exec|curl_init|request|publish|send(?:Message|Payload)?|post|put|delete|HttpClient|GuzzleHttp|Mailer|Slack|Google|Twilio|Smtp|Sms|GatewayAPI|Webhook)\b\s*(?:\(|->|\.)/g;
+  /\b(?:fetch|file_get_contents|curl_exec|curl_init|request|publish|send(?:Message|Payload)?|post|put|delete|HttpClient|GuzzleHttp|Mailer|Slack|Google|Twilio|Smtp|Sms|GatewayAPI|Webhook)\b\s*(?:\(|->|\.)/g;
 const integrationCallsFor = (
   unit: SourceUnit,
   authority: AuthorityGraph,
@@ -5012,6 +5021,11 @@ const integrationCallsFor = (
       (effectCall === undefined || callableName !== effectCall.callable)
     )
       continue;
+    if (
+      callableName?.toLowerCase() === "file_get_contents" &&
+      (effectCall === undefined || !externalFileGetContentsCall(unit.text, effectCall))
+    )
+      continue;
     const callOffset = effectCall?.offset ?? match.index;
     if (seen.has(callOffset)) continue;
     seen.add(callOffset);
@@ -5058,7 +5072,9 @@ const integrationCallsFor = (
           );
     // URL-first HTTP calls take their destination from the first argument.
     // Headers and body are request data, not integration endpoints.
-    const endpointArguments = /^(?:fetch|post|put|delete)$/.test(callableName ?? "")
+    const endpointArguments = /^(?:fetch|file_get_contents|post|put|delete)$/.test(
+      callableName ?? "",
+    )
       ? literalDestination(literalCall?.rawArgs[0])
       : (literalCall?.rawArgs.join(",") ?? "");
     const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(endpointArguments);
@@ -5090,7 +5106,8 @@ const integrationCallsFor = (
       ) ?? (adapterEvidence ? "http" : null);
     const protocol = dynamicMailerDispatch ? "smtp" : detectedProtocol;
     const transportEvidence =
-      adapterEvidence || /^(?:fetch|curl_exec|curl_init)$/i.test(callableName ?? "");
+      adapterEvidence ||
+      /^(?:fetch|file_get_contents|curl_exec|curl_init)$/i.test(callableName ?? "");
     const positiveAnchor =
       endpointRef !== null ||
       namedProviderRef !== null ||

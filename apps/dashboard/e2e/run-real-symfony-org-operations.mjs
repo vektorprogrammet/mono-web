@@ -42,6 +42,24 @@ const shutdownTimeoutMs = 5_000;
 
 const journeys = [
   {
+    journeyRefId: "intent://journey:parity:finance_operations:v1",
+    stepIds: [
+      "finance-operations-api-operation",
+      "finance-operations-command-write",
+      "finance-operations-legacy-route",
+      "finance-operations-mono-route",
+    ],
+  },
+  {
+    journeyRefId: "intent://journey:parity:org_admin:v1",
+    stepIds: [
+      "org-admin-api-operation",
+      "org-admin-command-write",
+      "org-admin-legacy-route",
+      "org-admin-mono-route",
+    ],
+  },
+  {
     journeyRefId: "intent://journey:parity:identity_admin:v1",
     stepIds: [
       "identity-admin-api-operation",

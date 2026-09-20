@@ -2717,6 +2717,17 @@ test("URL-bearing file fetches reconcile GeoLocation writes without classifying 
       ),
     ).toBe(true);
     expect(rows.some((row) => row.details.owner_ref?.endsWith("\\LocalReader"))).toBe(false);
+    const integrations = c2.integrations.rows;
+    const geoIntegrations = integrations.filter((row) =>
+      row.details.call_site_ref?.endsWith("\\GeoLocation::findCoordinates"),
+    );
+    expect(
+      geoIntegrations.every((row) => row.details.endpoint_ref === "http://ipinfo.io/:dynamic"),
+    ).toBe(true);
+    expect(geoIntegrations.map((row) => row.authority_line).sort()).toEqual(["legacy", "mono"]);
+    expect(
+      integrations.some((row) => row.details.call_site_ref?.endsWith("\\LocalReader::read")),
+    ).toBe(false);
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true });
     rmSync(monoRoot, { recursive: true, force: true });
