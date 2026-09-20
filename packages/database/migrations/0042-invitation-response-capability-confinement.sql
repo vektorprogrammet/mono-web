@@ -53,6 +53,16 @@ ALTER TABLE recruitment_invitation_response_outbox
     )
   ),
   ADD CONSTRAINT recruitment_invitation_response_outbox_payload_confinement CHECK (
-    (payload_json - 'effectId' - 'invitationId' - 'interviewId')::text
-      !~ '[A-Za-z0-9_-]{43}'
+    (
+      status IN ('Delivered', 'Quarantined')
+      AND payload_json = '{}'::jsonb
+    )
+    OR (
+      status NOT IN ('Delivered', 'Quarantined')
+      AND (payload_json->>'effectId') IS NOT DISTINCT FROM effect_id
+      AND (payload_json->>'invitationId') IS NOT DISTINCT FROM invitation_id
+      AND (payload_json->>'interviewId') IS NOT DISTINCT FROM interview_id
+      AND (payload_json - 'effectId' - 'invitationId' - 'interviewId')::text
+        !~ '[A-Za-z0-9_-]{43}'
+    )
   );

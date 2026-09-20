@@ -45,6 +45,7 @@ const headMigrationId = Number(headMigration.id.split("_", 1)[0]);
 const raceCapability = "R".repeat(43);
 const deliveryCapability = "D".repeat(43);
 const responseInstant = "2035-09-15T12:03:00.000Z";
+const raceScheduledInstant = "2035-09-20T09:00:00.000Z";
 const capabilityShapedMessage = "C".repeat(44);
 const validNearbyMessage = "V".repeat(42);
 
@@ -302,7 +303,7 @@ const seedCohort = (sql: DatabaseShape) =>
         ) VALUES
           (
             ${cohort.raceInterviewId},
-            '2035-09-20T09:00:00.000Z',
+            ${raceScheduledInstant},
             'Proof Room A',
             'Bergen',
             NULL,
@@ -385,6 +386,21 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
     const ordinaryMessage = "Cannot attend the proposed time.";
     const embeddedCapabilitySequence = `Do not persist (${capabilityShapedMessage}) here`;
     const outboxEffectId = `recruitment-invitation-response:${cohort.raceInvitationId}:1`;
+    const makeOutboxPayload = (overrides: Readonly<Record<string, unknown>>) => ({
+      _tag: "SendInterviewInvitationResponse",
+      effectId: outboxEffectId,
+      invitationId: cohort.raceInvitationId,
+      interviewId: cohort.raceInterviewId,
+      scheduleRevision: 1,
+      responseRevision: 1,
+      applicantDisplayName: "Proof Applicant",
+      interviewerEmail: "proof@example.invalid",
+      interviewerPhone: "+47 900 00 512",
+      scheduledAt: raceScheduledInstant,
+      responseState: "Rejected",
+      responseMessage: ordinaryMessage,
+      ...overrides,
+    });
     const [migration] = yield* sql<{ readonly count: string }>`
       SELECT count(*)::text AS count
       FROM vektorprogrammet_schema_migrations
@@ -485,7 +501,7 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
               'Rejected',
               ${capabilityShapedMessage},
               0,
-              '{}'::jsonb
+              ${sql.json(makeOutboxPayload({}))}
             )
           `;
           return yield* Effect.fail("OutboxMessageConfinementMissing");
@@ -519,7 +535,7 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
               'Rejected',
               ${ordinaryMessage},
               0,
-              jsonb_build_object('responseMessage', ${embeddedCapabilitySequence})
+              ${sql.json(makeOutboxPayload({ responseMessage: embeddedCapabilitySequence }))}
             )
           `;
           return yield* Effect.fail("OutboxPayloadConfinementMissing");
@@ -553,7 +569,7 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
               'Rejected',
               ${ordinaryMessage},
               0,
-              jsonb_build_object('note', ${embeddedCapabilitySequence})
+              ${sql.json(makeOutboxPayload({ nested: { note: embeddedCapabilitySequence } }))}
             )
           `;
           return yield* Effect.fail("OutboxNestedPayloadConfinementMissing");
@@ -587,10 +603,44 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
               'Rejected',
               ${ordinaryMessage},
               0,
-              jsonb_build_object('capabilitySha256', 'redacted')
+              ${sql.json(makeOutboxPayload({ capabilitySha256: "redacted" }))}
             )
           `;
           return yield* Effect.fail("OutboxNamedCapabilityPayloadConfinementMissing");
+        }),
+      ),
+    );
+    const outboxIdentifierMismatch = yield* Effect.result(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* stageRejectedInvitation(ordinaryMessage);
+          yield* insertAudit(ordinaryMessage);
+          yield* sql`
+            INSERT INTO recruitment_invitation_response_outbox (
+              effect_id,
+              effect_type,
+              invitation_id,
+              interview_id,
+              schedule_revision,
+              response_revision,
+              response_state,
+              response_message,
+              ordinal,
+              payload_json
+            ) VALUES (
+              ${outboxEffectId},
+              'SendInterviewInvitationResponse',
+              ${cohort.raceInvitationId},
+              ${cohort.raceInterviewId},
+              1,
+              1,
+              'Rejected',
+              ${ordinaryMessage},
+              0,
+              ${sql.json(makeOutboxPayload({ effectId: capabilityShapedMessage }))}
+            )
+          `;
+          return yield* Effect.fail("OutboxIdentifierConfinementMissing");
         }),
       ),
     );
@@ -625,6 +675,7 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
       outboxPayload,
       outboxNestedPayload,
       outboxNamedCapabilityPayload,
+      outboxIdentifierMismatch,
     ].map(
       (result) =>
         result._tag === "Failure" &&
@@ -641,6 +692,7 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
       outboxPayloadRejected: constraintRejections[3] === true,
       outboxNestedPayloadRejected: constraintRejections[4] === true,
       outboxNamedCapabilityPayloadRejected: constraintRejections[5] === true,
+      outboxIdentifierMismatchRejected: constraintRejections[6] === true,
       rollbackPreserved: canonicalJson(before) === canonicalJson(after),
     };
   });
@@ -960,6 +1012,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
       outboxPayloadRejected: true,
       outboxNestedPayloadRejected: true,
       outboxNamedCapabilityPayloadRejected: true,
+      outboxIdentifierMismatchRejected: true,
       rollbackPreserved: true,
       validNearbyMessageStored: true,
     });
