@@ -1,6 +1,6 @@
 # 0108 - Interview completion receipt
 
-Status: frozen for local implementation, 2026-09-20. Production release unclaimed.
+Status: complete for local implementation at runtime revision `64d49ec36373b9004890f68ff39faad9e76b1f14`, 2026-09-20. Production release unclaimed.
 
 Baseline: `1c21d680` (`migration/assistant-operations-0906`).
 
@@ -61,3 +61,7 @@ A clean synthetic local rehearsal must show:
 ## Explicit non-goals
 
 No coordinator admission decision. No acceptance or rejection message. No placement or affiliation mutation. No co-interviewer assignment. No historical import delivery. No production data, recipient, provider credential, remote push, deployment, or cutover. No legacy dual-write. Production notification transport and cutover require separate operator authority.
+
+## Evidence
+
+The clean local rehearsal passed at revision `64d49ec36373b9004890f68ff39faad9e76b1f14`. It used disposable PostgreSQL, the native backend, the generated SDK, the dashboard, real Chromium, and an acknowledged loopback HTTP receiver. The [acceptance manifest](../evidence/functional-parity/0108/acceptance-manifest.json) records the assertions and artifact checksums.

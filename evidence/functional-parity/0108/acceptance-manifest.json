@@ -1,0 +1,37 @@
+{
+  "specId": "0108",
+  "result": "Passed",
+  "revision": "64d49ec36373b9004890f68ff39faad9e76b1f14",
+  "command": "bun run e2e:real-conduct",
+  "workingDirectory": "apps/dashboard",
+  "artifactDirectory": "evidence/functional-parity/0108",
+  "gates": [
+    "disposable loopback PostgreSQL initialized and migrated through 0041",
+    "seeded interviewer and applicant credentials accepted by the real identity engine",
+    "first native interview completion observed through the real browser, API and PostgreSQL path",
+    "linked applicant reloaded the canonical completed state without assessment data",
+    "local acknowledged receipt receiver returned one 503 response and one 204 response",
+    "desktop and mobile completion surfaces were captured from real Chromium",
+    "disposable PostgreSQL, services and temporary files were removed"
+  ],
+  "assertions": [
+    "the first completion transaction created one command receipt, one audit row and one completion outbox row",
+    "interviewer and applicant browser reloads showed the same completed source fact in independent contexts",
+    "the authenticated applicant API and rendered page excluded assessment, contact, capability and interviewer fields",
+    "the stale concurrent finalize returned 412 and created no additional completion receipt",
+    "interview cancellation created no completion receipt",
+    "two concurrent claims produced one winner and one no-work result",
+    "a failed delivery retained the canonical body and immutable delivery envelope for retry",
+    "retry used the same request body and effect idempotency key, then recorded acknowledgement and scrubbed payload_json",
+    "a malformed source row entered quarantine without an HTTP request",
+    "the receipt body excluded interview answers, scores, recommendation and admission outcome",
+    "desktop, mobile and applicant progress surfaces had zero Axe violations and no page errors",
+    "no legacy browser route or raw capability value was observed"
+  ],
+  "checksums": {
+    "runtime.json": "64a6f47c372f4d88be53c0152ced8b66e0686f15e22f012c5fe03f21cb118a27",
+    "interview-completion-desktop.png": "375128fb7794d4065575165a62681de645aeccbaa28c652b071eae4f685111b3",
+    "interview-completion-mobile.png": "bc472ca9e9f2a3f606d204529187bab2490abf52dd8138cbc95e1c9eb3c344f3"
+  },
+  "scope": "Synthetic disposable local PostgreSQL, native backend, generated SDK, dashboard server, real Chromium and an acknowledged loopback HTTP receiver only. No production data, external provider, remote branch, deployment or cutover was used."
+}
