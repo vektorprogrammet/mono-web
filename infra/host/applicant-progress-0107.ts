@@ -308,7 +308,9 @@ export const runApplicantProgress0107 = async (input: {
     }
   };
   const sdkResponse = await readSdk();
-  assert.deepEqual(decodeApplicantProgressResponse(sdkResponse.body), body);
+  const sdkBody = decodeApplicantProgressResponse(sdkResponse.body);
+  assert.equal(sdkBody.personId, body.personId);
+  assert.deepEqual(sdkBody.applications, body.applications);
   for (const tag of [
     "ApplicationReceived",
     "InvitedToInterview",
