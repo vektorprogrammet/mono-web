@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { access, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -532,6 +532,9 @@ const assertEqual = (actual, expected, label) => {
   }
 };
 
+const fileIdentityChecksum = (identities) =>
+  `sha256:${createHash("sha256").update(JSON.stringify(identities)).digest("hex")}`;
+
 async function readPostgresEvidence(environment) {
   const sql = `
     SELECT json_build_object(
@@ -721,6 +724,130 @@ function assertExpectedOutboxCommandOrder(postgres, journeyEvidence) {
   }
 }
 
+function assertReceiptFileArtifact(artifact, contentType) {
+  const extensionByContentType = {
+    "application/pdf": "pdf",
+    "image/png": "png",
+  };
+  const extension = extensionByContentType[contentType];
+  if (
+    artifact === null ||
+    typeof artifact !== "object" ||
+    !Number.isSafeInteger(artifact.byteLength) ||
+    artifact.byteLength <= 0 ||
+    artifact.contentType !== contentType ||
+    artifact.contentDisposition !== `inline; filename="receipt.${extension}"` ||
+    typeof artifact.sha256 !== "string" ||
+    !/^sha256:[a-f0-9]{64}$/u.test(artifact.sha256)
+  ) {
+    throw new Error("Receipt approval file artifact did not preserve the private file contract");
+  }
+}
+
+function assertFileReadEvidence(fileReads) {
+  if (fileReads === null || typeof fileReads !== "object") {
+    throw new Error("Receipt approval file-read evidence is missing");
+  }
+  const { artifacts, mutationCounts, rejected } = fileReads;
+  if (
+    artifacts === null ||
+    typeof artifacts !== "object" ||
+    mutationCounts === null ||
+    typeof mutationCounts !== "object"
+  ) {
+    throw new Error("Receipt approval file-read evidence is malformed");
+  }
+
+  for (const name of [
+    "activePng",
+    "dashboardPng",
+    "terminalRefund",
+    "dashboardTerminalRefund",
+    "concurrent",
+  ]) {
+    assertReceiptFileArtifact(artifacts[name], "image/png");
+  }
+  for (const name of ["activePdf", "dashboardPdf", "terminalReject", "dashboardTerminalReject"]) {
+    assertReceiptFileArtifact(artifacts[name], "application/pdf");
+  }
+  assertEqual(
+    artifacts.dashboardPng,
+    artifacts.activePng,
+    "Dashboard PNG receipt file bytes and headers",
+  );
+  assertEqual(
+    artifacts.dashboardPdf,
+    artifacts.activePdf,
+    "Dashboard PDF receipt file bytes and headers",
+  );
+  assertEqual(
+    artifacts.terminalRefund,
+    artifacts.activePng,
+    "Refunded Receipt file bytes and headers",
+  );
+  assertEqual(
+    artifacts.dashboardTerminalRefund,
+    artifacts.activePng,
+    "Dashboard refunded Receipt file bytes and headers",
+  );
+  assertEqual(
+    artifacts.terminalReject,
+    artifacts.activePdf,
+    "Rejected Receipt file bytes and headers",
+  );
+  assertEqual(
+    artifacts.dashboardTerminalReject,
+    artifacts.activePdf,
+    "Dashboard rejected Receipt file bytes and headers",
+  );
+  assertEqual(
+    artifacts.concurrent,
+    artifacts.activePng,
+    "Concurrent Receipt file bytes and headers",
+  );
+  assertEqual(
+    rejected,
+    {
+      missingSession: "credential.missing",
+      invalidSession: "credential.invalid",
+      ownerApproval: "authority.denied",
+      foreignOwner: "resource.not-found",
+      approverOwner: "resource.not-found",
+      foreignScope: "authority.denied",
+      inactive: "authority.denied",
+      noScope: "authority.denied",
+      absent: "resource.not-found",
+      missingObject: "receipts.unavailable",
+    },
+    "Receipt file read rejection codes",
+  );
+  assertEqual(
+    mutationCounts.fileOnlyAfter,
+    mutationCounts.fileOnlyBefore,
+    "Direct Receipt file reads left database mutation counts unchanged",
+  );
+  assertEqual(
+    mutationCounts.browserAfter,
+    mutationCounts.browserBefore,
+    "Dashboard Receipt file reads left database mutation counts unchanged",
+  );
+  assertEqual(
+    mutationCounts.terminalAfter,
+    mutationCounts.terminalBefore,
+    "Terminal Receipt file reads left database mutation counts unchanged",
+  );
+  assertEqual(
+    mutationCounts.concurrentAfter,
+    {
+      receiptCount: mutationCounts.concurrentBefore.receiptCount,
+      commandCount: mutationCounts.concurrentBefore.commandCount + 1,
+      auditCount: mutationCounts.concurrentBefore.auditCount + 1,
+      outboxCount: mutationCounts.concurrentBefore.outboxCount + 2,
+    },
+    "Concurrent Receipt file read and decision mutation counts",
+  );
+}
+
 function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
   assertExpectedOutboxCommandOrder(postgres, journeyEvidence);
   if (
@@ -736,13 +863,8 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
   }
   assertEqual(postgres.fixtureCounts, expectedFixtureCounts, "Receipt authority fixture counts");
 
-  if (
-    privateFile.stagingFileCount !== 0 ||
-    privateFile.committedFileCount !== 4 ||
-    JSON.stringify(journeyEvidence.fileIdentitiesBefore) !==
-      JSON.stringify(journeyEvidence.fileIdentitiesAfter)
-  ) {
-    throw new Error("Receipt approval private-file identities changed during resolution");
+  if (privateFile.stagingFileCount !== 0 || privateFile.committedFileCount !== 4) {
+    throw new Error("Receipt approval private-file cleanup did not preserve the committed files");
   }
   const finalFileIdentities = postgres.receipts.map((receipt) => ({
     receiptId: receipt.receiptId,
@@ -750,9 +872,15 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
     objectKey: receipt.objectKey,
     sha256: receipt.sha256,
   }));
-  if (JSON.stringify(finalFileIdentities) !== JSON.stringify(journeyEvidence.fileIdentitiesAfter)) {
+  const finalFileIdentityChecksum = fileIdentityChecksum(finalFileIdentities);
+  if (
+    journeyEvidence.fileIdentityCount !== finalFileIdentities.length ||
+    journeyEvidence.fileIdentityChecksumBefore !== finalFileIdentityChecksum ||
+    journeyEvidence.fileIdentityChecksumAfter !== finalFileIdentityChecksum
+  ) {
     throw new Error("Receipt approval durable file identities differ from journey evidence");
   }
+  assertFileReadEvidence(journeyEvidence.fileReads);
 
   if (
     journeyEvidence.durablePostgresFailure?.status !== 503 ||
@@ -964,6 +1092,35 @@ function assertJourneyEvidence(journeyEvidence, seedEvidence) {
         terminalReject: 409,
         concurrent: [200, 412],
       },
+      approvalFile: {
+        missingSession: 401,
+        invalidSession: 401,
+        activePng: 200,
+        activePdf: 200,
+        ownerEndpoint: 200,
+        ownerApproval: 403,
+        foreignOwner: 404,
+        approverOwner: 404,
+        foreignScope: 403,
+        inactive: 403,
+        noScope: 403,
+        absent: 404,
+        missingObject: 503,
+        terminalRefund: 200,
+        terminalReject: 200,
+        concurrent: 200,
+        dashboard: {
+          missingSession: 401,
+          invalidSession: 401,
+          activePng: 200,
+          activePdf: 200,
+          foreignScope: 403,
+          absent: 404,
+          unavailable: 503,
+          terminalRefund: 200,
+          terminalReject: 200,
+        },
+      },
     },
     "Frozen Receipt approval status matrix",
   );
@@ -971,6 +1128,35 @@ function assertJourneyEvidence(journeyEvidence, seedEvidence) {
     journeyEvidence.rendered.forbiddenBrowserRequests,
     [],
     "Forbidden browser request ledger",
+  );
+  assertEqual(
+    journeyEvidence.rendered.receiptFileLink,
+    {
+      desktopNoOverflow: true,
+      mobileNoOverflow: true,
+      keyboardActivated: true,
+      opensSeparateTab: true,
+      rel: "noopener noreferrer",
+    },
+    "Rendered Receipt file link accessibility",
+  );
+  assertEqual(
+    journeyEvidence.rendered.sameOriginReceiptFileRequests,
+    [
+      {
+        method: "GET",
+        origin: dashboardOrigin,
+        pathname: `/dashboard/utlegg/${journeyEvidence.receipts.refund}/file`,
+        query: "",
+      },
+      {
+        method: "GET",
+        origin: dashboardOrigin,
+        pathname: `/dashboard/utlegg/${journeyEvidence.receipts.reject}/file`,
+        query: "",
+      },
+    ],
+    "Same-origin Receipt file resource navigations",
   );
 }
 
@@ -1043,6 +1229,39 @@ function assertRequestLedger(records, journeyEvidence) {
   if (ownerReads.length !== 4 || ownerReads.some(({ status }) => status !== 200)) {
     throw new Error("Receipt owner read sequence is not exact");
   }
+  const ownerFilePath = /^\/api\/receipts\/[^/]+\/file$/u;
+  const ownerFileReads = receiptOperations.filter(
+    ({ method, pathname }) => method === "GET" && ownerFilePath.test(pathname),
+  );
+  assertEqual(
+    ownerFileReads
+      .map(({ status }) => status)
+      .sort((left, right) => left - right),
+    [200, 404, 404],
+    "Owner Receipt file access remains separate from approval access",
+  );
+  const approvalFilePath = /^\/api\/receipt-approval-queue\/[^/]+\/file$/u;
+  const approvalFileReads = receiptOperations.filter(
+    ({ method, pathname }) => method === "GET" && approvalFilePath.test(pathname),
+  );
+  assertEqual(
+    approvalFileReads
+      .map(({ status }) => status)
+      .sort((left, right) => left - right),
+    [
+      200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 401, 401, 403, 403, 403, 403, 403,
+      404, 404, 404, 404, 404, 503, 503,
+    ],
+    "Exact scoped Receipt file read operation sequence",
+  );
+  if (
+    approvalFileReads.some(
+      ({ body, idempotencyKey, ifMatch }) =>
+        body !== null || idempotencyKey !== null || ifMatch !== null,
+    )
+  ) {
+    throw new Error("Receipt file reads carried mutation request state");
+  }
 
   const semanticPath = /\/api\/receipts\/[^/]+:(?:refund|reject)$/u;
   const commands = receiptOperations.filter(
@@ -1079,19 +1298,28 @@ function assertRequestLedger(records, journeyEvidence) {
     ) {
       continue;
     }
-    let freshRead = receiptOperations[index + 1];
-    if (
-      freshRead?.method === "POST" &&
-      semanticPath.test(freshRead.pathname) &&
-      freshRead.pathname.split(":")[0] === operation.pathname.split(":")[0]
-    ) {
-      freshRead = receiptOperations[index + 2];
+    let freshReadIndex = index + 1;
+    while (freshReadIndex < receiptOperations.length) {
+      const candidate = receiptOperations[freshReadIndex];
+      if (
+        candidate?.method === "GET" &&
+        candidate.pathname === "/api/receipt-approval-queue" &&
+        candidate.status === 200
+      ) {
+        break;
+      }
+      if (
+        (candidate?.method === "GET" && approvalFilePath.test(candidate.pathname)) ||
+        (candidate?.method === "POST" &&
+          semanticPath.test(candidate.pathname) &&
+          candidate.pathname.split(":")[0] === operation.pathname.split(":")[0])
+      ) {
+        freshReadIndex += 1;
+        continue;
+      }
+      throw new Error("Accepted Receipt command was not followed by a fresh approval-list read");
     }
-    if (
-      freshRead?.method !== "GET" ||
-      freshRead.pathname !== "/api/receipt-approval-queue" ||
-      freshRead.status !== 200
-    ) {
+    if (freshReadIndex === receiptOperations.length) {
       throw new Error("Accepted Receipt command was not followed by a fresh approval-list read");
     }
   }

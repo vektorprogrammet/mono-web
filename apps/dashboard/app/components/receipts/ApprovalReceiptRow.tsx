@@ -194,33 +194,43 @@ export function ApprovalReceiptRow({ receipt, failure, actionErrorId }: Approval
         </div>
       </TableCell>
       <TableCell className="whitespace-normal">
-        {receipt.status === "Pending" ? (
-          <div className="flex flex-wrap justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
+          <a
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+            href={`/dashboard/utlegg/${encodeURIComponent(receipt.receiptId)}/file`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Vis kvittering
+          </a>
+          {receipt.status === "Pending" ? (
+            <>
+              <ResolutionAction
+                receipt={receipt}
+                intent="refund"
+                failure={relevantFailure}
+                actionErrorId={actionErrorId}
+              />
+              <ResolutionAction
+                receipt={receipt}
+                intent="reject"
+                failure={relevantFailure}
+                actionErrorId={actionErrorId}
+              />
+            </>
+          ) : receipt.status === "Rejected" ? (
             <ResolutionAction
               receipt={receipt}
-              intent="refund"
+              intent="reopen"
               failure={relevantFailure}
               actionErrorId={actionErrorId}
             />
-            <ResolutionAction
-              receipt={receipt}
-              intent="reject"
-              failure={relevantFailure}
-              actionErrorId={actionErrorId}
-            />
-          </div>
-        ) : receipt.status === "Rejected" ? (
-          <ResolutionAction
-            receipt={receipt}
-            intent="reopen"
-            failure={relevantFailure}
-            actionErrorId={actionErrorId}
-          />
-        ) : (
-          <span className="text-muted-foreground text-sm" data-terminal="true">
-            Ferdigbehandlet
-          </span>
-        )}
+          ) : (
+            <span className="text-muted-foreground text-sm" data-terminal="true">
+              Ferdigbehandlet
+            </span>
+          )}
+        </div>
       </TableCell>
     </TableRow>
   );

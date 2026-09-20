@@ -30,6 +30,11 @@ const dashboardRouteConfig = [
         path: "profile",
         file: "routes/dashboard.profile._index.tsx",
       },
+      {
+        id: "approval-receipt-file",
+        path: "utlegg/:receiptId/file",
+        file: "routes/dashboard.utlegg.$receiptId.file.ts",
+      },
     ],
   },
 ] satisfies ReadonlyArray<RouteConfigEntry>;
@@ -65,6 +70,13 @@ describe("dashboard router topology", () => {
     expect(matchedIds("/dashboard/dashboard/mine-utlegg", {})).toEqual([]);
   });
 
+  it("keeps the approval receipt file resource under the dashboard layout", () => {
+    expect(matchedIds("/dashboard/utlegg/receipt-approval-file/file", {})).toEqual([
+      "dashboard",
+      "approval-receipt-file",
+    ]);
+  });
+
   it("preserves dashboard route paths for an explicit apex root mount", () => {
     const apexEnvironment = {
       DASHBOARD_MOUNT: "/",
@@ -73,6 +85,10 @@ describe("dashboard router topology", () => {
     const config = makeReactRouterConfig(apexEnvironment);
 
     expect(config.basename).toBe("/");
+    expect(matchedIds("/dashboard/utlegg/receipt-approval-file/file", apexEnvironment)).toEqual([
+      "dashboard",
+      "approval-receipt-file",
+    ]);
     expect(matchedIds("/login", apexEnvironment)).toEqual(["login"]);
     expect(matchedIds("/recruitment", apexEnvironment)).toEqual(["recruitment-bridge"]);
     expect(matchedIds("/dashboard", apexEnvironment)).toEqual(["dashboard"]);
