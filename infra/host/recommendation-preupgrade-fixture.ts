@@ -473,7 +473,7 @@ export const seedCoInterviewerCorrection0106Fixture = async ({
       await clone(
         client,
         "recruitment_interview_conducts",
-        `interview_id='${fixture.targetInterviewId}'`,
+        `interview_id='${baseInterviewId}'`,
         {
           interview_id: fixture.selfLinkRaceInterviewId,
           interview_revision: 1,
