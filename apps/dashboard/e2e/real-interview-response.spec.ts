@@ -607,8 +607,10 @@ test.describe("Native recruitment invitation response", () => {
             ).toBeVisible();
             trailingSlashRouteRead = true;
             await page.evaluate(() => {
+              // oxlint-disable-next-line effect/no-cross-runtime -- Playwright evaluates this callback in the browser realm.
               const canonicalUrl = new URL(window.location.href);
               canonicalUrl.pathname = canonicalUrl.pathname.replace(/\/+$/u, "");
+              // oxlint-disable-next-line effect/no-cross-runtime -- Playwright evaluates this callback in the browser realm.
               window.history.replaceState(null, "", canonicalUrl);
             });
           }

@@ -100,6 +100,7 @@
     "verified": true,
     "postRuntimeChanges": [
       "STATE.md",
+      "apps/dashboard/e2e/real-interview-response.spec.ts",
       "apps/docs/scripts/generate-reference.ts",
       "apps/docs/src/pages/reference/design-spec-evidence-index.mdx",
       "evidence/functional-parity/0051/acceptance-manifest.json",
