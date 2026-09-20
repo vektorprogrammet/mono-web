@@ -28,6 +28,10 @@ describe("browser invitation response bridge", () => {
   beforeEach(() => {
     fetchMock.mockReset();
     vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal(
+      "location",
+      new URL("https://dashboard.test/dashboard/interview-response/redacted/"),
+    );
   });
 
   afterEach(() => {
@@ -56,7 +60,11 @@ describe("browser invitation response bridge", () => {
       { operation: "rejectInvitation", etag, message: null },
       { operation: "requestNewInvitationTime", etag, message: "Kan vi møtes torsdag?" },
     ]);
-    expect(fetchMock.mock.calls.every(([url]) => url === "../interview")).toBe(true);
+    expect(
+      fetchMock.mock.calls.every(
+        ([url]) => new URL(String(url)).href === "https://dashboard.test/dashboard/interview",
+      ),
+    ).toBe(true);
     expect(fetchMock.mock.calls.every(([, init]) => init?.credentials === "same-origin")).toBe(
       true,
     );

@@ -557,6 +557,7 @@ test.describe("Native recruitment invitation response", () => {
     let applicantContextsClosed = 0;
     let tabBindingEvidence: Record<string, unknown> | null = null;
     let accessibilityRuns = 0;
+    let trailingSlashRouteRead = false;
 
     for (const responseCases of applicantGroups) {
       const context = await browser.newContext({
@@ -593,6 +594,24 @@ test.describe("Native recruitment invitation response", () => {
           await expect(page.getByText(responseCase.campus, { exact: true })).toBeVisible();
           await expect(page.getByText("Venter på svar", { exact: true })).toBeVisible();
           tabs.push({ responseCase, capability, page, initialEtag: initialResource.etag });
+          if (responseCase.key === "accepted") {
+            const trailingSlashUrl = new URL(page.url());
+            trailingSlashUrl.pathname = `${trailingSlashUrl.pathname}/`;
+            const trailingSlashRead = waitForBridgeResponse(page, "readInvitationResponse");
+            await page.goto(trailingSlashUrl.toString());
+            if ((await trailingSlashRead).status() !== 200) {
+              throw new Error("Trailing-slash applicant read did not succeed");
+            }
+            await expect(
+              page.getByRole("heading", { name: "Svar på intervjutid", exact: true }),
+            ).toBeVisible();
+            trailingSlashRouteRead = true;
+            await page.evaluate(() => {
+              const canonicalUrl = new URL(window.location.href);
+              canonicalUrl.pathname = canonicalUrl.pathname.replace(/\/+$/u, "");
+              window.history.replaceState(null, "", canonicalUrl);
+            });
+          }
         }
 
         if (tabs.length === 2) {
@@ -905,6 +924,7 @@ test.describe("Native recruitment invitation response", () => {
 
     const expectedBridgeOperations = [
       { actor: "Applicant:accepted", operation: "readInvitationResponse" },
+      { actor: "Applicant:accepted", operation: "readInvitationResponse" },
       { actor: "Applicant:rejected", operation: "readInvitationResponse" },
       { actor: "Applicant:accepted", operation: "confirmInvitation" },
       { actor: "Applicant:accepted", operation: "readInvitationResponse" },
@@ -930,8 +950,13 @@ test.describe("Native recruitment invitation response", () => {
       "Applicant:rejected": 1,
       "Applicant:requested-new-time": 1,
     });
-    if (applicantContextsClosed !== 2 || staffContextsClosed !== 2 || tabBindingEvidence === null) {
-      throw new Error("Browser contexts or shared invitation tab evidence were incomplete");
+    if (
+      applicantContextsClosed !== 2 ||
+      staffContextsClosed !== 2 ||
+      tabBindingEvidence === null ||
+      !trailingSlashRouteRead
+    ) {
+      throw new Error("Browser contexts or invitation route evidence were incomplete");
     }
     assertNoObservedFailures(observation);
 
@@ -952,6 +977,7 @@ test.describe("Native recruitment invitation response", () => {
       bridgeOperations: observation.bridgeOperations,
       bearerRequests: observation.bearerRequests,
       capabilityExchangeRequests: 3,
+      trailingSlashRouteRead,
       operationOrderingConfirmed: true,
       accessibilityRuns,
       accessibilityViolations: 0,

@@ -49,6 +49,11 @@ const decodeResource = (value: unknown): InvitationResponseResource =>
   S.decodeUnknownSync(InvitationResponseResourceSchema)(value, {
     onExcessProperty: "error",
   });
+const invitationBridgeUrl = (): URL => {
+  const routeUrl = new URL(globalThis.location.href);
+  routeUrl.pathname = routeUrl.pathname.replace(/\/+$/u, "");
+  return new URL("../interview", routeUrl);
+};
 
 const bridgeRequest = <A>(
   interactionId: InvitationInteractionId,
@@ -58,7 +63,7 @@ const bridgeRequest = <A>(
 ): Effect.Effect<A, InvitationBridgeFailure> =>
   Effect.tryPromise({
     try: async () => {
-      const response = await fetch("../interview", {
+      const response = await fetch(invitationBridgeUrl(), {
         method: "POST",
         credentials: "same-origin",
         headers: {
