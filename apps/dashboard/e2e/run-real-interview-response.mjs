@@ -1463,6 +1463,7 @@ function assertDeliveredEvidence(evidence, committedEvidence) {
 function assertBrowserEvidence(browser) {
   const expectedOperations = [
     { actor: "Applicant:accepted", operation: "readInvitationResponse" },
+    { actor: "Applicant:accepted", operation: "readInvitationResponse" },
     { actor: "Applicant:rejected", operation: "readInvitationResponse" },
     { actor: "Applicant:accepted", operation: "confirmInvitation" },
     { actor: "Applicant:accepted", operation: "readInvitationResponse" },
@@ -1496,6 +1497,7 @@ function assertBrowserEvidence(browser) {
     browser?.staffContexts?.independent !== true ||
     browser?.staffContexts?.closed !== 2 ||
     browser?.capabilityExchangeRequests !== 3 ||
+    browser?.trailingSlashRouteRead !== true ||
     browser?.operationOrderingConfirmed !== true ||
     browser?.accessibilityViolations !== 0 ||
     browser?.legacyBrowserRequests !== 0 ||
