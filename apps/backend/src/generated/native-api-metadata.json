@@ -2081,11 +2081,7 @@
         "principalKinds": [
           "CapabilityHolder"
         ],
-        "requirements": [
-          {
-            "id": "recruitment.invitation-pending"
-          }
-        ]
+        "requirements": []
       },
       "group": "recruitment",
       "method": "POST",
@@ -2489,11 +2485,7 @@
         "principalKinds": [
           "CapabilityHolder"
         ],
-        "requirements": [
-          {
-            "id": "recruitment.invitation-pending"
-          }
-        ]
+        "requirements": []
       },
       "group": "recruitment",
       "method": "POST",
@@ -2540,11 +2532,7 @@
         "principalKinds": [
           "CapabilityHolder"
         ],
-        "requirements": [
-          {
-            "id": "recruitment.invitation-pending"
-          }
-        ]
+        "requirements": []
       },
       "group": "recruitment",
       "method": "POST",

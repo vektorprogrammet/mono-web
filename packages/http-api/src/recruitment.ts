@@ -296,12 +296,7 @@ export const ConfirmInvitationEndpoint = HttpApiEndpoint.post(
   },
 )
   .middleware(InvitationCapabilitySecurity)
-  .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      invitationNativeAccess(["recruitment.invitation-pending"], "Transaction"),
-    ),
-  )
+  .pipe((endpoint) => annotateAccessSpec(endpoint, invitationNativeAccess([], "Transaction")))
   .annotateMerge(
     operationAnnotations("Confirm invitation", "Accepts an interview invitation by capability."),
   );
@@ -318,12 +313,7 @@ export const RejectInvitationEndpoint = HttpApiEndpoint.post(
   },
 )
   .middleware(InvitationCapabilitySecurity)
-  .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      invitationNativeAccess(["recruitment.invitation-pending"], "Transaction"),
-    ),
-  )
+  .pipe((endpoint) => annotateAccessSpec(endpoint, invitationNativeAccess([], "Transaction")))
   .annotateMerge(
     operationAnnotations("Reject invitation", "Rejects an interview invitation by capability."),
   );
@@ -340,12 +330,7 @@ export const RequestNewInvitationTimeEndpoint = HttpApiEndpoint.post(
   },
 )
   .middleware(InvitationCapabilitySecurity)
-  .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      invitationNativeAccess(["recruitment.invitation-pending"], "Transaction"),
-    ),
-  )
+  .pipe((endpoint) => annotateAccessSpec(endpoint, invitationNativeAccess([], "Transaction")))
   .annotateMerge(
     operationAnnotations(
       "Request a new invitation time",

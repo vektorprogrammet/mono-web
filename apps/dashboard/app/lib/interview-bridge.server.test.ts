@@ -227,6 +227,36 @@ describe("server-held recruitment invitation bridge", () => {
     expect(read).toHaveBeenCalledWith({ headers: {} });
   });
 
+  it("returns no representation for a successful native mutation", async () => {
+    const interactionId = "f".repeat(32);
+    const capability = "F".repeat(43);
+    const confirmInvitation = vi.fn().mockResolvedValue({
+      body: undefined,
+      headers: { etag },
+    });
+    createConfiguredPromiseClient.mockReturnValue({
+      recruitment: { confirmInvitation },
+    } as never);
+    const cookie = createInvitationCapabilityCookie(interactionId, capability).split(";", 1)[0];
+    const request = new Request("http://dashboard.test/interview", {
+      headers: {
+        [INVITATION_INTERACTION_HEADER]: interactionId,
+        cookie,
+      },
+    });
+
+    await expect(runOperation(request, { operation: "confirmInvitation", etag })).resolves.toBe(
+      undefined,
+    );
+    expect(confirmInvitation).toHaveBeenCalledWith({
+      headers: {
+        "idempotency-key": expect.stringMatching(/^[a-f0-9]{64}$/),
+        "if-match": etag,
+      },
+      payload: {},
+    });
+  });
+
   it("projects only safe current problem codes and stable statuses", () => {
     const cases = [
       ["resource.not-found", "InvitationNotFound", 404],

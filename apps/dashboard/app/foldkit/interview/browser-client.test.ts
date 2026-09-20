@@ -34,12 +34,12 @@ describe("browser invitation response bridge", () => {
     vi.unstubAllGlobals();
   });
 
-  it("sends the strict interaction binding on every capability-free bridge operation", async () => {
+  it("sends strict interaction binding and preserves no-content mutation responses", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse(resource))
-      .mockResolvedValueOnce(jsonResponse(resource))
-      .mockResolvedValueOnce(jsonResponse(resource))
-      .mockResolvedValueOnce(jsonResponse(resource));
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
     const client = createBrowserInterviewClient(interactionId).recruitment;
 
     await Effect.runPromise(client.readInvitationResponse());

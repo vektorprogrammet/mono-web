@@ -4,19 +4,42 @@
 
 ## Metadata
 
-| Field             | Value                                                                                                                                                                                |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Status            | Contract is frozen at revision 0051.3. The receipt amendment implementation, runtime evidence, and acceptance evidence are pending                                                 |
-| Base              | `1f7fe7424cd06e26a9713fd284c77fce71ee990e`                                                                                                                                           |
-| Goal              | Replace the Symfony invitation-response seam with one native Recruitment authority and one full-Foldkit applicant journey                                                            |
-| Actor             | Applicant who holds the current invitation capability                                                                                                                                |
-| Observers         | Active department leader and assigned active interviewer                                                                                                                             |
-| Routes            | `/interview-response/:capability` and `/interview-response/redacted`                                                                                                                 |
-| Dependency        | Native interview scheduling from design spec 0050                                                                                                                                    |
-| Architecture      | Design specs 0040 and 0045                                                                                                                                                           |
-| Operator boundary | No production data, credentials, deployment, remote provider, or external notification effect                                                                                        |
-| Scope hold        | Identity credentials, sessions, and access-policy authority remain final                                                                                                             |
-| Revision          | 0051.3 adds a bounded scheduling receipt to the existing browser run. 0051.2 bound each browser page to one exchanged capability                                                       |
+| Field             | Value                                                                                                                                                           |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status            | Contract is frozen at revision 0051.4. The implementation, runtime evidence, and acceptance evidence are pending                                                |
+| Base              | `1f7fe7424cd06e26a9713fd284c77fce71ee990e`                                                                                                                      |
+| Goal              | Replace the Symfony invitation-response seam with one native Recruitment authority and one full-Foldkit applicant journey                                       |
+| Actor             | Applicant who holds the current invitation capability                                                                                                           |
+| Observers         | Active department leader and assigned active interviewer                                                                                                        |
+| Routes            | `/interview-response/:capability`, `/interview-response/redacted`, and native commands under `/api/recruitment/invitation-response:*`                           |
+| Dependency        | Native interview scheduling from design spec 0050                                                                                                               |
+| Architecture      | Design specs 0040 and 0045                                                                                                                                      |
+| Operator boundary | No production data, credentials, deployment, remote provider, or external notification effect                                                                   |
+| Scope hold        | Identity credentials, sessions, and access-policy authority remain final                                                                                        |
+| Revision          | 0051.4 makes the command/fresh-read boundary explicit and lets known completed invitations reach the typed conflict. 0051.3 adds the bounded scheduling receipt |
+
+## Amendment 0051.4 - no-content commands and service-owned conflict
+
+The three native mutation commands return `204` with no representation. The
+same-origin bridge preserves that status and body. Foldkit performs a separate
+applicant read after the command succeeds and only that fresh read may replace
+the model.
+
+The access boundary authenticates and scopes a known current invitation
+capability. It does not pre-empt the Recruitment transition with a
+`Pending`-state requirement. Recruitment owns the locked state transition, so a
+valid capability for an already answered invitation reaches the canonical
+`InvitationAlreadyResponded` conflict. Unknown and superseded capabilities
+remain concealed as not found.
+
+The canonical native command paths are:
+
+- `/api/recruitment/invitation-response:confirm`.
+- `/api/recruitment/invitation-response:reject`.
+- `/api/recruitment/invitation-response:request-new-time`.
+
+This amendment changes no actor, data owner, notification effect, production
+authority, or accepted journey.
 
 ## Amendment 0051.3 - scheduling receipt evidence
 
@@ -265,9 +288,9 @@ A staff observer never receives the raw capability or response-notification payl
 The native backend exposes one stable capability read and three stable transition operations:
 
 - `GET /api/recruitment/invitation-response`.
-- `POST /api/recruitment/invitation-response/confirm`.
-- `POST /api/recruitment/invitation-response/reject`.
-- `POST /api/recruitment/invitation-response/request-new-time`.
+- `POST /api/recruitment/invitation-response:confirm`.
+- `POST /api/recruitment/invitation-response:reject`.
+- `POST /api/recruitment/invitation-response:request-new-time`.
 
 These routes do not require an Identity bearer token. They require the dedicated Recruitment invitation capability header.
 

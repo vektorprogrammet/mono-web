@@ -176,7 +176,7 @@ it("emits response transitions only from Pending", () => {
   }
 });
 
-it("keeps the pending observation until a confirm command returns its current resource", async () => {
+it("keeps the pending observation until a confirm command completes its fresh read", async () => {
   const initial = pendingModel();
   const [inFlight, commands] = update(initial, ConfirmedInvitation());
 
@@ -190,9 +190,12 @@ it("keeps the pending observation until a confirm command returns its current re
       confirmInvitation: () =>
         Effect.sync(() => {
           operations.push("confirm");
+        }),
+      readInvitationResponse: () =>
+        Effect.sync(() => {
+          operations.push("read");
           return { observation: decodeObservation("Accepted"), etag: nextEtag };
         }),
-      readInvitationResponse: () => Effect.die("not used"),
       rejectInvitation: () => Effect.die("not used"),
       requestNewInvitationTime: () => Effect.die("not used"),
     },
@@ -200,7 +203,7 @@ it("keeps the pending observation until a confirm command returns its current re
   const command = makeInterviewCommands(client).ConfirmInvitation({ requestId: 7, etag });
   const result = await Effect.runPromise(command.effect);
 
-  expect(operations).toEqual(["confirm"]);
+  expect(operations).toEqual(["confirm", "read"]);
   expect(result).toEqual(
     SucceededInvitationResponse({
       requestId: 7,

@@ -59184,11 +59184,7 @@
           "principalKinds": [
             "CapabilityHolder"
           ],
-          "requirements": [
-            {
-              "id": "recruitment.invitation-pending"
-            }
-          ]
+          "requirements": []
         },
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
@@ -60480,11 +60476,7 @@
           "principalKinds": [
             "CapabilityHolder"
           ],
-          "requirements": [
-            {
-              "id": "recruitment.invitation-pending"
-            }
-          ]
+          "requirements": []
         },
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
@@ -61776,11 +61768,7 @@
           "principalKinds": [
             "CapabilityHolder"
           ],
-          "requirements": [
-            {
-              "id": "recruitment.invitation-pending"
-            }
-          ]
+          "requirements": []
         },
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/ExternalNativeApi",

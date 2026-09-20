@@ -18,15 +18,15 @@ export interface InvitationResponseClient {
     >;
     readonly confirmInvitation: (input: {
       readonly etag: StrongETag;
-    }) => Effect.Effect<InvitationResponseResource, InvitationBridgeFailure>;
+    }) => Effect.Effect<void, InvitationBridgeFailure>;
     readonly rejectInvitation: (input: {
       readonly etag: StrongETag;
       readonly message: string | null;
-    }) => Effect.Effect<InvitationResponseResource, InvitationBridgeFailure>;
+    }) => Effect.Effect<void, InvitationBridgeFailure>;
     readonly requestNewInvitationTime: (input: {
       readonly etag: StrongETag;
       readonly message: string;
-    }) => Effect.Effect<InvitationResponseResource, InvitationBridgeFailure>;
+    }) => Effect.Effect<void, InvitationBridgeFailure>;
   }>;
 }
 
@@ -94,22 +94,22 @@ export const createBrowserInterviewClient = (interactionId: unknown): Invitation
         bridgeRequest(
           decodedInteractionId,
           { operation: "confirmInvitation", etag },
-          200,
-          decodeResource,
+          204,
+          () => undefined,
         ),
       rejectInvitation: ({ etag, message }) =>
         bridgeRequest(
           decodedInteractionId,
           { operation: "rejectInvitation", etag, message },
-          200,
-          decodeResource,
+          204,
+          () => undefined,
         ),
       requestNewInvitationTime: ({ etag, message }) =>
         bridgeRequest(
           decodedInteractionId,
           { operation: "requestNewInvitationTime", etag, message },
-          200,
-          decodeResource,
+          204,
+          () => undefined,
         ),
     },
   };

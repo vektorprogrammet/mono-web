@@ -169,39 +169,33 @@ export const runOperation = async (
       if (result.body === undefined) throw new Error("Invitation response did not include a body");
       return { observation: result.body, etag: result.headers.etag };
     }
-    case "confirmInvitation": {
-      const result = await client.confirmInvitation({
+    case "confirmInvitation":
+      await client.confirmInvitation({
         headers: {
           "idempotency-key": makeIdempotencyKey(),
           "if-match": operation.etag,
         },
         payload: {},
       });
-      if (result.body === undefined) throw new Error("Invitation response did not include a body");
-      return { observation: result.body, etag: result.headers.etag };
-    }
-    case "rejectInvitation": {
-      const result = await client.rejectInvitation({
+      return undefined;
+    case "rejectInvitation":
+      await client.rejectInvitation({
         headers: {
           "idempotency-key": makeIdempotencyKey(),
           "if-match": operation.etag,
         },
         payload: operation.message === null ? {} : { message: operation.message },
       });
-      if (result.body === undefined) throw new Error("Invitation response did not include a body");
-      return { observation: result.body, etag: result.headers.etag };
-    }
-    case "requestNewInvitationTime": {
-      const result = await client.requestNewInvitationTime({
+      return undefined;
+    case "requestNewInvitationTime":
+      await client.requestNewInvitationTime({
         headers: {
           "idempotency-key": makeIdempotencyKey(),
           "if-match": operation.etag,
         },
         payload: { message: operation.message },
       });
-      if (result.body === undefined) throw new Error("Invitation response did not include a body");
-      return { observation: result.body, etag: result.headers.etag };
-    }
+      return undefined;
   }
 };
 const safeFailure = (

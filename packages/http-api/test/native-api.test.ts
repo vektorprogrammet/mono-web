@@ -422,19 +422,19 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     "POST",
     "/api/recruitment/invitation-response:confirm",
     "recruitment.confirmInvitation",
-    invitation(["recruitment.invitation-pending"], "Transaction"),
+    invitation([], "Transaction"),
   ],
   [
     "POST",
     "/api/recruitment/invitation-response:reject",
     "recruitment.rejectInvitation",
-    invitation(["recruitment.invitation-pending"], "Transaction"),
+    invitation([], "Transaction"),
   ],
   [
     "POST",
     "/api/recruitment/invitation-response:request-new-time",
     "recruitment.requestNewInvitationTime",
-    invitation(["recruitment.invitation-pending"], "Transaction"),
+    invitation([], "Transaction"),
   ],
   [
     "GET",

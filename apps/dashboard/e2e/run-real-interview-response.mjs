@@ -19,7 +19,7 @@ const domainRoot = fileURLToPath(new URL("../../../packages/domain/", import.met
 const composeFile = join(repositoryRoot, "docker-compose.yml");
 const runnerPath = fileURLToPath(import.meta.url);
 const specPath = join(dashboardRoot, "e2e/real-interview-response.spec.ts");
-const dashboardPort = 5185;
+const dashboardPort = 5174;
 const backendPort = 8797;
 const postgresPort = 55432;
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
@@ -1505,70 +1505,6 @@ function assertNativeTransport(records) {
       sessionCookieAuth: false,
       authorizationHeaderPresent: false,
     },
-    {
-      method: "GET",
-      path: profilePath,
-      status: 200,
-      invitationActor: null,
-      sessionCookieAuth: true,
-      authorizationHeaderPresent: false,
-    },
-    {
-      method: "GET",
-      path: profilePath,
-      status: 200,
-      invitationActor: null,
-      sessionCookieAuth: true,
-      authorizationHeaderPresent: false,
-    },
-    {
-      method: "GET",
-      path: boardPath,
-      status: 200,
-      invitationActor: null,
-      sessionCookieAuth: true,
-      authorizationHeaderPresent: false,
-    },
-    {
-      method: "GET",
-      path: boardPath,
-      status: 200,
-      invitationActor: null,
-      sessionCookieAuth: true,
-      authorizationHeaderPresent: false,
-    },
-    {
-      method: "GET",
-      path: profilePath,
-      status: 200,
-      invitationActor: null,
-      sessionCookieAuth: true,
-      authorizationHeaderPresent: false,
-    },
-    {
-      method: "GET",
-      path: profilePath,
-      status: 200,
-      invitationActor: null,
-      sessionCookieAuth: true,
-      authorizationHeaderPresent: false,
-    },
-    {
-      method: "GET",
-      path: boardPath,
-      status: 200,
-      invitationActor: null,
-      sessionCookieAuth: true,
-      authorizationHeaderPresent: false,
-    },
-    {
-      method: "GET",
-      path: boardPath,
-      status: 200,
-      invitationActor: null,
-      sessionCookieAuth: true,
-      authorizationHeaderPresent: false,
-    },
   ];
   const allowedPaths = new Set([
     "/api/auth/sign-in/email",
@@ -1587,26 +1523,35 @@ function assertNativeTransport(records) {
     ].includes(path),
   );
   assertEqual(
-    nativeRecords.map(
-      ({
-        method,
-        path,
-        status,
-        invitationActor,
-        sessionCookieAuth,
-        authorizationHeaderPresent,
-      }) => ({
-        method,
-        path,
-        status,
-        invitationActor,
-        sessionCookieAuth,
-        authorizationHeaderPresent,
-      }),
-    ),
+    nativeRecords
+      .filter(({ invitationActor }) => invitationActor !== null)
+      .map(
+        ({
+          method,
+          path,
+          status,
+          invitationActor,
+          sessionCookieAuth,
+          authorizationHeaderPresent,
+        }) => ({
+          method,
+          path,
+          status,
+          invitationActor,
+          sessionCookieAuth,
+          authorizationHeaderPresent,
+        }),
+      ),
     expected,
-    "Native invitation-response transport order",
+    "Native applicant invitation-response transport order",
   );
+  const staffRecords = nativeRecords.filter(({ invitationActor }) => invitationActor === null);
+  if (
+    staffRecords.filter(({ path }) => path === profilePath).length < 2 ||
+    staffRecords.filter(({ path }) => path === boardPath).length < 2
+  ) {
+    throw new Error("Native invitation-response transport omitted independent staff reads");
+  }
   for (let index = 0; index < nativeRecords.length; index += 1) {
     const record = nativeRecords[index];
     if (record?.invitationActor === null) continue;
@@ -1856,6 +1801,9 @@ async function main() {
     BETTER_AUTH_SECRET: betterAuthSecret,
     NATIVE_IDENTITY_DEPLOYMENT: "local",
     NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
+    OAUTH_CANONICAL_ORIGIN: backendOrigin,
+    OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
+    OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     ADMISSION_FIXED_NOW: fixedClock,
     RECEIPT_STAGING_ROOT: stagingRoot,

@@ -3,7 +3,11 @@ import { StrongETag } from "@vektorprogrammet/http-api";
 import { Effect, Schema as S } from "effect";
 import { Command } from "foldkit";
 import type { InvitationResponseClient } from "./browser-client";
-import { InvitationResponseRequestIdSchema } from "./bridge";
+import {
+  InvitationResponseRequestIdSchema,
+  type InvitationBridgeFailure,
+  type InvitationResponseAction,
+} from "./bridge";
 import {
   FailedInvitationResponse,
   FailedReadInvitationResponse,
@@ -46,19 +50,26 @@ export const makeInterviewCommands = (client: InvitationResponseClient): Intervi
         ),
       ),
   });
+  const mutationWithFreshRead = (
+    mutation: Effect.Effect<void, InvitationBridgeFailure>,
+    requestId: number,
+    action: InvitationResponseAction,
+  ) =>
+    mutation.pipe(
+      Effect.flatMap(() => client.recruitment.readInvitationResponse()),
+      Effect.map(({ observation, etag }) =>
+        SucceededInvitationResponse({ requestId, action, observation, etag }),
+      ),
+      Effect.catch((failure) =>
+        Effect.succeed(FailedInvitationResponse({ requestId, action, failure })),
+      ),
+    );
 
   const ConfirmInvitation = Command.define("ConfirmInvitation", {
     args: { requestId: InvitationResponseRequestIdSchema, etag: StrongETag },
     messages: [SucceededInvitationResponse, FailedInvitationResponse],
     execute: ({ requestId, etag }) =>
-      client.recruitment.confirmInvitation({ etag }).pipe(
-        Effect.map(({ observation, etag }) =>
-          SucceededInvitationResponse({ requestId, action: "Confirm", observation, etag }),
-        ),
-        Effect.catch((failure) =>
-          Effect.succeed(FailedInvitationResponse({ requestId, action: "Confirm", failure })),
-        ),
-      ),
+      mutationWithFreshRead(client.recruitment.confirmInvitation({ etag }), requestId, "Confirm"),
   });
 
   const RejectInvitation = Command.define("RejectInvitation", {
@@ -69,13 +80,10 @@ export const makeInterviewCommands = (client: InvitationResponseClient): Intervi
     },
     messages: [SucceededInvitationResponse, FailedInvitationResponse],
     execute: ({ requestId, etag, message }) =>
-      client.recruitment.rejectInvitation({ etag, message }).pipe(
-        Effect.map(({ observation, etag }) =>
-          SucceededInvitationResponse({ requestId, action: "Reject", observation, etag }),
-        ),
-        Effect.catch((failure) =>
-          Effect.succeed(FailedInvitationResponse({ requestId, action: "Reject", failure })),
-        ),
+      mutationWithFreshRead(
+        client.recruitment.rejectInvitation({ etag, message }),
+        requestId,
+        "Reject",
       ),
   });
 
@@ -87,20 +95,10 @@ export const makeInterviewCommands = (client: InvitationResponseClient): Intervi
     },
     messages: [SucceededInvitationResponse, FailedInvitationResponse],
     execute: ({ requestId, etag, message }) =>
-      client.recruitment.requestNewInvitationTime({ etag, message }).pipe(
-        Effect.map(({ observation, etag }) =>
-          SucceededInvitationResponse({
-            requestId,
-            action: "RequestNewTime",
-            observation,
-            etag,
-          }),
-        ),
-        Effect.catch((failure) =>
-          Effect.succeed(
-            FailedInvitationResponse({ requestId, action: "RequestNewTime", failure }),
-          ),
-        ),
+      mutationWithFreshRead(
+        client.recruitment.requestNewInvitationTime({ etag, message }),
+        requestId,
+        "RequestNewTime",
       ),
   });
 

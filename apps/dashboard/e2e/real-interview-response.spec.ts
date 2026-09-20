@@ -283,6 +283,21 @@ const assertObservation = (
   });
 };
 
+const decodeBridgeResource = (
+  value: unknown,
+): { readonly observation: unknown; readonly etag: string } => {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("observation" in value) ||
+    !("etag" in value) ||
+    typeof value.etag !== "string"
+  ) {
+    throw new Error("The invitation-response bridge omitted its current read resource");
+  }
+  return { observation: value.observation, etag: value.etag };
+};
+
 const authenticate = async (
   page: Page,
   emailEnvironment: string,
@@ -402,7 +417,11 @@ const runCommandWithFreshReadGate = async (
   page: Page,
   responseCase: ApplicantCase,
   capabilities: readonly string[],
-): Promise<{ readonly commandStatus: 204; readonly freshReadStatus: 200 }> => {
+): Promise<{
+  readonly commandStatus: 204;
+  readonly freshReadStatus: 200;
+  readonly etag: string;
+}> => {
   let resolveReadArrival!: () => void;
   const readArrived = new Promise<void>((resolve) => {
     resolveReadArrival = resolve;
@@ -458,14 +477,14 @@ const runCommandWithFreshReadGate = async (
     releaseRead();
     const read = await freshReadResponse;
     if (read.status() !== 200) throw new Error("The post-command applicant read did not succeed");
-    const observation = await readResponseBody(read, capabilities);
+    const resource = decodeBridgeResource(await readResponseBody(read, capabilities));
     assertObservation(
-      observation,
+      resource.observation,
       responseCase,
       responseCase.finalState,
       responseCase.responseMessage,
     );
-    return { commandStatus: 204, freshReadStatus: 200 };
+    return { commandStatus: 204, freshReadStatus: 200, etag: resource.etag };
   } finally {
     releaseRead();
     if (routeHandlerStarted) await routeHandlerCompleted;
@@ -549,6 +568,7 @@ test.describe("Native recruitment invitation response", () => {
           readonly responseCase: ApplicantCase;
           readonly capability: string;
           readonly page: Page;
+          readonly initialEtag: string;
         }> = [];
         for (const responseCase of responseCases) {
           const capability = capabilitiesByCase[responseCase.key];
@@ -561,12 +581,10 @@ test.describe("Native recruitment invitation response", () => {
           if (initialRead.status() !== 200) {
             throw new Error("Initial applicant read did not succeed");
           }
-          assertObservation(
+          const initialResource = decodeBridgeResource(
             await readResponseBody(initialRead, capabilities),
-            responseCase,
-            "Pending",
-            null,
           );
+          assertObservation(initialResource.observation, responseCase, "Pending", null);
           interactionIdForPage(page);
           await expect(
             page.getByRole("heading", { name: "Svar på intervjutid", exact: true }),
@@ -574,7 +592,7 @@ test.describe("Native recruitment invitation response", () => {
           await expect(page.getByText(responseCase.room, { exact: true })).toBeVisible();
           await expect(page.getByText(responseCase.campus, { exact: true })).toBeVisible();
           await expect(page.getByText("Venter på svar", { exact: true })).toBeVisible();
-          tabs.push({ responseCase, capability, page });
+          tabs.push({ responseCase, capability, page, initialEtag: initialResource.etag });
         }
 
         if (tabs.length === 2) {
@@ -630,7 +648,7 @@ test.describe("Native recruitment invitation response", () => {
           };
         }
 
-        for (const { responseCase, capability, page } of tabs) {
+        for (const { responseCase, capability, page, initialEtag } of tabs) {
           const cookieEvidence = await assertApplicantPrivacy(
             context,
             page,
@@ -677,7 +695,7 @@ test.describe("Native recruitment invitation response", () => {
 
             const invalid = await bridgeFetch(
               page,
-              { operation: "requestNewInvitationTime", message: "   " },
+              { operation: "requestNewInvitationTime", etag: initialEtag, message: "   " },
               capabilities,
             );
             if (
@@ -697,7 +715,12 @@ test.describe("Native recruitment invitation response", () => {
             if (preserved.status !== 200) {
               throw new Error("Invalid response preservation read failed");
             }
-            assertObservation(preserved.body, responseCase, "Pending", null);
+            assertObservation(
+              decodeBridgeResource(preserved.body).observation,
+              responseCase,
+              "Pending",
+              null,
+            );
             const pendingAccessibility = await new AxeBuilder({ page })
               .include("main.foldkit-interview")
               .analyze();
@@ -731,9 +754,10 @@ test.describe("Native recruitment invitation response", () => {
           const repeated = await bridgeFetch(
             page,
             responseCase.responseMessage === null
-              ? { operation: responseCase.operation }
+              ? { operation: responseCase.operation, etag: commandEvidence.etag }
               : {
                   operation: responseCase.operation,
+                  etag: commandEvidence.etag,
                   message: responseCase.responseMessage,
                 },
             capabilities,
@@ -756,7 +780,7 @@ test.describe("Native recruitment invitation response", () => {
             throw new Error("Repeated response preservation read failed");
           }
           assertObservation(
-            repeatedRead.body,
+            decodeBridgeResource(repeatedRead.body).observation,
             responseCase,
             responseCase.finalState,
             responseCase.responseMessage,
