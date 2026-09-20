@@ -89,6 +89,7 @@ export const coInterviewerCorrection0106Fixture = {
   primaryMembershipId: "membership-native-conduct-leader-0063",
   departmentId: "department-native-conduct-0063",
   teamId: "team-native-conduct-0063",
+  differentDepartmentId: "department-other-co-interviewer-0106",
   coInterviewer: {
     personId: "journey-co-interviewer-0106",
     membershipId: "membership-co-interviewer-0106",
@@ -422,6 +423,17 @@ export const seedCoInterviewerCorrection0106Fixture = async ({
           },
         );
       }
+      await client.query(
+        `INSERT INTO public.admission_period_departments
+           SELECT (jsonb_populate_record(
+             NULL::public.admission_period_departments,
+             to_jsonb(department) || jsonb_build_object('department_id', $1)
+           )).*
+             FROM public.admission_period_departments AS department
+            WHERE department.department_id=$2
+           ON CONFLICT (department_id) DO NOTHING`,
+        [fixture.differentDepartmentId, fixture.departmentId],
+      );
       const candidates = await client.query(
         `SELECT interview_id AS "interviewId", interviewer_person_id AS "interviewerPersonId",
                 co_interviewer_person_id AS "coInterviewerPersonId"
