@@ -102,7 +102,12 @@ export const selectAuthorizedReceiptApprovals = (
 
   const directEvidence = { approvalGrants: directAuthority.approvalGrants };
 
-  if (candidates.length === 0) return allow({ receiptIds: [] });
+  if (candidates.length === 0) {
+    if (directAuthority.approvalGrants.some(({ active }) => active)) {
+      return allow({ receiptIds: [] });
+    }
+    return deny(directAuthority.approvalGrants.length > 0 ? "AuthorityInactive" : "NotInScope");
+  }
   const receiptIds: string[] = [];
   let denialReason: DecisionReason | undefined;
   let inactiveGrantSeen = directAuthority.approvalGrants.length > 0;

@@ -3,6 +3,7 @@ import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 import { redirect } from "react-router";
 import { createAuthenticatedClient, serverApiEndpoint } from "./api.server";
+import { nativeProblemFrom } from "./native-problem";
 
 const SESSION_COOKIE_NAMES = [
   "better-auth.session_token",
@@ -61,8 +62,7 @@ async function inspectSession(request: Request): Promise<SessionInspection> {
     await createAuthenticatedClient(cookie, request).system.readSession();
     return { _tag: "Authenticated", cookie };
   } catch (error) {
-    const code =
-      error !== null && typeof error === "object" && "code" in error ? error.code : undefined;
+    const code = nativeProblemFrom(error)?.code;
     if (code === "credential.missing" || code === "credential.invalid") {
       return { _tag: "Invalid" };
     }
@@ -179,8 +179,7 @@ export async function signOut(request: Request): Promise<Headers> {
       },
     });
   } catch (error) {
-    const code =
-      error !== null && typeof error === "object" && "code" in error ? error.code : undefined;
+    const code = nativeProblemFrom(error)?.code;
     if (code !== "credential.missing" && code !== "credential.invalid") {
       throw new Response("Sign out failed", { status: 502 });
     }

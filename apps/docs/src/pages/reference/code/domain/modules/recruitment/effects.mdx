@@ -19,6 +19,8 @@ showAskAi: false
 ### Exports Grouped by Category
 
 - [utils](#utils)
+  - [RecruitmentInterviewCompletionOutboxRequest (type alias)](#recruitmentinterviewcompletionoutboxrequest-type-alias)
+  - [RecruitmentInterviewCompletionOutboxRequestSchema](#recruitmentinterviewcompletionoutboxrequestschema)
   - [RecruitmentInvitationOutboxRequest (type alias)](#recruitmentinvitationoutboxrequest-type-alias)
   - [RecruitmentInvitationOutboxRequestSchema](#recruitmentinvitationoutboxrequestschema)
   - [RecruitmentInvitationResponseOutboxRequest (type alias)](#recruitmentinvitationresponseoutboxrequest-type-alias)
@@ -32,6 +34,38 @@ showAskAi: false
 
 ## utils
 
+### RecruitmentInterviewCompletionOutboxRequest (type alias)
+
+**Signature**
+
+```ts
+type RecruitmentInterviewCompletionOutboxRequest =
+  typeof RecruitmentInterviewCompletionOutboxRequestSchema.Type;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/effects.ts#L58)
+
+### RecruitmentInterviewCompletionOutboxRequestSchema
+
+**Signature**
+
+```ts
+declare const RecruitmentInterviewCompletionOutboxRequestSchema: Schema.Struct<{
+  readonly _tag: Schema.Literals<readonly ["SendInterviewCompletionReceipt"]>;
+  readonly effectId: Schema.brand<Schema.String, "RecruitmentNotificationEffectId">;
+  readonly commandId: Schema.brand<Schema.String, "RecruitmentConductCommandId">;
+  readonly interviewId: Schema.brand<Schema.String, "RecruitmentInterviewId">;
+  readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
+  readonly interviewRevision: Schema.Int;
+  readonly applicantDisplayName: Schema.String;
+  readonly applicantEmail: Schema.String;
+  readonly interviewerDisplayName: Schema.String;
+  readonly interviewerEmail: Schema.String;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/effects.ts#L46)
+
 ### RecruitmentInvitationOutboxRequest (type alias)
 
 **Signature**
@@ -40,7 +74,7 @@ showAskAi: false
 type RecruitmentInvitationOutboxRequest = typeof RecruitmentInvitationOutboxRequestSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/effects.ts#L43)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/effects.ts#L60)
 
 ### RecruitmentInvitationOutboxRequestSchema
 
@@ -68,7 +102,7 @@ declare const RecruitmentInvitationOutboxRequestSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/effects.ts#L24)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/effects.ts#L26)
 
 ### RecruitmentInvitationResponseOutboxRequest (type alias)
 
@@ -79,7 +113,7 @@ type RecruitmentInvitationResponseOutboxRequest =
   typeof RecruitmentInvitationResponseOutboxRequestSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/effects.ts#L70)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/effects.ts#L87)
 
 ### RecruitmentInvitationResponseOutboxRequestFieldSchemas
 
@@ -100,7 +134,7 @@ declare const RecruitmentInvitationResponseOutboxRequestFieldSchemas: {
 };
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/effects.ts#L46)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/effects.ts#L63)
 
 ### RecruitmentInvitationResponseOutboxRequestSchema
 
@@ -143,7 +177,7 @@ declare const RecruitmentInvitationResponseOutboxRequestSchema: Schema.Union<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/effects.ts#L58)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/effects.ts#L75)
 
 ### RecruitmentNotificationDeliveryError (class)
 
@@ -153,7 +187,7 @@ declare const RecruitmentInvitationResponseOutboxRequestSchema: Schema.Union<
 declare class RecruitmentNotificationDeliveryError
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/effects.ts#L80)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/effects.ts#L97)
 
 ### RecruitmentNotificationEvidence (type alias)
 
@@ -163,7 +197,7 @@ declare class RecruitmentNotificationDeliveryError
 type RecruitmentNotificationEvidence = typeof RecruitmentNotificationEvidenceSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/effects.ts#L78)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/effects.ts#L95)
 
 ### RecruitmentNotificationEvidenceSchema
 
@@ -177,4 +211,4 @@ declare const RecruitmentNotificationEvidenceSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/effects.ts#L73)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/recruitment/effects.ts#L90)

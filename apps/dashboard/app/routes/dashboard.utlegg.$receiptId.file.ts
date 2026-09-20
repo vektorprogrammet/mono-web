@@ -37,6 +37,7 @@ function receiptFileFailureStatus(error: unknown): ReceiptFileFailureStatus {
     case "credential.invalid":
       return 401;
     case "authority.denied":
+    case "origin.denied":
       return 403;
     case "receipt.not-found":
     case "resource.not-found":
@@ -71,7 +72,10 @@ function authenticatedFailureStatus(error: unknown): 401 | 503 {
   return 503;
 }
 
-function receiptFileResponseHeaders(headers: ReceiptFileHeaders, bytes: Uint8Array): Headers | undefined {
+function receiptFileResponseHeaders(
+  headers: ReceiptFileHeaders,
+  bytes: Uint8Array,
+): Headers | undefined {
   const contentType = headers["content-type"];
   const contentLength = headers["content-length"];
   const contentDisposition = headers["content-disposition"];
@@ -81,7 +85,9 @@ function receiptFileResponseHeaders(headers: ReceiptFileHeaders, bytes: Uint8Arr
 
   if (
     typeof contentType !== "string" ||
-    (contentType !== "image/jpeg" && contentType !== "image/png" && contentType !== "application/pdf") ||
+    (contentType !== "image/jpeg" &&
+      contentType !== "image/png" &&
+      contentType !== "application/pdf") ||
     typeof contentLength !== "string" ||
     typeof contentDisposition !== "string" ||
     typeof contentTypeOptions !== "string" ||
@@ -93,7 +99,7 @@ function receiptFileResponseHeaders(headers: ReceiptFileHeaders, bytes: Uint8Arr
 
   const extension = fileExtensionByContentType[contentType];
   if (
-    !/^(?:0|[1-9]\d*)$/u.test(contentLength) ||
+    !/^[1-9]\d*$/u.test(contentLength) ||
     Number(contentLength) !== bytes.byteLength ||
     contentDisposition !== `inline; filename="receipt.${extension}"` ||
     contentTypeOptions !== "nosniff" ||
@@ -129,11 +135,19 @@ export async function loader({ request, params }: Route.LoaderArgs): Promise<Res
   }
 
   try {
-    const result = await createAuthenticatedClient(cookie, request).receipts.readReceiptFileForApproval({
+    const result = await createAuthenticatedClient(
+      cookie,
+      request,
+    ).receipts.readReceiptFileForApproval({
       params: { receiptId },
     });
     const headers = receiptFileResponseHeaders(result.headers, result.body);
-    return headers === undefined ? privateFailure(503) : new Response(result.body, { headers });
+    if (headers === undefined) return privateFailure(503);
+    const responseBytes =
+      result.body.buffer instanceof ArrayBuffer
+        ? (result.body as Uint8Array<ArrayBuffer>)
+        : Uint8Array.from(result.body);
+    return new Response(responseBytes, { headers });
   } catch (error) {
     return privateFailure(receiptFileFailureStatus(error));
   }

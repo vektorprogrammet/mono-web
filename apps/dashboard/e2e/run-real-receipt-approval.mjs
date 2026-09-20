@@ -6,6 +6,7 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import {
   emitNativeRuntimeEvidenceReceipts,
   sanitizePlaywrightArtifact,
@@ -14,16 +15,30 @@ import {
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const composeFile = join(repositoryRoot, "docker-compose.yml");
-const dashboardOrigin = "http://127.0.0.1:5174";
-const backendOrigin = "http://127.0.0.1:8790";
-const postgresUrl = "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof?connect_timeout=1";
+const configuredPort = (name, fallback) => {
+  const port = Number(process.env[name] ?? fallback);
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`${name} must be a TCP port`);
+  }
+  return port;
+};
+const dashboardPort = 5174;
+const backendPort = configuredPort("RECEIPT_APPROVAL_BACKEND_PORT", 8790);
+const postgresPort = configuredPort("RECEIPT_APPROVAL_PG_PORT", 55_432);
+const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+const backendOrigin = `http://127.0.0.1:${backendPort}`;
+const postgresUrl = `postgres://receipt:receipt@127.0.0.1:${postgresPort}/receipt_proof?connect_timeout=1`;
 const composeProject = `mono-web-receipt-0037-${process.pid}`;
 const commandTimeoutMs = 300_000;
 const shutdownTimeoutMs = 5_000;
-const postgresPort = 55432;
 const nixPostgresPackage = "nixpkgs#postgresql_17";
 const betterAuthSecret = randomBytes(32).toString("base64url");
 const personaPassword = "receipt-approval-0037-password";
+const receiptDeliverySender = "economy@example.invalid";
+const receiptEconomyRecipients = Object.freeze({
+  "department-a": "economy-a@example.invalid",
+  "department-b": "economy-b@example.invalid",
+});
 const journeyRefId = "intent://journey:parity:finance_operations:v1";
 const journeyStepIds = [
   "finance-operations-api-operation",
@@ -333,7 +348,7 @@ const parseJsonBody = (bytes) => {
   }
 };
 
-const sanitizeRequestBody = (bytes, contentType, pathname) => {
+const sanitizeRequestBody = (bytes, contentType) => {
   if (bytes.byteLength === 0) return null;
   if (contentType.startsWith("multipart/form-data")) {
     return { kind: "multipart/form-data" };
@@ -402,7 +417,6 @@ async function startRecordingProxy(targetOrigin) {
       body: sanitizeRequestBody(
         requestBytes,
         typeof request.headers["content-type"] === "string" ? request.headers["content-type"] : "",
-        url.pathname,
       ),
       sessionCookieAuth: cookieKey !== undefined,
       authorizationHeaderPresent: request.headers.authorization !== undefined,
@@ -413,8 +427,12 @@ async function startRecordingProxy(targetOrigin) {
         typeof request.headers["idempotency-key"] === "string"
           ? request.headers["idempotency-key"]
           : null,
-      ifMatch:
-        typeof request.headers["if-match"] === "string" ? request.headers["if-match"] : null,
+      ifMatch: typeof request.headers["if-match"] === "string" ? request.headers["if-match"] : null,
+      concurrencyProbe:
+        typeof request.headers["x-receipt-e2e-concurrency-probe"] === "string"
+          ? request.headers["x-receipt-e2e-concurrency-probe"]
+          : null,
+      concurrencySynchronized: null,
     };
     records.push(record);
     try {
@@ -441,10 +459,13 @@ async function startRecordingProxy(targetOrigin) {
       const responseBytes = Buffer.from(await upstream.arrayBuffer());
       const responseJson = parseJsonBody(responseBytes);
       record.status = upstream.status;
+      record.concurrencySynchronized = upstream.headers.get(
+        "x-receipt-e2e-concurrency-synchronized",
+      );
       if (
         cookieKey !== undefined &&
         upstream.status === 200 &&
-        url.pathname === "/api/profile" &&
+        url.pathname === "/api/session" &&
         responseJson !== null &&
         typeof responseJson === "object" &&
         "personId" in responseJson &&
@@ -527,8 +548,10 @@ async function startRecordingProxy(targetOrigin) {
 }
 
 const assertEqual = (actual, expected, label) => {
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error(`${label} did not match the frozen amendment`);
+  if (!isDeepStrictEqual(actual, expected)) {
+    throw new Error(
+      `${label} did not match the frozen amendment: actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`,
+    );
   }
 };
 
@@ -720,7 +743,9 @@ function assertExpectedOutboxCommandOrder(postgres, journeyEvidence) {
     }
   }
   if (JSON.stringify(observedCommandOrder) !== JSON.stringify(expectedCommandOrder)) {
-    throw new Error("Receipt approval outbox effects are not ordered by accepted command");
+    throw new Error(
+      `Receipt approval outbox effects are not ordered by accepted command: observed=${JSON.stringify(observedCommandOrder)} expected=${JSON.stringify(expectedCommandOrder)}`,
+    );
   }
 }
 
@@ -859,7 +884,17 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
     postgres.pendingOutboxCount !== 0 ||
     postgres.duplicateEffectCount !== 0
   ) {
-    throw new Error("Receipt approval persistence counts did not prove exactly-once effects");
+    throw new Error(
+      `Receipt approval persistence counts did not prove exactly-once effects: ${JSON.stringify({
+        receiptCount: postgres.receiptCount,
+        commandCount: postgres.commandCount,
+        auditCount: postgres.auditCount,
+        outboxCount: postgres.outboxCount,
+        deliveredOutboxCount: postgres.deliveredOutboxCount,
+        pendingOutboxCount: postgres.pendingOutboxCount,
+        duplicateEffectCount: postgres.duplicateEffectCount,
+      })}`,
+    );
   }
   assertEqual(postgres.fixtureCounts, expectedFixtureCounts, "Receipt authority fixture counts");
 
@@ -881,10 +916,9 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
     throw new Error("Receipt approval durable file identities differ from journey evidence");
   }
   assertFileReadEvidence(journeyEvidence.fileReads);
-
   if (
     journeyEvidence.durablePostgresFailure?.status !== 503 ||
-    journeyEvidence.durablePostgresFailure?.tag !== "ReceiptPersistenceError"
+    journeyEvidence.durablePostgresFailure?.tag !== "receipts.unavailable"
   ) {
     throw new Error("Receipt approval journey did not prove a typed PostgreSQL failure");
   }
@@ -1040,6 +1074,49 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
   }
 }
 
+function assertReceiptDeliveryEvidence(postgres, deliveries, seedEvidence) {
+  const notificationRows = postgres.outbox.filter((row) => row.effectType.startsWith("Notify"));
+  const deliveryById = new Map(deliveries.map((delivery) => [delivery.deliveryId, delivery]));
+  if (
+    notificationRows.length !== 8 ||
+    deliveries.length !== notificationRows.length ||
+    deliveryById.size !== deliveries.length
+  ) {
+    throw new Error("Receipt notification delivery count did not match durable outbox effects");
+  }
+  const receiptById = new Map(postgres.receipts.map((receipt) => [receipt.receiptId, receipt]));
+  const emailByPersonId = new Map(
+    seedEvidence.personas.map((persona) => [persona.personId, persona.email]),
+  );
+  const subjectByEffectType = {
+    NotifyEconomyReceiptSubmitted: "Nytt utlegg registrert",
+    NotifyReceiptRefunded: "Utlegget ditt er markert som refundert",
+    NotifyReceiptRejected: "Utlegget ditt er avvist",
+  };
+  for (const row of notificationRows) {
+    const delivery = deliveryById.get(row.effectId);
+    const receipt = receiptById.get(row.receiptId);
+    const subject = subjectByEffectType[row.effectType];
+    const expectedRecipient =
+      row.effectType === "NotifyEconomyReceiptSubmitted"
+        ? receiptEconomyRecipients[receipt?.departmentId]
+        : emailByPersonId.get(receipt?.ownerPersonId);
+    if (
+      delivery === undefined ||
+      receipt === undefined ||
+      subject === undefined ||
+      expectedRecipient === undefined ||
+      delivery.from !== receiptDeliverySender ||
+      delivery.to !== expectedRecipient ||
+      delivery.subject !== subject ||
+      typeof delivery.text !== "string" ||
+      !delivery.text.includes(receipt.visualId)
+    ) {
+      throw new Error(`Receipt notification delivery ${row.effectId} is not authoritative`);
+    }
+  }
+}
+
 function assertJourneyEvidence(journeyEvidence, seedEvidence) {
   assertEqual(journeyEvidence.journeyRefId, journeyRefId, "Finance journey reference");
   assertEqual(journeyEvidence.acceptedStepIds, journeyStepIds, "Finance journey steps");
@@ -1124,6 +1201,9 @@ function assertJourneyEvidence(journeyEvidence, seedEvidence) {
     },
     "Frozen Receipt approval status matrix",
   );
+  if (journeyEvidence.accepted.concurrent.transactionBarrierSynchronized !== true) {
+    throw new Error("Receipt transaction concurrency barrier evidence is missing");
+  }
   assertEqual(
     journeyEvidence.rendered.forbiddenBrowserRequests,
     [],
@@ -1185,8 +1265,7 @@ function assertRequestLedger(records, journeyEvidence) {
 
   const receiptOperations = records.filter(
     ({ pathname }) =>
-      pathname.startsWith("/api/receipts") ||
-      pathname.startsWith("/api/receipt-approval-queue"),
+      pathname.startsWith("/api/receipts") || pathname.startsWith("/api/receipt-approval-queue"),
   );
   for (const record of receiptOperations) {
     if (record.authorizationHeaderPresent) {
@@ -1234,9 +1313,7 @@ function assertRequestLedger(records, journeyEvidence) {
     ({ method, pathname }) => method === "GET" && ownerFilePath.test(pathname),
   );
   assertEqual(
-    ownerFileReads
-      .map(({ status }) => status)
-      .sort((left, right) => left - right),
+    ownerFileReads.map(({ status }) => status).sort((left, right) => left - right),
     [200, 404, 404],
     "Owner Receipt file access remains separate from approval access",
   );
@@ -1245,12 +1322,10 @@ function assertRequestLedger(records, journeyEvidence) {
     ({ method, pathname }) => method === "GET" && approvalFilePath.test(pathname),
   );
   assertEqual(
-    approvalFileReads
-      .map(({ status }) => status)
-      .sort((left, right) => left - right),
+    approvalFileReads.map(({ status }) => status).sort((left, right) => left - right),
     [
-      200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 401, 401, 403, 403, 403, 403, 403,
-      404, 404, 404, 404, 404, 503, 503,
+      200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 401, 401, 403, 403, 403, 403, 403, 404,
+      404, 503, 503,
     ],
     "Exact scoped Receipt file read operation sequence",
   );
@@ -1262,6 +1337,25 @@ function assertRequestLedger(records, journeyEvidence) {
   ) {
     throw new Error("Receipt file reads carried mutation request state");
   }
+  const concurrencyRecords = receiptOperations
+    .filter(({ concurrencyProbe }) => concurrencyProbe !== null)
+    .sort(({ concurrencyProbe: left }, { concurrencyProbe: right }) => left.localeCompare(right));
+  if (
+    concurrencyRecords.length !== 3 ||
+    concurrencyRecords.some(({ concurrencySynchronized }) => concurrencySynchronized !== "1")
+  ) {
+    throw new Error("Receipt transaction concurrency barrier was not observed on all three lanes");
+  }
+  assertEqual(
+    concurrencyRecords.map(({ concurrencyProbe }) => concurrencyProbe),
+    ["file-read", "refund", "reject"],
+    "Receipt transaction concurrency barrier lanes",
+  );
+  assertEqual(
+    concurrencyRecords.map(({ status }) => status).sort((left, right) => left - right),
+    [200, 200, 412],
+    "Receipt transaction concurrency barrier outcomes",
+  );
 
   const semanticPath = /\/api\/receipts\/[^/]+:(?:refund|reject)$/u;
   const commands = receiptOperations.filter(
@@ -1331,11 +1425,92 @@ function assertRequestLedger(records, journeyEvidence) {
   return receiptOperations;
 }
 
+async function startReceiptDeliverySink() {
+  const token = randomBytes(32).toString("hex");
+  const deliveries = new Map();
+  const server = createServer(async (request, response) => {
+    try {
+      if (
+        request.method !== "POST" ||
+        request.url !== "/receipts" ||
+        request.headers.authorization !== `Bearer ${token}` ||
+        request.headers["content-type"] !== "application/json"
+      ) {
+        response.writeHead(401).end();
+        return;
+      }
+      const chunks = [];
+      let byteLength = 0;
+      for await (const chunk of request) {
+        const bytes = Buffer.from(chunk);
+        byteLength += bytes.byteLength;
+        if (byteLength > 65_536) throw new Error("Receipt delivery envelope is too large");
+        chunks.push(bytes);
+      }
+      const envelope = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      if (
+        envelope === null ||
+        typeof envelope !== "object" ||
+        typeof envelope.deliveryId !== "string" ||
+        request.headers["idempotency-key"] !== envelope.deliveryId
+      ) {
+        throw new Error("Receipt delivery envelope is invalid");
+      }
+      const previous = deliveries.get(envelope.deliveryId);
+      if (previous !== undefined && JSON.stringify(previous) !== JSON.stringify(envelope)) {
+        response.writeHead(409).end();
+        return;
+      }
+      deliveries.set(envelope.deliveryId, envelope);
+      response.writeHead(204).end();
+    } catch {
+      response.writeHead(400).end();
+    }
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+    throw new Error("Receipt delivery sink did not bind a TCP port");
+  }
+  return {
+    environment: {
+      RECEIPT_DELIVERY_URL: `http://127.0.0.1:${address.port}/receipts`,
+      RECEIPT_DELIVERY_TOKEN: token,
+      RECEIPT_DELIVERY_TIMEOUT_MS: "2000",
+      RECEIPT_DELIVERY_SENDER: receiptDeliverySender,
+      RECEIPT_DELIVERY_ECONOMY_RECIPIENTS: JSON.stringify(receiptEconomyRecipients),
+    },
+    evidence: () =>
+      [...deliveries.values()].sort((left, right) =>
+        left.deliveryId.localeCompare(right.deliveryId),
+      ),
+    close: async () => {
+      server.closeAllConnections?.();
+      await new Promise((resolve, reject) => {
+        server.close((error) =>
+          error === undefined ||
+          (typeof error === "object" &&
+            error !== null &&
+            "code" in error &&
+            error.code === "ERR_SERVER_NOT_RUNNING")
+            ? resolve()
+            : reject(error),
+        );
+      });
+    },
+  };
+}
+
 async function main() {
   await Promise.all([
-    assertPortAvailable(5174),
-    assertPortAvailable(8790),
-    assertPortAvailable(55432),
+    assertPortAvailable(dashboardPort),
+    assertPortAvailable(backendPort),
+    assertPortAvailable(postgresPort),
   ]);
 
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-receipt-approval-0037-"));
@@ -1379,6 +1554,11 @@ export default {
     "RECEIPT_APPROVAL_E2E_GLOBAL_TOKEN",
     "RECEIPT_APPROVAL_E2E_INACTIVE_TOKEN",
     "RECEIPT_APPROVAL_E2E_NONE_SCOPE_TOKEN",
+    "RECEIPT_DELIVERY_URL",
+    "RECEIPT_DELIVERY_TOKEN",
+    "RECEIPT_DELIVERY_TIMEOUT_MS",
+    "RECEIPT_DELIVERY_SENDER",
+    "RECEIPT_DELIVERY_ECONOMY_RECIPIENTS",
   ]) {
     delete baseEnvironment[name];
   }
@@ -1390,8 +1570,11 @@ export default {
   };
   const apiEnvironment = {
     ...sharedEnvironment,
+    OAUTH_CANONICAL_ORIGIN: backendOrigin,
+    OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
+    OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     BACKEND_HOST: "127.0.0.1",
-    BACKEND_PORT: "8790",
+    BACKEND_PORT: String(backendPort),
     BACKEND_PG_URL: postgresUrl,
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     RECEIPT_STAGING_ROOT: stagingRoot,
@@ -1404,6 +1587,7 @@ export default {
   let apiProcess;
   let dashboardProcess;
   let proxy;
+  let deliverySink;
   let evidence;
   let playwrightArtifactBytes;
   let cleaned = false;
@@ -1428,6 +1612,13 @@ export default {
       await stopProcess(apiProcess);
     } catch (error) {
       cleanupErrors.push(error);
+    }
+    if (deliverySink !== undefined) {
+      try {
+        await deliverySink.close();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
     }
     if (postgresStarted) {
       try {
@@ -1506,16 +1697,21 @@ export default {
     });
     const seedEvidence = JSON.parse(seed.stdout.trim().split(/\r?\n/u).at(-1));
     assertEqual(seedEvidence.fixtureCounts, expectedFixtureCounts, "Seeded authority counts");
+    deliverySink = await startReceiptDeliverySink();
+    const runtimeApiEnvironment = {
+      ...apiEnvironment,
+      ...deliverySink.environment,
+    };
 
     const configuredBackendCommand = process.env.BACKEND_COMMAND;
     apiProcess = configuredBackendCommand
       ? startProcess("/bin/sh", ["-c", configuredBackendCommand], {
           cwd: repositoryRoot,
-          env: apiEnvironment,
+          env: runtimeApiEnvironment,
         })
       : startProcess("bun", ["run", "--cwd", "apps/backend", "start"], {
           cwd: repositoryRoot,
-          env: apiEnvironment,
+          env: runtimeApiEnvironment,
         });
     await waitForHttp(`${backendOrigin}/health`, apiProcess, "Unified native backend");
     proxy = await startRecordingProxy(backendOrigin);
@@ -1531,7 +1727,7 @@ export default {
       BACKEND_ORIGIN: proxy.origin,
       DASHBOARD_ORIGIN: dashboardOrigin,
       HOST: "127.0.0.1",
-      PORT: "5174",
+      PORT: String(dashboardPort),
       REAL_NATIVE_CONDUCT_E2E: "1",
       REAL_RECEIPT_OWNER_E2E: "1",
       REAL_RECEIPT_APPROVAL_E2E: "1",
@@ -1542,6 +1738,7 @@ export default {
       RECEIPT_PG_DATA_ROOT: postgresDataRoot,
       RECEIPT_PG_PORT: String(postgresPort),
       RECEIPT_APPROVAL_EVIDENCE_FILE: approvalEvidencePath,
+      RECEIPT_COMMITTED_ROOT: committedRoot,
       BACKEND_PG_URL: postgresUrl,
     };
     for (const [prefix, personId] of [
@@ -1603,11 +1800,12 @@ export default {
         sessionCookieNames: ["better-auth.session_token"],
       }))
       .sort(({ personId: left }, { personId: right }) => left.localeCompare(right));
-    assertEqual(
-      proxy.sessionCookieEvidence(),
-      expectedSessionCookies,
-      "Exactly one Better Auth session cookie per persona",
-    );
+    const observedSessionCookies = proxy.sessionCookieEvidence();
+    if (JSON.stringify(observedSessionCookies) !== JSON.stringify(expectedSessionCookies)) {
+      throw new Error(
+        `Exactly one Better Auth session cookie per persona did not match the frozen amendment: observed=${JSON.stringify(observedSessionCookies)} expected=${JSON.stringify(expectedSessionCookies)}`,
+      );
+    }
     const receiptOperations = assertRequestLedger(proxy.records, journeyEvidence);
     const postgres = await readPostgresEvidence(baseEnvironment);
     const privateFile = {
@@ -1615,6 +1813,11 @@ export default {
       committedFileCount: await countFiles(committedRoot),
     };
     assertDurableEvidence(postgres, privateFile, journeyEvidence);
+    if (deliverySink === undefined) {
+      throw new Error("Receipt delivery sink was not started");
+    }
+    const receiptDeliveries = deliverySink.evidence();
+    assertReceiptDeliveryEvidence(postgres, receiptDeliveries, seedEvidence);
     evidence = {
       topology: {
         dashboard: "loopback-react-router",
@@ -1625,6 +1828,7 @@ export default {
             ? "disposable-postgresql-docker"
             : "disposable-postgresql-local-nix",
         privateFile: "disposable-filesystem",
+        delivery: "acknowledged-loopback-http-sink",
         symfonyProcessesStarted: 0,
         fixtureApiProcessesStarted: 0,
       },
@@ -1633,6 +1837,7 @@ export default {
       seed: seedEvidence,
       postgres,
       privateFile,
+      receiptDeliveries,
       journey: journeyEvidence,
       requestLedger: proxy.records,
       receiptOperationCount: receiptOperations.length,
@@ -1687,9 +1892,14 @@ export default {
   );
 }
 
+const formatRunnerError = (error) => {
+  if (error instanceof AggregateError) {
+    return `${error.message}: ${error.errors.map(formatRunnerError).join("; ")}`;
+  }
+  return error instanceof Error ? error.message : String(error);
+};
+
 main().catch((error) => {
-  process.stderr.write(
-    `${error instanceof Error ? error.message : "Real Receipt approval runner failed"}\n`,
-  );
+  process.stderr.write(`${formatRunnerError(error)}\n`);
   process.exitCode = 1;
 });

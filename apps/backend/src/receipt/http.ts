@@ -60,6 +60,7 @@ import {
   type ReceiptResource,
   type ReceiptListItem,
 } from "@vektorprogrammet/http-api";
+import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
@@ -76,6 +77,7 @@ import {
 } from "../http-semantics.js";
 import { resolveRequestCredentialInTransaction } from "../authority.js";
 import { nativeCommandOutcomeResponse, prepareNativeHttpCommand } from "../native-operation.js";
+import { hasBetterAuthSessionCredential } from "../session-security.js";
 import type { ReceiptApiConfig } from "./config.js";
 import {
   makeReceiptFileStore,
@@ -98,6 +100,14 @@ const isReceiptStatus = (value: string): value is ReceiptStatus => {
 };
 
 type AcceptedCredential = Extract<CredentialOutcome, { readonly _tag: "Accepted" }>;
+
+type ReceiptE2EConcurrencyLane = "file-read" | "refund" | "reject";
+
+type ReceiptE2ETransactionBarrier = (
+  request: Request,
+  receiptId: string,
+  lane: ReceiptE2EConcurrencyLane,
+) => Promise<boolean>;
 
 export interface ReceiptIdentityResolvers {
   /** Request credential -> canonical person and one instant; never role or authority facts. */
@@ -133,7 +143,55 @@ export interface ReceiptApiHttpOptions {
    * The composition root may supply an operationally durable identity.
    */
   readonly outboxClaimId?: string;
+  /** Local evidence-only transaction barrier; absent from every non-E2E composition. */
+  readonly e2eTransactionBarrier?: ReceiptE2ETransactionBarrier;
 }
+
+const RECEIPT_E2E_CONCURRENCY_REQUEST_HEADER = "x-receipt-e2e-concurrency-probe";
+const RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER = "x-receipt-e2e-concurrency-synchronized";
+
+const makeReceiptE2ETransactionBarrier = (): ReceiptE2ETransactionBarrier => {
+  let targetReceiptId: string | undefined;
+  const arrived = new Set<ReceiptE2EConcurrencyLane>();
+  let pending: Promise<void> | undefined;
+  let release: (() => void) | undefined;
+  let reject: ((cause: Error) => void) | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let synchronized = false;
+
+  return async (request, receiptId, lane) => {
+    const marker = request.headers.get(RECEIPT_E2E_CONCURRENCY_REQUEST_HEADER);
+    if (marker === null) return false;
+    if (marker !== lane) {
+      throw new HttpSemanticFailure("request.malformed", 400);
+    }
+    if (targetReceiptId === undefined) targetReceiptId = receiptId;
+    if (targetReceiptId !== receiptId) {
+      throw new HttpSemanticFailure("request.malformed", 400);
+    }
+    if (arrived.has(lane)) {
+      if (synchronized) return true;
+      throw new HttpSemanticFailure("request.malformed", 400);
+    }
+    if (pending === undefined) {
+      pending = new Promise<void>((resolve, rejectPending) => {
+        release = resolve;
+        reject = rejectPending;
+      });
+      timer = setTimeout(() => {
+        reject?.(new Error("Receipt E2E transaction concurrency barrier timed out"));
+      }, 10_000);
+    }
+    arrived.add(lane);
+    if (arrived.size === 3) {
+      synchronized = true;
+      clearTimeout(timer);
+      release?.();
+    }
+    await pending;
+    return true;
+  };
+};
 
 interface ErrorBody {
   readonly error: { readonly tag: string; readonly message?: string };
@@ -248,17 +306,18 @@ const readPrivateReceiptFile = async (
   file: ReceiptFile,
   fileStore: ReceiptFileStore,
   maxFileBytes: number,
-): Promise<Response> => {
+  extraHeaders: Readonly<Record<string, string>> = {},
+): Promise<HttpServerResponse.HttpServerResponse> => {
   let bytes: Uint8Array;
   try {
     bytes = await fileStore.readCommitted(file, maxFileBytes);
   } catch {
     throw new HttpSemanticFailure("receipts.unavailable", 503);
   }
-  return new Response(bytes, {
+  return HttpServerResponse.uint8Array(bytes, {
+    contentType: file.contentType,
     headers: {
-      "content-type": file.contentType,
-      "content-length": String(bytes.byteLength),
+      ...extraHeaders,
       "content-disposition": `inline; filename="${receiptFileName(file.contentType)}"`,
       "x-content-type-options": "nosniff",
       "cache-control": "private, no-store",
@@ -266,6 +325,22 @@ const readPrivateReceiptFile = async (
     },
   });
 };
+
+const toPrivateFileHttpApiResponse = (
+  request: HttpServerRequest.HttpServerRequest,
+  handle: (request: Request) => Promise<HttpServerResponse.HttpServerResponse>,
+): Effect.Effect<HttpServerResponse.HttpServerResponse> =>
+  HttpServerRequest.toWeb(request).pipe(
+    Effect.flatMap((webRequest) =>
+      Effect.tryPromise({
+        try: () => handle(webRequest),
+        catch: (cause) => cause,
+      }),
+    ),
+    Effect.catch((cause) =>
+      Effect.succeed(HttpServerResponse.fromWeb(publicReceiptErrorResponse(cause))),
+    ),
+  );
 
 const parseSafeAmountOre = (value: string): number => {
   if (!/^[1-9]\d*$/.test(value)) throw new ReceiptDecodeError({ message: "invalid amountOre" });
@@ -361,6 +436,15 @@ const decodeReceiptFile = (
   return { file, contentType: file.type };
 };
 
+const invalidSessionFailure = (request: Request, cause: unknown): unknown =>
+  cause !== null &&
+  typeof cause === "object" &&
+  "_tag" in cause &&
+  cause._tag === "UnauthenticatedActor" &&
+  hasBetterAuthSessionCredential(request.headers.get("cookie"))
+    ? new HttpSemanticFailure("credential.invalid", 401)
+    : cause;
+
 const authorizationPrincipalFor = async (
   request: Request,
   options: ReceiptApiHttpOptions,
@@ -368,6 +452,8 @@ const authorizationPrincipalFor = async (
   try {
     return await options.identity.resolveAuthorizationPrincipal(request);
   } catch (cause) {
+    const classified = invalidSessionFailure(request, cause);
+    if (classified !== cause) throw classified;
     if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
     throw new UnauthenticatedActor({ message: "authentication required" });
   }
@@ -377,10 +463,15 @@ const authorizationPrincipalInTransaction = async (
   options: ReceiptApiHttpOptions,
   run: ReceiptApiHttpOptions["run"],
 ): Promise<ReceiptCommandPrincipal> => {
-  const authenticated = await resolveRequestCredentialInTransaction(request, "OAuthUserBearer", {
-    run,
-    now: options.now,
-  });
+  let authenticated;
+  try {
+    authenticated = await resolveRequestCredentialInTransaction(request, "OAuthUserBearer", {
+      run,
+      now: options.now,
+    });
+  } catch (cause) {
+    throw invalidSessionFailure(request, cause);
+  }
   if (authenticated.credential.principal._tag !== "Person") {
     throw new UnauthenticatedActor({ message: "authentication required" });
   }
@@ -829,6 +920,7 @@ const authorizeReceiptMutationInTransaction = async <
 const executeV2ReceiptMutation = (
   options: ReceiptApiHttpOptions,
   prepare: (run: ReceiptApiHttpOptions["run"]) => Promise<PreparedV2ReceiptMutation>,
+  execution: { readonly retry?: "serialization-once" } = {},
 ) =>
   options.run(
     executeNativeHttpCommandPostgres(
@@ -863,6 +955,7 @@ const executeV2ReceiptMutation = (
           ),
         };
       }),
+      execution,
     ),
   );
 
@@ -1154,6 +1247,9 @@ const approvalCommandV2 = async (
   options: ReceiptApiHttpOptions,
   fileStore: ReceiptFileStore,
 ): Promise<Response> => {
+  if (new URL(request.url).search.length > 0) {
+    throw new HttpSemanticFailure("request.malformed", 400);
+  }
   const ifMatch = parseRequiredIfMatch(headerValues(request, "if-match"));
   const body = await decodeExactEmptyJson(request);
   const operationId =
@@ -1163,62 +1259,84 @@ const approvalCommandV2 = async (
         ? "receipts.reopenReceipt"
         : "receipts.rejectReceipt";
   const normalizedTarget = `/api/receipts/${encodeURIComponent(route.receiptId)}/${route.action}`;
-  const outcome = await executeV2ReceiptMutation(options, async (txRun) => {
-    const principal = await authorizationPrincipalInTransaction(request, options, txRun);
-    const authorization = await authorizeReceiptMutationInTransaction(
-      {
-        _tag:
-          route.action === "refund"
-            ? ("RefundReceipt" as const)
-            : route.action === "reopen"
-              ? ("ReopenRejectedReceipt" as const)
-              : ("RejectReceipt" as const),
-        receiptId: route.receiptId,
+  let synchronized = false;
+  const executeApprovalCommand = () =>
+    executeV2ReceiptMutation(
+      options,
+      async (txRun) => {
+        const principal = await authorizationPrincipalInTransaction(request, options, txRun);
+        if (route.action !== "reopen") {
+          synchronized =
+            (await options.e2eTransactionBarrier?.(request, route.receiptId, route.action)) ??
+            false;
+        }
+        const authorization = await authorizeReceiptMutationInTransaction(
+          {
+            _tag:
+              route.action === "refund"
+                ? ("RefundReceipt" as const)
+                : route.action === "reopen"
+                  ? ("ReopenRejectedReceipt" as const)
+                  : ("RejectReceipt" as const),
+            receiptId: route.receiptId,
+          },
+          principal,
+          txRun,
+        );
+        const current = authorization.current;
+        const identity = mutationIdentity(request, principal, operationId, normalizedTarget);
+        return {
+          identity,
+          operationId,
+          requestSha256: semanticRequestDigest(semanticMutationRequest(body, ifMatch)),
+          command: {
+            _tag:
+              route.action === "refund"
+                ? ("RefundReceipt" as const)
+                : route.action === "reopen"
+                  ? ("ReopenRejectedReceipt" as const)
+                  : ("RejectReceipt" as const),
+            commandId: identity.commandId,
+            receiptId: route.receiptId,
+            expectedRevision: current.revision,
+          },
+          principal,
+          authorization,
+          response: {
+            status: 200,
+            ifMatch,
+            currentEtag: receiptEtag(route.receiptId, current.revision),
+          },
+        };
       },
-      principal,
-      txRun,
+      route.action === "reopen" ? {} : { retry: "serialization-once" },
     );
-    const current = authorization.current;
-    const identity = mutationIdentity(request, principal, operationId, normalizedTarget);
-    return {
-      identity,
-      operationId,
-      requestSha256: semanticRequestDigest(semanticMutationRequest(body, ifMatch)),
-      command: {
-        _tag:
-          route.action === "refund"
-            ? ("RefundReceipt" as const)
-            : route.action === "reopen"
-              ? ("ReopenRejectedReceipt" as const)
-              : ("RejectReceipt" as const),
-        commandId: identity.commandId,
-        receiptId: route.receiptId,
-        expectedRevision: current.revision,
-      },
-      principal,
-      authorization,
-      response: {
-        status: 200,
-        ifMatch,
-        currentEtag: receiptEtag(route.receiptId, current.revision),
-      },
-    };
-  });
+  let outcome: Awaited<ReturnType<typeof executeApprovalCommand>>;
+  try {
+    outcome = await executeApprovalCommand();
+  } catch (cause) {
+    if (!synchronized) throw cause;
+    const response = publicReceiptErrorResponse(cause);
+    response.headers.set(RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER, "1");
+    return response;
+  }
   if (outcome._tag === "Committed" && route.action !== "reopen")
     await drainOutbox(options, fileStore, route.receiptId);
-  return nativeCommandOutcomeResponse(outcome);
+  const response = nativeCommandOutcomeResponse(outcome);
+  if (synchronized) response.headers.set(RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER, "1");
+  return response;
 };
 
 const decodeApprovalStatusFilter = (request: Request): ReceiptStatus | undefined => {
   const entries = [...new URL(request.url).searchParams.entries()];
   const statusEntries = entries.filter(([name]) => name === "status");
   if (entries.some(([name]) => name !== "status") || statusEntries.length > 1) {
-    throw new ReceiptDecodeError({ message: "invalid receipt filter" });
+    throw new HttpSemanticFailure("request.malformed", 400);
   }
   const status = statusEntries[0]?.[1];
   if (status === undefined) return undefined;
   if (!isReceiptStatus(status)) {
-    throw new ReceiptDecodeError({ message: "invalid receipt status filter" });
+    throw new HttpSemanticFailure("request.malformed", 400);
   }
   return status;
 };
@@ -1228,7 +1346,17 @@ const approvalList = async (
   options: ReceiptApiHttpOptions,
 ): Promise<Response> => {
   const status = decodeApprovalStatusFilter(request);
-  const resolved = await options.identity.resolveApprovalCredential?.(request);
+  let resolved:
+    | {
+        readonly credential: AcceptedCredential;
+        readonly authorizationInstant: AuthorizationInstant;
+      }
+    | undefined;
+  try {
+    resolved = await options.identity.resolveApprovalCredential?.(request);
+  } catch (cause) {
+    throw invalidSessionFailure(request, cause);
+  }
   if (
     resolved !== undefined &&
     resolved.credential.mechanism._tag === "OAuthServiceBearer" &&
@@ -1338,7 +1466,8 @@ const approvalReceiptFile = async (
   receiptId: string,
   options: ReceiptApiHttpOptions,
   fileStore: ReceiptFileStore,
-): Promise<Response> => {
+): Promise<HttpServerResponse.HttpServerResponse> => {
+  let synchronized = false;
   const file = await options.run(
     Effect.gen(function* () {
       const sql = yield* Database;
@@ -1351,14 +1480,22 @@ const approvalReceiptFile = async (
           const authenticated = yield* Effect.tryPromise({
             try: () =>
               resolveRequestCredentialInTransaction(request, "OAuthUserBearer", {
+                // oxlint-disable-next-line effect/no-premature-execution -- promise-shaped identity adapter stays inside this request snapshot
                 run: Effect.runPromiseWith(context),
                 now: options.now,
               }),
-            catch: (cause) => cause,
+            catch: (cause) => invalidSessionFailure(request, cause),
           });
           const principal = authenticated.credential.principal;
           if (principal._tag !== "Person") {
             return yield* Effect.fail(new HttpSemanticFailure("credential.invalid", 401));
+          }
+          const barrier = options.e2eTransactionBarrier;
+          if (barrier !== undefined) {
+            synchronized = yield* Effect.tryPromise({
+              try: () => barrier(request, receiptId, "file-read"),
+              catch: (cause) => cause,
+            });
           }
           return yield* Economy.use(({ readReceiptFileForApproval }) =>
             readReceiptFileForApproval(
@@ -1369,13 +1506,21 @@ const approvalReceiptFile = async (
               Effect.catchTag("ReceiptNotFound", () =>
                 Effect.fail(new HttpSemanticFailure("resource.not-found", 404)),
               ),
+              Effect.catchTag("ReceiptDecodeError", () =>
+                Effect.fail(new HttpSemanticFailure("receipts.unavailable", 503)),
+              ),
             ),
           );
         }),
       );
     }),
   );
-  return readPrivateReceiptFile(file, fileStore, options.config.maxFileBytes);
+  return readPrivateReceiptFile(
+    file,
+    fileStore,
+    options.config.maxFileBytes,
+    synchronized ? { [RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER]: "1" } : {},
+  );
 };
 
 /** Native HttpApi implementations for receipt lifecycle endpoints. */
@@ -1389,100 +1534,92 @@ export const ReceiptApiHandlers = (input: ReceiptApiHttpOptions) => {
         ? input.config.e2eFailNextPromotionEffectId
         : undefined,
     });
+  const approvalOptions =
+    input.config.e2eTestMode === true
+      ? { ...input, e2eTransactionBarrier: makeReceiptE2ETransactionBarrier() }
+      : input;
   return HttpApiBuilder.group(ExternalNativeApi, "receipts", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("readReceiptFile", ({ request, params }) =>
-          toHttpApiResponse(
-            request,
-            async (webRequest) => {
-              const file = await input.run(
-                Effect.gen(function* () {
-                  const sql = yield* Database;
-                  return yield* sql.withTransaction(
-                    Effect.gen(function* () {
-                      yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`;
-                      const context = yield* Effect.context<
-                        Database | IdentitySnapshot | OAuthCredentialAuthority
-                      >();
-                      const authenticated = yield* Effect.tryPromise({
-                        try: () =>
-                          resolveRequestCredentialInTransaction(webRequest, "OAuthUserBearer", {
-                            run: Effect.runPromiseWith(context),
-                            now: input.now,
-                          }),
-                        catch: (cause) => cause,
-                      });
-                      const principal = authenticated.credential.principal;
-                      if (principal._tag !== "Person")
-                        return yield* Effect.fail(
-                          new HttpSemanticFailure("credential.invalid", 401),
-                        );
-                      const owned = yield* readOwnedReceiptFile(
-                        params.receiptId,
-                        principal.personId,
-                      );
-                      if (owned === undefined)
-                        return yield* Effect.fail(
-                          new HttpSemanticFailure("resource.not-found", 404),
-                        );
-                      const resource = {
-                        kind: RECEIPT_RESOURCE_KIND,
-                        id: ResourceId.make(params.receiptId),
-                      };
-                      const evaluation = evaluateAccess({
-                        spec: Option.getOrThrow(reflectAccessSpec(ReadReceiptFileEndpoint)),
-                        credential: authenticated.credential,
-                        resolution: {
-                          selection: "ExactlyOne",
-                          contexts: [
-                            {
-                              domainId: RECEIPT_DOMAIN_ID,
-                              departmentId: DepartmentId.make(owned.departmentId),
-                              resource,
-                              facts: {
-                                ownerPersonId: principal.personId,
-                                state: owned.status,
-                                approverPersonIds: [],
-                                approverServicePrincipalIds: [],
-                                internalEvidenceEnabled: false,
-                              } satisfies ReceiptAccessFacts,
-                              authorityVersion: AuthorityVersion.make(`receipt:${owned.revision}`),
-                            },
-                          ],
-                        },
-                        grants: [
-                          makeGrant({
-                            grantId: GrantId.make(`receipt-owner:${params.receiptId}`),
-                            subject: principal,
-                            capability: { type: CapabilityTypeId.make("receipts.read-owned") },
-                            scope: { _tag: "Resource", resource },
-                            startAt: AuthorizationInstant.make("1970-01-01T00:00:00.000Z"),
-                            endAt: null,
-                            requirements: [],
-                            source: AuthorityRef.make("economy_receipts.owner_person_id"),
-                            revision: owned.revision,
-                          }),
+          toPrivateFileHttpApiResponse(request, async (webRequest) => {
+            const file = await input.run(
+              Effect.gen(function* () {
+                const sql = yield* Database;
+                return yield* sql.withTransaction(
+                  Effect.gen(function* () {
+                    yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`;
+                    const context = yield* Effect.context<
+                      Database | IdentitySnapshot | OAuthCredentialAuthority
+                    >();
+                    const authenticated = yield* Effect.tryPromise({
+                      try: () =>
+                        resolveRequestCredentialInTransaction(webRequest, "OAuthUserBearer", {
+                          // oxlint-disable-next-line effect/no-premature-execution -- promise-shaped identity adapter stays inside this request snapshot
+                          run: Effect.runPromiseWith(context),
+                          now: input.now,
+                        }),
+                      catch: (cause) => cause,
+                    });
+                    const principal = authenticated.credential.principal;
+                    if (principal._tag !== "Person")
+                      return yield* Effect.fail(new HttpSemanticFailure("credential.invalid", 401));
+                    const owned = yield* readOwnedReceiptFile(params.receiptId, principal.personId);
+                    if (owned === undefined)
+                      return yield* Effect.fail(new HttpSemanticFailure("resource.not-found", 404));
+                    const resource = {
+                      kind: RECEIPT_RESOURCE_KIND,
+                      id: ResourceId.make(params.receiptId),
+                    };
+                    const evaluation = evaluateAccess({
+                      spec: Option.getOrThrow(reflectAccessSpec(ReadReceiptFileEndpoint)),
+                      credential: authenticated.credential,
+                      resolution: {
+                        selection: "ExactlyOne",
+                        contexts: [
+                          {
+                            domainId: RECEIPT_DOMAIN_ID,
+                            departmentId: DepartmentId.make(owned.departmentId),
+                            resource,
+                            facts: {
+                              ownerPersonId: principal.personId,
+                              state: owned.status,
+                              approverPersonIds: [],
+                              approverServicePrincipalIds: [],
+                              internalEvidenceEnabled: false,
+                            } satisfies ReceiptAccessFacts,
+                            authorityVersion: AuthorityVersion.make(`receipt:${owned.revision}`),
+                          },
                         ],
-                        authorizationInstant: authenticated.authorizationInstant,
-                      });
-                      if (evaluation._tag !== "Allow")
-                        return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
-                      return owned.file;
-                    }),
-                  );
-                }),
-              );
-              return readPrivateReceiptFile(file, fileStore, input.config.maxFileBytes);
-            },
-            publicReceiptErrorResponse,
-          ),
+                      },
+                      grants: [
+                        makeGrant({
+                          grantId: GrantId.make(`receipt-owner:${params.receiptId}`),
+                          subject: principal,
+                          capability: { type: CapabilityTypeId.make("receipts.read-owned") },
+                          scope: { _tag: "Resource", resource },
+                          startAt: AuthorizationInstant.make("1970-01-01T00:00:00.000Z"),
+                          endAt: null,
+                          requirements: [],
+                          source: AuthorityRef.make("economy_receipts.owner_person_id"),
+                          revision: owned.revision,
+                        }),
+                      ],
+                      authorizationInstant: authenticated.authorizationInstant,
+                    });
+                    if (evaluation._tag !== "Allow")
+                      return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
+                    return owned.file;
+                  }),
+                );
+              }),
+            );
+            return readPrivateReceiptFile(file, fileStore, input.config.maxFileBytes);
+          }),
         )
         .handleRaw("readReceiptFileForApproval", ({ request, params }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => approvalReceiptFile(webRequest, params.receiptId, input, fileStore),
-            publicReceiptErrorResponse,
+          toPrivateFileHttpApiResponse(request, (webRequest) =>
+            approvalReceiptFile(webRequest, params.receiptId, approvalOptions, fileStore),
           ),
         )
         .handleRaw("submitReceipt", ({ request }) =>
@@ -1527,7 +1664,7 @@ export const ReceiptApiHandlers = (input: ReceiptApiHttpOptions) => {
               approvalCommandV2(
                 webRequest,
                 { action: "refund", receiptId: params.receiptId },
-                input,
+                approvalOptions,
                 fileStore,
               ),
             publicReceiptErrorResponse,
@@ -1540,7 +1677,7 @@ export const ReceiptApiHandlers = (input: ReceiptApiHttpOptions) => {
               approvalCommandV2(
                 webRequest,
                 { action: "reject", receiptId: params.receiptId },
-                input,
+                approvalOptions,
                 fileStore,
               ),
             publicReceiptErrorResponse,
@@ -1553,7 +1690,7 @@ export const ReceiptApiHandlers = (input: ReceiptApiHttpOptions) => {
               approvalCommandV2(
                 webRequest,
                 { action: "reopen", receiptId: params.receiptId },
-                input,
+                approvalOptions,
                 fileStore,
               ),
             publicReceiptErrorResponse,

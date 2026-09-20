@@ -26,6 +26,7 @@ import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
   Economy,
   InactiveActor,
+  ReceiptDecodeError,
   ReceiptFileService,
   ReceiptNotFound,
   ReceiptPersistenceError,
@@ -34,9 +35,11 @@ import {
   UnauthenticatedActor,
   type EconomyShape,
   type Receipt,
+  type ReceiptApprovalFileReadFailure,
   type ReceiptCommandPrincipal,
-  type ReceiptMutationAuthorization,
   type ReceiptFailure,
+  type ReceiptFile,
+  type ReceiptMutationAuthorization,
   type ReceiptStatus,
   type ReceiptSubmissionAllocation,
 } from "@vektorprogrammet/domain/receipt";
@@ -148,7 +151,7 @@ interface HarnessOptions {
   readonly privateFileOwner?: string;
   readonly privateFileUnavailable?: boolean;
   readonly approvalFileRow?: ProjectionRow;
-  readonly approvalFileFailure?: "Inactive" | "Scope";
+  readonly approvalFileFailure?: "Decode" | "Inactive" | "Scope";
   readonly approvalFileContentType?: "image/jpeg" | "image/png" | "application/pdf";
   readonly ownedRows?: ReadonlyArray<ProjectionRow>;
   readonly approvalRows?: ReadonlyArray<ProjectionRow>;
@@ -372,7 +375,7 @@ const harness = (options: HarnessOptions = {}) => {
       return Effect.succeed((options.approvalRows ?? []) as never);
     },
     readReceiptFileForApproval: (requestedReceiptId, queryPersonId, authorizationInstant) =>
-      Effect.suspend(() => {
+      Effect.suspend<ReceiptFile, ReceiptApprovalFileReadFailure, never>(() => {
         approvalFileQueries.push({
           receiptId: requestedReceiptId,
           personId: queryPersonId,
@@ -380,6 +383,9 @@ const harness = (options: HarnessOptions = {}) => {
           snapshotDepth,
         });
         const source = options.approvalFileRow;
+        if (options.approvalFileFailure === "Decode") {
+          return Effect.fail(new ReceiptDecodeError({ message: "malformed stored file metadata" }));
+        }
         if (options.approvalFileFailure === "Inactive") {
           return Effect.fail(new InactiveActor({ personId: queryPersonId }));
         }
@@ -704,7 +710,12 @@ describe("receipt v0.2 HTTP contract", () => {
   });
 
   it("returns the frozen RFC 9457 credential problem", async () => {
-    const response = await request(harness({ unauthenticated: true }).http, "/api/receipts");
+    const response = await request(
+      harness({ unauthenticated: true }).http,
+      "/api/receipts",
+      undefined,
+      false,
+    );
     await expectProblem(response, {
       code: "credential.missing",
       title: "Credential required",
@@ -1001,6 +1012,8 @@ describe("receipt v0.2 HTTP contract", () => {
     for (const pathname of [
       "/api/receipts?status=Pending&status=Refunded",
       "/api/receipts?status=Unknown",
+      "/api/receipt-approval-queue?status=Pending&unexpected=1",
+      "/api/receipt-approval-queue?status=Unknown",
     ]) {
       const response = await request(harness().http, pathname);
       await expectProblem(response, {
@@ -1010,6 +1023,23 @@ describe("receipt v0.2 HTTP contract", () => {
         detail: "The request is malformed.",
       });
     }
+  });
+
+  it("rejects query parameters on semantic receipt commands before execution", async () => {
+    const state = harness();
+    const response = await actionRequest(
+      state.http,
+      `/api/receipts/${receiptId}:refund?unexpected=1`,
+      "refund-query-rejected-0109",
+    );
+
+    await expectProblem(response, {
+      code: "request.malformed",
+      title: "Malformed request",
+      status: 400,
+      detail: "The request is malformed.",
+    });
+    expect(state.commands).toEqual([]);
   });
 
   it("projects receipt persistence failure through the reopening endpoint's declared problem schema", async () => {
@@ -1355,6 +1385,8 @@ describe("scoped receipt approval file reads", () => {
       await request(
         unauthenticated.http,
         "/api/receipt-approval-queue/approval-file/file",
+        undefined,
+        false,
       ),
       {
         code: "credential.missing",
@@ -1364,6 +1396,18 @@ describe("scoped receipt approval file reads", () => {
       },
     );
     expect(unauthenticated.privateFileReads()).toBe(0);
+
+    const invalid = harness({ unauthenticated: true });
+    await expectProblem(
+      await request(invalid.http, "/api/receipt-approval-queue/approval-file/file"),
+      {
+        code: "credential.invalid",
+        title: "Invalid credential",
+        status: 401,
+        detail: "The supplied credential is invalid.",
+      },
+    );
+    expect(invalid.privateFileReads()).toBe(0);
 
     const missing = harness();
     await expectProblem(
@@ -1413,6 +1457,26 @@ describe("scoped receipt approval file reads", () => {
     });
     expect(response.headers.get("content-disposition")).toBeNull();
     expect(state.privateFileReads()).toBe(1);
+    expect(state.commands).toEqual([]);
+  });
+
+  it("maps malformed stored file metadata to the declared unavailable response", async () => {
+    const state = harness({
+      approvalFileRow: pendingReceipt({ receiptId: "malformed-approval-file" }),
+      approvalFileFailure: "Decode",
+    });
+    const response = await request(
+      state.http,
+      "/api/receipt-approval-queue/malformed-approval-file/file",
+    );
+
+    await expectProblem(response, {
+      code: "receipts.unavailable",
+      title: "Receipts unavailable",
+      status: 503,
+      detail: "The receipt service is temporarily unavailable.",
+    });
+    expect(state.privateFileReads()).toBe(0);
     expect(state.commands).toEqual([]);
   });
 });

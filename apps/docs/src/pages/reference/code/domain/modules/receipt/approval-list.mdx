@@ -23,6 +23,7 @@ showAskAi: false
   - [ReceiptApprovalSelection (type alias)](#receiptapprovalselection-type-alias)
   - [makeReceiptApprovalContext](#makereceiptapprovalcontext)
   - [selectAuthorizedReceiptApprovals](#selectauthorizedreceiptapprovals)
+  - [selectAuthorizedReceiptFileForApproval](#selectauthorizedreceiptfileforapproval)
 
 ---
 
@@ -86,3 +87,22 @@ declare const selectAuthorizedReceiptApprovals: (
 ```
 
 [Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/approval-list.ts#L92)
+
+### selectAuthorizedReceiptFileForApproval
+
+Applies the queue's rule-aware approver relationship to one canonical
+receipt while deliberately excluding the decision-only pending requirement.
+
+**Signature**
+
+```ts
+declare const selectAuthorizedReceiptFileForApproval: (
+  organization: OrganizationPersonAuthority,
+  directAuthority: ReceiptAuthority,
+  candidate: ReceiptApprovalCandidate,
+  rules: ReadonlyArray<AuthzRule>,
+  tagAssignments: ReadonlyArray<AuthzTagAssignment>,
+) => Decision<ReceiptApprovalSelection>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/approval-list.ts#L152)

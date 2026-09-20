@@ -545,12 +545,7 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     "GET",
     "/api/receipt-approval-queue/:receiptId/file",
     "receipts.readReceiptFileForApproval",
-    person(
-      "approveReceipt",
-      "receipts.by-id",
-      ["receipts.approver-relationship"],
-      "SnapshotRead",
-    ),
+    person("approveReceipt", "receipts.by-id", ["receipts.approver-relationship"], "SnapshotRead"),
   ],
   [
     "POST",
@@ -1090,7 +1085,6 @@ describe("native API reflection", () => {
         "cache-control",
         "content-disposition",
         "content-length",
-        "content-type",
         "vary",
         "x-content-type-options",
       ]);

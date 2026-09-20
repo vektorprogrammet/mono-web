@@ -27,6 +27,7 @@ showAskAi: false
   - [InactiveActor (class)](#inactiveactor-class)
   - [InvalidReceiptTransition (class)](#invalidreceipttransition-class)
   - [ReceiptAlreadyExists (class)](#receiptalreadyexists-class)
+  - [ReceiptApprovalFileReadFailure (type alias)](#receiptapprovalfilereadfailure-type-alias)
   - [ReceiptApprovalListFailure (type alias)](#receiptapprovallistfailure-type-alias)
   - [ReceiptAuthorityDenied (class)](#receiptauthoritydenied-class)
   - [ReceiptAuthorityMappingError (type alias)](#receiptauthoritymappingerror-type-alias)
@@ -59,7 +60,7 @@ showAskAi: false
 declare class AmbiguousParameterFill
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L77)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L81)
 
 ### AmbiguousPaymentSelection (class)
 
@@ -72,7 +73,7 @@ authorities apply; Economy never picks a primary department.
 declare class AmbiguousPaymentSelection
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L129)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L133)
 
 ### AmbiguousReceiptPaymentAuthority (class)
 
@@ -82,7 +83,7 @@ declare class AmbiguousPaymentSelection
 declare class AmbiguousReceiptPaymentAuthority
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L119)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L123)
 
 ### DuplicateReceiptCommandConflict (class)
 
@@ -102,7 +103,7 @@ declare class DuplicateReceiptCommandConflict
 declare class FailedComposedRequirement
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L82)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L86)
 
 ### InactiveActor (class)
 
@@ -134,6 +135,18 @@ declare class ReceiptAlreadyExists
 
 [Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L24)
 
+### ReceiptApprovalFileReadFailure (type alias)
+
+Typed read boundary for one canonical receipt file in the approval scope.
+
+**Signature**
+
+```ts
+type ReceiptApprovalFileReadFailure = ReceiptApprovalListFailure | ReceiptNotFound;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L166)
+
 ### ReceiptApprovalListFailure (type alias)
 
 **Signature**
@@ -148,7 +161,7 @@ type ReceiptApprovalListFailure =
   | ReceiptPersistenceError;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L153)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L157)
 
 ### ReceiptAuthorityDenied (class)
 
@@ -158,7 +171,7 @@ type ReceiptApprovalListFailure =
 declare class ReceiptAuthorityDenied
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L110)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L114)
 
 ### ReceiptAuthorityMappingError (type alias)
 
@@ -168,7 +181,7 @@ declare class ReceiptAuthorityDenied
 type ReceiptAuthorityMappingError = ReceiptAuthorityDenied | AmbiguousReceiptPaymentAuthority;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L144)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L148)
 
 ### ReceiptAuthorityOperation (type alias)
 
@@ -178,7 +191,7 @@ type ReceiptAuthorityMappingError = ReceiptAuthorityDenied | AmbiguousReceiptPay
 type ReceiptAuthorityOperation = typeof ReceiptAuthorityOperationSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L108)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L112)
 
 ### ReceiptAuthorityOperationSchema
 
@@ -190,7 +203,7 @@ declare const ReceiptAuthorityOperationSchema: Schema.Literals<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L102)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L106)
 
 ### ReceiptAuthorityProjectionMismatch (class)
 
@@ -200,7 +213,7 @@ declare const ReceiptAuthorityOperationSchema: Schema.Literals<
 declare class ReceiptAuthorityProjectionMismatch
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L134)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L138)
 
 ### ReceiptAuthorityRecordNotFound (class)
 
@@ -210,7 +223,7 @@ declare class ReceiptAuthorityProjectionMismatch
 declare class ReceiptAuthorityRecordNotFound
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L63)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L67)
 
 ### ReceiptAuthorityResolutionError (type alias)
 
@@ -221,7 +234,7 @@ type ReceiptAuthorityResolutionError =
   ReceiptDecodeError | ReceiptPersistenceError | ReceiptAuthorityProjectionMismatch;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L148)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L152)
 
 ### ReceiptAuthorityWriteConflict (class)
 
@@ -231,7 +244,7 @@ type ReceiptAuthorityResolutionError =
 declare class ReceiptAuthorityWriteConflict
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L68)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L72)
 
 ### ReceiptComposedCapability (type alias)
 
@@ -241,7 +254,7 @@ declare class ReceiptAuthorityWriteConflict
 type ReceiptComposedCapability = typeof ReceiptComposedCapabilitySchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L60)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L64)
 
 ### ReceiptDecodeError (class)
 
@@ -276,7 +289,7 @@ type ReceiptFailure =
   | ReceiptPersistenceError;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L161)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L168)
 
 ### ReceiptNotFound (class)
 
@@ -354,4 +367,4 @@ declare const receiptCompositionFailure: (
 ) => AmbiguousParameterFill | FailedComposedRequirement | undefined;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L92)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/errors.ts#L96)

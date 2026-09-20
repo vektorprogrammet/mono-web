@@ -254,6 +254,12 @@
     },
     {
       "group": "receipts",
+      "method": "GET",
+      "operationId": "receipts.readReceiptFileForApproval",
+      "path": "/api/receipt-approval-queue/{receiptId}/file"
+    },
+    {
+      "group": "receipts",
       "method": "POST",
       "operationId": "receipts.refundReceipt",
       "path": "/api/receipts/{receiptId}:refund"

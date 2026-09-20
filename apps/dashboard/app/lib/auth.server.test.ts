@@ -1,3 +1,4 @@
+import { makeNativeProblem } from "@vektorprogrammet/http-api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => {
@@ -118,8 +119,8 @@ describe("native dashboard authentication", () => {
   });
 
   it.each([
-    ["missing credential problem", { code: "credential.missing" }],
-    ["invalid credential problem", { code: "credential.invalid" }],
+    ["missing credential problem", { body: makeNativeProblem("credential.missing") }],
+    ["invalid credential problem", { body: makeNativeProblem("credential.invalid") }],
   ] as const)("redirects an invalid session after a %s", async (_name, failure) => {
     api.session.mockRejectedValue(failure);
     vi.stubGlobal(

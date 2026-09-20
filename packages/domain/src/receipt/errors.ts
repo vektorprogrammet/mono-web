@@ -53,7 +53,11 @@ export class DuplicateReceiptCommandConflict extends Schema.TaggedError<Duplicat
 
 export class ReceiptPersistenceError extends Schema.TaggedError<ReceiptPersistenceError>()(
   "ReceiptPersistenceError",
-  { operation: Schema.String, message: Schema.String },
+  {
+    operation: Schema.String,
+    message: Schema.String,
+    cause: Schema.optional(Schema.Unknown),
+  },
 ) {}
 
 const ReceiptComposedCapabilitySchema = Schema.Literals(["submitReceipt", "approveReceipt"]);

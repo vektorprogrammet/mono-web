@@ -10,6 +10,7 @@ const terminalReceipt = {
   currency: "NOK" as const,
   departmentId: "department-a",
   description: "Terminal receipt file remains readable",
+  ownerPersonId: "person-owner",
   etag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"' as ApprovalReceiptView["etag"],
   receiptDate: "2026-09-20",
   receiptId: "receipt/id with a space",

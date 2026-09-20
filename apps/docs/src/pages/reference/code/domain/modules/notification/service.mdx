@@ -34,7 +34,7 @@ showAskAi: false
 declare class NotificationGateway
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/notification/service.ts#L18)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/notification/service.ts#L22)
 
 ### NotificationGatewayShape (interface)
 
@@ -42,6 +42,9 @@ declare class NotificationGateway
 
 ```ts
 export interface NotificationGatewayShape {
+  readonly deliverInterviewCompletionReceipt: (
+    request: RecruitmentInterviewCompletionOutboxRequest,
+  ) => Effect.Effect<RecruitmentNotificationEvidence, RecruitmentNotificationDeliveryError>;
   readonly deliverInterviewInvitation: (
     request: RecruitmentInvitationOutboxRequest,
   ) => Effect.Effect<RecruitmentNotificationEvidence, RecruitmentNotificationDeliveryError>;
@@ -51,4 +54,4 @@ export interface NotificationGatewayShape {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/notification/service.ts#L9)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/notification/service.ts#L10)

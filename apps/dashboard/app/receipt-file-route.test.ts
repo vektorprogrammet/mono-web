@@ -7,13 +7,13 @@ const mocks = vi.hoisted(() => ({
   requireAuth: vi.fn(),
 }));
 
-vi.mock("../lib/api.server", () => ({
+vi.mock("./lib/api.server", () => ({
   createAuthenticatedClient: mocks.createAuthenticatedClient,
 }));
-vi.mock("../lib/auth.server", () => ({ requireAuth: mocks.requireAuth }));
-vi.mock("../lib/native-problem", () => ({ nativeProblemFrom: mocks.nativeProblemFrom }));
+vi.mock("./lib/auth.server", () => ({ requireAuth: mocks.requireAuth }));
+vi.mock("./lib/native-problem", () => ({ nativeProblemFrom: mocks.nativeProblemFrom }));
 
-import { loader } from "./dashboard.utlegg.$receiptId.file";
+import { loader } from "./routes/dashboard.utlegg.$receiptId.file";
 
 const fileBytes = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const privateFileHeaders = {
@@ -89,40 +89,58 @@ describe("receipt approval file resource route", () => {
   it.each([
     ["credential", "credential.invalid", 401],
     ["scope", "authority.denied", 403],
+    ["origin", "origin.denied", 403],
     ["absence", "resource.not-found", 404],
     ["unavailable", "receipts.unavailable", 503],
     ["unknown", undefined, 503],
-  ] as const)("maps a %s upstream failure without its problem body", async (_name, code, status) => {
-    mocks.readReceiptFileForApproval.mockRejectedValueOnce({ opaque: "private-upstream-detail" });
-    mocks.nativeProblemFrom.mockReturnValueOnce(code === undefined ? undefined : { code });
+  ] as const)(
+    "maps a %s upstream failure without its problem body",
+    async (_name, code, status) => {
+      mocks.readReceiptFileForApproval.mockRejectedValueOnce({ opaque: "private-upstream-detail" });
+      mocks.nativeProblemFrom.mockReturnValueOnce(code === undefined ? undefined : { code });
 
-    await expectPrivateFailure(await load(), status);
-  });
+      await expectPrivateFailure(await load(), status);
+    },
+  );
 
   it.each([
     ["JPEG", "image/jpeg", "jpg"],
     ["PDF", "application/pdf", "pdf"],
-  ] as const)("preserves the canonical %s file media contract", async (_name, contentType, extension) => {
-    const headers = {
-      ...privateFileHeaders,
-      "content-disposition": `inline; filename="receipt.${extension}"`,
-      "content-type": contentType,
-    };
-    mocks.readReceiptFileForApproval.mockResolvedValueOnce({ body: fileBytes, headers });
+  ] as const)(
+    "preserves the canonical %s file media contract",
+    async (_name, contentType, extension) => {
+      const headers = {
+        ...privateFileHeaders,
+        "content-disposition": `inline; filename="receipt.${extension}"`,
+        "content-type": contentType,
+      };
+      mocks.readReceiptFileForApproval.mockResolvedValueOnce({ body: fileBytes, headers });
 
-    const response = await load();
+      const response = await load();
 
-    expect(response.headers.get("content-type")).toBe(contentType);
-    expect(response.headers.get("content-disposition")).toBe(
-      `inline; filename="receipt.${extension}"`,
-    );
-    expect(Array.from(new Uint8Array(await response.arrayBuffer()))).toEqual(Array.from(fileBytes));
-  });
+      expect(response.headers.get("content-type")).toBe(contentType);
+      expect(response.headers.get("content-disposition")).toBe(
+        `inline; filename="receipt.${extension}"`,
+      );
+      expect(Array.from(new Uint8Array(await response.arrayBuffer()))).toEqual(
+        Array.from(fileBytes),
+      );
+    },
+  );
 
   it("withholds bytes when the upstream file headers cannot establish the private contract", async () => {
     mocks.readReceiptFileForApproval.mockResolvedValueOnce({
       body: fileBytes,
       headers: { ...privateFileHeaders, "content-disposition": "attachment; filename=receipt.png" },
+    });
+
+    await expectPrivateFailure(await load(), 503);
+  });
+
+  it("rejects an empty body even when upstream reports a matching zero length", async () => {
+    mocks.readReceiptFileForApproval.mockResolvedValueOnce({
+      body: new Uint8Array(),
+      headers: { ...privateFileHeaders, "content-length": "0" },
     });
 
     await expectPrivateFailure(await load(), 503);

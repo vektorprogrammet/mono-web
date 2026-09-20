@@ -1,8 +1,8 @@
 {
   "counts": {
-    "externalOperations": 74,
+    "externalOperations": 75,
     "internalOperations": 1,
-    "operations": 75
+    "operations": 76
   },
   "operations": [
     {
@@ -1674,6 +1674,47 @@
         "503"
       ],
       "summary": "Read owned receipt file",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "receipts.by-id",
+        "capabilities": {
+          "one": "approveReceipt"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "receipts.approver-relationship"
+          }
+        ]
+      },
+      "group": "receipts",
+      "method": "GET",
+      "operationId": "receipts.readReceiptFileForApproval",
+      "path": "/api/receipt-approval-queue/{receiptId}/file",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "500",
+        "503"
+      ],
+      "summary": "Read receipt file for approval",
       "visibility": "external"
     },
     {

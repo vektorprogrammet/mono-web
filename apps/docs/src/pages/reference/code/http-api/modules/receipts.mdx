@@ -34,6 +34,7 @@ Since v0.1.0
   - [ListReceiptsForApprovalEndpoint](#listreceiptsforapprovalendpoint)
   - [ReadReceiptEvidenceEndpoint](#readreceiptevidenceendpoint)
   - [ReadReceiptFileEndpoint](#readreceiptfileendpoint)
+  - [ReadReceiptFileForApprovalEndpoint](#readreceiptfileforapprovalendpoint)
   - [ReceiptApprovalQueueItem](#receiptapprovalqueueitem)
   - [ReceiptApprovalQueueResponse](#receiptapprovalqueueresponse)
   - [ReceiptListItem](#receiptlistitem)
@@ -58,7 +59,7 @@ Internal evidence routes exist only in `InternalNativeApi`.
 declare class InternalReceiptsApi
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L472)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L529)
 
 Since v0.1.0
 
@@ -72,7 +73,7 @@ Owner and approver receipt API.
 declare class ReceiptsApi
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L434)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L490)
 
 Since v0.1.0
 
@@ -242,7 +243,7 @@ declare const ListReceiptsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L277)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L301)
 
 Since v0.1.0 @category Endpoints
 
@@ -301,7 +302,7 @@ declare const ListReceiptsForApprovalEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L328)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L384)
 
 Since v0.1.0 @category Endpoints
 
@@ -359,7 +360,7 @@ declare const ReadReceiptEvidenceEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L454)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L511)
 
 Since v0.1.0 @category Endpoints
 
@@ -384,6 +385,16 @@ declare const ReadReceiptFileEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       Schema.Struct<{
         "cache-control": Schema.Literal<"private, no-store">;
         vary: Schema.Literal<"Origin">;
+        "content-type": Schema.Literals<readonly ["image/jpeg", "image/png", "application/pdf"]>;
+        "content-length": Schema.String;
+        "content-disposition": Schema.Literals<
+          readonly [
+            'inline; filename="receipt.jpg"',
+            'inline; filename="receipt.png"',
+            'inline; filename="receipt.pdf"',
+          ]
+        >;
+        "x-content-type-options": Schema.Literal<"nosniff">;
       }>
     >
   >,
@@ -393,7 +404,50 @@ declare const ReadReceiptFileEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L299)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L323)
+
+### ReadReceiptFileForApprovalEndpoint
+
+Scoped approver-only receipt bytes. Terminal receipt files remain readable
+while the current rule-aware approver relationship remains active.
+
+**Signature**
+
+```ts
+declare const ReadReceiptFileForApprovalEndpoint: HttpApiEndpoint.HttpApiEndpoint<
+  "readReceiptFileForApproval",
+  "GET",
+  "/api/receipt-approval-queue/:receiptId/file",
+  Schema.toCodecStringTree<Schema.Struct<{ receiptId: Schema.brand<Schema.String, "ReceiptId"> }>>,
+  never,
+  never,
+  never,
+  HttpApiSchema.WithHeaders<
+    Schema.toCodecJson<Schema.Uint8Array>,
+    Schema.toCodecStringTree<
+      Schema.Struct<{
+        "cache-control": Schema.Literal<"private, no-store">;
+        vary: Schema.Literal<"Origin">;
+        "content-type": Schema.Literals<readonly ["image/jpeg", "image/png", "application/pdf"]>;
+        "content-length": Schema.String;
+        "content-disposition": Schema.Literals<
+          readonly [
+            'inline; filename="receipt.jpg"',
+            'inline; filename="receipt.png"',
+            'inline; filename="receipt.pdf"',
+          ]
+        >;
+        "x-content-type-options": Schema.Literal<"nosniff">;
+      }>
+    >
+  >,
+  Schema.toCodecJson<Schema.Codec<unknown, unknown, never, never>>,
+  PersonSecurity,
+  never
+>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L355)
 
 ### ReceiptApprovalQueueItem
 
@@ -516,7 +570,7 @@ declare const RefundReceiptEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L347)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L403)
 
 Since v0.1.0 @category Endpoints
 
@@ -570,7 +624,7 @@ declare const RejectReceiptEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L373)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L429)
 
 Since v0.1.0 @category Endpoints
 
@@ -624,7 +678,7 @@ declare const ReopenReceiptEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L398)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L454)
 
 ### ReviseReceiptEndpoint
 
@@ -686,7 +740,7 @@ declare const ReviseReceiptEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L218)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L242)
 
 Since v0.1.0 @category Endpoints
 
@@ -748,7 +802,7 @@ declare const SubmitReceiptEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L192)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L216)
 
 Since v0.1.0 @category Endpoints
 
@@ -802,6 +856,6 @@ declare const WithdrawReceiptEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L246)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L270)
 
 Since v0.1.0 @category Endpoints

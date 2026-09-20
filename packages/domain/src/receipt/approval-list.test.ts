@@ -313,12 +313,16 @@ describe("rule-aware Receipt approval visibility", () => {
 
   it("keeps active scoped terminal receipts readable without the pending decision requirement", () => {
     const organizationAuthority = organization([departmentA]);
-    const directAuthority = projectReceiptAuthority(organizationAuthority, [], [
-      directGrant("file-read-department", {
-        _tag: "Department",
-        departmentId: departmentA,
-      }),
-    ]);
+    const directAuthority = projectReceiptAuthority(
+      organizationAuthority,
+      [],
+      [
+        directGrant("file-read-department", {
+          _tag: "Department",
+          departmentId: departmentA,
+        }),
+      ],
+    );
     const terminal = candidate("terminal-file", departmentA, "Refunded");
     const rules = [
       requirement("file-read-require-pending", "receipts.pending"),
@@ -348,7 +352,7 @@ describe("rule-aware Receipt approval visibility", () => {
     });
   });
 
-  it("deduplicates rules and returns an empty allowed projection for no contexts", () => {
+  it("deduplicates rules and still requires authority for an empty projection", () => {
     const duplicate = requirement("require-pending", "receipts.pending");
     expect(
       select(
@@ -365,7 +369,8 @@ describe("rule-aware Receipt approval visibility", () => {
         ],
       ),
     ).toEqual({ _tag: "Allow", value: { receiptIds: ["pending"] } });
-    expect(select([], [], [])).toEqual({
+    expect(select([], [], [])).toEqual({ _tag: "Deny", reason: "NotInScope" });
+    expect(select([], [directGrant("empty-global", { _tag: "Global" })], [])).toEqual({
       _tag: "Allow",
       value: { receiptIds: [] },
     });

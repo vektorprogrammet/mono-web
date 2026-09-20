@@ -14,7 +14,7 @@ import {
   resolveOrganizationPersonAuthorityWithSql,
 } from "../organization/authority-postgres.js";
 import type { OrganizationAuthorityInstant } from "../organization/authority.js";
-import { DepartmentId, type PersonId } from "../organization/schema.js";
+import { DepartmentId, PersonId } from "../organization/schema.js";
 import { Effect, Schema } from "effect";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 import {
@@ -105,7 +105,7 @@ const ReceiptApprovalFileReadRowSchema = Schema.Struct({
 type ReceiptApprovalFileReadRow = typeof ReceiptApprovalFileReadRowSchema.Type;
 
 const persistenceError = (operation: string, cause: unknown) =>
-  new ReceiptPersistenceError({ operation, message: String(cause) });
+  new ReceiptPersistenceError({ operation, message: String(cause), cause });
 
 const receiptFromRow = (
   row: typeof Receipt.Encoded,
@@ -635,9 +635,7 @@ export const readReceiptFileForApproval = (
     const row = yield* Schema.decodeUnknownEffect(ReceiptApprovalFileReadRowSchema)(selected, {
       onExcessProperty: "error",
     }).pipe(
-      Effect.mapError((cause) =>
-        persistenceError("decode Receipt approval file metadata", cause),
-      ),
+      Effect.mapError((cause) => persistenceError("decode Receipt approval file metadata", cause)),
     );
     const candidate: ReceiptApprovalCandidate = {
       receiptId: row.receiptId,
