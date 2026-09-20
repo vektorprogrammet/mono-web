@@ -284,6 +284,8 @@ async function main() {
   const routerPath = join(temporaryRoot, "router.php");
   const receiptUploadDir = join(temporaryRoot, "uploads", "receipts");
   const profileUploadDir = join(temporaryRoot, "uploads", "profile-photos");
+  const receiptStagingRoot = join(temporaryRoot, "receipt-staging");
+  const receiptCommittedRoot = join(temporaryRoot, "receipt-committed");
   const symfonyCacheDir = join(serverRoot, "var/cache/e2e");
   const symfonyLogDir = join(serverRoot, "var/log/e2e");
   const symfonySessionDir = join(serverRoot, "var/sessions/e2e");
@@ -351,10 +353,17 @@ async function main() {
     BETTER_AUTH_SECRET: betterAuthSecret,
     NATIVE_IDENTITY_DEPLOYMENT: "local",
     NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
+    OAUTH_CANONICAL_ORIGIN: nativeOrigin,
+    OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
+    OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     ADMISSION_AUTH_TOKENS: "{}",
     RECEIPT_AUTH_TOKENS: "{}",
     ORGANIZATION_AUTH_TOKENS: "{}",
+    RECEIPT_STAGING_ROOT: receiptStagingRoot,
+    RECEIPT_COMMITTED_ROOT: receiptCommittedRoot,
+    RECEIPT_MAX_FILE_BYTES: "10485760",
+    RECEIPT_E2E_TEST_MODE: "1",
   };
   delete nativeBackendEnv.API_MODE;
   delete nativeBackendEnv.VITE_API_MODE;

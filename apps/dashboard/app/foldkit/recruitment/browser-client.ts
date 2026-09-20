@@ -83,7 +83,7 @@ const bridgeRequest = <A>(
 ): Effect.Effect<A, RecruitmentBridgeFailure> =>
   Effect.tryPromise({
     try: async () => {
-      const response = await fetch("/recruitment", {
+      const response = await fetch(`${import.meta.env.BASE_URL}recruitment`, {
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json", accept: "application/json" },

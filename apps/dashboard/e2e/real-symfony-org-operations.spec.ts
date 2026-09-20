@@ -129,9 +129,11 @@ async function loginViaLegacyApi(request: APIRequestContext, username: string): 
 async function loginDashboard(
   page: Page,
   redirectTo: "/dashboard/brukere" | "/dashboard/skoler",
-  nativeReadPath: "/api/admin/users" | "/api/admin/schools",
+  nativeReadPath: "/api/people" | "/api/schools",
 ): Promise<APIResponse> {
-  await page.goto(`/login?redirectTo=${encodeURIComponent(redirectTo)}`);
+  const mountedLoginPath = "/dashboard/login";
+  const unmountedRedirect = redirectTo.slice("/dashboard".length);
+  await page.goto(`${mountedLoginPath}?redirectTo=${encodeURIComponent(unmountedRedirect)}`);
   await expect(page.getByRole("heading", { name: "Vektorprogrammet", exact: true })).toBeVisible();
   await page.getByLabel("E-post").fill(nativeAdministrator.email);
   await page.getByLabel("Passord", { exact: true }).fill(nativeAdministrator.password);
@@ -203,7 +205,7 @@ test.describe("Hybrid cross-line identity and school evidence", () => {
     const nativeUsersResponse = await loginDashboard(
       page,
       "/dashboard/brukere",
-      "/api/admin/users",
+      "/api/people",
     );
     const nativeUsers = (await nativeUsersResponse.json()) as JsonValue;
     expect(isJsonObject(nativeUsers)).toBe(true);
@@ -276,7 +278,7 @@ test.describe("Hybrid cross-line identity and school evidence", () => {
     const nativeSchoolsResponse = await loginDashboard(
       page,
       "/dashboard/skoler",
-      "/api/admin/schools",
+      "/api/schools",
     );
     const nativeSchools = (await nativeSchoolsResponse.json()) as JsonValue;
     expect(isJsonObject(nativeSchools)).toBe(true);

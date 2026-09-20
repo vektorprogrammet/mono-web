@@ -28,12 +28,13 @@ class SchoolsHttpQueryDecodeError extends Error {
   readonly status = 422;
 }
 
-const jsonResponse = (body: unknown, status = 200): Response =>
+const privateJsonResponse = (body: unknown): Response =>
   new Response(JSON.stringify(body), {
-    status,
+    status: 200,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
+      "cache-control": "private, no-store",
+      vary: "Origin",
     },
   });
 
@@ -119,5 +120,5 @@ export const listSchools = async (
       ),
     ),
   );
-  return jsonResponse(response);
+  return privateJsonResponse(response);
 };

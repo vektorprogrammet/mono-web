@@ -40,12 +40,13 @@ const taggedError = (tag: string): TaggedHttpError => {
   return error;
 };
 
-const jsonResponse = (body: unknown, status = 200): Response =>
+const privateJsonResponse = (body: unknown): Response =>
   new Response(JSON.stringify(body), {
-    status,
+    status: 200,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
+      "cache-control": "private, no-store",
+      vary: "Origin",
     },
   });
 
@@ -94,7 +95,7 @@ const errorResponse = (cause: unknown): Response => {
 
 const listPeople = async (request: Request, input: DirectoryApiHttpOptions): Promise<Response> => {
   if (new URL(request.url).search !== "") {
-    return jsonResponse({ error: { tag: "DirectoryCursorMalformed" } }, 422);
+    return nativeProblemResponse("directory.cursor-malformed", 422);
   }
   // One captured authorizationInstant drives the gate and every row
   // derivation; Profile and Organization read one database snapshot.
@@ -177,7 +178,7 @@ const listPeople = async (request: Request, input: DirectoryApiHttpOptions): Pro
       ).pipe(Effect.mapError(() => taggedError("ProfileDecodeError")));
     }),
   );
-  return jsonResponse(response);
+  return privateJsonResponse(response);
 };
 
 /** Native HttpApi implementation for the people and school directories. */

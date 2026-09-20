@@ -25,7 +25,7 @@ const readBridge = async (input: SchoolsListInput, signal: AbortSignal): Promise
   const search = new URLSearchParams();
   if (input.department !== undefined) search.set("department", input.department);
   const query = search.size === 0 ? "" : `?${search.toString()}`;
-  return fetch(`/schools${query}`, {
+  return fetch(`${import.meta.env.BASE_URL}schools${query}`, {
     method: "GET",
     credentials: "same-origin",
     headers: { accept: "application/json" },
