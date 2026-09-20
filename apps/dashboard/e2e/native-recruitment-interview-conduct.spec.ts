@@ -209,7 +209,7 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
       expect(conductResponse.status()).toBe(200);
       expect(boardResponse.status()).toBe(200);
       await expect(page.getByText("Intervjuet er fullført.")).toBeVisible();
-      await expect(page.getByText("Completed", { exact: true })).toBeVisible();
+      await expect(page.locator(".fs-conduct .fs-status")).toHaveText("Fullført");
       await expect(page.locator(`#question-${questionIds.text}`)).toHaveValue(
         "Jeg liker å bygge gode løsninger sammen med andre.",
       );
@@ -225,7 +225,7 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
         page.getByRole("heading", { level: 1, name: "Planlegg intervjuer" }),
       ).toBeVisible();
       await openConduct(page, applicantA);
-      await expect(page.getByText("Completed", { exact: true })).toBeVisible();
+      await expect(page.locator(".fs-conduct .fs-status")).toHaveText("Fullført");
       await expect(page.locator(`#question-${questionIds.text}`)).toHaveValue(
         "Jeg liker å bygge gode løsninger sammen med andre.",
       );
@@ -237,7 +237,7 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
         });
         await page.setViewportSize({ width: 390, height: 844 });
         await expect(page.getByText("Intervjuet er fullført.")).toBeVisible();
-        await expect(page.getByText("Completed", { exact: true })).toBeVisible();
+        await expect(page.locator(".fs-conduct .fs-status")).toHaveText("Fullført");
         expect(
           await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"),
         ).toBe(true);
@@ -353,7 +353,7 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
       expect(cancelledConductResponse.status()).toBe(200);
       expect(cancelledBoardResponse.status()).toBe(200);
       await expect(independentPage.getByText("Intervjuet er avlyst.")).toBeVisible();
-      await expect(independentPage.getByText("Cancelled", { exact: true })).toBeVisible();
+      await expect(independentPage.locator(".fs-conduct .fs-status")).toHaveText("Avlyst");
 
       // A real reload starts from the native session and reads the persisted cancellation again.
       await independentPage.reload();
@@ -361,7 +361,7 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
         independentPage.getByRole("heading", { level: 1, name: "Planlegg intervjuer" }),
       ).toBeVisible();
       await openConduct(independentPage, applicantB);
-      await expect(independentPage.getByText("Cancelled", { exact: true })).toBeVisible();
+      await expect(independentPage.locator(".fs-conduct .fs-status")).toHaveText("Avlyst");
       await expect(independentPage.locator("body")).not.toContainText("responseCapability");
       await expect(independentPage.locator("body")).not.toContainText("responseCode");
       await expect(independentPage.locator("body")).not.toContainText(

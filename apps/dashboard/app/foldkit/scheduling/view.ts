@@ -829,7 +829,13 @@ const conductSuccessView = (
           ),
           h.span(
             [h.Class("fs-status fs-status--scheduled")],
-            [terminal ?? "Klar til gjennomføring"],
+            [
+              terminal === "Completed"
+                ? "Fullført"
+                : terminal === "Cancelled"
+                  ? "Avlyst"
+                  : "Klar til gjennomføring",
+            ],
           ),
         ],
       ),
