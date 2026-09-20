@@ -310,6 +310,25 @@ const deliverRecruitmentInvitationOnce = async ({
   const gateway = Layer.succeed(
     NotificationGateway,
     NotificationGateway.of({
+      deliverInterviewCompletionReceipt: (request) =>
+        deliverJson(request, transport, globalThis.fetch, {
+          "idempotency-key": request.effectId,
+        }).pipe(
+          Effect.map(() =>
+            RecruitmentNotificationEvidenceSchema.make({
+              effectId: request.effectId,
+              deliveredAt: now(),
+              providerReference: `loopback:${request.effectId}`,
+            }),
+          ),
+          Effect.mapError(
+            () =>
+              new RecruitmentNotificationDeliveryError({
+                effectId: request.effectId,
+                message: "loopback interview completion receipt delivery unavailable",
+              }),
+          ),
+        ),
       deliverInterviewInvitation: (request) =>
         deliverJson(request, transport, globalThis.fetch, {
           "idempotency-key": request.effectId,

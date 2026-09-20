@@ -663,6 +663,13 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
     const failingGateway = Layer.succeed(
       NotificationGateway,
       NotificationGateway.of({
+        deliverInterviewCompletionReceipt: (request) =>
+          Effect.fail(
+            new RecruitmentNotificationDeliveryError({
+              effectId: request.effectId,
+              message: "Proof recording delivery failure",
+            }),
+          ),
         deliverInterviewInvitation: (request) =>
           Effect.fail(
             new RecruitmentNotificationDeliveryError({

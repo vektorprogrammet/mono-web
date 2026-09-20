@@ -1,10 +1,12 @@
 import { Schema } from "effect";
 import {
   PublicApplicationEmailSchema,
+  PublicApplicationIdSchema,
   PublicApplicationPhoneSchema,
 } from "../application/schema.js";
 import { PersonContactEmail, PersonContactPhone } from "../profile/schema.js";
 import {
+  RecruitmentConductCommandId,
   RecruitmentInvitationId,
   RecruitmentInvitationResponseMessageSchema,
   RecruitmentInterviewSchedule,
@@ -40,6 +42,21 @@ export const RecruitmentInvitationOutboxRequestSchema = Schema.Struct({
   message: RecruitmentInterviewSchedule.fields.message,
   responseCapability: NonEmpty,
 });
+
+export const RecruitmentInterviewCompletionOutboxRequestSchema = Schema.Struct({
+  _tag: Schema.Literals(["SendInterviewCompletionReceipt"]),
+  effectId: RecruitmentNotificationEffectId,
+  commandId: RecruitmentConductCommandId,
+  interviewId: RecruitmentInterviewId,
+  applicationId: PublicApplicationIdSchema,
+  interviewRevision: Revision,
+  applicantDisplayName: NonEmpty,
+  applicantEmail: PublicApplicationEmailSchema,
+  interviewerDisplayName: NonEmpty,
+  interviewerEmail: PersonContactEmail,
+});
+export type RecruitmentInterviewCompletionOutboxRequest =
+  typeof RecruitmentInterviewCompletionOutboxRequestSchema.Type;
 export type RecruitmentInvitationOutboxRequest =
   typeof RecruitmentInvitationOutboxRequestSchema.Type;
 

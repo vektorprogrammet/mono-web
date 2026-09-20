@@ -944,6 +944,7 @@ export const FinalizeInterviewObservationSchema = Schema.Struct({
   finalizedAt: Rfc3339InstantSchema,
   completionState: Schema.Literals(["Completed"]),
   cancellationState: Schema.Literals(["NotCancelled"]),
+  notificationState: Schema.Literals(["Pending"]),
 });
 export type FinalizeInterviewObservation = typeof FinalizeInterviewObservationSchema.Type;
 

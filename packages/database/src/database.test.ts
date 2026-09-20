@@ -37,6 +37,7 @@ import {
 } from "@vektorprogrammet/domain/organization";
 import { ProfileLive } from "@vektorprogrammet/domain/profile";
 import {
+  deliverNextRecruitmentInterviewCompletion,
   deliverNextRecruitmentInvitation,
   deliverNextRecruitmentInvitationResponse,
   InterviewSchemaId,
@@ -2332,6 +2333,13 @@ describe("DatabaseTest", () => {
     const failingGateway = Layer.succeed(
       NotificationGateway,
       NotificationGateway.of({
+        deliverInterviewCompletionReceipt: (request) =>
+          Effect.fail(
+            new RecruitmentNotificationDeliveryError({
+              effectId: request.effectId,
+              message: "Recording delivery failed",
+            }),
+          ),
         deliverInterviewInvitation: (request) =>
           Effect.fail(
             new RecruitmentNotificationDeliveryError({
@@ -4496,22 +4504,42 @@ describe("DatabaseTest", () => {
         const finalized = yield* recruitment.finalizeInterview(command, context);
         const replayed = yield* recruitment.finalizeInterview(command, context);
         const after = yield* recruitment.readInterviewConduct(fixture.interviewId, context);
+        const recording = makeRecordingNotificationGateway("2031-09-15T12:03:00.000Z");
+        const delivery = yield* deliverNextRecruitmentInterviewCompletion(
+          `${fixtureId}-completion-claim`,
+          "2031-09-15T12:02:30.000Z",
+        ).pipe(Effect.provide(recording.layer));
+        const idle = yield* deliverNextRecruitmentInterviewCompletion(
+          `${fixtureId}-completion-idle`,
+          "2031-09-15T12:04:00.000Z",
+        ).pipe(Effect.provide(recording.layer));
         const counts = yield* database<{
           readonly conducts: string;
           readonly receipts: string;
           readonly audits: string;
+          readonly outbox: string;
+          readonly outboxStatus: string;
+          readonly payloadCleared: boolean;
+          readonly providerReference: string | null;
           readonly revision: string;
         }>`
           SELECT
             (SELECT count(*)::text FROM public.recruitment_interview_conducts WHERE interview_id = ${fixture.interviewId}) AS conducts,
             (SELECT count(*)::text FROM public.recruitment_interview_lifecycle_command_receipts WHERE interview_id = ${fixture.interviewId}) AS receipts,
             (SELECT count(*)::text FROM public.recruitment_interview_lifecycle_audit WHERE interview_id = ${fixture.interviewId}) AS audits,
+            (SELECT count(*)::text FROM public.recruitment_interview_completion_outbox WHERE interview_id = ${fixture.interviewId}) AS outbox,
+            (SELECT status FROM public.recruitment_interview_completion_outbox WHERE interview_id = ${fixture.interviewId}) AS "outboxStatus",
+            (SELECT payload_json = '{}'::jsonb FROM public.recruitment_interview_completion_outbox WHERE interview_id = ${fixture.interviewId}) AS "payloadCleared",
+            (SELECT provider_reference FROM public.recruitment_interview_completion_outbox WHERE interview_id = ${fixture.interviewId}) AS "providerReference",
             (SELECT revision::text FROM recruitment_interviews WHERE interview_id = ${fixture.interviewId}) AS revision
         `;
         return {
           before: before.completionState,
-          finalized: finalized.replayed,
-          replayed: replayed.replayed,
+          finalized: [finalized.replayed, finalized.observation.notificationState],
+          replayed: [replayed.replayed, replayed.observation.notificationState],
+          delivery: delivery._tag,
+          idle: idle._tag,
+          completionRequests: recording.completionRequests,
           after: [after.completionState, after.score],
           counts,
         };
@@ -4519,10 +4547,39 @@ describe("DatabaseTest", () => {
     );
     expect(evidence).toEqual({
       before: "NotCompleted",
-      finalized: false,
-      replayed: true,
+      finalized: [false, "Pending"],
+      replayed: [true, "Pending"],
+      delivery: "Delivered",
+      idle: "Idle",
+      completionRequests: [
+        {
+          _tag: "SendInterviewCompletionReceipt",
+          effectId: expect.stringMatching(/^recruitment-completion:[a-f0-9]{64}$/u),
+          commandId: "conduct-core-finalize",
+          interviewId: "conduct-core-interview",
+          applicationId: "conduct-core-application",
+          interviewRevision: 2,
+          applicantDisplayName: "Ada Applicant",
+          applicantEmail: "conduct-core@example.invalid",
+          interviewerDisplayName: "Ivar Interviewer",
+          interviewerEmail: "conduct-core-interviewer@example.invalid",
+        },
+      ],
       after: ["Completed", { explanatoryPower: 0, roleModel: 10, suitability: 5 }],
-      counts: [{ conducts: "1", receipts: "1", audits: "1", revision: "2" }],
+      counts: [
+        {
+          conducts: "1",
+          receipts: "1",
+          audits: "1",
+          outbox: "1",
+          outboxStatus: "Delivered",
+          revision: "2",
+          payloadCleared: true,
+          providerReference: expect.stringMatching(
+            /^recording-completion:recruitment-completion:/u,
+          ),
+        },
+      ],
     });
   });
   it("cancels native Recruitment interviews atomically in PGlite", async () => {

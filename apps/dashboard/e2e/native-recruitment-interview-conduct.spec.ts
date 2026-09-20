@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { expect, test, type BrowserContext, type Page, type Request } from "@playwright/test";
 
 const dashboardOrigin = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5174";
@@ -11,6 +11,7 @@ const leaderEmail = process.env.CONDUCT_E2E_LEADER_EMAIL ?? "lina.conduct@exampl
 const leaderPassword =
   process.env.CONDUCT_E2E_LEADER_PASSWORD ?? "journey-conduct-secret-0123456789";
 const evidencePath = process.env.CONDUCT_E2E_BROWSER_EVIDENCE_PATH;
+const screenshotDirectory = process.env.CONDUCT_E2E_SCREENSHOT_DIRECTORY;
 const questionPrefix = "interview-schema-native-conduct-0063-";
 const questionIds = {
   text: `${questionPrefix}q0`,
@@ -100,10 +101,14 @@ const openConduct = async (page: Page, applicant: string) => {
   const response = await read;
   expect(response.status()).toBe(200);
   await expect(page.getByRole("heading", { name: `Intervju med ${applicant}` })).toBeVisible();
-  await expect(page.getByText("Fortell kort om motivasjonen din.")).toBeVisible();
-  await expect(page.getByText("Hvilket arbeidsområde interesserer deg mest?")).toBeVisible();
-  await expect(page.getByText("Hvordan foretrekker du å lære?")).toBeVisible();
-  await expect(page.getByText("Hvilke styrker tar du med deg?")).toBeVisible();
+  await expect(
+    page.getByText("1. Fortell kort om motivasjonen din.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("2. Hvilket arbeidsområde interesserer deg mest?", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("3. Hvordan foretrekker du å lære?", { exact: true })).toBeVisible();
+  await expect(page.getByText("4. Hvilke styrker tar du med deg?", { exact: true })).toBeVisible();
   return card;
 };
 
@@ -201,6 +206,28 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
       await expect(page.locator(`#question-${questionIds.text}`)).toHaveValue(
         "Jeg liker å bygge gode løsninger sammen med andre.",
       );
+      if (screenshotDirectory !== undefined) {
+        await mkdir(screenshotDirectory, { recursive: true });
+        await page.screenshot({
+          path: join(screenshotDirectory, "interview-completion-desktop.png"),
+          fullPage: true,
+        });
+        await page.setViewportSize({ width: 390, height: 844 });
+        await expect(page.getByText("Intervjuet er fullført.")).toBeVisible();
+        await expect(page.getByText("Completed", { exact: true })).toBeVisible();
+        expect(
+          await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"),
+        ).toBe(true);
+        const mobileAxe = await new AxeBuilder({ page })
+          .include('section[aria-labelledby="fs-page-title"]')
+          .analyze();
+        accessibilityViolations += mobileAxe.violations.length;
+        await page.screenshot({
+          path: join(screenshotDirectory, "interview-completion-mobile.png"),
+          fullPage: true,
+        });
+        await page.setViewportSize({ width: 1440, height: 900 });
+      }
 
       // The independent revision-1 submit loses to the committed finalization.
       const stalePost = responseFor(stalePage, "finalizeInterview");

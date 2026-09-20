@@ -255,6 +255,7 @@ export const finalizeInterview = (
         finalizedAt: now,
         completionState: "Completed",
         cancellationState: "NotCancelled",
+        notificationState: "Pending",
       },
       { onExcessProperty: "error" },
     ).pipe(

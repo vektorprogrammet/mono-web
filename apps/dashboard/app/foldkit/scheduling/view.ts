@@ -891,12 +891,21 @@ const conductSuccessView = (
               ],
             )
           : terminal === "Completed"
-            ? actionButton(
-                "Rett intervju",
-                SubmittedFinalize(),
-                false,
-                "fs-button fs-button--primary",
-                h,
+            ? h.div(
+                [h.Class("grid gap-3")],
+                [
+                  h.p(
+                    [h.Class("fs-feedback fs-feedback--success"), h.Role("status")],
+                    ["Intervjuet er fullført."],
+                  ),
+                  actionButton(
+                    "Rett intervju",
+                    SubmittedFinalize(),
+                    false,
+                    "fs-button fs-button--primary",
+                    h,
+                  ),
+                ],
               )
             : h.p(
                 [h.Class("fs-feedback fs-feedback--success"), h.Role("status")],

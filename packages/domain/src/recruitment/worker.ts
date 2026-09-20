@@ -4,6 +4,10 @@ import { NotificationGateway } from "../notification/service.js";
 import { Profile } from "../profile/service.js";
 import { Duration, Effect } from "effect";
 import { RecruitmentPersistenceError } from "./errors.js";
+import {
+  deliverNextRecruitmentInterviewCompletion,
+  recoverStaleRecruitmentInterviewCompletions,
+} from "./completion-outbox.js";
 import { deliverNextRecruitmentInvitation, recoverStaleRecruitmentInvitations } from "./outbox.js";
 import {
   deliverNextRecruitmentInvitationResponse,
@@ -40,9 +44,14 @@ export const runRecruitmentInvitationWorker = (
     const claimedBefore = new Date(Date.parse(now) - options.staleClaimMilliseconds).toISOString();
     yield* recoverStaleRecruitmentInvitations(claimedBefore);
     yield* recoverStaleRecruitmentInvitationResponses(claimedBefore);
+    yield* recoverStaleRecruitmentInterviewCompletions(claimedBefore);
     yield* deliverNextRecruitmentInvitation(`${options.workerId}:${claimSequence++}`, now);
     yield* deliverNextRecruitmentInvitationResponse(
       `${options.workerId}:response:${claimSequence++}`,
+      now,
+    );
+    yield* deliverNextRecruitmentInterviewCompletion(
+      `${options.workerId}:completion:${claimSequence++}`,
       now,
     );
     yield* Effect.sleep(Duration.millis(options.pollIntervalMilliseconds));

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { createConnection } from "node:net";
@@ -10,7 +10,7 @@ const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const postgresPort = 55445;
 const backendPort = 8799;
-const dashboardPort = 5193;
+const dashboardPort = 5174;
 const postgresOrigin = `postgres://postgres@127.0.0.1:${postgresPort}/postgres`;
 const backendOrigin = `http://127.0.0.1:${backendPort}`;
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
@@ -230,6 +230,7 @@ const main = async () => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-native-conduct-0063-"));
   const postgresRoot = join(temporaryRoot, "postgres");
   const browserEvidencePath = join(temporaryRoot, "browser-evidence.json");
+  const evidenceDirectory = join(repositoryRoot, "evidence", "functional-parity", "0108");
   const baseEnvironment = { ...process.env };
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
@@ -238,6 +239,7 @@ const main = async () => {
   let dashboard;
   let proxy;
   let primaryError;
+  let runtimeEvidence;
   try {
     await run(
       "initdb",
@@ -279,12 +281,21 @@ const main = async () => {
     if (Date.now() >= postgresDeadline) throw new Error("conduct PostgreSQL did not become ready");
     await run("bun", ["apps/dashboard/e2e/native-conduct-journey-seed.mjs"], {
       cwd: repositoryRoot,
-      env: { ...baseEnvironment, JOURNEY_SEED_PG_URL: postgresOrigin },
+      env: {
+        ...baseEnvironment,
+        JOURNEY_SEED_PG_URL: postgresOrigin,
+        BETTER_AUTH_SECRET: "native-conduct-0063-disposable-secret-0123456789",
+        NATIVE_IDENTITY_DEPLOYMENT: "local",
+        NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
+      },
       label: "conduct fixture seed",
     });
 
     const backendEnvironment = {
       ...baseEnvironment,
+      OAUTH_CANONICAL_ORIGIN: backendOrigin,
+      OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
+      OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
       BACKEND_HOST: "127.0.0.1",
       BACKEND_PORT: String(backendPort),
       BACKEND_PG_URL: postgresOrigin,
@@ -313,6 +324,7 @@ const main = async () => {
       DASHBOARD_ORIGIN: dashboardOrigin,
       REAL_NATIVE_CONDUCT_E2E: "1",
       CONDUCT_E2E_BROWSER_EVIDENCE_PATH: browserEvidencePath,
+      CONDUCT_E2E_SCREENSHOT_DIRECTORY: evidenceDirectory,
       CONDUCT_E2E_APPLICANT_A: "Sofie Gjennomfører",
       CONDUCT_E2E_APPLICANT_B: "Olav Konflikt",
       CONDUCT_E2E_LEADER_EMAIL: "lina.conduct@example.invalid",
@@ -353,9 +365,20 @@ const main = async () => {
       browserEvidence.rawCapabilityObserved !== false
     )
       throw new Error("browser evidence did not satisfy conduct gates");
+    const deliveryOutput = await run(
+      "bun",
+      ["packages/database/src/completion-receipt-postgres-proof-main.ts"],
+      {
+        cwd: repositoryRoot,
+        env: { ...baseEnvironment, COMPLETION_RECEIPT_PG_URL: postgresOrigin },
+        label: "interview completion receipt delivery",
+        capture: true,
+      },
+    );
+    const deliveryEvidence = JSON.parse(deliveryOutput.stdout);
     const databaseEvidence = JSON.parse(
       await runPsql(
-        `SELECT json_build_object('interviews', (SELECT count(*) FROM recruitment_interviews WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063')), 'schedules', (SELECT count(*) FROM recruitment_interview_schedules WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063')), 'acceptedInvitations', (SELECT count(*) FROM recruitment_invitations WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063') AND response_state = 'Accepted'), 'snapshots', (SELECT count(*) FROM auth.recruitment_interview_question_snapshots WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063')), 'conducts', (SELECT count(*) FROM auth.recruitment_interview_conducts WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063')), 'cancellations', (SELECT count(*) FROM auth.recruitment_interview_cancellations WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063')), 'receipts', (SELECT count(*) FROM auth.recruitment_interview_lifecycle_command_receipts WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063')), 'audits', (SELECT count(*) FROM auth.recruitment_interview_lifecycle_audit WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063')), 'finalizedReceipts', (SELECT count(*) FROM auth.recruitment_interview_lifecycle_command_receipts WHERE interview_id = 'interview-native-conduct-a-0063' AND kind = 'InterviewFinalized'), 'cancelledReceipts', (SELECT count(*) FROM auth.recruitment_interview_lifecycle_command_receipts WHERE interview_id = 'interview-native-conduct-b-0063' AND kind = 'InterviewCancelled'), 'finalizedAudits', (SELECT count(*) FROM auth.recruitment_interview_lifecycle_audit WHERE interview_id = 'interview-native-conduct-a-0063' AND kind = 'InterviewFinalized'), 'cancelledAudits', (SELECT count(*) FROM auth.recruitment_interview_lifecycle_audit WHERE interview_id = 'interview-native-conduct-b-0063' AND kind = 'InterviewCancelled'), 'terminalRevisions', (SELECT coalesce(json_agg(json_build_object('interviewId', interview_id, 'revision', revision) ORDER BY interview_id), '[]'::json) FROM recruitment_interviews WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063')), 'forbiddenFields', (SELECT coalesce(bool_or((command_json::text || observation_json::text) ~* '(responseCapability|responseCode|phone|email)'), false) FROM auth.recruitment_interview_lifecycle_command_receipts WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063')));`,
+        `SELECT json_build_object('interviews', (SELECT count(*) FROM recruitment_interviews WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063')), 'schedules', (SELECT count(*) FROM recruitment_interview_schedules WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063')), 'acceptedInvitations', (SELECT count(*) FROM recruitment_invitations WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063') AND response_state = 'Accepted'), 'snapshots', (SELECT count(*) FROM public.recruitment_interview_question_snapshots WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063')), 'conducts', (SELECT count(*) FROM public.recruitment_interview_conducts WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063')), 'cancellations', (SELECT count(*) FROM public.recruitment_interview_cancellations WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063')), 'receipts', (SELECT count(*) FROM public.recruitment_interview_lifecycle_command_receipts WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063')), 'audits', (SELECT count(*) FROM public.recruitment_interview_lifecycle_audit WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063')), 'finalizedReceipts', (SELECT count(*) FROM public.recruitment_interview_lifecycle_command_receipts WHERE interview_id = 'interview-native-conduct-a-0063' AND kind = 'InterviewFinalized'), 'cancelledReceipts', (SELECT count(*) FROM public.recruitment_interview_lifecycle_command_receipts WHERE interview_id = 'interview-native-conduct-b-0063' AND kind = 'InterviewCancelled'), 'finalizedAudits', (SELECT count(*) FROM public.recruitment_interview_lifecycle_audit WHERE interview_id = 'interview-native-conduct-a-0063' AND kind = 'InterviewFinalized'), 'cancelledAudits', (SELECT count(*) FROM public.recruitment_interview_lifecycle_audit WHERE interview_id = 'interview-native-conduct-b-0063' AND kind = 'InterviewCancelled'), 'terminalRevisions', (SELECT coalesce(json_agg(json_build_object('interviewId', interview_id, 'revision', revision) ORDER BY interview_id), '[]'::json) FROM recruitment_interviews WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063')), 'forbiddenFields', (SELECT coalesce(bool_or((command_json::text || observation_json::text) ~* '(responseCapability|responseCode|phone|email)'), false) FROM public.recruitment_interview_lifecycle_command_receipts WHERE interview_id IN ('interview-native-conduct-a-0063','interview-native-conduct-b-0063')));`,
         baseEnvironment,
         "conduct database evidence",
       ),
@@ -390,8 +413,8 @@ const main = async () => {
     const staleBackendResponses = proxy.records.filter((record) => {
       if (
         record.method !== "POST" ||
-        record.status !== 409 ||
-        !record.path.endsWith("/finalize") ||
+        record.status !== 412 ||
+        !record.path.endsWith(":finalize") ||
         record.responseBody === undefined
       )
         return false;
@@ -400,20 +423,35 @@ const main = async () => {
         body !== undefined &&
         typeof body === "object" &&
         body !== null &&
-        "error" in body &&
-        typeof body.error === "object" &&
-        body.error !== null &&
-        "tag" in body.error &&
-        body.error.tag === "RecruitmentInterviewStaleRevision"
+        "status" in body &&
+        body.status === 412 &&
+        "code" in body &&
+        body.code === "precondition.failed"
       );
     });
     if (staleBackendResponses.length !== 1)
       throw new Error(
-        `raw backend stale conflict evidence failed: ${JSON.stringify(staleBackendResponses)}`,
+        `raw backend stale conflict evidence failed: ${JSON.stringify(
+          proxy.records.filter((record) => record.path.endsWith(":finalize")),
+        )}`,
       );
-    process.stdout.write(
-      `${JSON.stringify({ topology: { postgres: "disposable-loopback-postgresql", backend: backendOrigin, dashboard: dashboardOrigin, browser: "real-chromium" }, browser: browserEvidence, postgres: databaseEvidence, transport: { requests: proxy.records, legacyRequests, rawCapabilityObserved: false }, cleanup: { temporaryRoot: temporaryRoot } }, null, 2)}\n`,
-    );
+    runtimeEvidence = {
+      topology: {
+        postgres: "disposable-loopback-postgresql",
+        backend: backendOrigin,
+        dashboard: dashboardOrigin,
+        browser: "real-chromium",
+        receiptReceiver: "acknowledged-loopback-http",
+      },
+      browser: browserEvidence,
+      completionReceipt: deliveryEvidence,
+      postgres: databaseEvidence,
+      transport: {
+        requests: proxy.records,
+        legacyRequests,
+        rawCapabilityObserved: false,
+      },
+    };
   } catch (error) {
     primaryError = error;
   }
@@ -455,6 +493,14 @@ const main = async () => {
     );
   if (primaryError !== undefined) throw primaryError;
   if (cleanupErrors.length > 0) throw new AggregateError(cleanupErrors, "conduct cleanup failed");
+  if (runtimeEvidence === undefined) throw new Error("conduct evidence was not produced");
+  const retainedEvidence = { ...runtimeEvidence, cleanup: { disposableResourcesRemoved: true } };
+  await mkdir(evidenceDirectory, { recursive: true });
+  await writeFile(
+    join(evidenceDirectory, "runtime.json"),
+    `${JSON.stringify(retainedEvidence, null, 2)}\n`,
+  );
+  process.stdout.write(`${JSON.stringify(retainedEvidence, null, 2)}\n`);
 };
 
 main().catch((error) => {
