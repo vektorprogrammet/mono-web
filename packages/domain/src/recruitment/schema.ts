@@ -247,6 +247,7 @@ export class RecruitmentInterview extends Model.Class<RecruitmentInterview>(
     insert: PersonId,
     json: PersonId,
   }),
+  coInterviewerPersonId: Model.GeneratedByDb(Schema.NullOr(PersonId)),
   interviewSchemaId: Model.Field({
     select: InterviewSchemaId,
     insert: InterviewSchemaId,
@@ -620,11 +621,19 @@ export const RecruitmentSchedulingInterviewerSchema = Schema.Struct({
 });
 export type RecruitmentSchedulingInterviewer = typeof RecruitmentSchedulingInterviewerSchema.Type;
 
+export const RecruitmentSchedulingCoInterviewerSchema = Schema.Struct({
+  personId: PersonId,
+  displayName: Name,
+});
+export type RecruitmentSchedulingCoInterviewer =
+  typeof RecruitmentSchedulingCoInterviewerSchema.Type;
+
 const RecruitmentSchedulingInterviewFields = {
   interviewId: RecruitmentInterviewId,
   applicationId: PublicApplicationIdSchema,
   departmentId: DepartmentId,
   interviewer: RecruitmentSchedulingInterviewerSchema,
+  coInterviewer: Schema.NullOr(RecruitmentSchedulingCoInterviewerSchema),
   applicant: RecruitmentSchedulingApplicantSchema,
   revision: Revision,
   schedule: Schema.NullOr(RecruitmentInterviewSchedule),

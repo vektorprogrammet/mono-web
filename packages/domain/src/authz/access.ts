@@ -169,6 +169,7 @@ export const REQUIREMENT_IDS = [
   "recruitment.interviewer-eligible",
   "recruitment.assigned-interviewer-or-leader",
   "recruitment.assigned-interviewer",
+  "recruitment.assigned-interviewer-or-co-interviewer",
   "recruitment.not-known-self",
   "recruitment.invitation-pending",
   "internal-evidence.enabled",
@@ -542,6 +543,11 @@ export const REQUIREMENT_TYPES = {
     GenericRequirementContextSchema,
     personListedBy("assignedInterviewerPersonIds"),
   ),
+  "recruitment.assigned-interviewer-or-co-interviewer": registration(
+    ["recruitment.interview-by-id"],
+    GenericRequirementContextSchema,
+    personListedBy("interviewParticipantPersonIds"),
+  ),
   "recruitment.not-known-self": registration(
     ["recruitment.interview-by-id"],
     GenericRequirementContextSchema,
@@ -666,6 +672,7 @@ const resolverRequirements: Partial<
   "recruitment.interview-by-id": [
     "recruitment.assigned-interviewer-or-leader",
     "recruitment.assigned-interviewer",
+    "recruitment.assigned-interviewer-or-co-interviewer",
     "recruitment.not-known-self",
   ],
   "receipts.by-id": [

@@ -63,6 +63,7 @@ const RecruitmentInterviewHttpSourceSchema = Schema.Struct({
   interviewId: RecruitmentInterviewId,
   departmentId: DepartmentId,
   interviewerPersonId: PersonId,
+  coInterviewerPersonId: Schema.NullOr(PersonId),
   interviewRevision: Revision,
   linkedApplicantPersonId: Schema.NullOr(PersonId),
   authority: Schema.Array(RecruitmentAuthorityHttpSourceSchema),
@@ -364,6 +365,7 @@ export const readRecruitmentInterviewHttpSourcePostgres = (
           interview_id AS "interviewId",
           department_id AS "departmentId",
           interviewer_person_id AS "interviewerPersonId",
+          co_interviewer_person_id AS "coInterviewerPersonId",
           revision AS "interviewRevision"
         FROM public.recruitment_interviews
         WHERE interview_id = ${interviewId}

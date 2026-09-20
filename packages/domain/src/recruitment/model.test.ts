@@ -16,6 +16,7 @@ import {
   RecruitmentInvitationResponseResultSchema,
   RecruitmentInvitationResponseStateSchema,
   RecruitmentSchedulingInterviewSchema,
+  RecruitmentSchedulingCoInterviewerSchema,
 } from "./schema.js";
 const sourceQuestion = (ordinal: number, questionId = `question-${ordinal}`) => ({
   questionId,
@@ -70,7 +71,70 @@ it("derives immutable Recruitment Models without generated revision inputs", () 
   expect(Object.keys(InterviewSchema.update.fields)).not.toContain("interviewSchemaId");
   expect(Object.keys(RecruitmentInterview.insert.fields)).not.toContain("revision");
   expect(Object.keys(RecruitmentInterview.update.fields)).not.toContain("applicationId");
+  expect(Object.keys(RecruitmentInterview.insert.fields)).not.toContain("coInterviewerPersonId");
+  expect(Object.keys(RecruitmentInterview.select.fields)).toContain("coInterviewerPersonId");
 });
+
+it.effect("requires a nullable persisted co-interviewer designation", () =>
+  Effect.gen(function* () {
+    const interview = {
+      interviewId: "interview-1",
+      applicationId: "application-1",
+      departmentId: "department-1",
+      interviewerPersonId: "person-1",
+      coInterviewerPersonId: null,
+      interviewSchemaId: "schema-1",
+      assignedByPersonId: "leader-1",
+      assignedAt: "2031-09-15T12:00:00.000Z",
+      revision: 0,
+    };
+    expect(
+      (yield* Schema.decodeUnknownEffect(RecruitmentInterview)(interview, {
+        onExcessProperty: "error",
+      })).coInterviewerPersonId,
+    ).toBeNull();
+    expect(
+      yield* Effect.flip(
+        Schema.decodeUnknownEffect(RecruitmentInterview)(
+          {
+            interviewId: "interview-1",
+            applicationId: "application-1",
+            departmentId: "department-1",
+            interviewerPersonId: "person-1",
+            interviewSchemaId: "schema-1",
+            assignedByPersonId: "leader-1",
+            assignedAt: "2031-09-15T12:00:00.000Z",
+            revision: 0,
+          },
+          { onExcessProperty: "error" },
+        ),
+      ),
+    ).toBeDefined();
+  }),
+);
+
+it.effect("decodes contact-free co-interviewer scheduling projections", () =>
+  Effect.gen(function* () {
+    const coInterviewer = yield* Schema.decodeUnknownEffect(
+      RecruitmentSchedulingCoInterviewerSchema,
+    )(
+      { personId: "person-2", displayName: "Cora Co-interviewer" },
+      { onExcessProperty: "error" },
+    );
+    expect(coInterviewer).toEqual({
+      personId: "person-2",
+      displayName: "Cora Co-interviewer",
+    });
+    expect(
+      yield* Effect.flip(
+        Schema.decodeUnknownEffect(RecruitmentSchedulingCoInterviewerSchema)(
+          { ...coInterviewer, email: "cora@example.invalid" },
+          { onExcessProperty: "error" },
+        ),
+      ),
+    ).toBeDefined();
+  }),
+);
 
 it.effect("strictly decodes board status and assignment commands", () =>
   Effect.gen(function* () {
@@ -304,6 +368,7 @@ it.effect("rejects impossible response state and message pairs at every observat
               email: "interviewer@example.invalid",
               phone: "91111111",
             },
+            coInterviewer: null,
             applicant: {
               applicationId: "application-1",
               applicantId: "applicant-1",

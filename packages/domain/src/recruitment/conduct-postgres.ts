@@ -60,6 +60,7 @@ interface InterviewRow {
   readonly applicationId: string;
   readonly departmentId: string;
   readonly interviewerPersonId: string;
+  readonly coInterviewerPersonId: string | null;
   readonly interviewSchemaId: string;
   readonly assignedByPersonId: string;
   readonly assignedAt: string;
@@ -147,6 +148,7 @@ const readInterview = (sql: DatabaseShape, interviewId: string, lock: boolean) =
   sql<InterviewRow>`
     SELECT interview_id AS "interviewId", application_id AS "applicationId",
       department_id AS "departmentId", interviewer_person_id AS "interviewerPersonId",
+      co_interviewer_person_id AS "coInterviewerPersonId",
       interview_schema_id AS "interviewSchemaId", assigned_by_person_id AS "assignedByPersonId",
       to_char(assigned_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "assignedAt",
       revision
@@ -162,6 +164,7 @@ const readInterview = (sql: DatabaseShape, interviewId: string, lock: boolean) =
               applicationId: Schema.String,
               departmentId: Schema.String,
               interviewerPersonId: Schema.String,
+              coInterviewerPersonId: Schema.NullOr(Schema.String),
               interviewSchemaId: Schema.String,
               assignedByPersonId: Schema.String,
               assignedAt: Schema.String,
@@ -521,12 +524,15 @@ const authorityActor = (
     );
   });
 
+type InterviewAccessMode = "PrimaryInterviewer" | "InterviewParticipant";
+
 const authorizeAndLoad = (
   sql: DatabaseShape,
   organization: OrganizationShape,
   context: RecruitmentConductContext,
   interviewId: string,
   lock: boolean,
+  accessMode: InterviewAccessMode,
 ) =>
   Effect.gen(function* () {
     const actorInput = yield* decode(RecruitmentActorSchema, context.actor, "recruitment actor");
@@ -544,7 +550,20 @@ const authorizeAndLoad = (
       interview.departmentId as never,
       authorizationInstant,
     );
-    if (interview.interviewerPersonId !== actor.personId) {
+    const isCoInterviewer =
+      accessMode === "InterviewParticipant" &&
+      interview.coInterviewerPersonId === actor.personId;
+    const isParticipant = interview.interviewerPersonId === actor.personId || isCoInterviewer;
+    if (!isParticipant) {
+      return yield* new RecruitmentScopeDenied({
+        personId: actor.personId,
+        departmentId: actor.departmentId,
+      });
+    }
+    const coInterviewerConduct = isCoInterviewer
+      ? yield* readConduct(sql, interviewId, lock)
+      : undefined;
+    if (isCoInterviewer && coInterviewerConduct === undefined) {
       return yield* new RecruitmentScopeDenied({
         personId: actor.personId,
         departmentId: actor.departmentId,
@@ -553,7 +572,7 @@ const authorizeAndLoad = (
     const schedule = yield* readSchedule(sql, interviewId, lock);
     const invitation = yield* readInvitation(sql, interviewId, lock);
     const questions = yield* readQuestions(sql, interviewId, lock);
-    const conduct = yield* readConduct(sql, interviewId, lock);
+    const conduct = coInterviewerConduct ?? (yield* readConduct(sql, interviewId, lock));
     const corrections = yield* readCorrections(sql, interviewId, lock);
     const effective = yield* readEffectiveAssessment(sql, interviewId);
     const cancellation = yield* readCancellation(sql, interviewId, lock);
@@ -569,6 +588,7 @@ const observation = (
   },
   corrections: ReadonlyArray<CorrectionRow>,
   effective: EffectiveAssessmentRow | undefined,
+  actor: typeof RecruitmentConductActorSchema.Type,
 ): Effect.Effect<RecruitmentInterviewConductObservation, RecruitmentFailure> =>
   Effect.gen(function* () {
     if (state.schedule === null)
@@ -614,6 +634,10 @@ const observation = (
             ],
             "correction history",
           );
+    const canManageLifecycle =
+      state.interview.interviewerPersonId === actor.personId &&
+      state.conduct === null &&
+      state.cancellation === null;
     return yield* decode(
       RecruitmentInterviewConductObservationSchema,
       {
@@ -641,8 +665,8 @@ const observation = (
         history,
         cancelledAt: state.cancellation?.cancelledAt ?? null,
         revision: state.revision,
-        canFinalize: state.conduct === null && state.cancellation === null,
-        canCancel: state.conduct === null && state.cancellation === null,
+        canFinalize: canManageLifecycle,
+        canCancel: canManageLifecycle,
       },
       "conduct observation",
     );
@@ -693,7 +717,14 @@ export const readInterviewConductInTransaction = (
   Effect.gen(function* () {
     const admissions = yield* Admissions;
     const organization = yield* Organization;
-    const loaded = yield* authorizeAndLoad(sql, organization, context, interviewId, false);
+    const loaded = yield* authorizeAndLoad(
+      sql,
+      organization,
+      context,
+      interviewId,
+      false,
+      "InterviewParticipant",
+    );
     const state = yield* stateFor(
       loaded.interview,
       loaded.schedule,
@@ -703,7 +734,13 @@ export const readInterviewConductInTransaction = (
       loaded.cancellation,
     );
     const applicant = yield* readApplicant(admissions, loaded.interview.applicationId);
-    return yield* observation(state, applicant, loaded.corrections, loaded.effective);
+    return yield* observation(
+      state,
+      applicant,
+      loaded.corrections,
+      loaded.effective,
+      loaded.actor,
+    );
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("conduct observation", cause)),
@@ -722,7 +759,14 @@ const finalizeInTransaction = (
     );
     yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.commandId}, 0))`;
     yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.interviewId}, 0))`;
-    const loaded = yield* authorizeAndLoad(sql, organization, context, command.interviewId, true);
+    const loaded = yield* authorizeAndLoad(
+      sql,
+      organization,
+      context,
+      command.interviewId,
+      true,
+      "PrimaryInterviewer",
+    );
     const receipt = yield* readReceipt(sql, command.commandId, true);
     if (receipt !== undefined) {
       if (
@@ -794,7 +838,14 @@ const cancelInTransaction = (
     );
     yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.commandId}, 0))`;
     yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.interviewId}, 0))`;
-    const loaded = yield* authorizeAndLoad(sql, organization, context, command.interviewId, true);
+    const loaded = yield* authorizeAndLoad(
+      sql,
+      organization,
+      context,
+      command.interviewId,
+      true,
+      "PrimaryInterviewer",
+    );
     const receipt = yield* readReceipt(sql, command.commandId, true);
     if (receipt !== undefined) {
       if (
@@ -865,7 +916,14 @@ const correctInTransaction = (
     );
     yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.commandId}, 0))`;
     yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.interviewId}, 0))`;
-    const loaded = yield* authorizeAndLoad(sql, organization, context, command.interviewId, true);
+    const loaded = yield* authorizeAndLoad(
+      sql,
+      organization,
+      context,
+      command.interviewId,
+      true,
+      "InterviewParticipant",
+    );
     const receipt = yield* readCorrectionReceipt(sql, command.commandId, true);
     if (receipt !== undefined) {
       if (
@@ -892,7 +950,22 @@ const correctInTransaction = (
       loaded.conduct,
       loaded.cancellation,
     );
-    const transition = yield* applyCorrection(state, command, loaded.actor, context.now);
+    const correctionState =
+      loaded.interview.coInterviewerPersonId === loaded.actor.personId
+        ? {
+            ...state,
+            interview: {
+              ...state.interview,
+              interviewerPersonId: loaded.actor.personId,
+            },
+          }
+        : state;
+    const transition = yield* applyCorrection(
+      correctionState,
+      command,
+      loaded.actor,
+      context.now,
+    );
     const updated = yield* sql<{ readonly revision: number }>`
       UPDATE recruitment_interviews
       SET revision = revision + 1

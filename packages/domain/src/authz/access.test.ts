@@ -785,6 +785,35 @@ it("fails known-self or absent/malformed interview identity facts and permits ex
   }
 });
 
+it("accepts only listed primary or co-interviewer participants", () => {
+  const requirement = {
+    id: RequirementId.make("recruitment.assigned-interviewer-or-co-interviewer"),
+    parameters: {},
+  };
+  const context = {
+    domainId: DomainId.make("recruitment"),
+    departmentId: alphaDepartment,
+    resource: {
+      kind: ResourceKind.make("recruitment-interview"),
+      id: ResourceId.make("interview"),
+    },
+    authorityVersion: AuthorityVersion.make("participant-test"),
+    facts: { interviewParticipantPersonIds: [personId, otherPersonId] },
+  };
+  for (const [participant, allowed] of [
+    [personId, true],
+    [otherPersonId, true],
+    [PersonId.make("access-unassigned-person"), false],
+  ] as const) {
+    const result = evaluateRequirement(
+      requirement,
+      { _tag: "Person", personId: participant },
+      context,
+    );
+    expect(result._tag).toBe(allowed ? "Satisfied" : "Failed");
+  }
+});
+
 it("registers each canonical scope resolver exactly once", () => {
   expect(new Set(SCOPE_RESOLVER_IDS).size).toBe(SCOPE_RESOLVER_IDS.length);
 });

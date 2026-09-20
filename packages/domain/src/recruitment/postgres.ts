@@ -108,6 +108,7 @@ interface StoredInterviewRow {
   readonly applicationId: string;
   readonly departmentId: string;
   readonly interviewerPersonId: string;
+  readonly coInterviewerPersonId: string | null;
   readonly interviewSchemaId: string;
   readonly assignedByPersonId: string;
   readonly assignedAt: string;
@@ -166,6 +167,7 @@ const StoredInterviewRowSchema = Schema.Struct({
   applicationId: Schema.String,
   departmentId: Schema.String,
   interviewerPersonId: Schema.String,
+  coInterviewerPersonId: Schema.NullOr(Schema.String),
   interviewSchemaId: Schema.String,
   assignedByPersonId: Schema.String,
   assignedAt: Schema.String,
@@ -507,6 +509,7 @@ const readInterviewForApplication = (
       application_id AS "applicationId",
       department_id AS "departmentId",
       interviewer_person_id AS "interviewerPersonId",
+      co_interviewer_person_id AS "coInterviewerPersonId",
       interview_schema_id AS "interviewSchemaId",
       assigned_by_person_id AS "assignedByPersonId",
       to_char(assigned_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "assignedAt",
@@ -698,6 +701,7 @@ const buildInterview = (
       applicationId: row.applicationId,
       departmentId: row.departmentId,
       interviewerPersonId: row.interviewerPersonId,
+      coInterviewerPersonId: row.coInterviewerPersonId,
       interviewSchemaId: row.interviewSchemaId,
       assignedByPersonId: row.assignedByPersonId,
       assignedAt: row.assignedAt,
@@ -736,6 +740,7 @@ const writeInterview = (
       application_id AS "applicationId",
       department_id AS "departmentId",
       interviewer_person_id AS "interviewerPersonId",
+      co_interviewer_person_id AS "coInterviewerPersonId",
       interview_schema_id AS "interviewSchemaId",
       assigned_by_person_id AS "assignedByPersonId",
       to_char(assigned_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "assignedAt",

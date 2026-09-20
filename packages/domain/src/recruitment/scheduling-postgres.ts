@@ -65,6 +65,7 @@ interface SchedulingBoardRow {
   readonly applicationId: string;
   readonly departmentId: string;
   readonly interviewerPersonId: string;
+  readonly coInterviewerPersonId: string | null;
   readonly revision: number;
   readonly scheduledAt: string | null;
   readonly room: string | null;
@@ -99,6 +100,7 @@ const SchedulingBoardRowSchema = Schema.Struct({
   applicationId: Schema.String,
   departmentId: Schema.String,
   interviewerPersonId: Schema.String,
+  coInterviewerPersonId: Schema.NullOr(Schema.String),
   revision: Schema.Number,
   scheduledAt: Schema.NullOr(Schema.String),
   room: Schema.NullOr(Schema.String),
@@ -214,6 +216,7 @@ const readSchedulingRows = (
       i.application_id AS "applicationId",
       i.department_id AS "departmentId",
       i.interviewer_person_id AS "interviewerPersonId",
+      i.co_interviewer_person_id AS "coInterviewerPersonId",
       i.revision,
       CASE WHEN s.scheduled_at IS NULL THEN NULL
         ELSE to_char(s.scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
@@ -237,7 +240,18 @@ const readSchedulingRows = (
       AND invitation.superseded_at IS NULL
     LEFT JOIN recruitment_invitation_outbox outbox ON outbox.invitation_id = invitation.invitation_id
     WHERE i.department_id = ${actor.departmentId}
-      AND (${actor._tag === "DepartmentLeader"} OR i.interviewer_person_id = ${actor.personId})
+      AND (
+        ${actor._tag === "DepartmentLeader"}
+        OR i.interviewer_person_id = ${actor.personId}
+        OR (
+          i.co_interviewer_person_id = ${actor.personId}
+          AND EXISTS (
+            SELECT 1
+            FROM public.recruitment_interview_conducts conduct
+            WHERE conduct.interview_id = i.interview_id
+          )
+        )
+      )
       AND (${actor._tag === "DepartmentLeader"} OR invitation.response_state IS DISTINCT FROM 'Rejected')
     ORDER BY i.assigned_at ASC, i.interview_id ASC
   `.pipe(
@@ -299,9 +313,14 @@ const schedulingBoard = (
   Effect.gen(function* () {
     const actor = yield* authorizeActor(context.actor, context.now, organization);
     const rows = yield* readSchedulingRows(sql, actor);
-    const interviewerIds = [...new Set(rows.map((row) => row.interviewerPersonId))].map((value) =>
+    const primaryInterviewerIdValues = new Set(rows.map((row) => row.interviewerPersonId));
+    const participantIdValues = new Set(primaryInterviewerIdValues);
+    for (const row of rows)
+      if (row.coInterviewerPersonId !== null) participantIdValues.add(row.coInterviewerPersonId);
+    const primaryInterviewerIds = [...primaryInterviewerIdValues].map((value) =>
       PersonId.make(value),
     );
+    const participantIds = [...participantIdValues].map((value) => PersonId.make(value));
     const applicationIds = [...new Set(rows.map((row) => row.applicationId))].map((value) =>
       PublicApplicationIdSchema.make(value),
     );
@@ -317,12 +336,18 @@ const schedulingBoard = (
       }
     }
     const profileById = new Map<string, PersonProfile>();
+    const profileCountById = new Map<string, number>();
     const contactById = new Map<string, PersonContactProfile>();
-    for (let offset = 0; offset < interviewerIds.length; offset += PROFILE_READ_LIMIT) {
-      const batch = interviewerIds.slice(offset, offset + PROFILE_READ_LIMIT);
+    for (let offset = 0; offset < participantIds.length; offset += PROFILE_READ_LIMIT) {
+      const batch = participantIds.slice(offset, offset + PROFILE_READ_LIMIT);
       for (const value of yield* profile.readProfiles(batch)) {
-        profileById.set(String(value.personId), value);
+        const personId = String(value.personId);
+        profileById.set(personId, value);
+        profileCountById.set(personId, (profileCountById.get(personId) ?? 0) + 1);
       }
+    }
+    for (let offset = 0; offset < primaryInterviewerIds.length; offset += PROFILE_READ_LIMIT) {
+      const batch = primaryInterviewerIds.slice(offset, offset + PROFILE_READ_LIMIT);
       for (const value of yield* profile.readContacts(batch)) {
         contactById.set(String(value.personId), value);
       }
@@ -333,6 +358,21 @@ const schedulingBoard = (
       const interviewerProfile = profileById.get(row.interviewerPersonId);
       const interviewerContact = contactById.get(row.interviewerPersonId);
       const applicantContact = applicantContactByApplicationId.get(row.applicationId);
+      let coInterviewer: { readonly personId: PersonId; readonly displayName: string } | null =
+        null;
+      if (row.coInterviewerPersonId !== null) {
+        const coInterviewerProfile = profileById.get(row.coInterviewerPersonId);
+        if (
+          coInterviewerProfile === undefined ||
+          profileCountById.get(row.coInterviewerPersonId) !== 1
+        ) {
+          return yield* persistenceError("resolve scheduling board co-interviewer");
+        }
+        coInterviewer = {
+          personId: PersonId.make(row.coInterviewerPersonId),
+          displayName: personProfileDisplayName(coInterviewerProfile),
+        };
+      }
       if (
         interviewerProfile === undefined ||
         interviewerContact === undefined ||
@@ -354,6 +394,7 @@ const schedulingBoard = (
               email: interviewerContact.email,
               phone: interviewerContact.phone,
             },
+            coInterviewer,
             applicant: applicantContact,
             revision: row.revision,
             schedule,
