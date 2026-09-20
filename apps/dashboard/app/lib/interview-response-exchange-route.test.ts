@@ -95,7 +95,7 @@ describe("recruitment invitation capability exchange", () => {
     );
   });
 
-  it("keeps redirects and capability cookies inside the configured dashboard mount", async () => {
+  it("keeps the capability cookie inside the configured dashboard mount", async () => {
     const capability = "C".repeat(43);
     const interactionId = "c".repeat(32);
     bridge.createInvitationInteractionId.mockReturnValueOnce(interactionId);
@@ -103,7 +103,7 @@ describe("recruitment invitation capability exchange", () => {
     const response = await thrownRedirect(capability, "/dashboard/");
 
     expect(response.headers.get("location")).toBe(
-      `/dashboard/interview-response/redacted?interactionId=${interactionId}`,
+      `/interview-response/redacted?interactionId=${interactionId}`,
     );
     expect(response.headers.get("set-cookie")).toContain("Path=/dashboard/interview");
     expect(bridge.createInvitationCapabilityCookie).toHaveBeenCalledWith(
