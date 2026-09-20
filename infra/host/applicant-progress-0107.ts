@@ -113,6 +113,19 @@ const seedProgressState = async (client: PoolClient, state: ProgressSeedState, o
       [invitationId, interviewId, responseState, responseMessage, responded],
     );
   }
+  if (responseState === "Rejected" || responseState === "RequestedNewTime") {
+    await client.query(
+      `INSERT INTO public.recruitment_invitation_response_outbox(effect_id,effect_type,invitation_id,interview_id,schedule_revision,response_revision,response_state,response_message,ordinal,payload_json,status,attempts,delivered_at) VALUES($1,'SendInterviewInvitationResponse',$2,$3,1,1,$4,$5,0,'{}'::jsonb,'Delivered',1,$6)`,
+      [
+        `recruitment-invitation-response:${invitationId}:1`,
+        invitationId,
+        interviewId,
+        responseState,
+        responseMessage,
+        responded,
+      ],
+    );
+  }
   if (state !== "completed") return;
 
   const commandId = "applicant-progress-completed-command-0107";
