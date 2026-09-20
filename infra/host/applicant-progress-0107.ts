@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
+import { inspect } from "node:util";
+import { createPromiseClient } from "../../packages/sdk/src/promise.js";
 import { decodeApplicantProgressResponse } from "../../packages/domain/src/application/schema.js";
 import type { Page } from "playwright";
 import { join } from "node:path";
@@ -297,6 +299,16 @@ export const runApplicantProgress0107 = async (input: {
   assert.deepEqual(decodeApplicantProgressResponse(await unlinkedResponse.json()).applications, []);
   const body = decodeApplicantProgressResponse(await response.json());
   const tags = body.applications.map((application) => application.progress._tag);
+  const sdk = createPromiseClient(input.api, { cookie: input.cookie, origin: input.ui });
+  const readSdk = async () => {
+    try {
+      return await sdk.admissions.readApplicantProgress();
+    } catch (cause) {
+      throw new Error(`applicant progress SDK failed: ${inspect(cause, { depth: 10 })}`, { cause });
+    }
+  };
+  const sdkResponse = await readSdk();
+  assert.deepEqual(decodeApplicantProgressResponse(sdkResponse.body), body);
   for (const tag of [
     "ApplicationReceived",
     "InvitedToInterview",
