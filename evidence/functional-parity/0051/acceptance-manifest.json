@@ -1,8 +1,9 @@
 {
   "specId": "0051",
   "result": "Passed",
-  "runtimeRevision": "885d6222591839f3e1376c4a611c512c444f0cfb",
-  "sourceRevisionRef": "rev-mono-sha256:6cb630ad73c1ec3056ca30d5f66dfc2413ece8118933c9bfc7282bd358082708",
+  "runtimeRevision": "c0968c587a87ffb107c98e30b7d114ecf94d9698",
+  "validationRevision": "c525e369b67974ddabc386d32b6cb49d7c54bc75",
+  "sourceRevisionRef": "rev-mono-sha256:cdda8cf06c007bb12f4f598f5eabee1a1474774076f1862f950e8a10f77d02a6",
   "command": "bun apps/dashboard/e2e/run-real-interview-response.mjs",
   "topology": {
     "dashboard": "loopback-react-router-playwright-server",
@@ -16,7 +17,7 @@
     "the raw capability disappeared from the URL, responses, rendered pages, logs, browser evidence and staff observations",
     "canonical and trailing-slash redacted routes both loaded through the mount-aware same-origin bridge",
     "Accepted, Rejected and RequestedNewTime commands returned 204 and only a fresh read replaced Foldkit state",
-    "a focused boundary test passed a schema-valid 2000-character multibyte message through the shared 16 KiB bridge limit",
+    "a schema-valid 2000-character multibyte message passed through the shared 16 KiB bridge limit",
     "repeated commands returned the typed 409 conflict while preserving the winning transition",
     "the department leader and assigned interviewer observed only their authorized fresh projections",
     "the response, audit fact and applicable notification request committed atomically in PostgreSQL",
@@ -24,45 +25,93 @@
     "the disposable database, browser, private runtime artifacts and processes were removed"
   ],
   "runtimeEvidence": {
-    "path": "evidence/functional-parity/runtime/0051/runtime.json",
-    "sha256": "a31ea8134ef08cc13216e412896803b1910ad9773f89cfb039aae0866bfbacf4",
+    "path": "evidence/functional-parity/runtime/0051-invitation-final.json",
+    "sha256": "6d1dd3f4dd3e5d28667ae27212d54a25b5bdd3bd462961379ec569b76b380cb4",
+    "receiptCount": 5,
     "receipts": [
-      "receipt-10f2b9eb43880275e54c70b803e6863acc3a8a2e31196656828cdd629a95fb6f",
-      "receipt-15adba0bedc8d3ba1f4110fc7d8259efd7e360aa62fa3c256fa1c4533f554291",
-      "receipt-4753cde92197756eb49a19740e23607bb0c18b16d9d12123bb6a1d16aa550957",
-      "receipt-5fed7516d1d02ca13bba3cf62b90ba8c521da2da7cd59919bdf3b9858c4c0033",
-      "receipt-ebfc3aa47facf98fa8633ec60e63c8b344e8e91ff319a2a291e12c34569d8b01"
+      "receipt-10b6693040e34017ca2201677c7e9dde650ac812ee0c2516b60e3dcca34c4808",
+      "receipt-19c47c1d0e6c15da040b07d87dc446e945f92768d3cac0b30a38e18caabb4ed7",
+      "receipt-2745c0768c98cccb954b420d8a701d27a53b8640434a101567c846479ea19ed8",
+      "receipt-65cd8edd33a9da10415dc79f883d215673f9f69f5752e06a4740cef2521f1d28",
+      "receipt-b4c502ab8720fc1120f9d3848de1f5a42a1961999c9e9419ede7d4d38576aa95"
     ],
     "result": "passed"
   },
+  "parityAcceptance": {
+    "path": "evidence/functional-parity/0051/parity-links.json",
+    "sha256": "929a4d48fb2c67caa0e9fc82d6f5b2d11eaaa28647b325ece7ff0503f696472b",
+    "acceptedIntentAuthorityRevision": "0354357f8007f974f41d63a9dfb7cfda957e6688",
+    "runtimeEvidenceAuthorityRevision": "0fce5995e6951635c169a8607eb06f43b3038cdb",
+    "linkedJourneys": 5,
+    "authorityReferenceFailures": 0,
+    "globalReportStatus": "stale",
+    "globalReportLimit": "remaining migration journeys are still uncovered; this is not a global functional-parity or production-cutover claim"
+  },
+  "portableDatabaseProof": {
+    "path": "evidence/functional-parity/0051/pglite-proof.json",
+    "sha256": "ffd6df6cf2f2296b616fa7c2906e7f2132c0a852c35a75eb636e9b1efeb5c510",
+    "command": "bunx vitest run packages/database/src/database.test.ts --testNamePattern='records all invitation outcomes|replays message confinement|rejects relationally incomplete|isolates unknown and superseded|keeps a committed response when response-notification delivery fails' --reporter=json",
+    "tests": 5,
+    "result": "Passed"
+  },
+  "postgresqlProof": {
+    "path": "evidence/functional-parity/0051/postgres-proof.json",
+    "sha256": "31ab5f538397e7692ef8796ae61bccbc80417d29dfbd36a367c76b33899d12aa",
+    "cohort": "recruitment-invitation-response-postgres-proof-0051-v1",
+    "evidenceSha256": "3922003d22c67ad1662bf1b4764cdcb83ecb3784561275648fbc6156302cbb00",
+    "acceptedTransitions": 1,
+    "alreadyRespondedRejections": 1,
+    "independentConnections": true,
+    "rollbackPreserved": true,
+    "messageConfinement": true,
+    "deliveryFailurePreservedCommittedResponse": true,
+    "result": "Passed"
+  },
   "packageValidation": [
     {
-      "package": "apps/dashboard",
-      "command": "bunx vitest run app/lib/interview-bridge.server.test.ts app/foldkit/interview/browser-client.test.ts && bun run check-types",
+      "scope": "root-static",
+      "command": "bun run check",
       "result": "Passed",
-      "tests": 14
+      "notes": "format, generated docs, lint and workspace type checks passed; five existing warnings were reported"
+    },
+    {
+      "scope": "resource-bounded-workspace-tests",
+      "command": "Vitest workspaces ran with --maxWorkers=4; parity inventory ran with bun test; domain runtime proofs ran serially",
+      "result": "Passed",
+      "tests": 1101,
+      "skipped": 4
+    },
+    {
+      "scope": "root-build",
+      "command": "bun run docs:generate:check && bunx turbo build --concurrency=1",
+      "result": "Passed",
+      "tasks": 11
     }
   ],
-  "independentReview": [
-    "review found and the implementation closed the mounted trailing-slash bridge-resolution defect",
-    "review found and the implementation closed the multibyte 2000-character bridge-body defect",
-    "review found no remaining defect in the identifier-bound response-outbox payload correction"
-  ],
+  "resourceIncident": {
+    "command": "bun run test",
+    "result": "Not accepted as verification",
+    "observation": "the parallel Turbo run triggered systemd-oomd and produced timeout failures under resource contention",
+    "recovery": "all test-bearing workspaces were rerun without cross-workspace concurrency; Vitest workspaces used at most four workers and all 1101 executed tests passed"
+  },
   "sourceEquivalence": {
-    "runtimeRevision": "885d6222591839f3e1376c4a611c512c444f0cfb",
-    "finalExecutableSourceRevision": "885d6222591839f3e1376c4a611c512c444f0cfb",
+    "runtimeRevision": "c0968c587a87ffb107c98e30b7d114ecf94d9698",
+    "finalJourneyExecutableSourceRevision": "c0968c587a87ffb107c98e30b7d114ecf94d9698",
     "verified": true,
     "postRuntimeChanges": [
-      "design-specs/0051-native-recruitment-invitation-response.md",
-      "evidence/functional-parity/0050/acceptance-manifest.json",
+      "apps/docs/scripts/generate-reference.ts",
+      "apps/docs/src/pages/reference/design-spec-evidence-index.mdx",
       "evidence/functional-parity/0051/acceptance-manifest.json",
-      "evidence/functional-parity/runtime/0050/runtime.json",
-      "evidence/functional-parity/runtime/0051/runtime.json"
+      "evidence/functional-parity/0051/parity-links.json",
+      "evidence/functional-parity/0051/pglite-proof.json",
+      "evidence/functional-parity/0051/postgres-proof.json",
+      "evidence/functional-parity/runtime/0051-invitation-final.json"
     ]
   },
   "skippedOrUnavailable": [
     "No production data, credentials, provider, remote push, deployment or cutover was used",
     "No real notification provider was contacted; the gateway rejected outbound fetches",
-    "No claim is made for co-interviewer delivery or behavior outside frozen design spec 0051"
+    "No claim is made for co-interviewer delivery or behavior outside frozen design spec 0051",
+    "Production cutover remains separately unauthorized"
   ]
 }
