@@ -156,7 +156,11 @@ export async function runCoInterviewerCorrectionJourney(
     assert.equal(response.status, 200, await response.clone().text());
     assert.ok(responseEtag, "detail response must carry a strong ETag");
     const body: unknown = await response.json();
-    return { body: Schema.decodeUnknownSync(DetailSchema)(body), etag: responseEtag };
+    try {
+      return { body: Schema.decodeUnknownSync(DetailSchema)(body), etag: responseEtag };
+    } catch (cause) {
+      throw new Error(`invalid interview detail response: ${JSON.stringify(body)}`, { cause });
+    }
   };
   const getBoard = async (cookie: string): Promise<Board> => {
     const response = await fetch(`${api}/api/recruitment/interviews`, { headers: headers(cookie) });
