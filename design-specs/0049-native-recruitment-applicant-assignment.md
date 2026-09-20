@@ -4,8 +4,8 @@
 
 | Field | Value |
 |---|---|
-| Status | Contract remains frozen. Amendments 0049.1 and 0049.2 authorize bounded evidence-harness and evidence-runner corrections only. Amendment implementation, runtime evidence, and acceptance evidence are pending. |
-| Revision | Amendments 0049.1 and 0049.2 record the native Identity, receipt, and cold-start evidence contracts. Implementation and evidence remain pending. |
+| Status | Contract remains frozen. Amendment 0049.3 records the current native v0.2 transport for final local acceptance. |
+| Revision | Amendments 0049.1 through 0049.3 define the Identity, receipt, cold-start, and native transport evidence contracts. Acceptance evidence is pending. |
 | Base | `d867bf7b7eea44412e267127006f8c7c7dbadab2` (`d867bf7`) |
 | Goal | Replace the Symfony applicant-assignment seam with one native Recruitment authority and one full-Foldkit team-leader journey |
 | Actor | Active department team leader |
@@ -101,6 +101,33 @@ It authorizes no product, route, authentication, access-policy, transaction, rec
 It authorizes no production data, remote PostgreSQL, provider, credential, deployment, external notification, or other remote effect.
 
 Implementation, runtime evidence, and acceptance evidence remain pending.
+
+## Amendment 0049.3 — native v0.2 transport evidence
+
+The generated native API replaced the temporary admin routes after amendments
+0049.1 and 0049.2. This change did not change the assignment behavior.
+
+The acceptance run must observe this native transport:
+
+1. `GET /api/recruitment/application-assignments?status=all` returns `200`.
+2. One immediate duplicate of the first request is permitted during a Vite cold start.
+3. `GET /api/recruitment/application-assignments?status=new` returns `200`.
+4. `POST /api/recruitment/applications/{applicationId}/interviews` returns `201`.
+5. A fresh `GET /api/recruitment/application-assignments?status=new` returns `200`.
+6. `GET /api/recruitment/application-assignments?status=all` returns `200`.
+
+The dashboard bridge must observe `readAssignmentBoard`,
+`createApplicationInterview`, `readAssignmentBoard`, and
+`readAssignmentBoard`. Each bridge response must return `200`.
+
+The POST path owns `applicationId`. The body contains only
+`interviewerPersonId` and `interviewSchemaId`. The request also contains one
+`Idempotency-Key` header. The response contains the generated v0.2 resource and
+one strong ETag.
+
+These rules replace only the old route strings and transport status in
+amendments 0049.1 and 0049.2. All authority, persistence, fresh-read, receipt,
+and cleanup rules stay unchanged. No compatibility route is permitted.
 
 ## Problem
 
