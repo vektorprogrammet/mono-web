@@ -59,10 +59,27 @@ ALTER TABLE recruitment_invitation_response_outbox
     )
     OR (
       status NOT IN ('Delivered', 'Quarantined')
+      AND payload_json = jsonb_build_object(
+        '_tag', payload_json->'_tag',
+        'effectId', payload_json->'effectId',
+        'invitationId', payload_json->'invitationId',
+        'interviewId', payload_json->'interviewId',
+        'scheduleRevision', payload_json->'scheduleRevision',
+        'responseRevision', payload_json->'responseRevision',
+        'applicantDisplayName', payload_json->'applicantDisplayName',
+        'interviewerEmail', payload_json->'interviewerEmail',
+        'interviewerPhone', payload_json->'interviewerPhone',
+        'scheduledAt', payload_json->'scheduledAt',
+        'responseState', payload_json->'responseState',
+        'responseMessage', payload_json->'responseMessage'
+      )
+      AND (payload_json->>'_tag') IS NOT DISTINCT FROM effect_type
       AND (payload_json->>'effectId') IS NOT DISTINCT FROM effect_id
       AND (payload_json->>'invitationId') IS NOT DISTINCT FROM invitation_id
       AND (payload_json->>'interviewId') IS NOT DISTINCT FROM interview_id
-      AND (payload_json - 'effectId' - 'invitationId' - 'interviewId')::text
-        !~ '[A-Za-z0-9_-]{43}'
+      AND (payload_json->'scheduleRevision') = to_jsonb(schedule_revision)
+      AND (payload_json->'responseRevision') = to_jsonb(response_revision)
+      AND (payload_json->>'responseState') IS NOT DISTINCT FROM response_state
+      AND (payload_json->>'responseMessage') IS NOT DISTINCT FROM response_message
     )
   );
