@@ -25,6 +25,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     );
   } catch (cause) {
     const problem = nativeProblemFrom(cause);
+    if (problem === undefined) throw cause;
     if (problem?.code === "credential.missing" || problem?.code === "credential.invalid") {
       throw await expiredSessionRedirect(request);
     }
