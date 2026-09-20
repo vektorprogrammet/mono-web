@@ -16,7 +16,7 @@ const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 const composeFile = join(repositoryRoot, "docker-compose.yml");
-const dashboardPort = 5184;
+const dashboardPort = 5174;
 const backendPort = 8796;
 const postgresPort = 55432;
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
@@ -498,8 +498,7 @@ async function startRecordingProxy(targetOrigin) {
         typeof request.headers["idempotency-key"] === "string"
           ? request.headers["idempotency-key"]
           : null,
-      ifMatch:
-        typeof request.headers["if-match"] === "string" ? request.headers["if-match"] : null,
+      ifMatch: typeof request.headers["if-match"] === "string" ? request.headers["if-match"] : null,
       requestJson,
       responseJson: null,
       responseEtag: null,
@@ -533,10 +532,7 @@ async function startRecordingProxy(targetOrigin) {
       record.status = upstream.status;
       record.responseJson = responseJson ?? null;
       record.responseEtag = upstream.headers.get("etag");
-      record.responseHasResponseCapability = hasObjectKey(
-        responseJson,
-        "responseCapability",
-      );
+      record.responseHasResponseCapability = hasObjectKey(responseJson, "responseCapability");
       response.statusCode = upstream.status;
       for (const [name, value] of upstream.headers.entries()) {
         if (
