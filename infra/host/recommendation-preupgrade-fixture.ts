@@ -77,6 +77,56 @@ export type InterviewCorrectionPre0039Fixture = Readonly<{
   before0039: InterviewCorrectionPre0039Snapshot;
 }>;
 
+/**
+ * Synthetic post-migration designation for the bounded 0106 rehearsal.
+ * Identity rows are created by the real native identity seed; this fixture
+ * only creates active membership facts and the already-designated aggregate.
+ */
+export const coInterviewerCorrection0106Fixture = {
+  targetInterviewId: fixtureIds.historicalNull,
+  selfLinkRaceInterviewId: "interview-recommendation-link-race",
+  primaryPersonId: leaderPersonId,
+  primaryMembershipId: "membership-native-conduct-leader-0063",
+  departmentId: "department-native-conduct-0063",
+  teamId: "team-native-conduct-0063",
+  coInterviewer: {
+    personId: "journey-co-interviewer-0106",
+    membershipId: "membership-co-interviewer-0106",
+    firstName: "Cora",
+    lastName: "Medintervjuer",
+    displayName: "Cora Medintervjuer",
+    email: "cora.co-interviewer@example.invalid",
+    password: "co-interviewer-secret-0106",
+  },
+  unassignedMember: {
+    personId: "journey-unassigned-member-0106",
+    membershipId: "membership-unassigned-member-0106",
+    firstName: "Una",
+    lastName: "Tildelt",
+    email: "una.unassigned@example.invalid",
+    password: "unassigned-member-secret-0106",
+  },
+} as const;
+
+export const coInterviewerCorrection0106IdentitySeeds = [
+  {
+    personId: coInterviewerCorrection0106Fixture.coInterviewer.personId,
+    firstName: coInterviewerCorrection0106Fixture.coInterviewer.firstName,
+    lastName: coInterviewerCorrection0106Fixture.coInterviewer.lastName,
+    email: coInterviewerCorrection0106Fixture.coInterviewer.email,
+    password: coInterviewerCorrection0106Fixture.coInterviewer.password,
+  },
+  {
+    personId: coInterviewerCorrection0106Fixture.unassignedMember.personId,
+    firstName: coInterviewerCorrection0106Fixture.unassignedMember.firstName,
+    lastName: coInterviewerCorrection0106Fixture.unassignedMember.lastName,
+    email: coInterviewerCorrection0106Fixture.unassignedMember.email,
+    password: coInterviewerCorrection0106Fixture.unassignedMember.password,
+  },
+] as const;
+
+export type CoInterviewerCorrection0106Fixture = typeof coInterviewerCorrection0106Fixture;
+
 type SqlConnection = Pool | PoolClient;
 
 const clone = async (
@@ -300,4 +350,121 @@ export const assertInterviewCorrectionPre0039Preserved = async (
 ): Promise<void> => {
   const after0039 = await readInterviewCorrectionPre0039Snapshot(connection);
   assert.deepEqual(after0039, fixture.before0039, "0039 changed pre-existing recruitment records");
+};
+
+export const seedCoInterviewerCorrection0106Fixture = async ({
+  pool,
+}: {
+  readonly pool: Pool;
+}): Promise<CoInterviewerCorrection0106Fixture> => {
+  const fixture = coInterviewerCorrection0106Fixture;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    try {
+      const identities = await client.query(
+        `SELECT person_id AS "personId"
+           FROM public.person_profiles
+          WHERE person_id = ANY($1::text[])
+          ORDER BY person_id`,
+        [[fixture.coInterviewer.personId, fixture.unassignedMember.personId].sort()],
+      );
+      assert.deepEqual(
+        identities.rows.map((row) => row.personId),
+        [fixture.coInterviewer.personId, fixture.unassignedMember.personId].sort(),
+        "0106 identity seed must create both ordinary native Persons before designation",
+      );
+      const sourceMembership = await client.query(
+        `SELECT membership.membership_id AS "membershipId", membership.person_id AS "personId",
+                membership.is_team_leader AS "isTeamLeader", membership.is_suspended AS "isSuspended",
+                membership.end_at AS "endAt", team.team_id AS "teamId",
+                team.department_id AS "departmentId"
+           FROM public.organization_memberships AS membership
+           JOIN public.organization_teams AS team USING(team_id)
+          WHERE membership.membership_id = $1`,
+        [fixture.primaryMembershipId],
+      );
+      assert.deepEqual(sourceMembership.rows, [
+        {
+          membershipId: fixture.primaryMembershipId,
+          personId: fixture.primaryPersonId,
+          isTeamLeader: false,
+          isSuspended: false,
+          endAt: null,
+          teamId: fixture.teamId,
+          departmentId: fixture.departmentId,
+        },
+      ]);
+      const existingMemberships = await client.query(
+        `SELECT membership_id AS "membershipId"
+           FROM public.organization_memberships
+          WHERE membership_id = ANY($1::text[])
+          ORDER BY membership_id`,
+        [[fixture.coInterviewer.membershipId, fixture.unassignedMember.membershipId].sort()],
+      );
+      assert.equal(existingMemberships.rows.length, 0, "0106 fixture memberships must be fresh");
+      for (const person of [fixture.coInterviewer, fixture.unassignedMember]) {
+        await clone(client, "person_contact_profiles", `person_id='${fixture.primaryPersonId}'`, {
+          person_id: person.personId,
+          email: person.email,
+        });
+        await clone(
+          client,
+          "organization_memberships",
+          `membership_id='${fixture.primaryMembershipId}'`,
+          {
+            membership_id: person.membershipId,
+            person_id: person.personId,
+            is_team_leader: false,
+            position_id: "member",
+            is_suspended: false,
+            revision: 0,
+          },
+        );
+      }
+      const candidates = await client.query(
+        `SELECT interview_id AS "interviewId", interviewer_person_id AS "interviewerPersonId",
+                co_interviewer_person_id AS "coInterviewerPersonId"
+           FROM public.recruitment_interviews
+          WHERE interview_id = ANY($1::text[])
+          ORDER BY interview_id`,
+        [[fixture.targetInterviewId, fixture.selfLinkRaceInterviewId].sort()],
+      );
+      assert.equal(candidates.rows.length, 2, "0106 fixture needs completed and self-link race interviews");
+      for (const row of candidates.rows) {
+        assert.equal(row.interviewerPersonId, fixture.primaryPersonId);
+        assert.equal(
+          row.coInterviewerPersonId,
+          null,
+          "pre-0040 fixture rows must remain undesignated before the synthetic 0106 designation",
+        );
+      }
+      const designated = await client.query(
+        `UPDATE public.recruitment_interviews
+            SET co_interviewer_person_id=$1
+          WHERE interview_id = ANY($2::text[])
+          RETURNING interview_id AS "interviewId", co_interviewer_person_id AS "coInterviewerPersonId"`,
+        [
+          fixture.coInterviewer.personId,
+          [fixture.targetInterviewId, fixture.selfLinkRaceInterviewId],
+        ],
+      );
+      assert.deepEqual(
+        designated.rows.sort((left, right) => String(left.interviewId).localeCompare(String(right.interviewId))),
+        [fixture.targetInterviewId, fixture.selfLinkRaceInterviewId]
+          .sort()
+          .map((interviewId) => ({
+            interviewId,
+            coInterviewerPersonId: fixture.coInterviewer.personId,
+          })),
+      );
+      await client.query("COMMIT");
+    } catch (cause) {
+      await client.query("ROLLBACK");
+      throw cause;
+    }
+  } finally {
+    client.release();
+  }
+  return fixture;
 };

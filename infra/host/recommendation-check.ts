@@ -28,7 +28,10 @@ import {
 } from "./returning-assistant-journey.ts";
 import {
   assertInterviewCorrectionPre0039Preserved,
+  coInterviewerCorrection0106IdentitySeeds,
+  seedCoInterviewerCorrection0106Fixture,
   seedInterviewCorrectionPre0039Fixture,
+  type CoInterviewerCorrection0106Fixture,
   type InterviewCorrectionPre0039Fixture,
 } from "./recommendation-preupgrade-fixture.ts";
 import {
@@ -36,6 +39,7 @@ import {
   type InterviewCorrectionReplayRequest,
 } from "./interview-correction-boundaries.ts";
 import { assertInterviewCorrectionIntegrity } from "./interview-correction-integrity.ts";
+import { runCoInterviewerCorrectionJourney } from "./co-interviewer-correction-0106.ts";
 import { DatabaseLive } from "../../packages/database/src/index.js";
 import { AdmissionsLive } from "../../packages/domain/src/admissions/index.js";
 import { OrganizationLive } from "../../packages/domain/src/organization/index.js";
@@ -82,6 +86,12 @@ class CorrectionTargetedComplete extends Error {
     super("correction targeted journey complete");
   }
 }
+class CoInterviewerTargetedComplete extends Error {
+  constructor(readonly result: unknown) {
+    super("co-interviewer targeted journey complete");
+  }
+}
+const coInterviewerMode = process.argv.includes("--co-interviewer-mode");
 if (process.argv.includes("--report")) validateInterviewReportFixture();
 if (process.argv.includes("--validate-fixture")) {
   // oxlint-effect-plugin allow(no-ambient-console): dev only: local fixture validation result.
@@ -141,6 +151,7 @@ const ready = async (test: () => Promise<boolean>) => {
 let pool: any, browser: any, page: any, heldIdentityClient: any, backend: any;
 let correctionPre0039Fixture: InterviewCorrectionPre0039Fixture | undefined;
 let acceptedCorrectionReplay: InterviewCorrectionReplayRequest | undefined;
+let coInterviewerFixture: CoInterviewerCorrection0106Fixture | undefined;
 let expectedHistoricalReportRecommendation: "Ja" | "Kanskje" | "Nei" | undefined;
 let effectServer: Server | undefined;
 const effectCalls: EffectReceiverCall[] = [];
@@ -170,6 +181,7 @@ const auditPage = async (page: any, state: string) => {
   let evidence = JSON.stringify(accessibility, null, 2);
   for (const secret of secrets) evidence = evidence.replaceAll(secret, "[redacted]");
   await writeFile(join(artifacts, "accessibility.json"), evidence);
+  return violations;
 };
 const assertNoRecommendation = (value: unknown): void => {
   if (Array.isArray(value)) for (const item of value) assertNoRecommendation(item);
@@ -413,10 +425,15 @@ try {
           email: "lina.conduct@example.invalid",
           password: "journey-conduct-secret-0123456789",
         },
+        ...(coInterviewerMode ? coInterviewerCorrection0106IdentitySeeds : []),
       ]),
     },
     join(root, "packages/database"),
   );
+  if (coInterviewerMode) {
+    coInterviewerFixture = await seedCoInterviewerCorrection0106Fixture({ pool });
+    recordGate("seeded synthetic 0106 co-interviewer designation after the canonical migration chain");
+  }
   await seedReturningAssistant({ pool, run, env, root });
   await seedInterviewReportCoordinator({ pool, secrets });
   if (effectMode === "http") {
@@ -531,6 +548,34 @@ try {
   const cookies = await context.cookies();
   const cookie = cookies.map((c: any) => `${c.name}=${c.value}`).join("; ");
   secrets.push(...cookies.map((c: any) => c.value));
+  if (coInterviewerMode) {
+    if (coInterviewerFixture === undefined)
+      throw new Error("co-interviewer targeted mode requires its synthetic designation fixture");
+    const journey = await runCoInterviewerCorrectionJourney({
+      pool,
+      browser,
+      primaryCookie: cookie,
+      api,
+      ui,
+      artifacts,
+      revision,
+      fixture: coInterviewerFixture,
+      errors,
+      secrets,
+      effectsBefore,
+      effectSnapshot,
+      auditPage,
+      recordGate,
+    });
+    for (const entry of await readdir(artifacts, { withFileTypes: true })) {
+      if (entry.isFile() && !entry.name.endsWith(".png")) {
+        const text = await readFile(join(artifacts, entry.name), "utf8");
+        for (const secret of secrets)
+          assert.ok(!text.includes(secret), `retained artifact ${entry.name} contains a credential`);
+      }
+    }
+    throw new CoInterviewerTargetedComplete(journey);
+  }
   if (process.argv.includes("--returning-mode")) {
     let currentStage = "returning:startup";
     const returningStages: string[] = [];
@@ -2321,6 +2366,17 @@ try {
     console.log(
       JSON.stringify({
         result: "ReturningTargeted",
+        revision,
+        artifacts,
+        gates,
+        journey: error.result,
+      }),
+    );
+  } else if (error instanceof CoInterviewerTargetedComplete) {
+    // oxlint-effect-plugin allow(no-ambient-console): bounded local co-interviewer result.
+    console.log(
+      JSON.stringify({
+        result: "CoInterviewerTargeted",
         revision,
         artifacts,
         gates,

@@ -13,6 +13,8 @@ export type InterviewCorrectionReplayRequest = Readonly<{
   };
 }>;
 
+export type InterviewCorrectionParticipantRole = "primary" | "co";
+
 export type InterviewCorrectionBoundaryContext = Readonly<{
   pool: Pool;
   api: string;
@@ -24,6 +26,7 @@ export type InterviewCorrectionBoundaryContext = Readonly<{
   membershipId: string;
   selfLinkRaceInterviewId: string;
   acceptedReplay: InterviewCorrectionReplayRequest;
+  participantRole?: InterviewCorrectionParticipantRole;
   recordGate?: (...observations: string[]) => void;
 }>;
 
@@ -59,6 +62,7 @@ export async function assertInterviewCorrectionBoundaries(
     membershipId,
     selfLinkRaceInterviewId,
     acceptedReplay,
+    participantRole = "primary",
   } = context;
   const gates: string[] = [];
   const statuses: Record<string, number> = {};
@@ -75,6 +79,7 @@ export async function assertInterviewCorrectionBoundaries(
 
   const identityRows = await pool.query(
     `SELECT i.interview_id AS "interviewId", i.interviewer_person_id AS "interviewerPersonId",
+            i.co_interviewer_person_id AS "coInterviewerPersonId",
             a.applicant_id AS "applicantId", a.application_id AS "applicationId",
             i.department_id AS "departmentId",
             l.person_id AS "linkedPersonId"
@@ -98,6 +103,20 @@ export async function assertInterviewCorrectionBoundaries(
   assert.ok(identity && raceIdentity);
   assert.equal(identity.linkedPersonId, null, "target correction fixture must start unlinked");
   assert.equal(raceIdentity.linkedPersonId, null, "self-link race fixture must start unlinked");
+  const participantColumn =
+    participantRole === "primary" ? "interviewer_person_id" : "co_interviewer_person_id";
+  const participantField =
+    participantRole === "primary" ? "interviewerPersonId" : "coInterviewerPersonId";
+  assert.equal(
+    identity[participantField],
+    actorPersonId,
+    `target correction fixture must designate the ${participantRole} actor`,
+  );
+  assert.equal(
+    raceIdentity[participantField],
+    actorPersonId,
+    `self-link race fixture must designate the ${participantRole} actor`,
+  );
 
   const departments = await pool.query(
     `SELECT department_id AS "departmentId"
@@ -161,7 +180,7 @@ export async function assertInterviewCorrectionBoundaries(
   const snapshot = async (): Promise<OwnedSnapshot> => ({
     interviews: await readRows(
       `SELECT interview_id, application_id, department_id, interviewer_person_id,
-              interview_schema_id, assigned_by_person_id, assigned_at, revision
+              co_interviewer_person_id, interview_schema_id, assigned_by_person_id, assigned_at, revision
          FROM public.recruitment_interviews
         WHERE interview_id = ANY($1::text[])
         ORDER BY interview_id`,
@@ -351,7 +370,7 @@ export async function assertInterviewCorrectionBoundaries(
       client
         .query(
           `UPDATE public.recruitment_interviews
-              SET interviewer_person_id=$1
+              SET ${participantColumn}=$1
             WHERE interview_id=$2`,
           [otherPersonId, interviewId],
         )
@@ -360,18 +379,14 @@ export async function assertInterviewCorrectionBoundaries(
       client
         .query(
           `UPDATE public.recruitment_interviews
-              SET interviewer_person_id=$1
+              SET ${participantColumn}=$1
             WHERE interview_id=$2`,
-          [originalInterview.interviewerPersonId, interviewId],
+          [originalInterview[participantField], interviewId],
         )
         .then(() => undefined),
-    () => denied("wrong-assigned-interviewer", 403, cookie, initial.body, initial.etag),
+    () => denied(`wrong-${participantRole}-participant`, 403, cookie, initial.body, initial.etag),
   );
-  record("wrong interviewer assignment denies detail and correction");
-
-  record(
-    "native authority models an assigned interviewer only; no synthetic unassigned or co-interviewer role is introduced",
-  );
+  record(`removed ${participantRole} participant designation denies detail and correction`);
   const originalMembership = (
     await readRows(
       `SELECT membership_id, person_id, team_id, deleted_team_name, start_at, end_at,

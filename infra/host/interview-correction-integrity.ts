@@ -26,6 +26,11 @@ type DatabaseError = Readonly<{
   constraint?: unknown;
 }>;
 
+export type InterviewCorrectionIntegrityOptions = Readonly<{
+  expectedCorrectedByPersonId?: string;
+  expectedCoInterviewerPersonId?: string | null;
+}>;
+
 const freshId = (prefix: string) => `${prefix}-${randomBytes(12).toString("hex")}`;
 
 const queryRows = async (client: Pool | PoolClient, text: string, values: unknown[] = []) =>
@@ -34,7 +39,7 @@ const queryRows = async (client: Pool | PoolClient, text: string, values: unknow
 const readSnapshot = async (pool: Pool, interviewId: string): Promise<PersistedSnapshot> => ({
   aggregate: await queryRows(
     pool,
-    `SELECT interview_id, revision
+    `SELECT interview_id, revision, co_interviewer_person_id
        FROM public.recruitment_interviews
       WHERE interview_id=$1`,
     [interviewId],
@@ -209,6 +214,7 @@ const insertReceipt = async (
 export async function assertInterviewCorrectionIntegrity(
   pool: Pool,
   interviewId: string,
+  options: InterviewCorrectionIntegrityOptions = {},
 ): Promise<void> {
   const seed = await readCorrectionSeed(pool, interviewId);
   const commandId = await readCommandIds(pool, interviewId);
@@ -217,6 +223,28 @@ export async function assertInterviewCorrectionIntegrity(
   const baseline = await readSnapshot(pool, interviewId);
   assert.equal(baseline.aggregate.length, 1, "the corrected interview aggregate must exist");
   assert.equal(baseline.aggregate[0]!.revision, currentRevision);
+  if (options.expectedCoInterviewerPersonId !== undefined) {
+    assert.equal(
+      baseline.aggregate[0]!.co_interviewer_person_id,
+      options.expectedCoInterviewerPersonId,
+      "integrity target must retain its designated co-interviewer",
+    );
+  }
+  if (options.expectedCorrectedByPersonId !== undefined) {
+    assert.equal(
+      seed.correctedByPersonId,
+      options.expectedCorrectedByPersonId,
+      "latest correction must retain the expected actor",
+    );
+    const audit = await queryRows(
+      pool,
+      `SELECT actor_person_id
+         FROM public.recruitment_interview_correction_audit
+        WHERE command_id=$1`,
+      [commandId],
+    );
+    assert.deepEqual(audit, [{ actor_person_id: options.expectedCorrectedByPersonId }]);
+  }
   await assertRejectedAndUnchanged(
     pool,
     interviewId,
