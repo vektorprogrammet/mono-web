@@ -147,6 +147,10 @@ const interviewAssessmentCorrectionsMigrationUrl = new URL(
   "../migrations/0039-interview-assessment-corrections.sql",
   import.meta.url,
 );
+const coInterviewerAuthorityMigrationUrl = new URL(
+  "../migrations/0040-co-interviewer-authority.sql",
+  import.meta.url,
+);
 export const databaseMigrationDefinitions = [
   { id: "1_receipt-authority", name: "receipt-authority", url: receiptMigrationUrl },
   {
@@ -330,6 +334,11 @@ export const databaseMigrationDefinitions = [
     id: "39_interview-assessment-corrections",
     name: "interview-assessment-corrections",
     url: interviewAssessmentCorrectionsMigrationUrl,
+  },
+  {
+    id: "40_co-interviewer-authority",
+    name: "co-interviewer-authority",
+    url: coInterviewerAuthorityMigrationUrl,
   },
 ] as const;
 
