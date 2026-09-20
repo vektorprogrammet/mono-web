@@ -2045,7 +2045,7 @@
         ],
         "requirements": [
           {
-            "id": "recruitment.assigned-interviewer"
+            "id": "recruitment.assigned-interviewer-or-co-interviewer"
           },
           {
             "id": "recruitment.not-known-self"
@@ -2234,7 +2234,7 @@
         ],
         "requirements": [
           {
-            "id": "recruitment.assigned-interviewer"
+            "id": "recruitment.assigned-interviewer-or-co-interviewer"
           },
           {
             "id": "recruitment.not-known-self"

@@ -495,7 +495,7 @@
             "type": "array"
           },
           "recommendation": {
-            "$ref": "#/components/schemas/Union_17"
+            "$ref": "#/components/schemas/Union_18"
           },
           "rows": {
             "items": {
@@ -526,7 +526,7 @@
                 "recommendation": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Union_19"
+                      "$ref": "#/components/schemas/Union_20"
                     },
                     {
                       "type": "null"
@@ -571,7 +571,7 @@
             ]
           },
           "sort": {
-            "$ref": "#/components/schemas/Union_18"
+            "$ref": "#/components/schemas/Union_19"
           }
         },
         "required": [
@@ -761,7 +761,7 @@
                     "recommendation": {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Union_19"
+                          "$ref": "#/components/schemas/Union_20"
                         },
                         {
                           "type": "null"
@@ -828,7 +828,7 @@
                       "type": "integer"
                     },
                     "recommendation": {
-                      "$ref": "#/components/schemas/Union_19"
+                      "$ref": "#/components/schemas/Union_20"
                     },
                     "revision": {
                       "allOf": [
@@ -881,7 +881,7 @@
           "recommendation": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Union_19"
+                "$ref": "#/components/schemas/Union_20"
               },
               {
                 "type": "null"
@@ -1026,7 +1026,7 @@
             "type": "integer"
           },
           "recommendation": {
-            "$ref": "#/components/schemas/Union_19"
+            "$ref": "#/components/schemas/Union_20"
           },
           "score": {
             "$ref": "#/components/schemas/Objects_73"
@@ -1623,7 +1623,7 @@
             "type": "array"
           },
           "recommendation": {
-            "$ref": "#/components/schemas/Union_19"
+            "$ref": "#/components/schemas/Union_20"
           },
           "score": {
             "$ref": "#/components/schemas/Objects_73"
@@ -5379,7 +5379,7 @@
             "type": "string"
           },
           "status": {
-            "$ref": "#/components/schemas/Union_21"
+            "$ref": "#/components/schemas/Union_22"
           },
           "sticky": {
             "type": "boolean"
@@ -6456,7 +6456,7 @@
             "type": "integer"
           },
           "status": {
-            "$ref": "#/components/schemas/Union_20"
+            "$ref": "#/components/schemas/Union_21"
           },
           "visualId": {
             "type": "string"
@@ -6551,7 +6551,7 @@
             "type": "integer"
           },
           "status": {
-            "$ref": "#/components/schemas/Union_20"
+            "$ref": "#/components/schemas/Union_21"
           },
           "visualId": {
             "type": "string"
@@ -6682,7 +6682,7 @@
             "type": "integer"
           },
           "status": {
-            "$ref": "#/components/schemas/Union_20"
+            "$ref": "#/components/schemas/Union_21"
           },
           "submittedAt": {
             "type": "string"
@@ -6783,7 +6783,7 @@
             "type": "integer"
           },
           "status": {
-            "$ref": "#/components/schemas/Union_20"
+            "$ref": "#/components/schemas/Union_21"
           },
           "submittedAt": {
             "type": "string"
@@ -6959,6 +6959,16 @@
           "assignedByPersonId": {
             "type": "string"
           },
+          "coInterviewerPersonId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "departmentId": {
             "type": "string"
           },
@@ -6985,6 +6995,7 @@
           "applicationId",
           "departmentId",
           "interviewerPersonId",
+          "coInterviewerPersonId",
           "interviewSchemaId",
           "assignedByPersonId",
           "assignedAt",
@@ -7137,7 +7148,7 @@
             "type": "string"
           },
           "notificationState": {
-            "$ref": "#/components/schemas/Union_16"
+            "$ref": "#/components/schemas/Union_17"
           },
           "responseState": {
             "enum": [
@@ -7177,6 +7188,10 @@
                   "phone": "+47 900 00 000"
                 },
                 "applicationId": "app-0080",
+                "coInterviewer": {
+                  "displayName": "Ola Medintervjuer",
+                  "personId": "1003"
+                },
                 "departmentId": "1",
                 "etag": "\"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"",
                 "interviewer": {
@@ -7233,6 +7248,9 @@
               "applicationId": {
                 "type": "string"
               },
+              "coInterviewer": {
+                "$ref": "#/components/schemas/Union_14"
+              },
               "departmentId": {
                 "type": "string"
               },
@@ -7246,7 +7264,7 @@
                 "type": "string"
               },
               "notificationState": {
-                "$ref": "#/components/schemas/Union_15"
+                "$ref": "#/components/schemas/Union_16"
               },
               "responseMessage": {
                 "type": "null"
@@ -7263,7 +7281,7 @@
                 "type": "integer"
               },
               "schedule": {
-                "$ref": "#/components/schemas/Union_14"
+                "$ref": "#/components/schemas/Union_15"
               }
             },
             "required": [
@@ -7271,6 +7289,7 @@
               "applicationId",
               "departmentId",
               "interviewer",
+              "coInterviewer",
               "applicant",
               "revision",
               "schedule",
@@ -7290,6 +7309,9 @@
               "applicationId": {
                 "type": "string"
               },
+              "coInterviewer": {
+                "$ref": "#/components/schemas/Union_14"
+              },
               "departmentId": {
                 "type": "string"
               },
@@ -7303,7 +7325,7 @@
                 "type": "string"
               },
               "notificationState": {
-                "$ref": "#/components/schemas/Union_15"
+                "$ref": "#/components/schemas/Union_16"
               },
               "responseMessage": {
                 "type": "null"
@@ -7324,7 +7346,7 @@
                 "type": "integer"
               },
               "schedule": {
-                "$ref": "#/components/schemas/Union_14"
+                "$ref": "#/components/schemas/Union_15"
               }
             },
             "required": [
@@ -7332,6 +7354,7 @@
               "applicationId",
               "departmentId",
               "interviewer",
+              "coInterviewer",
               "applicant",
               "revision",
               "schedule",
@@ -7351,6 +7374,9 @@
               "applicationId": {
                 "type": "string"
               },
+              "coInterviewer": {
+                "$ref": "#/components/schemas/Union_14"
+              },
               "departmentId": {
                 "type": "string"
               },
@@ -7364,7 +7390,7 @@
                 "type": "string"
               },
               "notificationState": {
-                "$ref": "#/components/schemas/Union_15"
+                "$ref": "#/components/schemas/Union_16"
               },
               "responseMessage": {
                 "anyOf": [
@@ -7395,7 +7421,7 @@
                 "type": "integer"
               },
               "schedule": {
-                "$ref": "#/components/schemas/Union_14"
+                "$ref": "#/components/schemas/Union_15"
               }
             },
             "required": [
@@ -7403,6 +7429,7 @@
               "applicationId",
               "departmentId",
               "interviewer",
+              "coInterviewer",
               "applicant",
               "revision",
               "schedule",
@@ -7422,6 +7449,9 @@
               "applicationId": {
                 "type": "string"
               },
+              "coInterviewer": {
+                "$ref": "#/components/schemas/Union_14"
+              },
               "departmentId": {
                 "type": "string"
               },
@@ -7435,7 +7465,7 @@
                 "type": "string"
               },
               "notificationState": {
-                "$ref": "#/components/schemas/Union_15"
+                "$ref": "#/components/schemas/Union_16"
               },
               "responseMessage": {
                 "type": "string"
@@ -7459,7 +7489,7 @@
                 "type": "integer"
               },
               "schedule": {
-                "$ref": "#/components/schemas/Union_14"
+                "$ref": "#/components/schemas/Union_15"
               }
             },
             "required": [
@@ -7467,6 +7497,7 @@
               "applicationId",
               "departmentId",
               "interviewer",
+              "coInterviewer",
               "applicant",
               "revision",
               "schedule",
@@ -8072,7 +8103,25 @@
       "Union_14": {
         "anyOf": [
           {
-            "$ref": "#/components/schemas/Recruitment.RecruitmentInterviewScheduleEncoded"
+            "additionalProperties": false,
+            "properties": {
+              "displayName": {
+                "allOf": [
+                  {
+                    "maxLength": 250
+                  }
+                ],
+                "type": "string"
+              },
+              "personId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "personId",
+              "displayName"
+            ],
+            "type": "object"
           },
           {
             "type": "null"
@@ -8082,7 +8131,7 @@
       "Union_15": {
         "anyOf": [
           {
-            "$ref": "#/components/schemas/Union_16"
+            "$ref": "#/components/schemas/Recruitment.RecruitmentInterviewScheduleEncoded"
           },
           {
             "type": "null"
@@ -8090,6 +8139,16 @@
         ]
       },
       "Union_16": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/Union_17"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "Union_17": {
         "enum": [
           "Pending",
           "Processing",
@@ -8099,7 +8158,7 @@
         ],
         "type": "string"
       },
-      "Union_17": {
+      "Union_18": {
         "enum": [
           "all",
           "Ja",
@@ -8109,19 +8168,11 @@
         ],
         "type": "string"
       },
-      "Union_18": {
+      "Union_19": {
         "enum": [
           "applicant",
           "recommendation",
           "total"
-        ],
-        "type": "string"
-      },
-      "Union_19": {
-        "enum": [
-          "Ja",
-          "Kanskje",
-          "Nei"
         ],
         "type": "string"
       },
@@ -8137,6 +8188,14 @@
       },
       "Union_20": {
         "enum": [
+          "Ja",
+          "Kanskje",
+          "Nei"
+        ],
+        "type": "string"
+      },
+      "Union_21": {
+        "enum": [
           "Pending",
           "Refunded",
           "Rejected",
@@ -8144,7 +8203,7 @@
         ],
         "type": "string"
       },
-      "Union_21": {
+      "Union_22": {
         "enum": [
           "Draft",
           "Published"
@@ -14701,7 +14760,7 @@
                             "type": "string"
                           },
                           "status": {
-                            "$ref": "#/components/schemas/Union_21"
+                            "$ref": "#/components/schemas/Union_22"
                           },
                           "sticky": {
                             "type": "boolean"
@@ -15459,7 +15518,7 @@
                       "type": "string"
                     },
                     "status": {
-                      "$ref": "#/components/schemas/Union_21"
+                      "$ref": "#/components/schemas/Union_22"
                     },
                     "sticky": {
                       "type": "boolean"
@@ -34981,7 +35040,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "$ref": "#/components/schemas/Union_20"
+                  "$ref": "#/components/schemas/Union_21"
                 },
                 {
                   "type": "null"
@@ -35596,11 +35655,11 @@
                 {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Union_20"
+                      "$ref": "#/components/schemas/Union_21"
                     },
                     {
                       "items": {
-                        "$ref": "#/components/schemas/Union_20"
+                        "$ref": "#/components/schemas/Union_21"
                       },
                       "type": "array"
                     }
@@ -47760,7 +47819,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "$ref": "#/components/schemas/Union_17"
+                  "$ref": "#/components/schemas/Union_18"
                 },
                 {
                   "type": "null"
@@ -47795,7 +47854,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "$ref": "#/components/schemas/Union_18"
+                  "$ref": "#/components/schemas/Union_19"
                 },
                 {
                   "type": "null"
@@ -50085,7 +50144,7 @@
           ],
           "requirements": [
             {
-              "id": "recruitment.assigned-interviewer"
+              "id": "recruitment.assigned-interviewer-or-co-interviewer"
             },
             {
               "id": "recruitment.not-known-self"
@@ -53173,7 +53232,7 @@
           ],
           "requirements": [
             {
-              "id": "recruitment.assigned-interviewer"
+              "id": "recruitment.assigned-interviewer-or-co-interviewer"
             },
             {
               "id": "recruitment.not-known-self"

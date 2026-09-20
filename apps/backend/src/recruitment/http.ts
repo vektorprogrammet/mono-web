@@ -635,7 +635,7 @@ export const interviewETag = (
     resourceIdentity: `recruitment-interview:${source.interviewId}`,
     version: [
       source.interviewRevision,
-      source.coInterviewerPersonId,
+      source.coInterviewerPersonId ?? "Absent",
       source.authority.map((item) => [item.kind, item.identity, item.revisions]),
     ],
   });

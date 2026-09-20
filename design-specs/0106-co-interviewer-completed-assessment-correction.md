@@ -58,9 +58,9 @@ Legacy also permits self-assignment, administrative assignment, clearing, schedu
 | Current actor | Identity and Organization | Resolve the live Person and current active membership at every board read, detail read, correction, and replay. |
 | Primary interviewer | Recruitment interview | Existing required `interviewer_person_id`; unchanged by this journey. |
 | Co-interviewer | Recruitment interview | One nullable Person reference, distinct from the primary interviewer and applicant when the applicant association is known. Absence grants nothing. |
-| Board visibility | Recruitment | A member sees interviews where they are primary or co-interviewer. A department leader keeps the existing scheduling-board visibility but gains no correction authority from that visibility. |
-| Detail/correction access | Recruitment | Require current actor to equal the primary or co-interviewer, match the interview department through active authority, and pass known-self denial. |
-| Finalize/cancel/schedule access | Existing contracts | Unchanged. Co-interviewer designation alone does not grant these commands in `0106`. |
+| Board visibility | Recruitment | A member sees every interview where they are primary. A co-interviewer sees the interview only after original conduct exists, because `0106` grants completed-assessment correction rather than scheduling or initial-conduct authority. A department leader keeps existing scheduling-board visibility but gains no correction authority from that visibility. |
+| Detail/correction access | Recruitment | Require the current actor to equal the primary interviewer, or to equal the co-interviewer when original conduct exists; match the interview department through active authority and pass known-self denial. |
+| Finalize/cancel/schedule access | Existing contracts | Unchanged. Co-interviewer designation alone never grants these commands in `0106`; an unfinished co-interview is absent from the co-interviewer's board and its detail is denied. |
 | Original assessment | Recruitment conduct | Immutable, including original finalizer and completion instant. |
 | Effective assessment | Recruitment conduct | Derive from the original plus the linear correction chain. Both interviewers read the same projection. |
 | Correction receipt and audit | Recruitment | Exact `0105` semantics. The accepted audit actor is the co-interviewer Person. |
@@ -89,9 +89,9 @@ Extend the recruitment interview model and PostgreSQL row decoders with nullable
 
 Use separate authorization modes so this slice cannot accidentally widen other commands:
 
-- board read: primary OR co-interviewer for ordinary members;
-- detail read: primary OR co-interviewer;
-- correction command and exact replay: primary OR co-interviewer;
+- board read: every primary assignment, plus completed interviews for the co-interviewer;
+- detail read: primary interviewer, or co-interviewer only after original conduct exists;
+- correction command and exact replay: primary or co-interviewer for an existing completed assessment;
 - finalization, cancellation, and scheduling: preserve their existing authority.
 
 The detail/correction transaction keeps the existing custody-before-interview lock order. After locking the interview, resolve current department authority and require the actor to match one of the two interview participant fields. Perform that check before reading a correction receipt, original conduct, effective assessment, or history.

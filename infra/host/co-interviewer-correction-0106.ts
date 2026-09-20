@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
-import type { Browser, Page } from "../../apps/dashboard/node_modules/@playwright/test";
+import type { Browser, Page } from "@playwright/test";
 import type { Pool } from "pg";
 import {
   assertInterviewCorrectionBoundaries,

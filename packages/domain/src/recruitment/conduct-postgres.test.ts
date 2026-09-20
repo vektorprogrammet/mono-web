@@ -18,6 +18,7 @@ it.effect("denies an incomplete interview to a co-interviewer before loading det
     ): Effect.Effect<ReadonlyArray<unknown>> => {
       const statement = strings.join("?").replaceAll(/\s+/gu, " ").trim();
       statements.push(statement);
+      if (statement === "" || statement === "FOR UPDATE") return Effect.succeed([]);
       if (statement.includes("applicant_account_links")) {
         return Effect.succeed([
           {

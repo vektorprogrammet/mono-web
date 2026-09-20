@@ -1,4 +1,3 @@
-import { IdempotencyKey } from "../../packages/http-api/src/http-semantics.js";
 /**0101: previous-schema history -> actual migration -> production browser/API/PostgreSQL. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -56,7 +55,6 @@ const root = new URL("../../", import.meta.url).pathname;
 const dbRequire = createRequire(new URL("../../packages/database/package.json", import.meta.url));
 const uiRequire = createRequire(new URL("../../apps/dashboard/package.json", import.meta.url));
 const { Pool } = dbRequire("pg");
-const { Schema } = dbRequire("effect");
 const { Effect, Layer, Redacted } = dbRequire("effect");
 const fixtureKeys = {
   invalid0: "invalid-recommendation-0101-0",

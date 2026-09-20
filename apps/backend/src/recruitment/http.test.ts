@@ -297,7 +297,7 @@ describe("native recruitment HTTP boundary", () => {
           {
             ...board.interviews[0]!,
             coInterviewer: {
-              personId: "co-interviewer-1",
+              personId: PersonId.make("co-interviewer-1"),
               displayName: "Cora Co-interviewer",
             },
           },
