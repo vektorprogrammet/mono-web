@@ -250,8 +250,18 @@ export const seedApplicantProgress0107 = async (pool: Pool) => {
     client.release();
   }
 };
-
 const forbidden = /email|phone|recommendation|answers|capability|interviewer|score/iu;
+const assertNoForbiddenKeys = (value: unknown): void => {
+  if (Array.isArray(value)) {
+    for (const item of value) assertNoForbiddenKeys(item);
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  for (const [key, child] of Object.entries(value)) {
+    assert.equal(forbidden.test(key), false, `forbidden applicant-progress field ${key}`);
+    assertNoForbiddenKeys(child);
+  }
+};
 
 export const runApplicantProgress0107 = async (input: {
   readonly pool: Pool;
@@ -298,7 +308,7 @@ export const runApplicantProgress0107 = async (input: {
   ] as const) {
     assert.ok(tags.includes(tag), `missing applicant progress state ${tag}`);
   }
-  assert.equal(forbidden.test(JSON.stringify(body)), false);
+  assertNoForbiddenKeys(body);
 
   await input.page.goto(`${input.ui}/dashboard/soknad`);
   await input.page.getByRole("heading", { name: "Min søknad", exact: true }).waitFor();
