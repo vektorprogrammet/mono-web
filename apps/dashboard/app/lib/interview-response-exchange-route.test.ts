@@ -106,7 +106,7 @@ describe("recruitment invitation capability exchange", () => {
     const response = await thrownRedirect(capability, "/dashboard/", true);
 
     expect(response.headers.get("location")).toBe(
-      `/interview-response/redacted?interactionId=${interactionId}`,
+      `/dashboard/interview-response/redacted?interactionId=${interactionId}`,
     );
     expect(response.headers.get("set-cookie")).toContain("Path=/dashboard/interview");
     expect(bridge.createInvitationCapabilityCookie).toHaveBeenCalledWith(
