@@ -39,8 +39,8 @@ const interviewA = "interview-native-conduct-a-0063";
 const interviewB = "interview-native-conduct-b-0063";
 const invitationA = "invitation-native-conduct-a-0063";
 const invitationB = "invitation-native-conduct-b-0063";
-const scheduleA = "2031-09-20T13:30:00.000Z";
-const scheduleB = "2031-09-21T13:30:00.000Z";
+const scheduleA = "2026-09-19T13:30:00.000Z";
+const scheduleB = "2026-09-19T15:00:00.000Z";
 const questions = [
   ["q0", 0, "Fortell kort om motivasjonen din.", null, "text", []],
   [
@@ -105,23 +105,23 @@ ${questions.map(([id, ordinal, prompt, help, kind, alternatives]) => ` ('${schem
 ON CONFLICT (interview_schema_id, question_id) DO NOTHING;
 INSERT INTO recruitment_interviews (interview_id, application_id, department_id, interviewer_person_id, interview_schema_id, assigned_by_person_id, assigned_at, revision)
 VALUES
- ('${interviewA}', '${applicationA}', '${departmentId}', '${persons.leader.personId}', '${schemaId}', '${persons.leader.personId}', '2031-09-12T09:00:00.000Z', 1),
- ('${interviewB}', '${applicationB}', '${departmentId}', '${persons.leader.personId}', '${schemaId}', '${persons.leader.personId}', '2031-09-12T09:01:00.000Z', 1)
+ ('${interviewA}', '${applicationA}', '${departmentId}', '${persons.leader.personId}', '${schemaId}', '${persons.leader.personId}', '2026-09-12T09:00:00.000Z', 1),
+ ('${interviewB}', '${applicationB}', '${departmentId}', '${persons.leader.personId}', '${schemaId}', '${persons.leader.personId}', '2026-09-12T09:01:00.000Z', 1)
 ON CONFLICT (interview_id) DO NOTHING;
 INSERT INTO recruitment_interview_schedules (interview_id, scheduled_at, room, campus, map_link, message, scheduled_by_person_id, committed_at, schedule_revision)
 VALUES
- ('${interviewA}', '${scheduleA}', 'K-0063A', 'Gløshaugen', 'https://maps.example.invalid/conduct-0063-a', 'Velkommen til intervjuet.', '${persons.leader.personId}', '2031-09-12T09:10:00.000Z', 1),
- ('${interviewB}', '${scheduleB}', 'K-0063B', 'Gløshaugen', 'https://maps.example.invalid/conduct-0063-b', 'Velkommen til intervjuet.', '${persons.leader.personId}', '2031-09-12T09:11:00.000Z', 1)
+ ('${interviewA}', '${scheduleA}', 'K-0063A', 'Gløshaugen', 'https://maps.example.invalid/conduct-0063-a', 'Velkommen til intervjuet.', '${persons.leader.personId}', '2026-09-12T09:10:00.000Z', 1),
+ ('${interviewB}', '${scheduleB}', 'K-0063B', 'Gløshaugen', 'https://maps.example.invalid/conduct-0063-b', 'Velkommen til intervjuet.', '${persons.leader.personId}', '2026-09-12T09:11:00.000Z', 1)
 ON CONFLICT (interview_id) DO NOTHING;
 INSERT INTO recruitment_invitations (invitation_id, interview_id, schedule_revision, capability_sha256, response_state, created_at, response_message, responded_at, response_revision, superseded_at)
 VALUES
- ('${invitationA}', '${interviewA}', 1, repeat('a', 64), 'Accepted', '2031-09-12T09:10:00.000Z', NULL, '2031-09-13T10:00:00.000Z', 1, NULL),
- ('${invitationB}', '${interviewB}', 1, repeat('b', 64), 'Accepted', '2031-09-12T09:11:00.000Z', NULL, '2031-09-13T10:01:00.000Z', 1, NULL)
+ ('${invitationA}', '${interviewA}', 1, repeat('a', 64), 'Accepted', '2026-09-12T09:10:00.000Z', NULL, '2026-09-13T10:00:00.000Z', 1, NULL),
+ ('${invitationB}', '${interviewB}', 1, repeat('b', 64), 'Accepted', '2026-09-12T09:11:00.000Z', NULL, '2026-09-13T10:01:00.000Z', 1, NULL)
 ON CONFLICT (invitation_id) DO NOTHING;
 INSERT INTO recruitment_invitation_response_audit (invitation_id, interview_id, schedule_revision, response_revision, response_state, response_message, responded_at)
 VALUES
- ('${invitationA}', '${interviewA}', 1, 1, 'Accepted', NULL, '2031-09-13T10:00:00.000Z'),
- ('${invitationB}', '${interviewB}', 1, 1, 'Accepted', NULL, '2031-09-13T10:01:00.000Z')
+ ('${invitationA}', '${interviewA}', 1, 1, 'Accepted', NULL, '2026-09-13T10:00:00.000Z'),
+ ('${invitationB}', '${interviewB}', 1, 1, 'Accepted', NULL, '2026-09-13T10:01:00.000Z')
 ON CONFLICT (invitation_id) DO NOTHING;
 INSERT INTO public.recruitment_interview_question_snapshots (interview_id, question_id, ordinal, prompt, help_text, kind, alternatives)
 SELECT i.interview_id, q.question_id, q.ordinal, q.prompt, q.help_text, q.kind, q.alternatives

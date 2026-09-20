@@ -108,7 +108,7 @@ const main = async (): Promise<void> => {
             Effect.map(() =>
               RecruitmentNotificationEvidenceSchema.make({
                 effectId: request.effectId,
-                deliveredAt: "2031-09-15T12:10:00.000Z",
+                deliveredAt: "2026-09-20T12:10:00.000Z",
                 providerReference: `loopback:${request.effectId}`,
               }),
             ),
@@ -140,18 +140,18 @@ const main = async (): Promise<void> => {
       const database = yield* Database;
       const winningClaim = yield* claimNextRecruitmentInterviewCompletion(
         "completion-0108-winning-claim",
-        "2031-09-15T12:07:00.000Z",
+        "2026-09-20T12:07:00.000Z",
       );
       if (winningClaim === undefined)
         return yield* Effect.die(new Error("completion concurrency proof found no winning claim"));
       const losingClaim = yield* claimNextRecruitmentInterviewCompletion(
         "completion-0108-losing-claim",
-        "2031-09-15T12:07:00.000Z",
+        "2026-09-20T12:07:00.000Z",
       );
       yield* releaseRecruitmentInterviewCompletion(winningClaim);
       const first = yield* deliverNextRecruitmentInterviewCompletion(
         "completion-0108-failed-claim",
-        "2031-09-15T12:08:00.000Z",
+        "2026-09-20T12:08:00.000Z",
       );
       const [afterFailure] = yield* database<{
         readonly status: string;
@@ -165,7 +165,7 @@ const main = async (): Promise<void> => {
       `;
       const second = yield* deliverNextRecruitmentInterviewCompletion(
         "completion-0108-retry-claim",
-        "2031-09-15T12:09:00.000Z",
+        "2026-09-20T12:09:00.000Z",
       );
       yield* database`
         INSERT INTO public.recruitment_interview_completion_outbox (
@@ -184,7 +184,7 @@ const main = async (): Promise<void> => {
       `;
       const quarantined = yield* deliverNextRecruitmentInterviewCompletion(
         "completion-0108-quarantine-claim",
-        "2031-09-15T12:11:00.000Z",
+        "2026-09-20T12:11:00.000Z",
       );
       const [afterQuarantine] = yield* database<{
         readonly status: string;
@@ -196,7 +196,7 @@ const main = async (): Promise<void> => {
       `;
       const idle = yield* deliverNextRecruitmentInterviewCompletion(
         "completion-0108-idle-claim",
-        "2031-09-15T12:12:00.000Z",
+        "2026-09-20T12:12:00.000Z",
       );
       const [afterSuccess] = yield* database<{
         readonly effectId: string;
