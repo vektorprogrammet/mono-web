@@ -28,8 +28,16 @@ describe("server-held recruitment invitation bridge", () => {
     const secondInteractionId = "b".repeat(32);
     const firstCapability = "A".repeat(43);
     const secondCapability = "B".repeat(43);
-    const firstCookie = createInvitationCapabilityCookie(firstInteractionId, firstCapability);
-    const secondCookie = createInvitationCapabilityCookie(secondInteractionId, secondCapability);
+    const firstCookie = createInvitationCapabilityCookie(
+      firstInteractionId,
+      firstCapability,
+      "/interview",
+    );
+    const secondCookie = createInvitationCapabilityCookie(
+      secondInteractionId,
+      secondCapability,
+      "/dashboard/interview",
+    );
 
     expect(firstCookie).toContain(
       `${InvitationCapabilityCookiePrefix}${firstInteractionId}=${firstCapability}`,
@@ -38,8 +46,11 @@ describe("server-held recruitment invitation bridge", () => {
       `${InvitationCapabilityCookiePrefix}${secondInteractionId}=${secondCapability}`,
     );
     expect(firstCookie.split("=", 1)[0]).not.toBe(secondCookie.split("=", 1)[0]);
-    for (const cookie of [firstCookie, secondCookie]) {
-      expect(cookie).toContain("Path=/interview");
+    for (const [cookie, path] of [
+      [firstCookie, "/interview"],
+      [secondCookie, "/dashboard/interview"],
+    ]) {
+      expect(cookie).toContain(`Path=${path}`);
       expect(cookie).toContain("HttpOnly");
       expect(cookie).toContain("SameSite=Strict");
       expect(cookie).not.toContain("Max-Age");
@@ -242,10 +253,12 @@ describe("server-held recruitment invitation bridge", () => {
     const requestedCookie = createInvitationCapabilityCookie(
       requestedInteractionId,
       requestedCapability,
+      "/interview",
     ).split(";", 1)[0];
     const unrelatedCookie = createInvitationCapabilityCookie(
       unrelatedInteractionId,
       unrelatedCapability,
+      "/interview",
     ).split(";", 1)[0];
     const request = new Request("http://dashboard.test/interview", {
       headers: {
@@ -273,7 +286,10 @@ describe("server-held recruitment invitation bridge", () => {
     createConfiguredPromiseClient.mockReturnValue({
       recruitment: { confirmInvitation },
     } as never);
-    const cookie = createInvitationCapabilityCookie(interactionId, capability).split(";", 1)[0];
+    const cookie = createInvitationCapabilityCookie(interactionId, capability, "/interview").split(
+      ";",
+      1,
+    )[0];
     const request = new Request("http://dashboard.test/interview", {
       headers: {
         [INVITATION_INTERACTION_HEADER]: interactionId,

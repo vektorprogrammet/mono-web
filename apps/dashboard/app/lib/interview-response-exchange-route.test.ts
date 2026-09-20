@@ -4,8 +4,8 @@ const bridge = vi.hoisted(() => ({
   readInvitationCapability: vi.fn(),
   createInvitationInteractionId: vi.fn(),
   createInvitationCapabilityCookie: vi.fn(
-    (interactionId: string, capability: string) =>
-      `recruitment_invitation_capability_${interactionId}=${capability}; Path=/interview; HttpOnly; SameSite=Strict`,
+    (interactionId: string, capability: string, bridgePath: string) =>
+      `recruitment_invitation_capability_${interactionId}=${capability}; Path=${bridgePath}; HttpOnly; SameSite=Strict`,
   ),
 }));
 
@@ -19,9 +19,15 @@ vi.mock("./interview-bridge.server", () => ({
 
 import { loader } from "../routes/interview-response.$capability";
 
-const thrownRedirect = async (capability: string): Promise<Response> => {
+const thrownRedirect = async (
+  capability: string,
+  mount: "/" | "/dashboard/" = "/",
+): Promise<Response> => {
   try {
-    await loader({ params: { capability } } as never);
+    await loader({
+      params: { capability },
+      request: new Request(`http://dashboard.test${mount}interview-response/${capability}`),
+    } as never);
   } catch (response) {
     if (response instanceof Response) return response;
     throw response;
@@ -73,17 +79,37 @@ describe("recruitment invitation capability exchange", () => {
       1,
       firstInteractionId,
       firstCapability,
+      "/interview",
     );
     expect(bridge.createInvitationCapabilityCookie).toHaveBeenNthCalledWith(
       2,
       secondInteractionId,
       secondCapability,
+      "/interview",
     );
     expect(bridge.readInvitationCapability.mock.invocationCallOrder[0]).toBeLessThan(
       bridge.createInvitationInteractionId.mock.invocationCallOrder[0] ?? 0,
     );
     expect(bridge.readInvitationCapability.mock.invocationCallOrder[1]).toBeLessThan(
       bridge.createInvitationInteractionId.mock.invocationCallOrder[1] ?? 0,
+    );
+  });
+
+  it("keeps redirects and capability cookies inside the configured dashboard mount", async () => {
+    const capability = "C".repeat(43);
+    const interactionId = "c".repeat(32);
+    bridge.createInvitationInteractionId.mockReturnValueOnce(interactionId);
+
+    const response = await thrownRedirect(capability, "/dashboard/");
+
+    expect(response.headers.get("location")).toBe(
+      `/dashboard/interview-response/redacted?interactionId=${interactionId}`,
+    );
+    expect(response.headers.get("set-cookie")).toContain("Path=/dashboard/interview");
+    expect(bridge.createInvitationCapabilityCookie).toHaveBeenCalledWith(
+      interactionId,
+      capability,
+      "/dashboard/interview",
     );
   });
 

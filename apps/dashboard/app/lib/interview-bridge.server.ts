@@ -133,12 +133,16 @@ export const createInvitationInteractionId = (): InvitationInteractionId => {
 export const createInvitationCapabilityCookie = (
   interactionId: InvitationInteractionId,
   capability: string,
+  bridgePath: string,
 ): string => {
   const cookieName = `${InvitationCapabilityCookiePrefix}${decodeInvitationInteractionId(
     interactionId,
   )}`;
   const decodedCapability = decodeExchangeCapability(capability);
-  return `${cookieName}=${encodeURIComponent(decodedCapability)}; Path=/interview; HttpOnly; SameSite=Strict${SecureCookieAttribute}`;
+  if (bridgePath !== "/interview" && bridgePath !== "/dashboard/interview") {
+    throw new Error("Invitation bridge path must match a supported dashboard mount");
+  }
+  return `${cookieName}=${encodeURIComponent(decodedCapability)}; Path=${bridgePath}; HttpOnly; SameSite=Strict${SecureCookieAttribute}`;
 };
 const createInvitationClient = (capability: typeof RecruitmentInvitationCapabilitySchema.Type) =>
   createConfiguredPromiseClient({

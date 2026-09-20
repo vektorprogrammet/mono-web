@@ -58,7 +58,7 @@ const bridgeRequest = <A>(
 ): Effect.Effect<A, InvitationBridgeFailure> =>
   Effect.tryPromise({
     try: async () => {
-      const response = await fetch("/interview", {
+      const response = await fetch("../interview", {
         method: "POST",
         credentials: "same-origin",
         headers: {

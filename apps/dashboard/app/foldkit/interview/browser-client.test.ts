@@ -56,6 +56,7 @@ describe("browser invitation response bridge", () => {
       { operation: "rejectInvitation", etag, message: null },
       { operation: "requestNewInvitationTime", etag, message: "Kan vi møtes torsdag?" },
     ]);
+    expect(fetchMock.mock.calls.every(([url]) => url === "../interview")).toBe(true);
     expect(fetchMock.mock.calls.every(([, init]) => init?.credentials === "same-origin")).toBe(
       true,
     );
