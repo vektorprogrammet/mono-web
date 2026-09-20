@@ -1,4 +1,4 @@
-import { type Database } from "@vektorprogrammet/domain/database";
+import { Database } from "@vektorprogrammet/domain/database";
 import { Effect, Option, Schema } from "effect";
 import {
   InactiveActor,
@@ -9,6 +9,7 @@ import {
 } from "@vektorprogrammet/domain/admission-period";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
 import {
+  ApplicantProgressResponseSchema,
   ReturningAssistants,
   ReturningAssistantOptionsSchema,
   ReturningAssistantRegistrationInputSchema,
@@ -27,6 +28,7 @@ import {
   ExternalNativeApi,
   ListAdmissionPeriodsEndpoint,
   ListOpenAdmissionPeriodsEndpoint,
+  ReadApplicantProgressEndpoint,
   ReadApplicationCatalogEndpoint,
   ReadApplicationConfirmationEndpoint,
   ReadReturningAssistantOptionsEndpoint,
@@ -69,6 +71,7 @@ import {
   genericContext,
   nativeCommandOutcomeResponse,
   prepareNativeHttpCommand,
+  withNativeHttpRuntime,
 } from "../native-operation.js";
 import type { BackendRun } from "../router.js";
 import type { AdmissionApiConfig } from "./config.js";
@@ -1063,6 +1066,70 @@ const publicConfirmation = async (
   return jsonResponse(confirmation);
 };
 
+const applicantProgress = (request: Request, input: AdmissionApiHttpOptions): Promise<Response> =>
+  input.run(
+    Database.use((sql) =>
+      sql.withTransaction(
+        withNativeHttpRuntime(input.run, async (txRun) => {
+          if (new URL(request.url).search !== "") {
+            throw new HttpSemanticFailure("request.malformed", 400);
+          }
+          await txRun(
+            Database.use(
+              (transaction) => transaction`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`,
+            ),
+          );
+          const authorization = await resolveRequestPersonAuthorityInTransaction(request, {
+            run: txRun,
+            now: input.config.now,
+          });
+          await authorizePersonNativeOperation({
+            spec: Option.getOrThrow(reflectAccessSpec(ReadApplicantProgressEndpoint)),
+            credential: authorization.credential,
+            personId: authorization.authority.personId,
+            resolution: {
+              selection: "ExactlyOne",
+              contexts: [
+                genericContext({
+                  domainId: "admissions",
+                  resourceKind: "person-profile",
+                  resourceId: authorization.authority.personId,
+                  facts: { ownerPersonId: authorization.authority.personId },
+                  authorityVersion: "admissions:applicant-progress",
+                }),
+              ],
+            },
+            grantScopes: [returningPersonResource(authorization.authority.personId)],
+            now: authorization.authorizationInstant,
+            run: txRun,
+          });
+          const body = await runDatabase(
+            Admissions.use(({ readApplicantProgress }) =>
+              readApplicantProgress(
+                authorization.authority.personId,
+                authorization.authorizationInstant,
+              ),
+            ),
+            txRun,
+          );
+          const decoded = await txRun(
+            Schema.decodeUnknownEffect(ApplicantProgressResponseSchema)(body, {
+              onExcessProperty: "error",
+            }).pipe(Effect.mapError(() => taggedError("PublicApplicationPersistenceError"))),
+          );
+          return new Response(JSON.stringify(decoded), {
+            headers: {
+              "content-type": "application/json; charset=utf-8",
+              "cache-control": "private, no-store",
+              "referrer-policy": "no-referrer",
+              vary: "Origin",
+            },
+          });
+        }),
+      ),
+    ),
+  );
+
 /** Native HttpApi implementations for admission and public application endpoints. */
 export const AdmissionsApiHandlers = (input: AdmissionApiHttpOptions) =>
   HttpApiBuilder.group(ExternalNativeApi, "admissions", (handlers) =>
@@ -1106,6 +1173,13 @@ export const AdmissionsApiHandlers = (input: AdmissionApiHttpOptions) =>
           toHttpApiResponse(
             request,
             (webRequest) => publicConfirmation(webRequest, params.applicationId, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("readApplicantProgress", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => applicantProgress(webRequest, input),
             errorResponse,
           ),
         )

@@ -10,6 +10,7 @@ import {
   findPublicApplicationConfirmation,
   listPublicApplicationCatalog,
   readApplicantContacts,
+  readApplicantProgress,
 } from "../application/postgres.js";
 import { Admissions } from "./service.js";
 
@@ -38,6 +39,8 @@ export const AdmissionsLive = Layer.effect(
         ),
       readApplicantContacts: (applicationIds) =>
         readApplicantContacts(applicationIds).pipe(Effect.provideService(Database, database)),
+      readApplicantProgress: (personId, now) =>
+        readApplicantProgress(personId, now).pipe(Effect.provideService(Database, database)),
     });
   }),
 );

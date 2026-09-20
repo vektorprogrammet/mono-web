@@ -18,6 +18,11 @@ import {
   seedInterviewReportCoordinator,
   validateInterviewReportFixture,
 } from "./interview-report-observation.js";
+import {
+  applicantProgressUnlinkedIdentity,
+  runApplicantProgress0107,
+  seedApplicantProgress0107,
+} from "./applicant-progress-0107.ts";
 import { stopPreviewScenarioBackend } from "./preview-scenario.js";
 import {
   returningAssistantFixture,
@@ -89,7 +94,13 @@ class CoInterviewerTargetedComplete extends Error {
     super("co-interviewer targeted journey complete");
   }
 }
+class ApplicantProgressTargetedComplete extends Error {
+  constructor(readonly result: unknown) {
+    super("applicant progress targeted journey complete");
+  }
+}
 const coInterviewerMode = process.argv.includes("--co-interviewer-mode");
+const applicantProgressMode = process.argv.includes("--applicant-progress-mode");
 if (process.argv.includes("--report")) validateInterviewReportFixture();
 if (process.argv.includes("--validate-fixture")) {
   // oxlint-effect-plugin allow(no-ambient-console): dev only: local fixture validation result.
@@ -424,13 +435,16 @@ try {
           password: "journey-conduct-secret-0123456789",
         },
         ...(coInterviewerMode ? coInterviewerCorrection0106IdentitySeeds : []),
+        ...(applicantProgressMode ? [applicantProgressUnlinkedIdentity] : []),
       ]),
     },
     join(root, "packages/database"),
   );
   if (coInterviewerMode) {
     coInterviewerFixture = await seedCoInterviewerCorrection0106Fixture({ pool });
-    recordGate("seeded synthetic 0106 co-interviewer designation after the canonical migration chain");
+    recordGate(
+      "seeded synthetic 0106 co-interviewer designation after the canonical migration chain",
+    );
   }
   await seedReturningAssistant({ pool, run, env, root });
   await seedInterviewReportCoordinator({ pool, secrets });
@@ -480,6 +494,14 @@ try {
   );
   await link("self", "journey-conduct-leader-0063");
   await link("maybe", "recommendation-other-0101");
+  if (applicantProgressMode) {
+    await seedApplicantProgress0107(pool);
+    recordGate("seeded synthetic current-semester applicant progress states");
+    secrets.push(
+      applicantProgressUnlinkedIdentity.email,
+      applicantProgressUnlinkedIdentity.password,
+    );
+  }
 
   const invitationCapability = randomBytes(32).toString("base64url");
   secrets.push(invitationCapability);
@@ -546,6 +568,30 @@ try {
   const cookies = await context.cookies();
   const cookie = cookies.map((c: any) => `${c.name}=${c.value}`).join("; ");
   secrets.push(...cookies.map((c: any) => c.value));
+  if (applicantProgressMode) {
+    const journey = await runApplicantProgress0107({
+      pool,
+      page,
+      cookie,
+      api,
+      ui,
+      artifacts,
+      errors,
+      audit: (journeyPage) => auditPage(journeyPage, "applicant-progress"),
+    });
+    recordGate("observed applicant-owned progress through the real browser/API/PostgreSQL path");
+    for (const entry of await readdir(artifacts, { withFileTypes: true })) {
+      if (entry.isFile() && !entry.name.endsWith(".png")) {
+        const text = await readFile(join(artifacts, entry.name), "utf8");
+        for (const secret of secrets)
+          assert.ok(
+            !text.includes(secret),
+            `retained artifact ${entry.name} contains a credential`,
+          );
+      }
+    }
+    throw new ApplicantProgressTargetedComplete(journey);
+  }
   if (coInterviewerMode) {
     if (coInterviewerFixture === undefined)
       throw new Error("co-interviewer targeted mode requires its synthetic designation fixture");
@@ -569,7 +615,10 @@ try {
       if (entry.isFile() && !entry.name.endsWith(".png")) {
         const text = await readFile(join(artifacts, entry.name), "utf8");
         for (const secret of secrets)
-          assert.ok(!text.includes(secret), `retained artifact ${entry.name} contains a credential`);
+          assert.ok(
+            !text.includes(secret),
+            `retained artifact ${entry.name} contains a credential`,
+          );
       }
     }
     throw new CoInterviewerTargetedComplete(journey);
@@ -580,7 +629,7 @@ try {
     const stage = (name: string) => {
       currentStage = name;
       returningStages.push(name);
-      // oxlint-effect-plugin allow(no-ambient-console): dev-only bounded stage evidence.
+      // oxlint-effect-plugin allow(no-ambient-console): dev only: emit bounded returning-stage evidence.
       console.log(JSON.stringify({ returningStage: name }));
     };
     const bounded = async <T>(
@@ -1326,7 +1375,7 @@ try {
     assert.equal(
       await page
         .locator("#interviewer-recommendation")
-        .evaluate((element: HTMLSelectElement) => document.activeElement === element),
+        .evaluate((element: HTMLSelectElement) => element.ownerDocument.activeElement === element),
       true,
     );
     await page
@@ -2349,7 +2398,7 @@ try {
   console.log(JSON.stringify({ result: "Passed", revision, artifacts, gates }));
 } catch (error) {
   if (error instanceof ReturningLoginProbeComplete) {
-    // oxlint-effect-plugin allow(no-ambient-console): bounded local login probe result.
+    // oxlint-effect-plugin allow(no-ambient-console): dev only: emit the bounded local login-probe result.
     console.log(
       JSON.stringify({
         result: "ReturningLoginProbe",
@@ -2360,7 +2409,7 @@ try {
       }),
     );
   } else if (error instanceof ReturningTargetedComplete) {
-    // oxlint-effect-plugin allow(no-ambient-console): bounded returning/report result.
+    // oxlint-effect-plugin allow(no-ambient-console): dev only: emit the bounded returning journey result.
     console.log(
       JSON.stringify({
         result: "ReturningTargeted",
@@ -2370,8 +2419,19 @@ try {
         journey: error.result,
       }),
     );
+  } else if (error instanceof ApplicantProgressTargetedComplete) {
+    // oxlint-effect-plugin allow(no-ambient-console): dev only: emit the bounded applicant-progress result.
+    console.log(
+      JSON.stringify({
+        result: "ApplicantProgressTargeted",
+        revision,
+        artifacts,
+        gates,
+        journey: error.result,
+      }),
+    );
   } else if (error instanceof CoInterviewerTargetedComplete) {
-    // oxlint-effect-plugin allow(no-ambient-console): bounded local co-interviewer result.
+    // oxlint-effect-plugin allow(no-ambient-console): dev only: emit the bounded co-interviewer result.
     console.log(
       JSON.stringify({
         result: "CoInterviewerTargeted",
@@ -2382,7 +2442,7 @@ try {
       }),
     );
   } else if (error instanceof CorrectionTargetedComplete) {
-    // oxlint-effect-plugin allow(no-ambient-console): bounded local correction result.
+    // oxlint-effect-plugin allow(no-ambient-console): dev only: emit the bounded correction result.
     console.log(
       JSON.stringify({
         result: "CorrectionTargeted",

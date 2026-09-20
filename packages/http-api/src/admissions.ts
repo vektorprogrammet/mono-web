@@ -5,6 +5,7 @@
  */
 import { AdmissionPeriodId } from "@vektorprogrammet/domain/admission-period";
 import {
+  ApplicantProgressResponseSchema,
   PublicApplicationCatalogSchema,
   PublicApplicationIdSchema,
   ReturningAssistantOptionsSchema,
@@ -19,6 +20,7 @@ import {
   AdmissionsListAdmissionPeriodsProblem,
   AdmissionsListApplicationOptionsProblem,
   AdmissionsListOpenAdmissionPeriodsProblem,
+  AdmissionsReadApplicantProgressProblem,
   AdmissionsReadApplicationConfirmationProblem,
   AdmissionsReadReturningAssistantOptionsProblem,
   AdmissionsRegisterReturningAssistantProblem,
@@ -126,6 +128,34 @@ export const ReadApplicationConfirmationEndpoint = HttpApiEndpoint.get(
     operationAnnotations(
       "Read application confirmation",
       "Returns the public confirmation projection.",
+    ),
+  );
+
+/** @since 0.1.0 @category Endpoints */
+export const ReadApplicantProgressEndpoint = HttpApiEndpoint.get(
+  "readApplicantProgress",
+  "/api/applicant-progress",
+  {
+    success: noStoreReadResponse(ApplicantProgressResponseSchema),
+    error: endpointProblemResponses(AdmissionsReadApplicantProgressProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "admissions.read-applicant-progress",
+        canonicalScopeResolver: "profile.current-person",
+        requirements: ["profile.owner"],
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
+  .annotateMerge(
+    operationAnnotations(
+      "Read applicant progress",
+      "Returns current-semester recruitment progress for the signed-in applicant.",
     ),
   );
 
@@ -288,6 +318,7 @@ export class AdmissionsApi extends HttpApiGroup.make("admissions")
     ReadApplicationCatalogEndpoint,
     SubmitApplicationEndpoint,
     ReadApplicationConfirmationEndpoint,
+    ReadApplicantProgressEndpoint,
     ListAdmissionPeriodsEndpoint,
     CreateAdmissionPeriodEndpoint,
     ReviseAdmissionPeriodEndpoint,

@@ -12,6 +12,7 @@ import type {
 } from "../application/errors.js";
 import type {
   ApplicantContactProjection,
+  ApplicantProgressResponse,
   PublicApplicationCatalogContext,
   PublicApplicationCatalogHttpSource,
   PublicApplicationConfirmation,
@@ -44,6 +45,10 @@ export interface AdmissionsShape {
   readonly readApplicantContacts: (
     applicationIds: ReadonlyArray<PublicApplicationId>,
   ) => Effect.Effect<ReadonlyArray<ApplicantContactProjection>, ApplicantContactProjectionFailure>;
+  readonly readApplicantProgress: (
+    personId: string,
+    now: string,
+  ) => Effect.Effect<ApplicantProgressResponse, PublicApplicationError>;
 }
 
 export class Admissions extends Context.Service<Admissions, AdmissionsShape>()(

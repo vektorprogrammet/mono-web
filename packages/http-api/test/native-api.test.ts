@@ -373,6 +373,17 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
   ],
   [
     "GET",
+    "/api/applicant-progress",
+    "admissions.readApplicantProgress",
+    person(
+      "admissions.read-applicant-progress",
+      "profile.current-person",
+      ["profile.owner"],
+      "SnapshotRead",
+    ),
+  ],
+  [
+    "GET",
     "/api/admission-periods",
     "admissions.listAdmissionPeriods",
     person("admissions.read-periods", "admissions.management-periods", [], "SnapshotRead"),
@@ -773,6 +784,7 @@ const privateReadOperations = [
 const noStoreReadOperations = [
   "system.health",
   "admissions.readApplicationConfirmation",
+  "admissions.readApplicantProgress",
   "admissions.readReturningAssistantOptions",
 ] as const;
 

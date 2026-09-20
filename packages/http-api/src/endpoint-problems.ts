@@ -322,6 +322,21 @@ export const AdmissionsListApplicationOptionsProblem = problemUnion(
     ["admissions.unavailable", 503],
   ],
 );
+/** Problems for the current person's applicant progress projection. */
+export const AdmissionsReadApplicantProgressProblem = problemUnion(
+  "AdmissionsReadApplicantProgressProblem",
+  [
+    ["request.malformed", 400],
+    ["header.malformed", 400],
+    ["credential.missing", 401],
+    ["credential.invalid", 401],
+    ["authority.denied", 403],
+    ["origin.denied", 403],
+    ["internal.error", 500],
+    ["admissions.unavailable", 503],
+  ],
+);
+
 /** Problems for returning-assistant options and registration. */
 export const AdmissionsReadReturningAssistantOptionsProblem = problemUnion(
   "AdmissionsReadReturningAssistantOptionsProblem",

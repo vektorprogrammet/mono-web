@@ -40,6 +40,7 @@ import {
 } from "./validation.js";
 import {
   ApplicantContactProjectionSchema,
+  ApplicantProgressResponseSchema,
   ApplicantRecord,
   PublicApplicationCatalogSchema,
   PublicApplicationConfirmationSchema,
@@ -47,6 +48,7 @@ import {
   PublicApplication,
   PublicApplicationIdSchema,
   type ApplicantContactProjection,
+  type ApplicantProgressResponse,
   type PublicApplicationId,
   PublicApplicationSubmitObservationSchema,
   type PublicApplicationCatalog,
@@ -94,6 +96,23 @@ interface CatalogIntervalRow {
   readonly upperBound: string | null;
 }
 
+interface ApplicantProgressRow {
+  readonly applicationId: string;
+  readonly admissionPeriodId: string;
+  readonly departmentId: string;
+  readonly semesterId: string;
+  readonly submittedAt: string;
+  readonly interviewId: string | null;
+  readonly responseState: string | null;
+  readonly scheduledAt: string | null;
+  readonly room: string | null;
+  readonly campus: string | null;
+  readonly mapLink: string | null;
+  readonly hasConduct: boolean;
+  readonly hasCancellation: boolean;
+  readonly hasReturningRegistration: boolean;
+  readonly hasActivePlacement: boolean;
+}
 const persistenceError = (operation: string): PublicApplicationPersistenceError =>
   new PublicApplicationPersistenceError({
     operation,
@@ -799,6 +818,130 @@ export const readApplicantContacts = (
       contacts.push(contact);
     }
     return contacts;
+  });
+
+/**
+ * Derives the current-semester applicant-owned progress projection from canonical source facts.
+ * Person custody is explicit through applicant_account_links; contact equality is never consulted.
+ */
+export const readApplicantProgress = (
+  personId: string,
+  now: string,
+): Effect.Effect<ApplicantProgressResponse, PublicApplicationPersistenceError, Database> =>
+  Effect.gen(function* () {
+    const sql = yield* Database;
+    const rows = yield* sql<ApplicantProgressRow>`
+      SELECT
+        application.application_id AS "applicationId",
+        application.admission_period_id AS "admissionPeriodId",
+        application.department_id AS "departmentId",
+        period.semester_id AS "semesterId",
+        to_char(
+          application.submitted_at AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+        ) AS "submittedAt",
+        interview.interview_id AS "interviewId",
+        invitation.response_state AS "responseState",
+        CASE
+          WHEN invitation.invitation_id IS NULL THEN NULL
+          ELSE to_char(
+            schedule.scheduled_at AT TIME ZONE 'UTC',
+            'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+          )
+        END AS "scheduledAt",
+        CASE WHEN invitation.invitation_id IS NULL THEN NULL ELSE schedule.room END AS room,
+        CASE WHEN invitation.invitation_id IS NULL THEN NULL ELSE schedule.campus END AS campus,
+        CASE WHEN invitation.invitation_id IS NULL THEN NULL ELSE schedule.map_link END AS "mapLink",
+        EXISTS (
+          SELECT 1
+          FROM public.recruitment_interview_conducts AS conduct
+          WHERE conduct.interview_id = interview.interview_id
+        ) AS "hasConduct",
+        EXISTS (
+          SELECT 1
+          FROM public.recruitment_interview_cancellations AS cancellation
+          WHERE cancellation.interview_id = interview.interview_id
+        ) AS "hasCancellation",
+        EXISTS (
+          SELECT 1
+          FROM public.admission_returning_registrations AS registration
+          WHERE registration.application_id = application.application_id
+        ) AS "hasReturningRegistration",
+        EXISTS (
+          SELECT 1
+          FROM public.assistant_placements AS placement
+          WHERE placement.person_id = link.person_id
+            AND placement.department_id = application.department_id
+            AND placement.semester_id = period.semester_id
+            AND placement.active
+        ) AS "hasActivePlacement"
+      FROM public.applicant_account_links AS link
+      INNER JOIN public.admission_applications AS application
+        ON application.applicant_id = link.applicant_id
+      INNER JOIN public.admission_periods AS period
+        ON period.admission_period_id = application.admission_period_id
+      INNER JOIN public.admission_period_semesters AS semester
+        ON semester.semester_id = period.semester_id
+      LEFT JOIN public.recruitment_interviews AS interview
+        ON interview.application_id = application.application_id
+      LEFT JOIN public.recruitment_interview_schedules AS schedule
+        ON schedule.interview_id = interview.interview_id
+      LEFT JOIN public.recruitment_invitations AS invitation
+        ON invitation.interview_id = interview.interview_id
+        AND invitation.superseded_at IS NULL
+      WHERE link.person_id = ${personId}
+        AND semester.start_at <= ${now}::timestamptz
+        AND ${now}::timestamptz < semester.end_at
+      ORDER BY application.submitted_at DESC, application.application_id ASC
+    `.pipe(
+      Effect.catchTag("SqlError", () => Effect.fail(persistenceError("read applicant progress"))),
+    );
+
+    const applications: Array<unknown> = [];
+    for (const row of rows) {
+      if (row.hasConduct && row.hasCancellation) {
+        return yield* persistenceError("read inconsistent applicant interview lifecycle");
+      }
+      let progress: unknown;
+      if (row.hasActivePlacement) {
+        progress = { _tag: "AssignedToSchool" };
+      } else if (row.hasConduct || row.hasReturningRegistration) {
+        progress = { _tag: "InterviewCompleted" };
+      } else if (row.hasCancellation || row.responseState === "Rejected") {
+        progress = { _tag: "Cancelled" };
+      } else if (row.responseState === "RequestedNewTime") {
+        progress = { _tag: "AwaitingNewInterviewTime" };
+      } else if (row.responseState === "Accepted" || row.responseState === "Pending") {
+        if (row.scheduledAt === null || row.room === null) {
+          return yield* persistenceError("read applicant invitation without schedule");
+        }
+        progress = {
+          _tag: row.responseState === "Accepted" ? "InterviewAccepted" : "InvitedToInterview",
+          schedule: {
+            scheduledAt: row.scheduledAt,
+            room: row.room,
+            campus: row.campus,
+            mapLink: row.mapLink,
+          },
+        };
+      } else if (row.responseState === null) {
+        progress = { _tag: "ApplicationReceived" };
+      } else {
+        return yield* persistenceError("read unknown applicant invitation response state");
+      }
+      applications.push({
+        applicationId: row.applicationId,
+        admissionPeriodId: row.admissionPeriodId,
+        departmentId: row.departmentId,
+        semesterId: row.semesterId,
+        submittedAt: row.submittedAt,
+        progress,
+      });
+    }
+    return yield* Schema.decodeUnknownEffect(ApplicantProgressResponseSchema)(
+      { personId, observedAt: now, applications },
+      { onExcessProperty: "error" },
+    ).pipe(Effect.mapError(() => persistenceError("decode applicant progress projection")));
   });
 
 export const decodePublicApplicationCommand = decodeSubmitPublicApplicationCommand;

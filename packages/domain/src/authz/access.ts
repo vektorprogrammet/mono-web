@@ -52,6 +52,7 @@ export const CAPABILITY_TYPE_IDS = [
   "onboarding.manage",
   "onboarding.claim",
   "admissions.read-periods",
+  "admissions.read-applicant-progress",
   "admissions.create-period",
   "admissions.revise-period",
   "admissions.returning-assistant-options",

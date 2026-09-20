@@ -12,7 +12,7 @@ import {
   AdmissionPeriod,
   AdmissionPeriodId,
 } from "../admission-period/schema.js";
-import { DepartmentId } from "../organization/schema.js";
+import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
 import { isRfc3339Instant, Rfc3339InstantSchema } from "../time.js";
 
 /** Stable IDs are opaque, non-empty, and free of control characters. */
@@ -286,6 +286,50 @@ export const PublicApplicationConfirmationSchema = Schema.Struct({
   applicationId: PublicApplicationIdSchema,
 });
 export type PublicApplicationConfirmation = typeof PublicApplicationConfirmationSchema.Type;
+
+export const ApplicantInterviewScheduleSchema = Schema.Struct({
+  scheduledAt: Rfc3339InstantSchema,
+  room: Schema.NonEmptyString,
+  campus: Schema.NullOr(Schema.NonEmptyString),
+  mapLink: Schema.NullOr(Schema.String),
+});
+export type ApplicantInterviewSchedule = typeof ApplicantInterviewScheduleSchema.Type;
+
+export const ApplicantProgressStateSchema = Schema.TaggedUnion({
+  ApplicationReceived: {},
+  InvitedToInterview: {
+    schedule: ApplicantInterviewScheduleSchema,
+  },
+  InterviewAccepted: {
+    schedule: ApplicantInterviewScheduleSchema,
+  },
+  AwaitingNewInterviewTime: {},
+  Cancelled: {},
+  InterviewCompleted: {},
+  AssignedToSchool: {},
+});
+export type ApplicantProgressState = typeof ApplicantProgressStateSchema.Type;
+
+export const ApplicantProgressItemSchema = Schema.Struct({
+  applicationId: PublicApplicationIdSchema,
+  admissionPeriodId: AdmissionPeriodId,
+  departmentId: DepartmentId,
+  semesterId: SemesterId,
+  submittedAt: Rfc3339InstantSchema,
+  progress: ApplicantProgressStateSchema,
+});
+export type ApplicantProgressItem = typeof ApplicantProgressItemSchema.Type;
+
+export const ApplicantProgressResponseSchema = Schema.Struct({
+  personId: PersonId,
+  observedAt: Rfc3339InstantSchema,
+  applications: Schema.Array(ApplicantProgressItemSchema),
+});
+export type ApplicantProgressResponse = typeof ApplicantProgressResponseSchema.Type;
+export const decodeApplicantProgressResponse = (input: unknown): ApplicantProgressResponse =>
+  Schema.decodeUnknownSync(ApplicantProgressResponseSchema)(input, {
+    onExcessProperty: "error",
+  });
 
 export const PublicApplicationFieldOfStudySchema = Schema.Struct({
   fieldOfStudyId: AdmissionFieldOfStudy.json.fields.fieldOfStudyId,

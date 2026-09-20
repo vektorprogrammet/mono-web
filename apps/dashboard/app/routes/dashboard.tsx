@@ -114,6 +114,12 @@ function UserMenu({
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
+                <Link to={href("/soknad")} prefetch="intent">
+                  <Send />
+                  Min søknad
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
                 <Link to={href("/mine-utlegg")} prefetch="intent">
                   <Receipt />
                   Mine Utlegg
