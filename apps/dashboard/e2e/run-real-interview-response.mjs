@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  emitRuntimeEvidenceReceipts,
+  emitNativeRuntimeEvidenceReceipts,
   sanitizePlaywrightArtifact,
 } from "./runtime-evidence-receipt.mjs";
 
@@ -826,8 +826,7 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
         typeof request.headers["idempotency-key"] === "string"
           ? request.headers["idempotency-key"]
           : null,
-      ifMatch:
-        typeof request.headers["if-match"] === "string" ? request.headers["if-match"] : null,
+      ifMatch: typeof request.headers["if-match"] === "string" ? request.headers["if-match"] : null,
       responseHasResponseCapabilityField: false,
       responseRawCapability: false,
       responseJson: null,
@@ -1580,15 +1579,16 @@ function assertNativeTransport(records) {
           candidate.invitationActor === record.invitationActor,
       )
       .at(-1);
-    const expectedBodyKeys =
-      record.path === responseCases[0].commandPath ? [] : ["message"];
+    const expectedBodyKeys = record.path === responseCases[0].commandPath ? [] : ["message"];
     if (
       typeof record.idempotencyKey !== "string" ||
       record.ifMatch !== sourceRead?.responseEtag ||
       JSON.stringify(Object.keys(record.requestJson ?? {}).sort()) !==
         JSON.stringify(expectedBodyKeys)
     ) {
-      throw new Error("Invitation mutation omitted its Idempotency-Key, source ETag, or exact body");
+      throw new Error(
+        "Invitation mutation omitted its Idempotency-Key, source ETag, or exact body",
+      );
     }
     if (record.status === 204) {
       if (
@@ -1713,42 +1713,24 @@ const receiptRequested = () =>
 
 async function prepareReceiptInputs(playwrightOutput) {
   if (!receiptRequested()) return undefined;
-  const sourceRefIds = (process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS ?? "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0);
-  const sourcePaths = [runnerPath, specPath];
-  if (sourceRefIds.length === 0 || sourceRefIds.length > sourcePaths.length) {
-    throw new Error(
-      "Native invitation-response evidence expects one or two runner source references",
-    );
-  }
-  const runnerSourceInputBytes = await Promise.all(
-    sourceRefIds.map(async (sourceRefId, index) => ({
-      sourceRefId,
-      bytes: await readFile(sourcePaths[index]),
-    })),
-  );
   const fixtureInputBytes = Buffer.concat([
     Buffer.from(seedSql, "utf8"),
     Buffer.from("\n-- native response recording driver --\n", "utf8"),
     Buffer.from(recordingDriverSource, "utf8"),
   ]);
   const artifactBytes = sanitizePlaywrightArtifact(Buffer.from(playwrightOutput, "utf8"));
-  for (const input of runnerSourceInputBytes) {
-    assertNoRawCapability(input.bytes, "Runtime evidence runner source input");
-  }
   assertNoRawCapability(fixtureInputBytes, "Runtime evidence fixture input");
   assertNoRawCapability(artifactBytes, "Sanitized Playwright artifact");
-  return { runnerSourceInputBytes, fixtureInputBytes, artifactBytes };
+  return { fixtureInputBytes, artifactBytes };
 }
 
 async function emitReceipts(inputs) {
   if (inputs === undefined) return;
-  await emitRuntimeEvidenceReceipts({
+  await emitNativeRuntimeEvidenceReceipts({
+    repositoryRoot,
+    sourcePaths: [runnerPath, specPath],
     journeys: journeyEntries,
     fixtureId: "native-recruitment-invitation-response-0051",
-    runnerSourceInputBytes: inputs.runnerSourceInputBytes,
     fixtureInputBytes: inputs.fixtureInputBytes,
     artifactBytes: inputs.artifactBytes,
   });
