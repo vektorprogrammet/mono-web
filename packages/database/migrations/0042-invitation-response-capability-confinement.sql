@@ -53,5 +53,6 @@ ALTER TABLE recruitment_invitation_response_outbox
     )
   ),
   ADD CONSTRAINT recruitment_invitation_response_outbox_payload_confinement CHECK (
-    payload_json::text !~ '[A-Za-z0-9_-]{43}'
+    (payload_json - 'effectId' - 'invitationId' - 'interviewId')::text
+      !~ '[A-Za-z0-9_-]{43}'
   );
