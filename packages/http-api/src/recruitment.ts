@@ -71,6 +71,10 @@ const SchedulingBoardExample: any = {
         email: "kari.leder@example.org",
         phone: "+47 900 00 000",
       },
+      coInterviewer: {
+        personId: PersonId.make("1003"),
+        displayName: "Ola Medintervjuer",
+      },
       applicant: {
         applicationId: PublicApplicationIdSchema.make("app-0080"),
         applicantId: ApplicantIdSchema.make("applicant-0080"),
@@ -509,7 +513,10 @@ export const ReadInterviewConductEndpoint = HttpApiEndpoint.get(
       personNativeAccess({
         capability: "recruitment.conduct-interview",
         canonicalScopeResolver: "recruitment.interview-by-id",
-        requirements: ["recruitment.assigned-interviewer", "recruitment.not-known-self"],
+        requirements: [
+          "recruitment.assigned-interviewer-or-co-interviewer",
+          "recruitment.not-known-self",
+        ],
         decisionTime: "SnapshotRead",
       }),
     ),
@@ -568,7 +575,10 @@ export const CorrectInterviewAssessmentEndpoint = HttpApiEndpoint.post(
       personNativeAccess({
         capability: "recruitment.conduct-interview",
         canonicalScopeResolver: "recruitment.interview-by-id",
-        requirements: ["recruitment.assigned-interviewer", "recruitment.not-known-self"],
+        requirements: [
+          "recruitment.assigned-interviewer-or-co-interviewer",
+          "recruitment.not-known-self",
+        ],
         decisionTime: "Transaction",
       }),
     ),

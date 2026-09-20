@@ -239,6 +239,7 @@ describe("native recruitment HTTP boundary", () => {
               email: "ivar@example.org",
               phone: "+47 900 00 001",
             },
+            coInterviewer: null,
             applicant: {
               applicationId: "application-1",
               applicantId: "applicant-1",
@@ -278,6 +279,7 @@ describe("native recruitment HTTP boundary", () => {
       interviewId: board.interviews[0]!.interviewId,
       departmentId: board.interviews[0]!.departmentId,
       interviewerPersonId: board.interviews[0]!.interviewer.personId,
+      coInterviewerPersonId: null,
       interviewRevision: board.interviews[0]!.revision,
       authority,
     });
@@ -288,6 +290,21 @@ describe("native recruitment HTTP boundary", () => {
       },
       authority,
     ).interviews[0]!.etag;
+    const afterCoInterviewerChange = schedulingBoardWithETags(
+      {
+        ...board,
+        interviews: [
+          {
+            ...board.interviews[0]!,
+            coInterviewer: {
+              personId: "co-interviewer-1",
+              displayName: "Cora Co-interviewer",
+            },
+          },
+        ],
+      },
+      authority,
+    ).interviews[0]!.etag;
     const afterAuthorityRevision = schedulingBoardWithETags(board, [
       { ...authority[0]!, revisions: [4, 5, 7] },
     ]).interviews[0]!.etag;
@@ -295,6 +312,7 @@ describe("native recruitment HTTP boundary", () => {
     expect(boardTag).toMatch(/^"vkr2\.[A-Za-z0-9_-]{43}"$/u);
     expect(boardTag).toBe(mutationTag);
     expect(afterInterviewRevision).not.toBe(boardTag);
+    expect(afterCoInterviewerChange).not.toBe(boardTag);
     expect(afterAuthorityRevision).not.toBe(boardTag);
     expect(evaluateMutationPrecondition(mutationTag, boardTag)).toEqual({ _tag: "Proceed" });
     expect(evaluateMutationPrecondition(afterInterviewRevision, boardTag)).toEqual({
@@ -377,6 +395,7 @@ it("denies a suspended assigned member in the HTTP access context used before re
     interviewId: RecruitmentInterviewId.make("assigned-interview"),
     departmentId,
     interviewerPersonId: personId,
+    coInterviewerPersonId: null,
     interviewRevision: 1,
     linkedApplicantPersonId: null,
     authority: [],
@@ -422,6 +441,57 @@ it("denies a suspended assigned member in the HTTP access context used before re
       ),
     )._tag,
   ).toBe("Satisfied");
+});
+
+it("authorizes a current co-interviewer only through the participant requirement", () => {
+  const primaryPersonId = PersonId.make("primary-interviewer"),
+    coInterviewerPersonId = PersonId.make("co-interviewer"),
+    departmentId = DepartmentId.make("department-co-interviewer");
+  const source = {
+    interviewId: RecruitmentInterviewId.make("co-interviewer-interview"),
+    departmentId,
+    interviewerPersonId: primaryPersonId,
+    coInterviewerPersonId,
+    interviewRevision: 1,
+    linkedApplicantPersonId: null,
+    authority: [],
+  };
+  const principal = { _tag: "Person" as const, personId: coInterviewerPersonId };
+  const context = recruitmentInterviewAccessContext(
+    source,
+    { _tag: "Member", personId: coInterviewerPersonId, departmentId, active: true },
+    false,
+    true,
+  );
+
+  expect(
+    evaluateRequirement(
+      {
+        id: RequirementId.make("recruitment.assigned-interviewer-or-co-interviewer"),
+        parameters: {},
+      },
+      principal,
+      context,
+    )._tag,
+  ).toBe("Satisfied");
+  expect(
+    evaluateRequirement(
+      { id: RequirementId.make("recruitment.assigned-interviewer"), parameters: {} },
+      principal,
+      context,
+    )._tag,
+  ).toBe("Failed");
+  expect(
+    recruitmentInterviewAccessContext(
+      { ...source, coInterviewerPersonId: null },
+      { _tag: "Member", personId: coInterviewerPersonId, departmentId, active: true },
+      false,
+      true,
+    ).authorityVersion,
+  ).not.toBe(context.authorityVersion);
+  expect(
+    interviewETag({ ...source, coInterviewerPersonId: null }),
+  ).not.toBe(interviewETag(source));
 });
 
 it("authorizes the report collection for its current scoped leader and rejects missing leadership", () => {

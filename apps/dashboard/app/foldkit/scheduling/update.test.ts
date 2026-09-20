@@ -52,6 +52,7 @@ const rawInterview = {
     email: "grace@example.invalid",
     phone: "+4711111111",
   },
+  coInterviewer: null,
   applicant: {
     applicationId: "recruitment-application-50",
     applicantId: "recruitment-applicant-50",

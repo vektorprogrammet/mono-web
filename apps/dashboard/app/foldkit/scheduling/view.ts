@@ -192,6 +192,12 @@ const interviewCard = (
                 [h.Class("fs-interviewer")],
                 [`Intervjuer: ${interview.interviewer.displayName}`],
               ),
+              interview.coInterviewer === null
+                ? h.empty
+                : h.p(
+                    [h.Class("fs-interviewer")],
+                    [`Medintervjuer: ${interview.coInterviewer.displayName}`],
+                  ),
             ],
           ),
           h.span(

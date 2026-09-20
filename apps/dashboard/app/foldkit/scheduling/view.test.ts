@@ -98,6 +98,7 @@ const schedule = {
   committedAt: "2031-09-01T10:00:00.000Z",
   scheduleRevision: 1,
 } as const;
+type CoInterviewer = Readonly<{ personId: string; displayName: string }>;
 const detailFor = (state: "Completed" | "Cancelled") =>
   S.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)({
     interviewId: schedule.interviewId,
@@ -163,7 +164,10 @@ const detailFor = (state: "Completed" | "Cancelled") =>
     canCancel: false,
   });
 
-const terminalModel = (state: "Completed" | "Cancelled"): ReadyModel => {
+const terminalModel = (
+  state: "Completed" | "Cancelled",
+  coInterviewer: CoInterviewer | null = null,
+): ReadyModel => {
   const detail = detailFor(state);
   const board = S.decodeUnknownSync(SchedulingBoard)({
     departmentId: "department-conduct-view",
@@ -178,6 +182,7 @@ const terminalModel = (state: "Completed" | "Cancelled"): ReadyModel => {
           email: "interviewer@example.invalid",
           phone: "+4712345678",
         },
+        coInterviewer,
         applicant: {
           applicationId: detail.applicationId,
           applicantId: detail.applicant.applicantId,
@@ -275,6 +280,21 @@ describe("Foldkit scheduling conduct view", () => {
     expect(cancelledControls).toHaveLength(3);
     expect(cancelledControls.every((node) => hasAttribute(node, "Disabled", true))).toBe(true);
     expect(cancelledNodes.some((node) => node.tag === "select")).toBe(false);
+  });
+  it("renders a co-interviewer from the scheduling board projection", () => {
+    const rendered = view(
+      terminalModel("Completed", {
+        personId: "person-co-interviewer",
+        displayName: "Cora Medintervjuer",
+      }),
+      htmlBuilder,
+    ) as unknown as RenderedNode;
+
+    expect(
+      descendants(rendered).some(
+        (node) => node.tag === "p" && textContent(node) === "Medintervjuer: Cora Medintervjuer",
+      ),
+    ).toBe(true);
   });
   it("disables every conduct control while a successful detail refresh is pending", () => {
     const pending = {

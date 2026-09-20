@@ -604,6 +604,11 @@ export const recruitmentInterviewAccessContext = (
   },
   facts: {
     assignedInterviewerPersonIds: activeMember ? [source.interviewerPersonId] : [],
+    interviewParticipantPersonIds: activeMember
+      ? source.coInterviewerPersonId === null
+        ? [source.interviewerPersonId]
+        : [source.interviewerPersonId, source.coInterviewerPersonId]
+      : [],
     linkedApplicantPersonId: source.linkedApplicantPersonId,
     departmentLeaderPersonIds:
       allowLeader && actor._tag === "DepartmentLeader" && actor.departmentId === source.departmentId
@@ -611,7 +616,7 @@ export const recruitmentInterviewAccessContext = (
         : [],
   },
   authorityVersion: AuthorityVersion.make(
-    `${source.interviewRevision}:${source.linkedApplicantPersonId ?? "Unknown"}:${source.authority.map((item) => `${item.kind}:${item.identity}:${item.revisions.join(".")}`).join("|")}`,
+    `${source.interviewRevision}:${JSON.stringify(source.coInterviewerPersonId)}:${source.linkedApplicantPersonId ?? "Unknown"}:${source.authority.map((item) => `${item.kind}:${item.identity}:${item.revisions.join(".")}`).join("|")}`,
   ),
 });
 
@@ -630,6 +635,7 @@ export const interviewETag = (
     resourceIdentity: `recruitment-interview:${source.interviewId}`,
     version: [
       source.interviewRevision,
+      source.coInterviewerPersonId,
       source.authority.map((item) => [item.kind, item.identity, item.revisions]),
     ],
   });
@@ -645,6 +651,8 @@ export const schedulingBoardWithETags = (
       interviewId: interview.interviewId,
       departmentId: interview.departmentId,
       interviewerPersonId: interview.interviewer.personId,
+      coInterviewerPersonId:
+        interview.coInterviewer === null ? null : interview.coInterviewer.personId,
       interviewRevision: interview.revision,
       authority,
     }),
