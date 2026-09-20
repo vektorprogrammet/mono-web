@@ -203,16 +203,16 @@ export default function ApplicantProgressPage() {
   const result = useLoaderData<typeof loader>();
   if (result.unavailable) {
     return (
-      <main className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+      <div className="mx-auto w-full max-w-5xl p-4 sm:p-6">
         <h1 className="text-2xl font-semibold">Min søknad</h1>
         <p role="alert" className="mt-4 rounded-md border p-4">
           Søknadsstatusen kunne ikke lastes. Prøv igjen senere.
         </p>
-      </main>
+      </div>
     );
   }
   return (
-    <main className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+    <div className="mx-auto w-full max-w-5xl p-4 sm:p-6">
       <h1 className="text-2xl font-semibold">Min søknad</h1>
       <p className="mt-2 text-muted-foreground">
         Her ser du status og neste steg for søknader i inneværende semester.
@@ -228,6 +228,6 @@ export default function ApplicantProgressPage() {
           ))}
         </div>
       )}
-    </main>
+    </div>
   );
 }
