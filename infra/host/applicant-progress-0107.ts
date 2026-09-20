@@ -312,6 +312,7 @@ export const runApplicantProgress0107 = async (input: {
 
   await input.page.goto(`${input.ui}/dashboard/soknad`);
   await input.page.getByRole("heading", { name: "Min søknad", exact: true }).waitFor();
+  const renderedText = await input.page.locator("body").innerText();
   for (const title of [
     "Søknaden er mottatt",
     "Du er invitert til intervju",
@@ -321,10 +322,13 @@ export const runApplicantProgress0107 = async (input: {
     "Intervjuet er fullført",
     "Du er tatt opp som vektorassistent",
   ] as const) {
-    assert.ok((await input.page.getByRole("heading", { name: title, exact: true }).count()) >= 1);
+    assert.ok(
+      (await input.page.getByRole("heading", { name: title, exact: true }).count()) >= 1,
+      `missing rendered applicant-progress heading ${title}: ${renderedText}`,
+    );
   }
   assert.equal(await input.page.getByText("P-201", { exact: true }).count(), 1);
-  assert.equal(forbidden.test(await input.page.locator("body").innerText()), false);
+  assert.equal(forbidden.test(renderedText), false);
   const violations = await input.audit(input.page);
   assert.deepEqual(violations, []);
   await input.page.screenshot({
