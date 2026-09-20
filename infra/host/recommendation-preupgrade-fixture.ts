@@ -470,6 +470,15 @@ export const seedCoInterviewerCorrection0106Fixture = async ({
             coInterviewerPersonId: fixture.coInterviewer.personId,
           })),
       );
+      await clone(
+        client,
+        "recruitment_interview_conducts",
+        `interview_id='${fixture.targetInterviewId}'`,
+        {
+          interview_id: fixture.selfLinkRaceInterviewId,
+          interview_revision: 1,
+        },
+      );
       await client.query("COMMIT");
     } catch (cause) {
       await client.query("ROLLBACK");
