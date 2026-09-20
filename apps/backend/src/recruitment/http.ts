@@ -427,7 +427,6 @@ const actorFor = async (
   }
 };
 
-
 const capabilityForSpec = (spec: AccessSpec) => {
   if (spec.capabilities._tag !== "One") {
     throw new HttpSemanticFailure("internal.error", 500);
@@ -1095,7 +1094,6 @@ const createApplicationInterview = async (
   });
 };
 
-
 const interviewAuthorizationInTransaction = async (
   request: Request,
   interviewId: RecruitmentInterviewId,
@@ -1260,10 +1258,7 @@ const readInterviewConductHandler = async (
             ),
           );
           const source = await txRun(
-            readRecruitmentInterviewHttpSourcePostgres(
-              interviewId,
-              authorization.actor.personId,
-            ),
+            readRecruitmentInterviewHttpSourcePostgres(interviewId, authorization.actor.personId),
           );
           return { observation, source };
         }),

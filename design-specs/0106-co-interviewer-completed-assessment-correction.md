@@ -1,9 +1,11 @@
 # 0106 — Co-interviewer authority for completed assessment correction
 
-Status: frozen for local implementation, 2026-09-20. Production release unclaimed.
+Status: implemented and observed with synthetic local resources at `a8eafdfc`, 2026-09-20. Production release unclaimed.
 
 Baseline: `5a02d48424be1e5138f96ddb8519c6e846b63d40` (`migration/assistant-operations-0906`).
 The accepted tree contains no `0106` design spec. This document claims `0106` for this bounded journey.
+
+Acceptance evidence: [`evidence/functional-parity/0106/acceptance-manifest.json`](../evidence/functional-parity/0106/acceptance-manifest.json).
 
 ## Goal and product boundary
 

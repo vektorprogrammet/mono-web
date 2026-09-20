@@ -829,7 +829,6 @@ export const RecruitmentInterviewCorrectionSchema = Schema.Struct({
 });
 export type RecruitmentInterviewCorrection = typeof RecruitmentInterviewCorrectionSchema.Type;
 
-
 export type RecruitmentInterviewConductSelect = typeof RecruitmentInterviewConduct.Encoded;
 export type RecruitmentInterviewConductInsert = typeof RecruitmentInterviewConduct.insert.Encoded;
 export type RecruitmentInterviewConductJson = typeof RecruitmentInterviewConduct.json.Type;

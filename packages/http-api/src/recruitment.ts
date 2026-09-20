@@ -584,7 +584,10 @@ export const CorrectInterviewAssessmentEndpoint = HttpApiEndpoint.post(
     ),
   )
   .annotateMerge(
-    operationAnnotations("Correct interview assessment", "Appends a replacement assessment to a completed interview."),
+    operationAnnotations(
+      "Correct interview assessment",
+      "Appends a replacement assessment to a completed interview.",
+    ),
   );
 
 /** @since 0.1.0 @category Endpoints */

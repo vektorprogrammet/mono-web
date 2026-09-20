@@ -20,7 +20,9 @@ Now:
 
 - Implemented and observed in the final clean canonical integration at runtime revision `4b17590d1ba605f1153588b375bebd6ff93b5427`: [0105 — authorized corrections to completed interview assessments](design-specs/0105-authorized-completed-interview-corrections.md). The journey preserves original completion metadata and historical-null assessments, appends immutable correction history, and exposes the ordered read-only history in the Foldkit detail. Domain, database, SDK and strict changed-harness checks passed; the complete browser/API/PostgreSQL evidence and checksums are recorded in [the acceptance manifest](evidence/functional-parity/0105/acceptance-manifest.json).
 
-- Continue the accepted [continuation plan](docs/migration/continuation-plan.md): remaining recruitment/finance outcomes and semester workflows. A new coordinator admission-decision workflow remains a separate product choice.
+- Implemented and observed with synthetic local resources at runtime revision `a8eafdfc84256694a129ec87043fd2176d53da01`: [0106 — co-interviewer authority for completed assessment correction](design-specs/0106-co-interviewer-completed-assessment-correction.md). A current designated co-interviewer can find, read, correct and reload the same shared completed assessment as the primary interviewer without receiving contact data or broader recruitment authority. Exact replay, stale/concurrent writes, source-fact ETags, revocation, rollback, native receipts, mobile/desktop rendering and accessibility are recorded in [the acceptance manifest](evidence/functional-parity/0106/acceptance-manifest.json).
+
+- Continue the accepted [continuation plan](docs/migration/continuation-plan.md): applicant progress/completion receipts, remaining recruitment/finance outcomes and semester workflows. A new coordinator admission-decision workflow and a co-interviewer designation workflow remain separate product choices.
 - Keep exact-commit runtime evidence separate from implementation and production cutover claims.
 - Rehearse receipt, private-file and identity reconciliation before any production cutover.
 

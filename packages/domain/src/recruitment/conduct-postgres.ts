@@ -393,7 +393,6 @@ const readCorrectionReceipt = (sql: DatabaseShape, commandId: string, lock: bool
     ),
   );
 
-
 interface EffectiveAssessmentRow {
   readonly answers: unknown;
   readonly explanatoryPower: number;
@@ -404,32 +403,32 @@ interface EffectiveAssessmentRow {
 }
 
 const readEffectiveAssessment = (sql: DatabaseShape, interviewId: string) =>
-   sql<EffectiveAssessmentRow>`
+  sql<EffectiveAssessmentRow>`
      SELECT answers, explanatory_power AS "explanatoryPower", role_model AS "roleModel",
        suitability, recommendation, effective_revision AS "effectiveRevision"
      FROM public.recruitment_interview_effective_assessments
      WHERE interview_id = ${interviewId}
    `.pipe(
-     Effect.flatMap((rows) =>
-       rows[0] === undefined
-         ? Effect.succeed(undefined)
-         : decode(
-             Schema.Struct({
-               answers: Schema.Unknown,
-               explanatoryPower: Schema.Number,
-               roleModel: Schema.Number,
-               suitability: Schema.Number,
-               recommendation: Schema.NullOr(InterviewRecommendationSchema),
-               effectiveRevision: Schema.Number,
-             }),
-             rows[0],
-             "effective assessment",
-           ),
-     ),
-     Effect.catchTag("SqlError", (cause) =>
-       Effect.fail(persistenceError("read effective assessment", cause)),
-     ),
-   );
+    Effect.flatMap((rows) =>
+      rows[0] === undefined
+        ? Effect.succeed(undefined)
+        : decode(
+            Schema.Struct({
+              answers: Schema.Unknown,
+              explanatoryPower: Schema.Number,
+              roleModel: Schema.Number,
+              suitability: Schema.Number,
+              recommendation: Schema.NullOr(InterviewRecommendationSchema),
+              effectiveRevision: Schema.Number,
+            }),
+            rows[0],
+            "effective assessment",
+          ),
+    ),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("read effective assessment", cause)),
+    ),
+  );
 
 const stateFor = (
   interview: InterviewRow,
@@ -551,8 +550,7 @@ const authorizeAndLoad = (
       authorizationInstant,
     );
     const isCoInterviewer =
-      accessMode === "InterviewParticipant" &&
-      interview.coInterviewerPersonId === actor.personId;
+      accessMode === "InterviewParticipant" && interview.coInterviewerPersonId === actor.personId;
     const isParticipant = interview.interviewerPersonId === actor.personId || isCoInterviewer;
     if (!isParticipant) {
       return yield* new RecruitmentScopeDenied({
@@ -576,7 +574,17 @@ const authorizeAndLoad = (
     const corrections = yield* readCorrections(sql, interviewId, lock);
     const effective = yield* readEffectiveAssessment(sql, interviewId);
     const cancellation = yield* readCancellation(sql, interviewId, lock);
-    return { actor, interview, schedule, invitation, questions, conduct, corrections, effective, cancellation };
+    return {
+      actor,
+      interview,
+      schedule,
+      invitation,
+      questions,
+      conduct,
+      corrections,
+      effective,
+      cancellation,
+    };
   });
 
 const observation = (
@@ -734,13 +742,7 @@ export const readInterviewConductInTransaction = (
       loaded.cancellation,
     );
     const applicant = yield* readApplicant(admissions, loaded.interview.applicationId);
-    return yield* observation(
-      state,
-      applicant,
-      loaded.corrections,
-      loaded.effective,
-      loaded.actor,
-    );
+    return yield* observation(state, applicant, loaded.corrections, loaded.effective, loaded.actor);
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("conduct observation", cause)),
@@ -926,10 +928,7 @@ const correctInTransaction = (
     );
     const receipt = yield* readCorrectionReceipt(sql, command.commandId, true);
     if (receipt !== undefined) {
-      if (
-        receipt.commandSha256 !== digest ||
-        receipt.interviewId !== command.interviewId
-      )
+      if (receipt.commandSha256 !== digest || receipt.interviewId !== command.interviewId)
         return yield* new RecruitmentLifecycleCommandConflict({ commandId: command.commandId });
       const stored = yield* decode(
         CorrectInterviewAssessmentObservationSchema,
@@ -960,12 +959,7 @@ const correctInTransaction = (
             },
           }
         : state;
-    const transition = yield* applyCorrection(
-      correctionState,
-      command,
-      loaded.actor,
-      context.now,
-    );
+    const transition = yield* applyCorrection(correctionState, command, loaded.actor, context.now);
     const updated = yield* sql<{ readonly revision: number }>`
       UPDATE recruitment_interviews
       SET revision = revision + 1
@@ -1048,7 +1042,6 @@ export const correctInterviewAssessment = (
         ),
       );
   });
-
 
 export const finalizeInterview = (
   command: FinalizeInterviewCommand,

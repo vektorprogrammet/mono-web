@@ -67,21 +67,18 @@ it.effect("denies an incomplete interview to a co-interviewer before loading det
         database,
       ).pipe(
         Effect.provideService(Admissions, {} as never),
-        Effect.provideService(
-          Organization,
-          {
-            resolvePersonAuthority: () =>
-              Effect.succeed({
-                memberships: [{ departmentId, active: true }],
-              }),
-          } as never,
-        ),
+        Effect.provideService(Organization, {
+          resolvePersonAuthority: () =>
+            Effect.succeed({
+              memberships: [{ departmentId, active: true }],
+            }),
+        } as never),
       ),
     );
 
     expect(failure._tag).toBe("RecruitmentScopeDenied");
-    expect(statements.some((statement) => statement.includes("recruitment_interview_schedules"))).toBe(
-      false,
-    );
+    expect(
+      statements.some((statement) => statement.includes("recruitment_interview_schedules")),
+    ).toBe(false);
   }),
 );

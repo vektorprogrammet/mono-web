@@ -31,16 +31,14 @@ export const submitContact = (message: ContactMessage, ip: ContactVisitorIp) =>
     const quota = yield* ContactQuota;
     yield* quota.consume(ip);
     const organization = yield* Organization;
-    const department = yield* organization
-      .readDepartment(message.departmentId)
-      .pipe(
-        Effect.mapError(
-          (error) =>
-            new ContactFailure({
-              reason: error._tag === "DepartmentNotFound" ? "InvalidRecipient" : "Unavailable",
-            }),
-        ),
-      );
+    const department = yield* organization.readDepartment(message.departmentId).pipe(
+      Effect.mapError(
+        (error) =>
+          new ContactFailure({
+            reason: error._tag === "DepartmentNotFound" ? "InvalidRecipient" : "Unavailable",
+          }),
+      ),
+    );
     if (!department.active || !Schema.is(ContactEmail)(department.email)) {
       return yield* Effect.fail(new ContactFailure({ reason: "InvalidRecipient" }));
     }

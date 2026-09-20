@@ -117,10 +117,7 @@ it.effect("decodes contact-free co-interviewer scheduling projections", () =>
   Effect.gen(function* () {
     const coInterviewer = yield* Schema.decodeUnknownEffect(
       RecruitmentSchedulingCoInterviewerSchema,
-    )(
-      { personId: "person-2", displayName: "Cora Co-interviewer" },
-      { onExcessProperty: "error" },
-    );
+    )({ personId: "person-2", displayName: "Cora Co-interviewer" }, { onExcessProperty: "error" });
     expect(coInterviewer).toEqual({
       personId: "person-2",
       displayName: "Cora Co-interviewer",

@@ -89,9 +89,10 @@ export const claimNextPublicApplicationOutbox = (
           AND status = 'Processing'
           AND claim_id = ${claimId}
       `.pipe(Effect.asVoid);
-    return yield* sql.withTransaction(
-      Effect.gen(function* () {
-        const rows = yield* sql<ClaimedOutboxRow>`
+    return yield* sql
+      .withTransaction(
+        Effect.gen(function* () {
+          const rows = yield* sql<ClaimedOutboxRow>`
             WITH candidate AS (
               SELECT outbox.effect_id
               FROM admission_application_outbox AS outbox
@@ -209,7 +210,8 @@ export const claimNextPublicApplicationOutbox = (
             return undefined;
           }
           const requestPersonId = "personId" in request ? request.personId : undefined;
-          const requestRegistrationId = "registrationId" in request ? request.registrationId : undefined;
+          const requestRegistrationId =
+            "registrationId" in request ? request.registrationId : undefined;
           const transactionMatchesCanonicalState =
             identity.receipt_application_id === row.application_id &&
             identity.audit_application_id === row.application_id &&

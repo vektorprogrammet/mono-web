@@ -489,9 +489,7 @@ it("authorizes a current co-interviewer only through the participant requirement
       true,
     ).authorityVersion,
   ).not.toBe(context.authorityVersion);
-  expect(
-    interviewETag({ ...source, coInterviewerPersonId: null }),
-  ).not.toBe(interviewETag(source));
+  expect(interviewETag({ ...source, coInterviewerPersonId: null })).not.toBe(interviewETag(source));
 });
 
 it("authorizes the report collection for its current scoped leader and rejects missing leadership", () => {

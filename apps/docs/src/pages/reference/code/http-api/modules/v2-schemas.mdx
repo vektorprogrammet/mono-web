@@ -626,6 +626,7 @@ declare const RecruitmentInterviewResource: Schema.Struct<{
   readonly applicationId: Schema.brand<Schema.String, "PublicApplicationId">;
   readonly departmentId: Schema.brand<Schema.String, "DepartmentId">;
   readonly interviewerPersonId: Schema.brand<Schema.String, "PersonId">;
+  readonly coInterviewerPersonId: Schema.NullOr<Schema.brand<Schema.String, "PersonId">>;
   readonly interviewSchemaId: Schema.brand<Schema.String, "InterviewSchemaId">;
   readonly assignedByPersonId: Schema.brand<Schema.String, "PersonId">;
   readonly assignedAt: Schema.String;
