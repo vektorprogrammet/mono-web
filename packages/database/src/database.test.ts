@@ -900,6 +900,7 @@ describe("DatabaseTest", () => {
           applicationId: "recruitment-application",
           departmentId: "recruitment-department",
           interviewerPersonId: "recruitment-interviewer",
+          coInterviewerPersonId: null,
           interviewSchemaId: "recruitment-schema",
           assignedByPersonId: "recruitment-leader",
           assignedAt: "2031-09-15T12:00:00.000Z",
@@ -1069,6 +1070,7 @@ describe("DatabaseTest", () => {
             email: `${fixtureId}-interviewer@example.invalid`,
             phone: "91111111",
           },
+          coInterviewer: null,
           applicant: {
             applicationId: `${fixtureId}-application`,
             applicantId: `${fixtureId}-applicant`,
