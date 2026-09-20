@@ -26,7 +26,7 @@ const composeProject = `mono-web-native-scheduling-0050-${process.pid}`;
 const commandTimeoutMs = 300_000;
 const shutdownTimeoutMs = 5_000;
 const nixPostgresPackage = "nixpkgs#postgresql_17";
-const fixedClock = "2031-09-15T12:00:00.000Z";
+const fixedClock = new Date(Date.now() + 5 * 60_000).toISOString();
 const departmentId = "department-native-scheduling-0050";
 const semesterId = "semester-native-scheduling-0050";
 const admissionPeriodId = "admission-period-native-scheduling-0050";
@@ -795,6 +795,41 @@ function assertRecordingEvidence(recording, before, after) {
   }
   assertEqual(after.counts, before.counts, "Post-interpretation scheduling row counts");
 }
+async function warmDashboardClient(environment) {
+  const source = `
+    import { chromium } from "@playwright/test";
+    const browser = await chromium.launch({
+      headless: true,
+      executablePath:
+        process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ??
+        "/etc/profiles/per-user/nori/bin/chromium-browser",
+    });
+    try {
+      const page = await browser.newPage();
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const response = await page.goto(${JSON.stringify(`${dashboardOrigin}/login`)}, {
+          waitUntil: "domcontentloaded",
+        });
+        if (response === null || !response.ok()) {
+          throw new Error("Dashboard client warm-up did not load the login route");
+        }
+        await page.waitForTimeout(3_000);
+      }
+    } finally {
+      await browser.close();
+    }
+  `;
+  await runCommand(
+    process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
+    ["--input-type=module", "--eval", source],
+    {
+      cwd: dashboardRoot,
+      env: environment,
+      label: "Dashboard client dependency warm-up",
+      captureOutput: true,
+    },
+  );
+}
 
 const receiptRequested = () =>
   [
@@ -1045,6 +1080,8 @@ async function main() {
       { cwd: dashboardRoot, env: journeyEnvironment },
     );
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess, "Dashboard");
+    await warmDashboardClient(journeyEnvironment);
+    proxy.records.length = 0;
 
     const playwrightArgs = [
       "./node_modules/@playwright/test/cli.js",
@@ -1244,7 +1281,18 @@ async function main() {
       recording,
     };
   } catch (error) {
-    primaryError = error;
+    const transport = proxy?.records
+      .slice(-3)
+      .map(({ method, path, status, sessionCookieAuth }) => ({
+        method,
+        path,
+        status,
+        sessionCookieAuth,
+      }));
+    primaryError = new Error(
+      `${errorDetail(error)}; recorded transport: ${JSON.stringify(transport ?? [])}`,
+      { cause: error },
+    );
   }
 
   let cleanupError;

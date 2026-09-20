@@ -147,8 +147,17 @@ test.describe("Native recruitment interview scheduling", () => {
         (response) => bridgeOperation(response.request()) === "readSchedulingBoard",
       );
       await dialog.getByRole("button", { name: "Lagre og legg i kø" }).click();
-      const [scheduled, refreshed] = await Promise.all([scheduleResponse, freshBoardResponse]);
-      expect(scheduled.status()).toBe(200);
+      const scheduled = await scheduleResponse;
+      if (scheduled.status() !== 200) {
+        const sessionCookies = (await page.context().cookies(DASHBOARD_ORIGIN))
+          .filter(({ name }) => name.includes("better-auth"))
+          .map(({ name, path, sameSite, secure }) => ({ name, path, sameSite, secure }));
+        const requestHeaders = await scheduled.request().allHeaders();
+        throw new Error(
+          `Scheduling mutation returned ${scheduled.status()}: ${await scheduled.text()} ${JSON.stringify(sessionCookies)} cookieHeader=${String("cookie" in requestHeaders)}`,
+        );
+      }
+      const refreshed = await freshBoardResponse;
       expect(refreshed.status()).toBe(200);
       expect(await scheduled.text()).not.toContain("responseCapability");
       expect(await refreshed.text()).not.toContain("responseCapability");
