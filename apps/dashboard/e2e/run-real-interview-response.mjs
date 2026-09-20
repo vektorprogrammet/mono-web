@@ -929,6 +929,196 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
     },
   };
 }
+const nativeProblemKeys = ["code", "detail", "status", "title", "type"];
+
+const nativeMutationHeaders = (capability, etag, evidenceKey) => ({
+  "content-type": "application/json",
+  "idempotency-key": createHash("sha256").update(evidenceKey, "utf8").digest("hex"),
+  "if-match": etag,
+  [invitationCapabilityHeader]: capability,
+});
+
+async function expectNativeProblem(path, init, expectedStatus, expectedCode) {
+  const response = await fetch(new URL(path, backendOrigin), init);
+  const responseText = await response.text();
+  assertNoRawCapability(responseText, `Native ${expectedCode} response`);
+  const problem = JSON.parse(responseText);
+  if (
+    response.status !== expectedStatus ||
+    !response.headers.get("content-type")?.startsWith("application/problem+json") ||
+    problem?.status !== expectedStatus ||
+    problem?.code !== expectedCode ||
+    problem?.type !== `urn:vektorprogrammet:problem:v0.2:${expectedCode}` ||
+    typeof problem?.title !== "string" ||
+    typeof problem?.detail !== "string" ||
+    JSON.stringify(Object.keys(problem).sort()) !== JSON.stringify(nativeProblemKeys)
+  ) {
+    throw new Error(
+      `Native ${expectedCode} boundary did not return exact Problem Details: ${JSON.stringify({
+        status: response.status,
+        contentType: response.headers.get("content-type"),
+        code: problem?.code,
+        type: problem?.type,
+        keys: problem === null || typeof problem !== "object" ? [] : Object.keys(problem).sort(),
+      })}`,
+    );
+  }
+  return {
+    status: response.status,
+    code: problem.code,
+    type: problem.type,
+    responseKeys: Object.keys(problem).sort(),
+    rawCapabilityObserved: false,
+  };
+}
+
+async function exerciseNativeBoundaryFailures() {
+  const capability = rawCapabilitiesByCase["requested-new-time"];
+  const read = await fetch(new URL("/api/recruitment/invitation-response", backendOrigin), {
+    headers: { [invitationCapabilityHeader]: capability },
+  });
+  const readText = await read.text();
+  assertNoRawCapability(readText, "Native pending invitation boundary read");
+  const etag = read.headers.get("etag");
+  if (read.status !== 200 || etag === null) {
+    throw new Error("Native boundary rehearsal could not read the pending invitation");
+  }
+  const basePath = "/api/recruitment/invitation-response:request-new-time";
+  const malformedCapability = "A".repeat(43);
+  const overlongMessage = "x ".repeat(1_000_000);
+  return {
+    unknownCapability: await expectNativeProblem(
+      "/api/recruitment/invitation-response",
+      { headers: { [invitationCapabilityHeader]: malformedCapability } },
+      404,
+      "resource.not-found",
+    ),
+    duplicateJsonMember: await expectNativeProblem(
+      basePath,
+      {
+        method: "POST",
+        headers: nativeMutationHeaders(capability, etag, "0051-boundary-duplicate-json"),
+        body: '{"message":"first","message":"second"}',
+      },
+      400,
+      "request.malformed",
+    ),
+    capabilityShapedMessage: await expectNativeProblem(
+      basePath,
+      {
+        method: "POST",
+        headers: nativeMutationHeaders(capability, etag, "0051-boundary-capability-message"),
+        body: JSON.stringify({ message: malformedCapability }),
+      },
+      422,
+      "validation.failed",
+    ),
+    overlongBody: await expectNativeProblem(
+      basePath,
+      {
+        method: "POST",
+        headers: nativeMutationHeaders(capability, etag, "0051-boundary-overlong-body"),
+        body: JSON.stringify({ message: overlongMessage }),
+      },
+      413,
+      "request.too-large",
+    ),
+  };
+}
+
+const semanticResponseHeaders = (headers) =>
+  Object.fromEntries(
+    ["cache-control", "content-type", "etag", "location", "retry-after"].map((name) => [
+      name,
+      headers.get(name),
+    ]),
+  );
+
+async function exerciseExactHttpReplay(records) {
+  const original = records.find(
+    (record) =>
+      record.invitationActor === "accepted" &&
+      record.method === "POST" &&
+      record.path === responseCases[0].commandPath &&
+      record.status === 204,
+  );
+  if (
+    original === undefined ||
+    typeof original.idempotencyKey !== "string" ||
+    typeof original.ifMatch !== "string"
+  ) {
+    throw new Error("Native replay rehearsal could not locate the accepted command receipt");
+  }
+  const execute = async () => {
+    const response = await fetch(new URL(original.path, backendOrigin), {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": original.idempotencyKey,
+        "if-match": original.ifMatch,
+        [invitationCapabilityHeader]: rawCapabilitiesByCase.accepted,
+      },
+      body: JSON.stringify(original.requestJson ?? {}),
+    });
+    const body = Buffer.from(await response.arrayBuffer());
+    return {
+      status: response.status,
+      bodySha256: createHash("sha256").update(body).digest("hex"),
+      bodyBytes: body.byteLength,
+      headers: semanticResponseHeaders(response.headers),
+    };
+  };
+  const first = await execute();
+  const second = await execute();
+  assertEqual(first, second, "Exact native HTTP command replay");
+  if (
+    first.status !== 204 ||
+    first.bodyBytes !== 0 ||
+    first.headers.etag !== original.responseEtag ||
+    first.headers["cache-control"] !== "no-store"
+  ) {
+    throw new Error("Exact native HTTP command replay changed its response capsule");
+  }
+  return { ...first, repeatedIdentically: true };
+}
+
+function summarizeNativeContracts(records) {
+  const invitationRecords = records.filter(({ invitationActor }) => invitationActor !== null);
+  const reads = invitationRecords.filter(
+    ({ method, path }) => method === "GET" && path === "/api/recruitment/invitation-response",
+  );
+  const successfulMutations = invitationRecords.filter(
+    ({ method, status }) => method === "POST" && status === 204,
+  );
+  const terminalConflicts = invitationRecords.filter(
+    ({ method, status }) => method === "POST" && status === 409,
+  );
+  return {
+    readObservation: {
+      statuses: [...new Set(reads.map(({ status }) => status))],
+      responseKeys: Object.keys(reads[0]?.responseJson ?? {}).sort(),
+      capabilityFieldObserved: reads.some(({ responseJson }) =>
+        ["capability", "invitationCapability", "responseCapability"].some((key) =>
+          hasObjectKey(responseJson, key),
+        ),
+      ),
+    },
+    successfulMutations: {
+      count: successfulMutations.length,
+      statuses: [...new Set(successfulMutations.map(({ status }) => status))],
+      emptyBodies: successfulMutations.every(({ responseJson }) => responseJson === null),
+      strongEtags: successfulMutations.every(({ responseEtag }) =>
+        /^"vkr2\.[A-Za-z0-9_-]{43}"$/u.test(responseEtag ?? ""),
+      ),
+    },
+    terminalConflicts: {
+      count: terminalConflicts.length,
+      statuses: [...new Set(terminalConflicts.map(({ status }) => status))],
+      codes: [...new Set(terminalConflicts.map(({ responseJson }) => responseJson?.code))],
+      types: [...new Set(terminalConflicts.map(({ responseJson }) => responseJson?.type))],
+    },
+  };
+}
 
 const parseJsonOutput = (result, label) => {
   const source = result.stdout.trim();
@@ -954,6 +1144,45 @@ async function readJsonFile(path, label) {
   } catch {
     throw new Error(`${label} is malformed`);
   }
+}
+
+async function warmDashboardClient(environment, capability) {
+  const source = `
+    import { chromium } from "@playwright/test";
+    const browser = await chromium.launch({
+      headless: true,
+      executablePath:
+        process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ??
+        "/etc/profiles/per-user/nori/bin/chromium-browser",
+    });
+    try {
+      const page = await browser.newPage();
+      for (const route of [
+        ${JSON.stringify(`${dashboardOrigin}/interview-response/${capability}`)},
+        ${JSON.stringify(`${dashboardOrigin}/login`)},
+      ]) {
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const response = await page.goto(route, { waitUntil: "domcontentloaded" });
+          if (response === null || !response.ok()) {
+            throw new Error("Dashboard client warm-up did not load a required route");
+          }
+          await page.waitForTimeout(3_000);
+        }
+      }
+    } finally {
+      await browser.close();
+    }
+  `;
+  await runCommand(
+    process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
+    ["--input-type=module", "--eval", source],
+    {
+      cwd: dashboardRoot,
+      env: environment,
+      label: "Dashboard client dependency warm-up",
+      captureOutput: true,
+    },
+  );
 }
 
 async function readResponseEvidence(environment) {
@@ -1910,6 +2139,7 @@ async function main() {
     const seededEvidence = await readResponseEvidence(baseEnvironment);
     assertSeedEvidence(seededEvidence);
     await assertCanonicalDatabasePrivacy(baseEnvironment);
+    const nativeBoundaryFailures = await exerciseNativeBoundaryFailures();
 
     proxy = await startRecordingProxy(
       backendOrigin,
@@ -1965,6 +2195,8 @@ async function main() {
       dashboardProcess,
       "Dashboard",
     );
+    await warmDashboardClient(dashboardEnvironment, rawCapabilitiesByCase.accepted);
+    proxy.records.length = 0;
 
     const playwrightArgs = [
       "./node_modules/@playwright/test/cli.js",
@@ -1993,6 +2225,8 @@ async function main() {
     );
     assertBrowserEvidence(browser);
     assertNativeTransport(proxy.records);
+    const nativeContractObservations = summarizeNativeContracts(proxy.records);
+    const exactHttpReplay = await exerciseExactHttpReplay(proxy.records);
     if (apiProcess.rawCapabilityObserved() || dashboardProcess.rawCapabilityObserved()) {
       throw new Error("A native process log contained a raw invitation capability");
     }
@@ -2052,6 +2286,9 @@ async function main() {
         externalRequests: 0,
         providerRequests: 0,
         rawCapabilityObserved: false,
+        contractObservations: nativeContractObservations,
+        boundaryFailures: nativeBoundaryFailures,
+        exactHttpReplay,
       },
       postgres: {
         seeded: seededEvidence,
@@ -2089,6 +2326,7 @@ async function main() {
                 sessionCookieAuth,
                 authorizationHeaderPresent,
                 invitationActor,
+                responseJson,
               }) => ({
                 method,
                 path,
@@ -2096,6 +2334,10 @@ async function main() {
                 sessionCookieAuth,
                 authorizationHeaderPresent,
                 invitationActor,
+                responseCode:
+                  responseJson !== null && typeof responseJson.code === "string"
+                    ? responseJson.code
+                    : null,
               }),
             ),
           );

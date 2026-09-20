@@ -367,8 +367,31 @@ const readJsonBody = async (
     if (!Number.isSafeInteger(length) || length < 0) fail("request.malformed", 400);
     if (length > maxBodyBytes) fail("request.too-large", 413);
   }
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.byteLength > maxBodyBytes) fail("request.too-large", 413);
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  if (request.body !== null) {
+    const reader = request.body.getReader();
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        byteLength += chunk.value.byteLength;
+        if (byteLength > maxBodyBytes) {
+          await reader.cancel().catch(() => undefined);
+          fail("request.too-large", 413);
+        }
+        chunks.push(chunk.value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
   try {
     return parseJsonWithoutDuplicateMembers(bytes);
   } catch (cause) {
@@ -716,6 +739,7 @@ const executeCommand = async <CommandId>(input: {
       never | Database | Admissions | Organization | Profile | Recruitment
     >;
   }>;
+  readonly retry?: "serialization-once";
   readonly run: RecruitmentBackendRun;
 }): Promise<Response> => {
   const outcome = await input.run(
@@ -741,6 +765,7 @@ const executeCommand = async <CommandId>(input: {
             .pipe(Effect.flatMap((response) => Effect.promise(() => responseCapsule(response)))),
         };
       }),
+      input.retry === undefined ? {} : { retry: input.retry },
     ),
   );
   return nativeCommandOutcomeResponse(outcome);
@@ -834,6 +859,7 @@ const invitationMutation = async (
     semanticRequest: semanticMutationRequest(commandInput.body, ifMatch),
     commandIdSchema: NativeHttpCommandId,
     run: input.run,
+    retry: "serialization-once",
     prepare: async (txRun) => {
       const now = input.config.now();
       const source = await txRun(readRecruitmentInvitationHttpSourcePostgres(capability));
@@ -844,9 +870,11 @@ const invitationMutation = async (
         authorizationInstant: now,
         run: txRun,
       });
-      const precondition = evaluateMutationPrecondition(invitationETag(source), ifMatch);
-      if (precondition._tag === "Failed") {
-        throw new HttpSemanticFailure(precondition.code, precondition.status);
+      if (source.responseState === "Pending") {
+        const precondition = evaluateMutationPrecondition(invitationETag(source), ifMatch);
+        if (precondition._tag === "Failed") {
+          throw new HttpSemanticFailure(precondition.code, precondition.status);
+        }
       }
       return {
         credentialSubject: `Capability:${source.capabilitySha256}`,

@@ -45,7 +45,7 @@ const headMigrationId = Number(headMigration.id.split("_", 1)[0]);
 const raceCapability = "R".repeat(43);
 const deliveryCapability = "D".repeat(43);
 const responseInstant = "2035-09-15T12:03:00.000Z";
-const capabilityShapedMessage = "C".repeat(43);
+const capabilityShapedMessage = "C".repeat(44);
 const validNearbyMessage = "V".repeat(42);
 
 const makeProofLayer = (url: Redacted.Redacted<string>, applicationName: string) => {
@@ -519,7 +519,7 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
               'Rejected',
               ${ordinaryMessage},
               0,
-              jsonb_build_object('note', ${embeddedCapabilitySequence})
+              jsonb_build_object('responseMessage', ${embeddedCapabilitySequence})
             )
           `;
           return yield* Effect.fail("OutboxPayloadConfinementMissing");

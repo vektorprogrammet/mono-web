@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { canonicalJson, canonicalJsonBytes } from "@vektorprogrammet/domain/evidence";
+import { parseJsonWithUniqueMembers } from "@vektorprogrammet/domain/http-semantics";
 import {
   type IdempotencyKey,
   IdempotencyKey as IdempotencyKeySchema,
@@ -14,7 +15,6 @@ import {
 } from "@vektorprogrammet/http-api/http-semantics";
 import { Schema } from "effect";
 
-const decoder = new TextDecoder("utf-8", { fatal: true });
 const encoder = new TextEncoder();
 const lowerSha256Pattern = /^[a-f0-9]{64}$/u;
 const entityTagPattern = /^(W\/)?"([\x21\x23-\x7E]*)"$/u;
@@ -114,92 +114,8 @@ export const jcsBytes = (value: unknown): Uint8Array => {
 
 /** Decodes UTF-8 JSON while rejecting duplicate member names before schema decoding. */
 export const parseJsonWithoutDuplicateMembers = (bytes: Uint8Array): unknown => {
-  let text: string;
   try {
-    text = decoder.decode(bytes);
-  } catch {
-    throw new HttpSemanticFailure("request.malformed", 400);
-  }
-
-  // JSON.parse does not expose duplicate members. This scanner records every
-  // object key before JSON.parse constructs the semantic value.
-  const stack: Array<{
-    readonly kind: "array" | "object";
-    readonly keys?: Set<string>;
-    expectKey: boolean;
-  }> = [];
-  let index = 0;
-  let expectingKey = false;
-  while (index < text.length) {
-    const char = text[index]!;
-    if (/\s/u.test(char)) {
-      index += 1;
-      continue;
-    }
-    if (char === "{") {
-      stack.push({ kind: "object", keys: new Set(), expectKey: true });
-      expectingKey = true;
-      index += 1;
-      continue;
-    }
-    if (char === "[") {
-      stack.push({ kind: "array", expectKey: false });
-      expectingKey = false;
-      index += 1;
-      continue;
-    }
-    if (char === "}" || char === "]") {
-      stack.pop();
-      expectingKey = stack.at(-1)?.kind === "object" && stack.at(-1)?.expectKey === true;
-      index += 1;
-      continue;
-    }
-    if (char === ",") {
-      const top = stack.at(-1);
-      if (top?.kind === "object") top.expectKey = true;
-      expectingKey = top?.kind === "object";
-      index += 1;
-      continue;
-    }
-    if (char === ":") {
-      const top = stack.at(-1);
-      if (top?.kind === "object") top.expectKey = false;
-      expectingKey = false;
-      index += 1;
-      continue;
-    }
-    if (char === '"') {
-      const start = index;
-      index += 1;
-      while (index < text.length) {
-        if (text[index] === "\\") {
-          index += 2;
-          continue;
-        }
-        if (text[index] === '"') {
-          index += 1;
-          break;
-        }
-        index += 1;
-      }
-      if (expectingKey) {
-        let key: string;
-        try {
-          key = JSON.parse(text.slice(start, index)) as string;
-        } catch {
-          throw new HttpSemanticFailure("request.malformed", 400);
-        }
-        const keys = stack.at(-1)?.keys;
-        if (keys?.has(key) === true) throw new HttpSemanticFailure("request.malformed", 400);
-        keys?.add(key);
-      }
-      continue;
-    }
-    index += 1;
-  }
-
-  try {
-    const decoded = JSON.parse(text) as unknown;
+    const decoded = parseJsonWithUniqueMembers(bytes);
     validateJcsValue(decoded, new Set());
     return decoded;
   } catch (cause) {

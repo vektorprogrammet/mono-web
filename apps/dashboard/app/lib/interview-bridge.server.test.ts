@@ -93,6 +93,13 @@ describe("server-held recruitment invitation bridge", () => {
     ).toThrow();
     expect(() =>
       decodeOperation({
+        operation: "rejectInvitation",
+        etag,
+        message: `Kan ikke møte ${"A".repeat(43)} takk`,
+      }),
+    ).toThrow();
+    expect(() =>
+      decodeOperation({
         operation: "requestNewInvitationTime",
         etag,
         message: `Flytt intervjuet ${"A".repeat(43)} takk`,
@@ -132,9 +139,38 @@ describe("server-held recruitment invitation bridge", () => {
     ).rejects.toMatchObject({ _tag: "InvitationDecodeError" });
     await expect(
       decodeOperationRequest(
+        request(
+          "http://dashboard.test/interview",
+          `{"operation":"confirmInvitation","etag":${JSON.stringify(etag)},"etag":${JSON.stringify(etag)}}`,
+        ),
+      ),
+    ).rejects.toMatchObject({ _tag: "InvitationDecodeError" });
+    await expect(
+      decodeOperationRequest(
         request("http://dashboard.test/interview", JSON.stringify({ value: "x".repeat(4_096) })),
       ),
     ).rejects.toMatchObject({ _tag: "InvitationDecodeError" });
+  });
+
+  it("cancels an undeclared oversized request body before buffering the remainder", async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull: (controller) => controller.enqueue(new Uint8Array(2_048)),
+      cancel: () => {
+        cancelled = true;
+      },
+    });
+    const request = new Request("http://dashboard.test/interview", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+      duplex: "half",
+    } as RequestInit & { readonly duplex: "half" });
+
+    await expect(decodeOperationRequest(request)).rejects.toMatchObject({
+      _tag: "InvitationDecodeError",
+    });
+    expect(cancelled).toBe(true);
   });
 
   it("rejects missing, malformed, and unknown interaction bindings before creating the SDK", async () => {
@@ -273,6 +309,16 @@ describe("server-held recruitment invitation bridge", () => {
       expect(failure.message).not.toContain("unsafe");
       expect(statusForInvitationFailure(failure)).toBe(status);
     }
+
+    const infrastructureConflict = bridgeFailureFrom(
+      makeNativeProblem(
+        "transaction.conflict",
+        409,
+        "urn:uuid:00000000-0000-4000-8000-000000000002",
+      ),
+    );
+    expect(infrastructureConflict._tag).toBe("InvitationUnavailable");
+    expect(statusForInvitationFailure(infrastructureConflict)).toBe(503);
 
     expect(
       bridgeFailureFrom({

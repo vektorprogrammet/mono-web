@@ -243,9 +243,12 @@ it("requires a bounded message only when requesting a new time", () => {
   expect(blank.validationFeedback).toBe("Skriv en melding før du ber om nytt tidspunkt.");
   expect(blankCommands).toEqual([]);
 
+  const overlongMessage = Array.from({ length: 2_001 }, (_, index) =>
+    index % 43 === 42 ? " " : "x",
+  ).join("");
   const tooLong = {
     ...pendingModel(),
-    responseMessage: FieldValidation.NotValidated({ value: "x".repeat(2_001) }),
+    responseMessage: FieldValidation.NotValidated({ value: overlongMessage }),
   };
   const [invalidReject, invalidRejectCommands] = update(tooLong, RejectedInvitation());
   const [invalidNewTime, invalidNewTimeCommands] = update(tooLong, RequestedNewInvitationTime());
@@ -274,23 +277,38 @@ it("requires a bounded message only when requesting a new time", () => {
   });
 });
 
-it("rejects a capability-shaped new-time message before creating a browser command", () => {
-  const capabilityShaped = {
-    ...pendingModel(),
-    responseMessage: FieldValidation.NotValidated({
-      value: `Flytt intervjuet ${"A".repeat(43)} takk`,
-    }),
-  };
+it("clears capability-shaped messages before rendering or creating a browser command", () => {
+  const rawMessages = [
+    `Flytt intervjuet ${"A".repeat(43)} takk`,
+    `${"x".repeat(2_001)} ${"A".repeat(43)}`,
+  ];
 
-  const [next, commands] = update(capabilityShaped, RequestedNewInvitationTime());
+  for (const rawMessage of rawMessages) {
+    const [sanitized] = update(pendingModel(), UpdatedResponseMessage({ value: rawMessage }));
+    expect(sanitized.responseMessage).toMatchObject({
+      _tag: "Invalid",
+      value: "",
+      errors: expect.arrayContaining([expect.stringContaining("ikke er tillatt")]),
+    });
 
-  expect(next.selectedAction).toBeNull();
-  expect(next.validationFeedback).toBeNull();
-  expect(next.responseMessage).toMatchObject({
-    _tag: "Invalid",
-    errors: expect.arrayContaining([expect.stringContaining("ikke er tillatt")]),
-  });
-  expect(commands).toEqual([]);
+    const [next, commands] = update(sanitized, RequestedNewInvitationTime());
+    expect(next).toBe(sanitized);
+    expect(commands).toEqual([]);
+
+    const [rejected, rejectCommands] = update(
+      {
+        ...pendingModel(),
+        responseMessage: FieldValidation.NotValidated({ value: rawMessage }),
+      },
+      RejectedInvitation(),
+    );
+    expect(rejected.responseMessage).toMatchObject({
+      _tag: "Invalid",
+      value: "",
+      errors: expect.arrayContaining([expect.stringContaining("ikke er tillatt")]),
+    });
+    expect(rejectCommands).toEqual([]);
+  }
 });
 
 it("excludes every competing action while one command is in flight", () => {

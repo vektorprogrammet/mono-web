@@ -672,9 +672,13 @@ test.describe("Native recruitment invitation response", () => {
             }
             await expect(page.getByText("Venter på svar", { exact: true })).toBeVisible();
 
-            await page
-              .getByLabel("Melding", { exact: true })
-              .fill(`Flytt intervjuet ${capabilitiesByCase.accepted} takk`);
+            const responseMessageInput = page.getByLabel("Melding", { exact: true });
+            await responseMessageInput.fill(`Flytt intervjuet ${capabilitiesByCase.accepted} takk`);
+            await expect(responseMessageInput).toHaveValue("");
+            const renderedBody = await page.locator("body").textContent();
+            if (renderedBody?.includes(capabilitiesByCase.accepted) === true) {
+              throw new Error("Capability-shaped input remained in the rendered page");
+            }
             const operationsBeforeCapabilityMessage = observation.bridgeOperations.length;
             await page.getByRole("button", { name: responseCase.actionLabel, exact: true }).click();
             await expect(
@@ -691,6 +695,7 @@ test.describe("Native recruitment invitation response", () => {
               clientCommandBlocked: true,
               bridgeFetchAttempted: false,
               preservedState: "Pending",
+              renderedCapabilityAbsent: true,
             };
 
             const invalid = await bridgeFetch(

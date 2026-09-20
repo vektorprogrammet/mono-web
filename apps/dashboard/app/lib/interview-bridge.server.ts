@@ -1,4 +1,8 @@
-import { RecruitmentInvitationCapabilitySchema } from "@vektorprogrammet/domain/recruitment";
+import {
+  RecruitmentInvitationCapabilitySchema,
+  RecruitmentInvitationResponseMessageSchema,
+} from "@vektorprogrammet/domain/recruitment";
+import { parseJsonWithUniqueMembers } from "@vektorprogrammet/domain/http-semantics";
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { createConfiguredPromiseClient } from "@vektorprogrammet/sdk";
 import { Schema as S } from "effect";
@@ -16,6 +20,54 @@ import {
 export const InvitationCapabilityCookiePrefix = "recruitment_invitation_capability_";
 const MaximumBridgeBodyBytes = 4_096;
 const SecureCookieAttribute = process.env.NODE_ENV === "production" ? "; Secure" : "";
+const isInvitationResponseMessage = S.is(RecruitmentInvitationResponseMessageSchema);
+
+const invalidInvitationRequest = (): InvitationBridgeFailure => ({
+  _tag: "InvitationDecodeError",
+  message: "Invalid invitation response request",
+});
+
+const readBoundedRequestBody = async (request: Request): Promise<Uint8Array> => {
+  const declaredLength = request.headers.get("content-length");
+  const expectedLength =
+    declaredLength === null || !/^\d+$/u.test(declaredLength) ? null : Number(declaredLength);
+  if (
+    (declaredLength !== null && expectedLength === null) ||
+    expectedLength === 0 ||
+    (expectedLength !== null && expectedLength > MaximumBridgeBodyBytes) ||
+    request.body === null
+  ) {
+    throw invalidInvitationRequest();
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      byteLength += chunk.value.byteLength;
+      if (byteLength > MaximumBridgeBodyBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw invalidInvitationRequest();
+      }
+      chunks.push(chunk.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  if (byteLength === 0 || (expectedLength !== null && byteLength !== expectedLength)) {
+    throw invalidInvitationRequest();
+  }
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+};
 
 export const responseHeaders = {
   "Cache-Control": "no-store",
@@ -114,8 +166,8 @@ export const decodeOperation = (value: unknown): InvitationBridgeOperation => {
     });
     if (operation.operation !== "rejectInvitation") return operation;
     const message = operation.message?.trim() ?? null;
-    if (message !== null && message.length > 2_000) {
-      throw new Error("Rejected invitation message exceeds its boundary");
+    if (message !== null && message !== "" && !isInvitationResponseMessage(message)) {
+      throw new Error("Rejected invitation message is outside its boundary");
     }
     return {
       ...operation,
@@ -140,15 +192,9 @@ export const decodeOperationRequest = async (
       message: "Invalid invitation response request",
     } satisfies InvitationBridgeFailure;
   }
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.byteLength === 0 || bytes.byteLength > MaximumBridgeBodyBytes) {
-    throw {
-      _tag: "InvitationDecodeError",
-      message: "Invalid invitation response request",
-    } satisfies InvitationBridgeFailure;
-  }
+  const bytes = await readBoundedRequestBody(request);
   try {
-    const value: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    const value = parseJsonWithUniqueMembers(bytes);
     return decodeOperation(value);
   } catch {
     throw {
@@ -222,7 +268,7 @@ export const bridgeFailureFrom = (error: unknown): InvitationBridgeFailure => {
   if (problem.status === 404) {
     return safeFailure("InvitationNotFound", "Invitation unavailable");
   }
-  if (problem.code === "invitation.already-responded" || problem.status === 409) {
+  if (problem.code === "invitation.already-responded") {
     return safeFailure("InvitationAlreadyResponded", "Invitation already responded");
   }
   if (

@@ -155,6 +155,26 @@ describe("native recruitment HTTP boundary", () => {
       code: "request.malformed",
       status: 400,
     });
+
+    let cancelled = false;
+    const streamed = new ReadableStream<Uint8Array>({
+      pull: (controller) => controller.enqueue(new Uint8Array(12)),
+      cancel: () => {
+        cancelled = true;
+      },
+    });
+    await expect(
+      readRecruitmentRequestBody(
+        new Request("http://backend.test/api/recruitment/invitation-response:reject", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: streamed,
+          duplex: "half",
+        } as RequestInit & { readonly duplex: "half" }),
+        16,
+      ),
+    ).rejects.toMatchObject({ code: "request.too-large", status: 413 });
+    expect(cancelled).toBe(true);
   });
 
   it("applies strong validators only after the private representation exists", async () => {

@@ -1,4 +1,7 @@
-import { RecruitmentInvitationResponseMessageSchema } from "@vektorprogrammet/domain/recruitment";
+import {
+  containsRecruitmentInvitationCapabilitySequence,
+  RecruitmentInvitationResponseMessageSchema,
+} from "@vektorprogrammet/domain/recruitment";
 import { Match as M, Schema as S } from "effect";
 import { AsyncData, type Command, FieldValidation } from "foldkit";
 import type { InterviewCommands } from "./command";
@@ -7,16 +10,40 @@ import type { Message } from "./message";
 import { InvitationResponseData, type Model } from "./model";
 
 const isInvitationResponseMessage = S.is(RecruitmentInvitationResponseMessageSchema);
+const ForbiddenCapabilitySequenceMessage = "Meldingen inneholder innhold som ikke er tillatt.";
+
+const containsForbiddenCapabilitySequence = (value: string): boolean =>
+  containsRecruitmentInvitationCapabilitySequence(value);
+
+const editableResponseMessage = (value: string): Model["responseMessage"] =>
+  containsForbiddenCapabilitySequence(value)
+    ? FieldValidation.Invalid({
+        value: "",
+        errors: [ForbiddenCapabilitySequenceMessage],
+      })
+    : FieldValidation.NotValidated({ value });
+
+const sanitizeInvalidResponseMessage = (
+  field: Model["responseMessage"],
+): Model["responseMessage"] =>
+  field._tag === "Invalid" && containsForbiddenCapabilitySequence(field.value)
+    ? FieldValidation.Invalid({
+        value: "",
+        errors: [ForbiddenCapabilitySequenceMessage],
+      })
+    : field;
+
+const isSanitizedCapabilityRejection = (field: Model["responseMessage"]): boolean =>
+  field._tag === "Invalid" &&
+  field.value === "" &&
+  field.errors.includes(ForbiddenCapabilitySequenceMessage);
 
 const requiredResponseMessageRules = FieldValidation.makeRules({
   required: "Feltet må fylles ut.",
   isEmpty: (value) => value.trim() === "",
   rules: [
     [(value) => value.trim().length <= 2_000, "Meldingen kan ikke være lengre enn 2000 tegn."],
-    [
-      (value) => isInvitationResponseMessage(value.trim()),
-      "Meldingen inneholder innhold som ikke er tillatt.",
-    ],
+    [(value) => isInvitationResponseMessage(value.trim()), ForbiddenCapabilitySequenceMessage],
   ],
 });
 
@@ -27,7 +54,7 @@ const optionalResponseMessageRules = FieldValidation.makeRules({
     [(value) => value.trim().length <= 2_000, "Meldingen kan ikke være lengre enn 2000 tegn."],
     [
       (value) => value.trim() === "" || isInvitationResponseMessage(value.trim()),
-      "Meldingen inneholder innhold som ikke er tillatt.",
+      ForbiddenCapabilitySequenceMessage,
     ],
   ],
 });
@@ -102,7 +129,7 @@ export const makeUpdate =
             : [
                 {
                   ...model,
-                  responseMessage: FieldValidation.NotValidated({ value }),
+                  responseMessage: editableResponseMessage(value),
                   failure: null,
                   validationFeedback: null,
                 },
@@ -138,8 +165,9 @@ export const makeUpdate =
             observation.value.responseState !== "Pending"
           )
             return [model, []];
-          const responseMessage = FieldValidation.validate(optionalResponseMessageRules)(
-            model.responseMessage.value,
+          if (isSanitizedCapabilityRejection(model.responseMessage)) return [model, []];
+          const responseMessage = sanitizeInvalidResponseMessage(
+            FieldValidation.validate(optionalResponseMessageRules)(model.responseMessage.value),
           );
           if (!FieldValidation.isValid(optionalResponseMessageRules)(responseMessage)) {
             return [
@@ -180,8 +208,9 @@ export const makeUpdate =
             observation.value.responseState !== "Pending"
           )
             return [model, []];
-          const responseMessage = FieldValidation.validate(requiredResponseMessageRules)(
-            model.responseMessage.value,
+          if (isSanitizedCapabilityRejection(model.responseMessage)) return [model, []];
+          const responseMessage = sanitizeInvalidResponseMessage(
+            FieldValidation.validate(requiredResponseMessageRules)(model.responseMessage.value),
           );
           if (!FieldValidation.isValid(requiredResponseMessageRules)(responseMessage)) {
             return [
