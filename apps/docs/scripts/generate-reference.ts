@@ -156,6 +156,9 @@ const recordedStatus = (content: string): string => {
   return (table ?? prose ?? "No explicit status metadata").trim();
 };
 
+const tableCellText = (value: string): string =>
+  value.replace(/\[([^\]]+)\]\([^)]+\)/gu, "$1").replaceAll("|", "\\|");
+
 const classifySpec = (status: string): string => {
   const value = status.toLowerCase();
   if (value.includes("superseded") || value.includes("stale")) return "stale";
@@ -210,7 +213,7 @@ const designSpecEvidencePage = async (_state: MigrationState): Promise<string> =
   const specRows = specs
     .map(
       (spec) =>
-        `| [${spec.title}](${repositoryUrl}/blob/${spec.revision}/${spec.path}) | ${spec.classification} | ${spec.recordedStatus.replaceAll("|", "\\|")} |`,
+        `| [${spec.title}](${repositoryUrl}/blob/${spec.revision}/${spec.path}) | ${spec.classification} | ${tableCellText(spec.recordedStatus)} |`,
     )
     .join("\n");
   const evidenceDirectory = join(repositoryRoot, "evidence");
