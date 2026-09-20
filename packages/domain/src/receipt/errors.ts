@@ -158,6 +158,9 @@ export type ReceiptApprovalListFailure =
   | FailedComposedRequirement
   | ReceiptPersistenceError;
 
+/** Typed read boundary for one canonical receipt file in the approval scope. */
+export type ReceiptApprovalFileReadFailure = ReceiptApprovalListFailure | ReceiptNotFound;
+
 export type ReceiptFailure =
   | ReceiptDecodeError
   | UnauthenticatedActor

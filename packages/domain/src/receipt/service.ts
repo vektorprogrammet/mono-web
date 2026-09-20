@@ -8,6 +8,7 @@ import type { OrganizationAuthorityInstant } from "../organization/authority.js"
 import type { DepartmentId, PersonId } from "../organization/schema.js";
 import type { ReceiptAuxiliaryEffects } from "./auxiliary-service.js";
 import type {
+  ReceiptApprovalFileReadFailure,
   ReceiptApprovalListFailure,
   ReceiptFailure,
   ReceiptNotFound,
@@ -25,6 +26,7 @@ import type {
   Receipt,
   ReceiptActor,
   ReceiptCommandPrincipal,
+  ReceiptFile,
   ReceiptObservation,
   ReceiptStatus,
   ReceiptSubmissionAllocation,
@@ -100,6 +102,16 @@ export interface EconomyShape {
     authorizationInstant: OrganizationAuthorityInstant,
     status?: ReceiptStatus,
   ) => Effect.Effect<ReadonlyArray<ReceiptListItem>, ReceiptApprovalListFailure>;
+  /**
+   * Resolves one approved receipt's private-file metadata on the caller-owned
+   * repeatable-read, read-only transaction. The caller authenticates in that
+   * same transaction before invoking this read.
+   */
+  readonly readReceiptFileForApproval: (
+    receiptId: string,
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+  ) => Effect.Effect<ReceiptFile, ReceiptApprovalFileReadFailure>;
   readonly readReceiptLifecycleEvidence: (
     receiptId: string,
     ownerPersonId: string,

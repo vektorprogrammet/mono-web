@@ -136,3 +136,25 @@ export const selectAuthorizedReceiptApprovals = (
   if (denialReason !== undefined) return deny(denialReason);
   return deny(inactiveGrantSeen ? "AuthorityInactive" : "NotInScope");
 };
+
+const isPendingReceiptRequirement = (rule: AuthzRule): boolean =>
+  rule.effectKind === "requirement" && rule.params.requirementId === "receipts.pending";
+
+/**
+ * Applies the queue's rule-aware approver relationship to one canonical
+ * receipt while deliberately excluding the decision-only pending requirement.
+ */
+export const selectAuthorizedReceiptFileForApproval = (
+  organization: OrganizationPersonAuthority,
+  directAuthority: ReceiptAuthority,
+  candidate: ReceiptApprovalCandidate,
+  rules: ReadonlyArray<AuthzRule>,
+  tagAssignments: ReadonlyArray<AuthzTagAssignment>,
+): Decision<ReceiptApprovalSelection> =>
+  selectAuthorizedReceiptApprovals(
+    organization,
+    directAuthority,
+    [candidate],
+    rules.filter((rule) => !isPendingReceiptRequirement(rule)),
+    tagAssignments,
+  );

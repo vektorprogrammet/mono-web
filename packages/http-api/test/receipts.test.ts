@@ -5,6 +5,7 @@ import {
   ListReceiptsForApprovalEndpoint,
   ReadReceiptEvidenceEndpoint,
   ReadReceiptFileEndpoint,
+  ReadReceiptFileForApprovalEndpoint,
   ReceiptsApi,
   RefundReceiptEndpoint,
   RejectReceiptEndpoint,
@@ -18,9 +19,15 @@ const outwardPath = (path: string): string =>
   path.replace(/:receiptId(?:\(\[\^:\]\+\))?/u, "{receiptId}").replaceAll("::", ":");
 
 describe("frozen receipt route contract", () => {
-  it("projects the suffix-regex declarations to the exact nine public outward routes", () => {
+  it("projects the suffix-regex declarations to the exact ten public outward routes", () => {
     const routes = [
       [ReadReceiptFileEndpoint, "GET", "/api/receipts/{receiptId}/file", "readReceiptFile"],
+      [
+        ReadReceiptFileForApprovalEndpoint,
+        "GET",
+        "/api/receipt-approval-queue/{receiptId}/file",
+        "readReceiptFileForApproval",
+      ],
       [SubmitReceiptEndpoint, "POST", "/api/receipts", "submitReceipt"],
       [ReviseReceiptEndpoint, "PATCH", "/api/receipts/{receiptId}", "reviseReceipt"],
       [WithdrawReceiptEndpoint, "POST", "/api/receipts/{receiptId}:withdraw", "withdrawReceipt"],

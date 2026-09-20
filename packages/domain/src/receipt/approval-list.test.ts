@@ -14,6 +14,7 @@ import { DepartmentId, MembershipId, PersonId, TeamId } from "../organization/sc
 import {
   makeReceiptApprovalContext,
   selectAuthorizedReceiptApprovals,
+  selectAuthorizedReceiptFileForApproval,
   type ReceiptApprovalCandidate,
 } from "./approval-list.js";
 import {
@@ -307,6 +308,43 @@ describe("rule-aware Receipt approval visibility", () => {
     ).toEqual({
       _tag: "Allow",
       value: { receiptIds: ["pending-related"] },
+    });
+  });
+
+  it("keeps active scoped terminal receipts readable without the pending decision requirement", () => {
+    const organizationAuthority = organization([departmentA]);
+    const directAuthority = projectReceiptAuthority(organizationAuthority, [], [
+      directGrant("file-read-department", {
+        _tag: "Department",
+        departmentId: departmentA,
+      }),
+    ]);
+    const terminal = candidate("terminal-file", departmentA, "Refunded");
+    const rules = [
+      requirement("file-read-require-pending", "receipts.pending"),
+      requirement("file-read-require-approver", "receipts.approver-relationship"),
+    ];
+
+    expect(
+      selectAuthorizedReceiptApprovals(
+        organizationAuthority,
+        directAuthority,
+        [terminal],
+        rules,
+        [],
+      ),
+    ).toEqual({ _tag: "Deny", reason: "RequirementFailed" });
+    expect(
+      selectAuthorizedReceiptFileForApproval(
+        organizationAuthority,
+        directAuthority,
+        terminal,
+        rules,
+        [],
+      ),
+    ).toEqual({
+      _tag: "Allow",
+      value: { receiptIds: ["terminal-file"] },
     });
   });
 

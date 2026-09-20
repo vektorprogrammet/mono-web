@@ -542,6 +542,17 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     person("receipts.read-owned", "receipts.by-id", ["receipts.owner"], "SnapshotRead"),
   ],
   [
+    "GET",
+    "/api/receipt-approval-queue/:receiptId/file",
+    "receipts.readReceiptFileForApproval",
+    person(
+      "approveReceipt",
+      "receipts.by-id",
+      ["receipts.approver-relationship"],
+      "SnapshotRead",
+    ),
+  ],
+  [
     "POST",
     "/api/receipts",
     "receipts.submitReceipt",
@@ -758,6 +769,10 @@ const plainNoContentMutationOperations = [
   "system.deleteOwnedSession",
   "system.revokeOtherSessions",
   "system.revokeAllSessions",
+] as const;
+const privateBinaryReadOperations = [
+  "receipts.readReceiptFile",
+  "receipts.readReceiptFileForApproval",
 ] as const;
 
 const privateReadOperations = [
@@ -1017,7 +1032,7 @@ describe("native API reflection", () => {
     );
     const categories = [
       "contact.submitContactMessage",
-      "receipts.readReceiptFile",
+      ...privateBinaryReadOperations,
       ...publicConditionalOperations,
       ...privateConditionalOperations,
       ...createdMutationOperations,
@@ -1068,9 +1083,18 @@ describe("native API reflection", () => {
       assertSuccess(operationId, "200", ["cache-control", "vary"], true);
     }
 
-    const binary = operation("receipts.readReceiptFile").responses["200"]!;
-    expect(Object.keys(binary.content ?? {})).toEqual(["application/octet-stream"]);
-    expect(Object.keys(binary.headers ?? {}).sort()).toEqual(["cache-control", "vary"]);
+    for (const operationId of privateBinaryReadOperations) {
+      const binary = operation(operationId).responses["200"]!;
+      expect(Object.keys(binary.content ?? {})).toEqual(["application/octet-stream"]);
+      expect(Object.keys(binary.headers ?? {}).sort()).toEqual([
+        "cache-control",
+        "content-disposition",
+        "content-length",
+        "content-type",
+        "vary",
+        "x-content-type-options",
+      ]);
+    }
     assertSuccess("contact.submitContactMessage", "201", ["cache-control", "vary"], false);
     const tags = new Map<string, string>([
       ["contact", "Public contact"],

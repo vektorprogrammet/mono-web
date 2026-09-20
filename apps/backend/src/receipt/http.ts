@@ -44,6 +44,7 @@ import {
   isIsoDate,
   type Receipt,
   type ReceiptCommandPrincipal,
+  type ReceiptFile,
   type ReceiptMutationAuthorization,
   type ReceiptMutationAuthorizationTarget,
   type ReceiptOutboxDeliveryResult,
@@ -231,6 +232,40 @@ const publicReceiptErrorResponse = (cause: unknown): Response => {
 
 const isSupportedContentType = (value: string): value is SupportedContentType =>
   (SUPPORTED_CONTENT_TYPES as readonly string[]).includes(value);
+
+const receiptFileName = (contentType: ReceiptFile["contentType"]): string => {
+  switch (contentType) {
+    case "image/jpeg":
+      return "receipt.jpg";
+    case "image/png":
+      return "receipt.png";
+    case "application/pdf":
+      return "receipt.pdf";
+  }
+};
+
+const readPrivateReceiptFile = async (
+  file: ReceiptFile,
+  fileStore: ReceiptFileStore,
+  maxFileBytes: number,
+): Promise<Response> => {
+  let bytes: Uint8Array;
+  try {
+    bytes = await fileStore.readCommitted(file, maxFileBytes);
+  } catch {
+    throw new HttpSemanticFailure("receipts.unavailable", 503);
+  }
+  return new Response(bytes, {
+    headers: {
+      "content-type": file.contentType,
+      "content-length": String(bytes.byteLength),
+      "content-disposition": `inline; filename="${receiptFileName(file.contentType)}"`,
+      "x-content-type-options": "nosniff",
+      "cache-control": "private, no-store",
+      vary: "Origin",
+    },
+  });
+};
 
 const parseSafeAmountOre = (value: string): number => {
   if (!/^[1-9]\d*$/.test(value)) throw new ReceiptDecodeError({ message: "invalid amountOre" });
@@ -1294,6 +1329,55 @@ const approvalList = async (
   return jsonResponse({ items, totalItems: items.length }, 200, "private, no-store");
 };
 
+/**
+ * Reads one approver-visible receipt file without granting owner access.
+ * Credential resolution and rule-aware metadata selection share one snapshot.
+ */
+const approvalReceiptFile = async (
+  request: Request,
+  receiptId: string,
+  options: ReceiptApiHttpOptions,
+  fileStore: ReceiptFileStore,
+): Promise<Response> => {
+  const file = await options.run(
+    Effect.gen(function* () {
+      const sql = yield* Database;
+      return yield* sql.withTransaction(
+        Effect.gen(function* () {
+          yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`;
+          const context = yield* Effect.context<
+            Database | Economy | IdentitySnapshot | OAuthCredentialAuthority
+          >();
+          const authenticated = yield* Effect.tryPromise({
+            try: () =>
+              resolveRequestCredentialInTransaction(request, "OAuthUserBearer", {
+                run: Effect.runPromiseWith(context),
+                now: options.now,
+              }),
+            catch: (cause) => cause,
+          });
+          const principal = authenticated.credential.principal;
+          if (principal._tag !== "Person") {
+            return yield* Effect.fail(new HttpSemanticFailure("credential.invalid", 401));
+          }
+          return yield* Economy.use(({ readReceiptFileForApproval }) =>
+            readReceiptFileForApproval(
+              receiptId,
+              principal.personId,
+              authenticated.authorizationInstant,
+            ).pipe(
+              Effect.catchTag("ReceiptNotFound", () =>
+                Effect.fail(new HttpSemanticFailure("resource.not-found", 404)),
+              ),
+            ),
+          );
+        }),
+      );
+    }),
+  );
+  return readPrivateReceiptFile(file, fileStore, options.config.maxFileBytes);
+};
+
 /** Native HttpApi implementations for receipt lifecycle endpoints. */
 export const ReceiptApiHandlers = (input: ReceiptApiHttpOptions) => {
   const fileStore =
@@ -1389,22 +1473,15 @@ export const ReceiptApiHandlers = (input: ReceiptApiHttpOptions) => {
                   );
                 }),
               );
-              let bytes: Uint8Array;
-              try {
-                bytes = await fileStore.readCommitted(file, input.config.maxFileBytes);
-              } catch {
-                throw new HttpSemanticFailure("receipts.unavailable", 503);
-              }
-              return new Response(bytes, {
-                headers: {
-                  "content-type": "application/octet-stream",
-                  "content-length": String(bytes.byteLength),
-                  "content-disposition": "attachment; filename=receipt",
-                  "x-content-type-options": "nosniff",
-                  "cache-control": "private, no-store",
-                },
-              });
+              return readPrivateReceiptFile(file, fileStore, input.config.maxFileBytes);
             },
+            publicReceiptErrorResponse,
+          ),
+        )
+        .handleRaw("readReceiptFileForApproval", ({ request, params }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => approvalReceiptFile(webRequest, params.receiptId, input, fileStore),
             publicReceiptErrorResponse,
           ),
         )

@@ -10,6 +10,7 @@ import {
   executeAuthorizedReceiptCommand,
   executeReceiptCommand,
   listReceiptsForApproval as listReceiptsForApprovalPostgres,
+  readReceiptFileForApproval as readReceiptFileForApprovalPostgres,
 } from "./postgres.js";
 import {
   listOwnedReceiptProjection,
@@ -40,6 +41,10 @@ export const EconomyLive = Layer.effect(
         ),
       listReceiptsForApproval: (personId, authorizationInstant, status) =>
         listReceiptsForApprovalPostgres(personId, authorizationInstant, status).pipe(
+          Effect.provideService(Database, database),
+        ),
+      readReceiptFileForApproval: (receiptId, personId, authorizationInstant) =>
+        readReceiptFileForApprovalPostgres(receiptId, personId, authorizationInstant).pipe(
           Effect.provideService(Database, database),
         ),
       readReceiptLifecycleEvidence: (receiptId, ownerPersonId) =>

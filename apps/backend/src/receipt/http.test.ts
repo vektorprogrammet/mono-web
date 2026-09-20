@@ -25,6 +25,7 @@ import {
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
   Economy,
+  InactiveActor,
   ReceiptFileService,
   ReceiptNotFound,
   ReceiptPersistenceError,
@@ -146,6 +147,9 @@ interface HarnessOptions {
   readonly unauthenticated?: boolean;
   readonly privateFileOwner?: string;
   readonly privateFileUnavailable?: boolean;
+  readonly approvalFileRow?: ProjectionRow;
+  readonly approvalFileFailure?: "Inactive" | "Scope";
+  readonly approvalFileContentType?: "image/jpeg" | "image/png" | "application/pdf";
   readonly ownedRows?: ReadonlyArray<ProjectionRow>;
   readonly approvalRows?: ReadonlyArray<ProjectionRow>;
   readonly commandFailure?: ReceiptScopeDenied | ReceiptNotFound | ReceiptPersistenceError;
@@ -173,6 +177,12 @@ const harness = (options: HarnessOptions = {}) => {
           ),
         };
   let privateFileReads = 0;
+  const approvalFileQueries: Array<{
+    readonly receiptId: string;
+    readonly personId: string;
+    readonly authorizationInstant: string;
+    readonly snapshotDepth: number;
+  }> = [];
   const commands: Array<Record<string, unknown>> = [];
   const principals: Array<ReceiptCommandPrincipal> = [];
   const allocations: Array<ReceiptSubmissionAllocation | undefined> = [];
@@ -361,6 +371,37 @@ const harness = (options: HarnessOptions = {}) => {
       approvalQueries.push({ personId: queryPersonId, authorizationInstant, status });
       return Effect.succeed((options.approvalRows ?? []) as never);
     },
+    readReceiptFileForApproval: (requestedReceiptId, queryPersonId, authorizationInstant) =>
+      Effect.suspend(() => {
+        approvalFileQueries.push({
+          receiptId: requestedReceiptId,
+          personId: queryPersonId,
+          authorizationInstant,
+          snapshotDepth,
+        });
+        const source = options.approvalFileRow;
+        if (options.approvalFileFailure === "Inactive") {
+          return Effect.fail(new InactiveActor({ personId: queryPersonId }));
+        }
+        if (options.approvalFileFailure === "Scope") {
+          return Effect.fail(
+            new ReceiptScopeDenied({
+              receiptId: requestedReceiptId,
+              departmentId: source?.departmentId ?? departmentOne,
+            }),
+          );
+        }
+        if (source === undefined || source.receiptId !== requestedReceiptId) {
+          return Effect.fail(new ReceiptNotFound({ receiptId: requestedReceiptId }));
+        }
+        return Effect.succeed({
+          fileRef: "staging/approval-file",
+          objectKey: "committed/approval-file",
+          contentType: options.approvalFileContentType ?? "application/pdf",
+          byteLength: 4,
+          sha256: "b".repeat(64),
+        } as never);
+      }),
     readReceiptLifecycleEvidence: (id, ownerPersonId) =>
       Effect.sync(() => {
         evidenceReads.push({ receiptId: id, personId: ownerPersonId });
@@ -540,6 +581,7 @@ const harness = (options: HarnessOptions = {}) => {
     principals,
     allocations,
     approvalQueries,
+    approvalFileQueries: () => approvalFileQueries,
     evidenceReads,
     nativeReceiptCount: () => nativeReceipts.size,
     run,
@@ -1203,7 +1245,21 @@ describe("private receipt owner reads", () => {
     );
     expect(response.status).toBe(200);
     expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([1, 2, 3, 4]);
-    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect({
+      contentType: response.headers.get("content-type"),
+      contentLength: response.headers.get("content-length"),
+      contentDisposition: response.headers.get("content-disposition"),
+      contentTypeOptions: response.headers.get("x-content-type-options"),
+      cacheControl: response.headers.get("cache-control"),
+      vary: response.headers.get("vary"),
+    }).toEqual({
+      contentType: "application/pdf",
+      contentLength: "4",
+      contentDisposition: 'inline; filename="receipt.pdf"',
+      contentTypeOptions: "nosniff",
+      cacheControl: "private, no-store",
+      vary: "Origin",
+    });
     expect(owner.privateFileReads()).toBe(1);
     const foreign = harness({ privateFileOwner: "different-person" });
     const denied = await foreign.http.fetch(
@@ -1223,6 +1279,141 @@ describe("private receipt owner reads", () => {
     );
     expect(response.status).toBe(503);
     expect(response.headers.get("content-disposition")).toBeNull();
+  });
+});
+
+describe("scoped receipt approval file reads", () => {
+  it("reads an active scoped terminal receipt in the credential snapshot with exact file headers", async () => {
+    const state = harness({
+      approvalFileRow: pendingReceipt({
+        receiptId: "terminal-approval-file",
+        status: "Refunded",
+      }),
+      approvalFileContentType: "application/pdf",
+    });
+
+    const response = await request(
+      state.http,
+      "/api/receipt-approval-queue/terminal-approval-file/file",
+    );
+
+    expect(response.status).toBe(200);
+    expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([1, 2, 3, 4]);
+    expect({
+      contentType: response.headers.get("content-type"),
+      contentLength: response.headers.get("content-length"),
+      contentDisposition: response.headers.get("content-disposition"),
+      contentTypeOptions: response.headers.get("x-content-type-options"),
+      cacheControl: response.headers.get("cache-control"),
+      vary: response.headers.get("vary"),
+    }).toEqual({
+      contentType: "application/pdf",
+      contentLength: "4",
+      contentDisposition: 'inline; filename="receipt.pdf"',
+      contentTypeOptions: "nosniff",
+      cacheControl: "private, no-store",
+      vary: "Origin",
+    });
+    expect(state.approvalFileQueries()).toEqual([
+      {
+        receiptId: "terminal-approval-file",
+        personId,
+        authorizationInstant: evaluatedAt,
+        snapshotDepth: 1,
+      },
+    ]);
+    expect(state.snapshotObservations().identitySnapshotDepths).toEqual([1]);
+    expect(state.privateFileReads()).toBe(1);
+    expect(state.commands).toEqual([]);
+    expect(state.nativeReceiptCount()).toBe(0);
+  });
+
+  it("does not widen scoped approver access into the owner route", async () => {
+    const state = harness({
+      approvalFileRow: pendingReceipt({ receiptId: "approver-only-file" }),
+    });
+
+    const approval = await request(
+      state.http,
+      "/api/receipt-approval-queue/approver-only-file/file",
+    );
+    expect(approval.status).toBe(200);
+
+    const owner = await request(state.http, "/api/receipts/approver-only-file/file");
+    await expectProblem(owner, {
+      code: "resource.not-found",
+      title: "Resource not found",
+      status: 404,
+      detail: "The requested resource was not found.",
+    });
+    expect(state.privateFileReads()).toBe(1);
+  });
+
+  it("keeps credential, absence, foreign scope, and inactive authority failures typed", async () => {
+    const unauthenticated = harness({ unauthenticated: true });
+    await expectProblem(
+      await request(
+        unauthenticated.http,
+        "/api/receipt-approval-queue/approval-file/file",
+      ),
+      {
+        code: "credential.missing",
+        title: "Credential required",
+        status: 401,
+        detail: "A credential is required for this operation.",
+      },
+    );
+    expect(unauthenticated.privateFileReads()).toBe(0);
+
+    const missing = harness();
+    await expectProblem(
+      await request(missing.http, "/api/receipt-approval-queue/missing-file/file"),
+      {
+        code: "resource.not-found",
+        title: "Resource not found",
+        status: 404,
+        detail: "The requested resource was not found.",
+      },
+    );
+    expect(missing.privateFileReads()).toBe(0);
+
+    for (const approvalFileFailure of ["Scope", "Inactive"] as const) {
+      const denied = harness({
+        approvalFileRow: pendingReceipt({ receiptId: "foreign-file" }),
+        approvalFileFailure,
+      });
+      await expectProblem(
+        await request(denied.http, "/api/receipt-approval-queue/foreign-file/file"),
+        {
+          code: "authority.denied",
+          title: "Authority denied",
+          status: 403,
+          detail: "The authenticated principal is not permitted to perform this operation.",
+        },
+      );
+      expect(denied.privateFileReads()).toBe(0);
+    }
+  });
+
+  it("does not expose file headers when the approved object is unavailable", async () => {
+    const state = harness({
+      approvalFileRow: pendingReceipt({ receiptId: "missing-approval-object" }),
+      privateFileUnavailable: true,
+    });
+    const response = await request(
+      state.http,
+      "/api/receipt-approval-queue/missing-approval-object/file",
+    );
+
+    await expectProblem(response, {
+      code: "receipts.unavailable",
+      title: "Receipts unavailable",
+      status: 503,
+      detail: "The receipt service is temporarily unavailable.",
+    });
+    expect(response.headers.get("content-disposition")).toBeNull();
+    expect(state.privateFileReads()).toBe(1);
+    expect(state.commands).toEqual([]);
   });
 });
 

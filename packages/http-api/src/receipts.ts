@@ -188,6 +188,30 @@ const OwnerReceiptStatusQuery = {
 };
 const ReceiptParams = { receiptId: ReceiptId };
 
+const ReceiptFileContentType = Schema.Literals(["image/jpeg", "image/png", "application/pdf"]);
+const ReceiptFileContentLength = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => /^[1-9]\d*$/u.test(value), {
+      message: "a positive decimal byte length",
+    }),
+  ),
+);
+const ReceiptFileContentDisposition = Schema.Literals([
+  'inline; filename="receipt.jpg"',
+  'inline; filename="receipt.png"',
+  'inline; filename="receipt.pdf"',
+]);
+const ReceiptPrivateFileResponse = HttpApiSchema.WithHeaders(
+  Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array()),
+  {
+    "cache-control": Schema.Literal("private, no-store"),
+    vary: Schema.Literal("Origin"),
+    "content-type": ReceiptFileContentType,
+    "content-length": ReceiptFileContentLength,
+    "content-disposition": ReceiptFileContentDisposition,
+    "x-content-type-options": Schema.Literal("nosniff"),
+  },
+);
 /** @since 0.1.0 @category Endpoints */
 export const SubmitReceiptEndpoint = HttpApiEndpoint.post("submitReceipt", "/api/receipts", {
   query: { departmentId: Schema.optional(Schema.String) },
@@ -301,7 +325,7 @@ export const ReadReceiptFileEndpoint = HttpApiEndpoint.get(
   "/api/receipts/:receiptId/file",
   {
     params: ReceiptParams,
-    success: privateReadResponse(Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array())),
+    success: ReceiptPrivateFileResponse,
     error: endpointProblemResponses(ReceiptsReadReceiptFileProblem),
   },
 )
@@ -321,6 +345,38 @@ export const ReadReceiptFileEndpoint = HttpApiEndpoint.get(
     operationAnnotations(
       "Read owned receipt file",
       "Downloads verified private bytes for the canonical owner.",
+    ),
+  );
+
+/**
+ * Scoped approver-only receipt bytes. Terminal receipt files remain readable
+ * while the current rule-aware approver relationship remains active.
+ */
+export const ReadReceiptFileForApprovalEndpoint = HttpApiEndpoint.get(
+  "readReceiptFileForApproval",
+  "/api/receipt-approval-queue/:receiptId/file",
+  {
+    params: ReceiptParams,
+    success: ReceiptPrivateFileResponse,
+    error: endpointProblemResponses(ReceiptsReadReceiptFileProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "approveReceipt",
+        canonicalScopeResolver: "receipts.by-id",
+        requirements: ["receipts.approver-relationship"],
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
+  .annotateMerge(
+    operationAnnotations(
+      "Read receipt file for approval",
+      "Downloads verified private bytes for the current scoped approver.",
     ),
   );
 
@@ -434,6 +490,7 @@ export const ReopenReceiptEndpoint = HttpApiEndpoint.post(
 export class ReceiptsApi extends HttpApiGroup.make("receipts")
   .add(
     ReadReceiptFileEndpoint,
+    ReadReceiptFileForApprovalEndpoint,
     SubmitReceiptEndpoint,
     ReviseReceiptEndpoint,
     WithdrawReceiptEndpoint,

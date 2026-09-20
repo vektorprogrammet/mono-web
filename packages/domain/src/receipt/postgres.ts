@@ -14,7 +14,7 @@ import {
   resolveOrganizationPersonAuthorityWithSql,
 } from "../organization/authority-postgres.js";
 import type { OrganizationAuthorityInstant } from "../organization/authority.js";
-import type { PersonId } from "../organization/schema.js";
+import { DepartmentId, type PersonId } from "../organization/schema.js";
 import { Effect, Schema } from "effect";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 import {
@@ -23,7 +23,12 @@ import {
   mapReceiptSubmissionPrincipal,
   projectReceiptAuthority,
 } from "./authority.js";
-import { makeReceiptApprovalContext, selectAuthorizedReceiptApprovals } from "./approval-list.js";
+import {
+  makeReceiptApprovalContext,
+  selectAuthorizedReceiptApprovals,
+  selectAuthorizedReceiptFileForApproval,
+  type ReceiptApprovalCandidate,
+} from "./approval-list.js";
 import {
   resolveReceiptAuthorityForRead,
   resolveReceiptAuthorityWithSql,
@@ -40,6 +45,7 @@ import {
   receiptCompositionFailure,
   ReceiptScopeDenied,
   StaleReceiptRevision,
+  type ReceiptApprovalFileReadFailure,
   type ReceiptApprovalListFailure,
   type ReceiptAuthorityMappingError,
   type ReceiptAuthorityResolutionError,
@@ -50,11 +56,14 @@ import { listApproverReceipts, type ReceiptListItem } from "./projections.js";
 import {
   Receipt,
   ReceiptFileSchema,
+  ReceiptId,
+  ReceiptStatusSchema,
   ReceiptCommandPrincipalSchema,
   ReceiptCommandRequestSchema,
   ReceiptObservationSchema,
   ReceiptSubmissionAllocationSchema,
   type ReceiptCommandPrincipal,
+  type ReceiptFile,
   type ReceiptStatus,
   type ReceiptSubmissionAllocation,
 } from "./schema.js";
@@ -84,6 +93,16 @@ interface ReceiptImportLedgerRow {
   readonly reconciliation_result: string;
   readonly reasons_json: unknown;
 }
+
+const ReceiptApprovalFileReadRowSchema = Schema.Struct({
+  receiptId: ReceiptId,
+  ownerPersonId: PersonId,
+  departmentId: DepartmentId,
+  status: ReceiptStatusSchema,
+  revision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  file: ReceiptFileSchema,
+});
+type ReceiptApprovalFileReadRow = typeof ReceiptApprovalFileReadRowSchema.Type;
 
 const persistenceError = (operation: string, cause: unknown) =>
   new ReceiptPersistenceError({ operation, message: String(cause) });
@@ -576,6 +595,133 @@ export const listReceiptsForApproval = (
           Effect.fail(persistenceError("list Receipt approval snapshot", cause)),
         ),
       );
+  });
+
+/**
+ * Resolves one canonical approver-visible file on the caller's repeatable-read,
+ * read-only transaction. The request credential, row, Organization authority,
+ * direct authority, and rules must share that caller-owned snapshot.
+ */
+export const readReceiptFileForApproval = (
+  receiptId: string,
+  personId: PersonId,
+  authorizationInstant: OrganizationAuthorityInstant,
+): Effect.Effect<ReceiptFile, ReceiptApprovalFileReadFailure, Database> =>
+  Effect.gen(function* () {
+    const sql = yield* Database;
+    const rows = yield* sql<ReceiptApprovalFileReadRow>`
+      SELECT
+        receipt_id AS "receiptId",
+        owner_person_id AS "ownerPersonId",
+        department_id AS "departmentId",
+        status,
+        revision,
+        json_build_object(
+          'fileRef', file_ref,
+          'objectKey', file_object_key,
+          'contentType', file_content_type,
+          'byteLength', file_byte_length::integer,
+          'sha256', file_sha256
+        ) AS file
+      FROM economy_receipts
+      WHERE receipt_id = ${receiptId}
+    `.pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("read Receipt approval file metadata", cause)),
+      ),
+    );
+    const selected = rows[0];
+    if (selected === undefined) return yield* new ReceiptNotFound({ receiptId });
+    const row = yield* Schema.decodeUnknownEffect(ReceiptApprovalFileReadRowSchema)(selected, {
+      onExcessProperty: "error",
+    }).pipe(
+      Effect.mapError((cause) =>
+        persistenceError("decode Receipt approval file metadata", cause),
+      ),
+    );
+    const candidate: ReceiptApprovalCandidate = {
+      receiptId: row.receiptId,
+      ownerPersonId: row.ownerPersonId,
+      departmentId: row.departmentId,
+      status: row.status,
+      revision: row.revision,
+    };
+    const organization = yield* resolveOrganizationPersonAuthorityWithSql(
+      sql,
+      personId,
+      authorizationInstant,
+      "None",
+    ).pipe(
+      Effect.mapError((cause) =>
+        cause._tag === "OrganizationPersistenceError"
+          ? persistenceError("resolve Receipt approval file Organization authority", cause.message)
+          : new ReceiptDecodeError({
+              message: `${cause.operation}: ${cause.message}`,
+            }),
+      ),
+    );
+    const directAuthority = yield* resolveReceiptAuthorityWithSql(
+      sql,
+      personId,
+      authorizationInstant,
+      organization,
+      "None",
+    ).pipe(
+      Effect.mapError((cause) =>
+        cause._tag === "ReceiptPersistenceError"
+          ? cause
+          : cause._tag === "ReceiptDecodeError"
+            ? cause
+            : new ReceiptDecodeError({
+                message: `Receipt authority projection mismatch for ${cause.personId}`,
+              }),
+      ),
+    );
+    const applicable = yield* readApplicableAuthorizationRules(
+      sql,
+      { _tag: "Person", personId },
+      "approveReceipt",
+      authorizationInstant,
+      makeReceiptApprovalContext(candidate, organization, directAuthority, []),
+      "None",
+    ).pipe(
+      Effect.mapError((cause) =>
+        cause._tag === "AuthzPersistenceError"
+          ? persistenceError(cause.operation, cause.message)
+          : new ReceiptDecodeError({
+              message: `${cause.entity}: ${cause.message}`,
+            }),
+      ),
+    );
+    const decision = selectAuthorizedReceiptFileForApproval(
+      organization,
+      directAuthority,
+      candidate,
+      applicable.rules,
+      applicable.tagAssignments,
+    );
+    if (decision._tag === "Deny") {
+      const compositionFailure = receiptCompositionFailure(
+        decision.reason,
+        personId,
+        "approveReceipt",
+      );
+      if (compositionFailure !== undefined) return yield* compositionFailure;
+      if (decision.reason === "AuthorityInactive") {
+        return yield* new InactiveActor({ personId });
+      }
+      return yield* new ReceiptScopeDenied({
+        receiptId: candidate.receiptId,
+        departmentId: candidate.departmentId,
+      });
+    }
+    if (!decision.value.receiptIds.includes(candidate.receiptId)) {
+      return yield* new ReceiptScopeDenied({
+        receiptId: candidate.receiptId,
+        departmentId: candidate.departmentId,
+      });
+    }
+    return row.file;
   });
 
 const authorizeReceiptMutationWithSql = (
