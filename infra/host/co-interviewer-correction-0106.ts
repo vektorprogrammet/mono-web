@@ -334,16 +334,7 @@ export async function runCoInterviewerCorrectionJourney(
     await page.goto(`${ui}/login`);
     await page.getByLabel("E-post", { exact: true }).fill(identity.email);
     await page.getByLabel("Passord", { exact: true }).fill(identity.password);
-    const signInResponsePromise = page.waitForResponse(
-      (response) => new URL(response.url()).pathname === "/api/auth/sign-in/email",
-    );
     await page.getByRole("button", { name: "Logg inn", exact: true }).click();
-    const signInResponse = await signInResponsePromise;
-    assert.equal(
-      signInResponse.status(),
-      200,
-      `${label} native login failed: ${await signInResponse.text()}`,
-    );
     await page.waitForURL(/\/dashboard\/?$/);
     await page.goto(`${ui}/dashboard/intervjuer`);
     const cookies = await browserContext.cookies();
@@ -355,6 +346,28 @@ export async function runCoInterviewerCorrectionJourney(
       cookie: cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; "),
     };
   };
+  const signInCookie = async (identity: NativeLogin, label: string): Promise<string> => {
+    secrets.push(identity.email, identity.password);
+    let response: Response | undefined;
+    for (let retry = 0; retry <= 30; retry += 1) {
+      response = await fetch(`${api}/api/auth/sign-in/email`, {
+        method: "POST",
+        headers: { origin: ui, "content-type": "application/json" },
+        body: JSON.stringify(identity),
+      });
+      if (response.status !== 429) break;
+      const cooldown = Promise.withResolvers<void>();
+      setTimeout(cooldown.resolve, 1_000);
+      await cooldown.promise;
+    }
+    assert.ok(response, `${label} native login did not return a response`);
+    assert.equal(response.status, 200, `${label} native login failed: ${await response.text()}`);
+    const cookie = response.headers.get("set-cookie")?.match(/^([^=;]+=[^;]+)/u)?.[1];
+    assert.ok(cookie, `${label} native login did not return a session cookie`);
+    secrets.push(cookie);
+    return cookie;
+  };
+
 
   const primaryInitial = await getDetail(primaryCookie);
   const primaryBoardInitial = await getBoard(primaryCookie);
@@ -375,36 +388,32 @@ export async function runCoInterviewerCorrectionJourney(
     assert.equal(coInitial.body.canCancel, false);
     stage("ordinary primary and co-interviewer receive one shared completed assessment without co contact data");
 
-    const unassigned = await login(fixture.unassignedMember, "unassigned-member");
-    try {
-      const unassignedBoard = await getBoard(unassigned.cookie);
-      assert.equal(
-        unassignedBoard.interviews.some((candidate) => candidate.interviewId === fixture.targetInterviewId),
-        false,
-      );
-      const deniedBefore = await snapshot();
-      const unassignedRead = await fetch(
-        `${api}/api/recruitment/interviews/${encodeURIComponent(fixture.targetInterviewId)}`,
-        { headers: headers(unassigned.cookie) },
-      );
-      status("unassigned:read", unassignedRead.status);
-      assert.equal(unassignedRead.status, 403, await unassignedRead.text());
-      const unassignedCorrect = await postCorrection(
-        unassigned.cookie,
-        correctionPayload(coInitial.body, "Unassigned correction.", "Nei", {
-          explanatoryPower: 1,
-          roleModel: 1,
-          suitability: 1,
-        }),
-        coInitial.etag,
-        freshId("co-interviewer-unassigned"),
-      );
-      status("unassigned:correct", unassignedCorrect.status);
-      assert.equal(unassignedCorrect.status, 403, await unassignedCorrect.text());
-      await assertUnchanged(deniedBefore, "unassigned member denial");
-    } finally {
-      await unassigned.browserContext.close();
-    }
+    const unassignedCookie = await signInCookie(fixture.unassignedMember, "unassigned-member");
+    const unassignedBoard = await getBoard(unassignedCookie);
+    assert.equal(
+      unassignedBoard.interviews.some((candidate) => candidate.interviewId === fixture.targetInterviewId),
+      false,
+    );
+    const deniedBefore = await snapshot();
+    const unassignedRead = await fetch(
+      `${api}/api/recruitment/interviews/${encodeURIComponent(fixture.targetInterviewId)}`,
+      { headers: headers(unassignedCookie) },
+    );
+    status("unassigned:read", unassignedRead.status);
+    assert.equal(unassignedRead.status, 403, await unassignedRead.text());
+    const unassignedCorrect = await postCorrection(
+      unassignedCookie,
+      correctionPayload(coInitial.body, "Unassigned correction.", "Nei", {
+        explanatoryPower: 1,
+        roleModel: 1,
+        suitability: 1,
+      }),
+      coInitial.etag,
+      freshId("co-interviewer-unassigned"),
+    );
+    status("unassigned:correct", unassignedCorrect.status);
+    assert.equal(unassignedCorrect.status, 403, await unassignedCorrect.text());
+    await assertUnchanged(deniedBefore, "unassigned member denial");
     stage("same-department ordinary unassigned member has neither board, detail, nor correction access");
 
     await co.page.goto(`${ui}/dashboard/intervjuer`);
