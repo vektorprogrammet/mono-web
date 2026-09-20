@@ -178,7 +178,7 @@ function ApplicationCard({ application }: { readonly application: ApplicantProgr
     >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-sm text-muted-foreground">Avdeling {application.departmentId}</p>
+          <p className="text-sm text-muted-foreground">Avdeling {application.departmentName}</p>
           <h2 id={`status-${application.applicationId}`} className="text-xl font-semibold">
             {presentation.title}
           </h2>

@@ -130,6 +130,7 @@ describe("applicant progress projection", () => {
     expect(received.applications).toHaveLength(1);
     expect(received.applications[0]).toMatchObject({
       applicationId: "applicant-progress-current-application",
+      departmentName: "Applicant progress",
       progress: { _tag: "ApplicationReceived" },
     });
 

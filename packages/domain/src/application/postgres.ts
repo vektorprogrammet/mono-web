@@ -100,6 +100,7 @@ interface ApplicantProgressRow {
   readonly applicationId: string;
   readonly admissionPeriodId: string;
   readonly departmentId: string;
+  readonly departmentName: string;
   readonly semesterId: string;
   readonly submittedAt: string;
   readonly interviewId: string | null;
@@ -835,6 +836,7 @@ export const readApplicantProgress = (
         application.application_id AS "applicationId",
         application.admission_period_id AS "admissionPeriodId",
         application.department_id AS "departmentId",
+        department.name AS "departmentName",
         period.semester_id AS "semesterId",
         to_char(
           application.submitted_at AT TIME ZONE 'UTC',
@@ -882,6 +884,8 @@ export const readApplicantProgress = (
         ON period.admission_period_id = application.admission_period_id
       INNER JOIN public.admission_period_semesters AS semester
         ON semester.semester_id = period.semester_id
+      INNER JOIN public.admission_period_departments AS department
+        ON department.department_id = application.department_id
       LEFT JOIN public.recruitment_interviews AS interview
         ON interview.application_id = application.application_id
       LEFT JOIN public.recruitment_interview_schedules AS schedule
@@ -933,6 +937,7 @@ export const readApplicantProgress = (
         applicationId: row.applicationId,
         admissionPeriodId: row.admissionPeriodId,
         departmentId: row.departmentId,
+        departmentName: row.departmentName,
         semesterId: row.semesterId,
         submittedAt: row.submittedAt,
         progress,

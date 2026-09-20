@@ -314,6 +314,7 @@ export const ApplicantProgressItemSchema = Schema.Struct({
   applicationId: PublicApplicationIdSchema,
   admissionPeriodId: AdmissionPeriodId,
   departmentId: DepartmentId,
+  departmentName: Schema.NonEmptyString,
   semesterId: SemesterId,
   submittedAt: Rfc3339InstantSchema,
   progress: ApplicantProgressStateSchema,
