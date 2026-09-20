@@ -4,19 +4,35 @@
 
 ## Metadata
 
-| Field             | Value                                                                                                                                                           |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status            | Contract is frozen at revision 0051.4. The implementation, runtime evidence, and acceptance evidence are pending                                                |
-| Base              | `1f7fe7424cd06e26a9713fd284c77fce71ee990e`                                                                                                                      |
-| Goal              | Replace the Symfony invitation-response seam with one native Recruitment authority and one full-Foldkit applicant journey                                       |
-| Actor             | Applicant who holds the current invitation capability                                                                                                           |
-| Observers         | Active department leader and assigned active interviewer                                                                                                        |
-| Routes            | `/interview-response/:capability`, `/interview-response/redacted`, and native commands under `/api/recruitment/invitation-response:*`                           |
-| Dependency        | Native interview scheduling from design spec 0050                                                                                                               |
-| Architecture      | Design specs 0040 and 0045                                                                                                                                      |
-| Operator boundary | No production data, credentials, deployment, remote provider, or external notification effect                                                                   |
-| Scope hold        | Identity credentials, sessions, and access-policy authority remain final                                                                                        |
-| Revision          | 0051.4 makes the command/fresh-read boundary explicit and lets known completed invitations reach the typed conflict. 0051.3 adds the bounded scheduling receipt |
+| Field             | Value                                                                                                                                                                                                            |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status            | Contract is frozen at revision 0051.5. Implementation and local acceptance passed at executable revision `885d6222591839f3e1376c4a611c512c444f0cfb`. Production release remains unclaimed                        |
+| Base              | `1f7fe7424cd06e26a9713fd284c77fce71ee990e`                                                                                                                                                                       |
+| Goal              | Replace the Symfony invitation-response seam with one native Recruitment authority and one full-Foldkit applicant journey                                                                                        |
+| Actor             | Applicant who holds the current invitation capability                                                                                                                                                            |
+| Observers         | Active department leader and assigned active interviewer                                                                                                                                                         |
+| Routes            | `/interview-response/:capability`, `/interview-response/redacted`, and native commands under `/api/recruitment/invitation-response:*`                                                                            |
+| Dependency        | Native interview scheduling from design spec 0050                                                                                                                                                                |
+| Architecture      | Design specs 0040 and 0045                                                                                                                                                                                       |
+| Operator boundary | No production data, credentials, deployment, remote provider, or external notification effect                                                                                                                    |
+| Scope hold        | Identity credentials, sessions, and access-policy authority remain final                                                                                                                                         |
+| Revision          | 0051.5 records identifier confinement, mount-aware routing, the 16 KiB bridge boundary, and exact local runtime receipts. 0051.4 defines the command and fresh-read boundary. 0051.3 adds the scheduling receipt |
+
+## Amendment 0051.5 - runtime acceptance closeout
+
+Local acceptance passed at executable revision `885d6222591839f3e1376c4a611c512c444f0cfb`.
+
+Real Chromium exercised the full applicant, leader, and interviewer journey against the native API and disposable PostgreSQL.
+
+The browser exercised both canonical and trailing-slash redacted routes. Each route used the mount-aware same-origin bridge.
+
+The bridge accepted schema-valid 2,000-character multibyte messages within the shared 16 KiB native request limit.
+
+The runtime emitted five accepted receipts. Each receipt binds the exact runner sources and executable source revision.
+
+The acceptance evidence is in `evidence/functional-parity/0051/acceptance-manifest.json`. The runtime receipt register is in `evidence/functional-parity/runtime/0051/runtime.json`.
+
+No production data, provider, credential, deployment, remote push, or cutover was used.
 
 ## Amendment 0051.4 - no-content commands and service-owned conflict
 

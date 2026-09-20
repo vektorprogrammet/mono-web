@@ -1,0 +1,56 @@
+{
+  "specId": "0050",
+  "result": "Passed",
+  "runtimeRevision": "885d6222591839f3e1376c4a611c512c444f0cfb",
+  "sourceRevisionRef": "rev-mono-sha256:6cb630ad73c1ec3056ca30d5f66dfc2413ece8118933c9bfc7282bd358082708",
+  "command": "bun apps/dashboard/e2e/run-real-native-recruitment-interview-scheduling.mjs",
+  "topology": {
+    "dashboard": "loopback-react-router-playwright-server",
+    "api": "unified-native-effect-backend",
+    "database": "disposable-postgresql-local-nix",
+    "browser": "real-chromium",
+    "notification": "recording-gateway-no-network"
+  },
+  "gates": [
+    "native Better Auth leader and interviewer personas authenticated through the rendered login form",
+    "the leader scheduled the assigned interview through Foldkit and the generated native API",
+    "a fresh board read, not the command response, closed the dialog and rendered the stored schedule",
+    "an independent interviewer browser context observed the persisted schedule",
+    "the schedule, invitation, audit, command receipt and notification request committed in PostgreSQL",
+    "the recording gateway moved the approved notification request from Pending to Delivered without provider traffic",
+    "all native requests carried session cookies without Authorization headers, raw capabilities or legacy admin routes",
+    "the disposable database, browser and processes were removed and all three ports were released"
+  ],
+  "runtimeEvidence": {
+    "path": "evidence/functional-parity/runtime/0050/runtime.json",
+    "sha256": "26b3ea7b8db53cd19dd44a803e376a323c73f725f0c6bf5bc39c5144751702fa",
+    "receipt": "receipt-fbf06d82f5a26f87a150aadac7e2678b9ee7b25f18bd872748a65adfc3230239",
+    "journey": "intent://journey:recruitment:interview-scheduling:v1",
+    "result": "passed"
+  },
+  "packageValidation": [
+    {
+      "package": "apps/dashboard",
+      "command": "bunx vitest run app/lib/interview-bridge.server.test.ts app/foldkit/interview/browser-client.test.ts && bun run check-types",
+      "result": "Passed",
+      "tests": 14
+    }
+  ],
+  "sourceEquivalence": {
+    "runtimeRevision": "885d6222591839f3e1376c4a611c512c444f0cfb",
+    "finalExecutableSourceRevision": "885d6222591839f3e1376c4a611c512c444f0cfb",
+    "verified": true,
+    "postRuntimeChanges": [
+      "design-specs/0051-native-recruitment-invitation-response.md",
+      "evidence/functional-parity/0050/acceptance-manifest.json",
+      "evidence/functional-parity/0051/acceptance-manifest.json",
+      "evidence/functional-parity/runtime/0050/runtime.json",
+      "evidence/functional-parity/runtime/0051/runtime.json"
+    ]
+  },
+  "skippedOrUnavailable": [
+    "No production data, credentials, provider, remote push, deployment or cutover was used",
+    "No claim is made for notification delivery beyond the recording gateway",
+    "No claim is made for recruitment behavior outside frozen design spec 0050"
+  ]
+}
