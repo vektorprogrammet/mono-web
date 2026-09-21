@@ -1,7 +1,7 @@
 {
   "specId": "0111",
   "result": "passed",
-  "runtimeRevision": "e7b33ce9ae1ea3a3474e2d737020843bc859a92c",
+  "runtimeRevision": "52caf3d6296d72f0e4ffe248724cc3acbafaf74f",
   "command": "bun --cwd apps/dashboard e2e/run-real-native-school-survey.mjs",
   "topology": {
     "database": "17.11",
@@ -86,13 +86,14 @@
         "bun vitest run --no-file-parallelism (packages/sdk: 3 passed)",
         "bun vitest run --no-file-parallelism (apps/backend: 169 passed)",
         "bun vitest run --no-file-parallelism (apps/dashboard: 283 passed)",
-        "bun vitest run --no-file-parallelism (packages/database: 122 passed, 4 skipped)"
+        "bun vitest run --no-file-parallelism (packages/database: 122 passed, 4 skipped)",
+        "vitest run infra/alchemy/preview/apex-worker.test.ts (23 passed)"
       ],
       "result": "passed"
     }
   },
   "checksums": {
-    "runner": "3cf8e8b08349e209f366890550b1944ca52053b34a1047234337f70308a4ab38",
+    "runner": "8a342d7a9bc41c0c27483c8fb75a44c53a0489aeb2c565a1e557aac284d2e5f3",
     "designSpec": "ae719b5e0a6c86bb233d28220cf468fd3deb29cee5d3b9e6049a93f940ba7c19"
   },
   "skippedOrUnavailable": [],
