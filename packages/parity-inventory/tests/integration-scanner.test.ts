@@ -258,7 +258,10 @@ test("loopback-only guards require structural proof and preserve every near miss
   expect(
     classifiedRows.some(
       (row) =>
-        "call_site_ref" in row.details && row.details.call_site_ref?.endsWith("#delete") === true,
+        "call_site_ref" in row.details &&
+        ["#delete", "#inspect"].some(
+          (suffix) => row.details.call_site_ref?.endsWith(suffix) === true,
+        ),
     ),
   ).toBe(false);
   expect(

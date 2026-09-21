@@ -1,6 +1,7 @@
 const cache = new Map<string, string>();
+type JourneyResponse = { readonly status: number };
 type JourneyHttpClientShape = {
-  readonly request: (request: { readonly url: string }) => Promise<Response>;
+  readonly request: (request: { readonly url: string }) => Promise<JourneyResponse>;
 };
 
 export const methods = {
@@ -9,10 +10,11 @@ export const methods = {
     return fetch(new URL("/api/health", origin));
   },
   configured: async (url: string): Promise<Response> => fetch(url),
+  configuredPath: async (assignmentPath: string): Promise<Response> => fetch(assignmentPath),
   journey: async (
     http: JourneyHttpClientShape,
     request: { readonly url: string },
-  ): Promise<Response> => http.request(request),
+  ): Promise<{ readonly status: number }> => http.request(request),
   contact: async (
     ingress: { readonly backendOrigin: string },
     input: Request,
@@ -21,6 +23,9 @@ export const methods = {
       throw new Error("Unsupported contact backend origin");
     }
     return fetch(input);
+  },
+  inspect: (response: { request(): unknown }): unknown => {
+    return response.request();
   },
   geolocate: async (): Promise<Response> => {
     return fetch("http://ipinfo.io/fixture");

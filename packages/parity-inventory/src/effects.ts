@@ -4302,7 +4302,7 @@ const providerFromText = (text: string): string | null => {
     [/\b(?:OpenAI|Anthropic)(?:Client|Adapter|Service)?\b/i, "ai"],
     [/\b(?:ipinfo\.io|IpInfo)\b/i, "ipinfo"],
     [
-      /\b(?:JourneyHttpClient|NodeJourneyHttpLayer|createEffectClient|backendOrigin|apiOrigin|dashboardOrigin|serverOrigin|input\.api)\b|new\s+URL\s*\([^,]+,\s*(?:origin|api|backendOrigin|apiOrigin|baseUrl)\s*\)|\$\{\s*(?:origin|api|backendOrigin|apiOrigin|baseUrl)\s*\}/i,
+      /\b(?:JourneyHttpClient|NodeJourneyHttpLayer|createEffectClient|canonicalOrigin|backendOrigin|apiOrigin|dashboardOrigin|serverOrigin|input\.api)\b|new\s+URL\s*\([^,]+,\s*(?:origin|api|ui|canonicalOrigin|backendOrigin|apiOrigin|baseUrl)\s*\)|\$\{\s*(?:origin|api|ui|canonicalOrigin|backendOrigin|apiOrigin|baseUrl)\s*\}/i,
       "vektorprogrammet-api",
     ],
   ];
@@ -4313,7 +4313,33 @@ const providerFromReceiverType = (unit: SourceUnit, call: EffectCall | undefined
   if (call?.receiver === null || call?.receiver === undefined) return null;
   const receiverRoot = call.receiver.split(/->|::|\./).find((part) => part.length > 0);
   if (receiverRoot === undefined) return null;
-  const receiverType = localReceiverTypesFor(unit, call.offset).get(receiverRoot);
+  let receiverType = localReceiverTypesFor(unit, call.offset).get(receiverRoot);
+  if (receiverType === undefined && /\.[cm]?[jt]sx?$/i.test(unit.path)) {
+    const sourceFile = ts.createSourceFile(unit.path, unit.text, ts.ScriptTarget.Latest, true);
+    let containingFunction: ts.FunctionLikeDeclaration | undefined;
+    const visit = (node: ts.Node): void => {
+      const functionLike =
+        ts.isArrowFunction(node) ||
+        ts.isFunctionDeclaration(node) ||
+        ts.isFunctionExpression(node) ||
+        ts.isMethodDeclaration(node) ||
+        ts.isGetAccessorDeclaration(node) ||
+        ts.isSetAccessorDeclaration(node);
+      if (
+        functionLike &&
+        node.getStart(sourceFile) < call.offset &&
+        call.offset < node.end &&
+        (containingFunction === undefined || node.getWidth(sourceFile) < containingFunction.getWidth(sourceFile))
+      )
+        containingFunction = node;
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    const parameter = containingFunction?.parameters.find(
+      (candidate) => ts.isIdentifier(candidate.name) && candidate.name.text === receiverRoot,
+    );
+    receiverType = parameter?.type?.getText(sourceFile);
+  }
   return receiverType !== null &&
     receiverType !== undefined &&
     /\bJourneyHttpClient(?:Shape)?\b/.test(receiverType)
@@ -4324,7 +4350,7 @@ const providerFromEndpointArguments = (argumentsText: string): string | null => 
   const named = providerFromText(argumentsText);
   if (named !== null) return named;
   const value = argumentsText.trim();
-  return /^(?:url|request\.url|input\.url)$/i.test(value)
+  return /^(?:url|endpoint|request\.url|input\.url|[A-Za-z_$][A-Za-z0-9_$]*Path)$/i.test(value)
     ? "configured-http-endpoint"
     : null;
 };
@@ -5162,8 +5188,9 @@ const integrationCallsFor = (
       endpointRef !== null ||
       namedProviderRef !== null ||
       syntaxProvider !== null ||
-      transportEvidence ||
-      protocol !== null;
+      argumentProviderRef !== null ||
+      receiverProviderRef !== null ||
+      transportEvidence;
     if (!positiveAnchor) continue;
     if (protocol === null) reasons.push("UNKNOWN_INTEGRATION");
     const credentialMatch =
