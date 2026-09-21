@@ -95,6 +95,11 @@ type NativeMiddlewareRequirements =
   | RequestSchemaErrorMiddleware;
 type TestServiceLayer = Layer.Layer<Identity | OAuthCredentialAuthority>;
 
+const provideTestServices = <Output, Error, Requirements>(
+  layer: Layer.Layer<Output, Error, Requirements>,
+  services: TestServiceLayer,
+) => layer.pipe(Layer.provide(services as Layer.Layer<Requirements>));
+
 const testRouterFetch = <
   Id extends string,
   Groups extends HttpApiGroup.Constraint,
