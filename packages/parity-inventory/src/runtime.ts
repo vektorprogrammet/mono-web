@@ -959,18 +959,59 @@ export const readProjectionDirectoryEffect = (
     }),
   );
 
-const assertProjectionDirectoryEntries = (
+const projectionSubdirectories = (
   fileSystem: ParityFileSystemShape,
   directory: string,
   names: readonly string[],
-): void => {
+): readonly string[] => {
   const allowed = new Set(names);
+  const directories: string[] = [];
   for (const entry of fileSystem.readDirectory(directory)) {
     const source = join(directory, entry.name);
     assertNoSymlinkPath(fileSystem, source);
-    if (entry.isDirectory()) continue;
+    if (entry.isDirectory()) {
+      directories.push(entry.name);
+      continue;
+    }
     if (!entry.isFile()) throw new Error(`unsupported projection entry: ${source}`);
     if (!allowed.has(entry.name)) throw new Error(`unknown projection entry: ${source}`);
+  }
+  return directories.sort(compareByteOrder);
+};
+
+const copyDirectoryTree = (
+  fileSystem: ParityFileSystemShape,
+  root: string,
+  source: string,
+  target: string,
+): void => {
+  assertWithinRoot(root, source);
+  assertWithinRoot(root, target);
+  assertNoSymlinkPath(fileSystem, source);
+  assertNoSymlinkPath(fileSystem, target);
+  const sourceMetadata = fileSystem.lstat(source);
+  if (!sourceMetadata.isDirectory())
+    throw new Error(`projection evidence path is not a directory: ${source}`);
+  fileSystem.makeDirectory(target, { mode: sourceMetadata.mode & 0o777 });
+  for (const entry of [...fileSystem.readDirectory(source)].sort((left, right) =>
+    compareByteOrder(left.name, right.name),
+  )) {
+    const sourceEntry = join(source, entry.name);
+    const targetEntry = join(target, entry.name);
+    assertNoSymlinkPath(fileSystem, sourceEntry);
+    const metadata = fileSystem.lstat(sourceEntry);
+    if (entry.isDirectory() && metadata.isDirectory()) {
+      copyDirectoryTree(fileSystem, root, sourceEntry, targetEntry);
+      continue;
+    }
+    if (entry.isFile() && metadata.isFile()) {
+      fileSystem.writeFile(targetEntry, fileSystem.readBytes(sourceEntry), {
+        flag: "wx",
+        mode: metadata.mode & 0o777,
+      });
+      continue;
+    }
+    throw new Error(`unsupported projection evidence entry: ${sourceEntry}`);
   }
 };
 
@@ -1016,11 +1057,14 @@ export const writeProjectionSetEffect = (
         const staging = fileSystem.makeTempDirectory(join(root, ".functional-parity-staging-"));
         assertNoSymlinkPath(fileSystem, staging);
         try {
+          let preservedDirectories: readonly string[] = [];
           if (!isMissingPath(fileSystem, directory)) {
             assertNoSymlinkPath(fileSystem, directory);
             if (!fileSystem.lstat(directory).isDirectory())
               throw new Error(`projection target is not a directory: ${directory}`);
-            assertProjectionDirectoryEntries(fileSystem, directory, names);
+            preservedDirectories = projectionSubdirectories(fileSystem, directory, names);
+            for (const name of preservedDirectories)
+              copyDirectoryTree(fileSystem, root, join(directory, name), join(staging, name));
           }
           for (const name of names) {
             const contents = projections[name];
@@ -1050,7 +1094,9 @@ export const writeProjectionSetEffect = (
           if (isMissingPath(fileSystem, directory)) {
             fileSystem.rename(staging, directory);
           } else {
-            assertProjectionDirectoryEntries(fileSystem, directory, names);
+            const currentDirectories = projectionSubdirectories(fileSystem, directory, names);
+            if (canonicalJson(currentDirectories) !== canonicalJson(preservedDirectories))
+              throw new Error("projection subdirectories changed during write");
             fileSystem.exchangeDirectoriesAtomically(staging, directory);
             fileSystem.remove(staging, { recursive: true, force: true });
           }

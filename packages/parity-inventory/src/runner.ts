@@ -3361,6 +3361,14 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
                 workspace,
                 options.mode === "write" ? "write" : "diff",
               ).pipe(Effect.map(attachAuthority));
+            const retainedEvidenceDirectory = join(
+              workspace.root,
+              PROJECTION_DIRECTORY,
+              "retained-evidence",
+            );
+            const retainedEvidencePath = join(retainedEvidenceDirectory, "receipt.json");
+            fileSystem.makeDirectory(retainedEvidenceDirectory, { recursive: true });
+            fileSystem.writeFile(retainedEvidencePath, '{"result":"passed"}\n', "utf8");
             const writeResult = yield* runWithServices(
               {
                 root: workspace.root,
@@ -3427,8 +3435,15 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
               )
             )
               throw new Error("fixture idempotent write changed projection bytes");
-            const projectionEntries = fileSystem
-              .readDirectory(join(workspace.root, PROJECTION_DIRECTORY))
+            const projectionDirectoryEntries = fileSystem.readDirectory(
+              join(workspace.root, PROJECTION_DIRECTORY),
+            );
+            const projectionEntries = projectionDirectoryEntries
+              .filter((entry) => entry.isFile())
+              .map((entry) => entry.name)
+              .sort(compareByteOrder);
+            const projectionSubdirectories = projectionDirectoryEntries
+              .filter((entry) => entry.isDirectory())
               .map((entry) => entry.name)
               .sort(compareByteOrder);
             const projectionBytes = Object.fromEntries(
@@ -3474,6 +3489,8 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
               differentDiffReport: differentDiffResult.report,
               projectionEntries,
               projectionBytes,
+              projectionSubdirectories,
+              retainedEvidence: fileSystem.readText(retainedEvidencePath),
             };
           } finally {
             fileSystem.remove(authority.directory, { recursive: true, force: true });

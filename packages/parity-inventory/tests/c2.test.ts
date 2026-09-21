@@ -171,6 +171,8 @@ test("terminal pipeline reaches write14 then fresh post-commit diff0 with stable
   }
   expect(cycle.projectionEntries).toEqual([...COMMITTED_PROJECTIONS].sort());
   expect(Object.keys(cycle.projectionBytes).sort()).toEqual([...COMMITTED_PROJECTIONS].sort());
+  expect(cycle.projectionSubdirectories).toEqual(["retained-evidence"]);
+  expect(cycle.retainedEvidence).toBe('{"result":"passed"}\n');
   expect(cycle.diffReport.source_manifest_sha256).toBe(cycle.writeReport.source_manifest_sha256);
   expect(cycle.diffReport.inventory_artifact_sha256).toEqual(
     cycle.writeReport.inventory_artifact_sha256,
