@@ -1,7 +1,7 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { dirname } from "node:path";
+import { projectionDirectoryForEvidencePath } from "./runtime-evidence-receipt.mjs";
+const repositoryRoot = fileURLToPath(new URL("../../..", import.meta.url));
 
 const usage = "Usage: bun e2e/merge-runtime-evidence.mjs --output <path> <register> [register ...]";
 
@@ -62,10 +62,38 @@ export const mergeRuntimeEvidenceRegisters = async (inputBytesList) => {
 
 const main = async () => {
   const { outputPath, inputPaths } = parseArgs(process.argv.slice(2));
-  const inputBytesList = await Promise.all(inputPaths.map((inputPath) => readFile(inputPath)));
-  const outputBytes = await mergeRuntimeEvidenceRegisters(inputBytesList);
-  await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, outputBytes, { encoding: "utf8" });
+  const { readFilePathNoFollow, withProjectionFileLock, writeFilePathNoFollow } = await import(
+    "../../../packages/parity-inventory/node-runtime.ts"
+  );
+  const lockModes = new Map();
+  for (const inputPath of inputPaths) {
+    const projectionDirectory = projectionDirectoryForEvidencePath(inputPath, repositoryRoot);
+    if (projectionDirectory !== null && !lockModes.has(projectionDirectory))
+      lockModes.set(projectionDirectory, "shared");
+  }
+  const outputProjectionDirectory = projectionDirectoryForEvidencePath(outputPath, repositoryRoot);
+  if (outputProjectionDirectory !== null) lockModes.set(outputProjectionDirectory, "exclusive");
+  const orderedLocks = [...lockModes].sort(([left], [right]) =>
+    left < right ? -1 : left > right ? 1 : 0
+  );
+  const mergeAndWrite = async () => {
+    const inputBytesList = inputPaths.map((inputPath) => readFilePathNoFollow(inputPath));
+    const outputBytes = await mergeRuntimeEvidenceRegisters(inputBytesList);
+    writeFilePathNoFollow(outputPath, outputBytes);
+  };
+  if (orderedLocks.length === 0) {
+    await mergeAndWrite();
+    return;
+  }
+  const acquire = (index) =>
+    index === orderedLocks.length
+      ? mergeAndWrite()
+      : withProjectionFileLock(
+        orderedLocks[index][0],
+        orderedLocks[index][1],
+        () => acquire(index + 1),
+      );
+  await acquire(0);
 };
 
 if (process.versions.bun === undefined) {

@@ -43,8 +43,7 @@ import {
   assertIndependentAuthorityRoots,
   readPinnedIntentRegisterEffect,
   readPinnedRuntimeEvidenceRegisterEffect,
-  readProjectionDirectoryEffect,
-  readProjectionEffect,
+  readProjectionSetEffect,
   registerRuntimeEvidenceAuthority,
   writeProjectionSetEffect,
   type PinnedIntentRegister,
@@ -2811,14 +2810,12 @@ const runFixtureFalsifier = (
     }
   });
 interface ProjectionStageEffects {
-  readonly readDirectory: typeof readProjectionDirectoryEffect;
-  readonly readProjection: typeof readProjectionEffect;
+  readonly readSet: typeof readProjectionSetEffect;
   readonly writeProjectionSet: typeof writeProjectionSetEffect;
 }
 
 const productionProjectionStageEffects: ProjectionStageEffects = {
-  readDirectory: readProjectionDirectoryEffect,
-  readProjection: readProjectionEffect,
+  readSet: readProjectionSetEffect,
   writeProjectionSet: writeProjectionSetEffect,
 };
 
@@ -2827,13 +2824,9 @@ const observeProjectionEffect = (
   root: string,
   writeReceipt: boolean,
 ): Effect.Effect<ProjectionObservation, ParityRuntimeError, ParityFileSystem> =>
-  Effect.gen(function* () {
-    const entries = yield* effects.readDirectory(root, PROJECTION_DIRECTORY);
-    const bytes: Record<string, string | null> = {};
-    for (const name of COMMITTED_PROJECTIONS)
-      bytes[name] = yield* effects.readProjection(root, PROJECTION_DIRECTORY, name);
-    return { entries, bytes, writeReceipt };
-  });
+  effects
+    .readSet(root, PROJECTION_DIRECTORY, COMMITTED_PROJECTIONS)
+    .pipe(Effect.map(({ entries, bytes }) => ({ entries, bytes, writeReceipt })));
 
 const runTerminalStageEffect = (
   options: RunOptions,
@@ -3268,6 +3261,9 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
     readonly projectionBytes: Readonly<Record<string, string>>;
     readonly projectionSubdirectories: readonly string[];
     readonly retainedEvidence: string;
+    readonly retainedEvidenceMode: number;
+    readonly projectionDirectoryModeBefore: number;
+    readonly projectionDirectoryModeAfter: number;
   },
   ParityRuntimeError,
   ParityCommandExecutor | ParityExecutionEnvironment | ParityFileSystem
@@ -3310,6 +3306,7 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
         Effect.gen(function* () {
           const authority = createFixtureIntentAuthority(fileSystem, commands, workspace);
           const evidenceAuthority = createFixtureEvidenceAuthority(fileSystem, commands, workspace);
+          let retainedEvidenceDirectory: string | null = null;
           try {
             const pinned = yield* readPinnedIntentRegisterEffect(
               authority.path,
@@ -3363,14 +3360,18 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
                 workspace,
                 options.mode === "write" ? "write" : "diff",
               ).pipe(Effect.map(attachAuthority));
-            const retainedEvidenceDirectory = join(
+            const projectionDirectory = join(workspace.root, PROJECTION_DIRECTORY);
+            retainedEvidenceDirectory = join(
               workspace.root,
               PROJECTION_DIRECTORY,
               "retained-evidence",
             );
             const retainedEvidencePath = join(retainedEvidenceDirectory, "receipt.json");
             fileSystem.makeDirectory(retainedEvidenceDirectory, { recursive: true });
+            const projectionDirectoryModeBefore =
+              fileSystem.lstat(projectionDirectory).mode & 0o777;
             fileSystem.writeFile(retainedEvidencePath, '{"result":"passed"}\n', "utf8");
+            fileSystem.chmodDirectoryNoFollow(retainedEvidenceDirectory, 0o1755);
             const writeResult = yield* runWithServices(
               {
                 root: workspace.root,
@@ -3454,7 +3455,6 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
                 fileSystem.readText(join(workspace.root, PROJECTION_DIRECTORY, name)),
               ]),
             );
-            const projectionDirectory = join(workspace.root, PROJECTION_DIRECTORY);
             const missingPath = join(projectionDirectory, "legacy-routes.json");
             const legacyProjection = projectionBytes["legacy-routes.json"];
             const monoProjection = projectionBytes["mono-routes.json"];
@@ -3483,6 +3483,9 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
               { collect },
             );
             fileSystem.writeFile(differentPath, monoProjection, "utf8");
+            const retainedEvidence = fileSystem.readText(retainedEvidencePath);
+            const retainedEvidenceMode = fileSystem.lstat(retainedEvidenceDirectory).mode & 0o7777;
+            const projectionDirectoryModeAfter = fileSystem.lstat(projectionDirectory).mode & 0o777;
             return {
               writeReport: writeResult.report,
               idempotentWriteReport: idempotentWriteResult.report,
@@ -3492,13 +3495,17 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
               projectionEntries,
               projectionBytes,
               projectionSubdirectories,
-              retainedEvidence: fileSystem.readText(retainedEvidencePath),
+              retainedEvidence,
+              retainedEvidenceMode,
+              projectionDirectoryModeBefore,
+              projectionDirectoryModeAfter,
             };
           } finally {
+            if (retainedEvidenceDirectory !== null && fileSystem.exists(retainedEvidenceDirectory))
+              fileSystem.chmod(retainedEvidenceDirectory, 0o755);
             fileSystem.remove(authority.directory, { recursive: true, force: true });
           }
         }),
-      (workspace) =>
-        Effect.sync(() => fileSystem.remove(workspace.directory, { recursive: true, force: true })),
+      (workspace) => Effect.sync(() => fileSystem.removeDirectoryTreeNoFollow(workspace.directory)),
     );
   });

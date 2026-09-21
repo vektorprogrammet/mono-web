@@ -17,6 +17,18 @@ export interface ParityDirectoryEntry {
   readonly isSymbolicLink: () => boolean;
 }
 
+export interface ParityDirectoryTreeEntry {
+  readonly kind: "directory" | "file";
+  readonly mode: number;
+  readonly path: string;
+  readonly sha256: string | null;
+}
+
+export interface ParityDirectoryInspection {
+  readonly entries: readonly ParityDirectoryTreeEntry[];
+  readonly files: Readonly<Record<string, Uint8Array>>;
+}
+
 export interface ParityWriteFileOptions {
   readonly encoding?: "utf8";
   readonly flag?: "wx";
@@ -29,28 +41,53 @@ export interface ParityRemoveOptions {
 }
 
 export interface ParityFileSystemShape {
+  readonly chmodDirectoryNoFollow: (path: string, mode: number) => void;
   readonly chmod: (path: string, mode: number) => void;
+  readonly copyDirectoryTreeNoFollow: (source: string, target: string) => void;
   readonly exists: (path: string) => boolean;
   readonly exchangeDirectoriesAtomically: (source: string, target: string) => void;
+  readonly inspectDirectoryTreeNoFollow: (
+    path: string,
+    fileNames: readonly string[],
+  ) => ParityDirectoryInspection;
   readonly lstat: (path: string) => ParityFileMetadata;
   readonly makeDirectory: (
     path: string,
     options?: { readonly recursive?: boolean; readonly mode?: number },
   ) => void;
+  readonly removeDirectoryTreeNoFollow: (
+    path: string,
+    expected?: { readonly dev: number; readonly ino: number },
+  ) => void;
   readonly makeTempDirectory: (prefix: string) => string;
   readonly readBytes: (path: string) => Uint8Array;
+  readonly readFileNoFollow: (path: string) => Uint8Array;
   readonly readBytesPromise: (path: string) => Promise<Uint8Array>;
   readonly readText: (path: string) => string;
   readonly readDirectory: (path: string) => readonly ParityDirectoryEntry[];
   readonly realpath: (path: string) => string;
   readonly remove: (path: string, options?: ParityRemoveOptions) => void;
   readonly rename: (source: string, target: string) => void;
+  readonly renameDirectoryNoFollow: (source: string, target: string) => void;
+  readonly withDirectoryNoFollow: <A>(
+    path: string,
+    options: { readonly create: boolean },
+    operation: (pinnedPath: string) => A,
+  ) => A;
   readonly stat: (path: string) => ParityFileMetadata;
   readonly temporaryDirectory: () => string;
   readonly writeFile: (
     path: string,
     contents: string | Uint8Array,
     options?: "utf8" | ParityWriteFileOptions,
+  ) => void;
+  readonly writeFileNoFollow: (path: string, contents: string | Uint8Array) => void;
+  readonly withFileLock: <A>(path: string, mode: "shared" | "exclusive", operation: () => A) => A;
+  readonly writeFileInDirectoryNoFollow: (
+    directory: string,
+    name: string,
+    contents: string | Uint8Array,
+    mode?: number,
   ) => void;
   readonly writeBytesPromise: (path: string, contents: Uint8Array) => Promise<void>;
 }

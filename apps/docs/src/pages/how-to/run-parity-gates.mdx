@@ -55,13 +55,19 @@ bun run --cwd apps/dashboard e2e:real-identity
 
 ## 5. Merge runtime evidence when the journey requires it
 
-Run the checked-in merge command:
+Pass one output path and every runtime-evidence register produced for the same source revision:
 
 ```bash
-bun run --cwd apps/dashboard e2e:merge-runtime-evidence
+bun run --cwd apps/dashboard e2e:merge-runtime-evidence -- \
+  --output /tmp/merged-runtime-evidence.json \
+  "$PWD/evidence/functional-parity/runtime/0050/runtime.json" \
+  "$PWD/evidence/functional-parity/runtime/0051/runtime.json"
 ```
 
-Read the runner before the command. Make sure that its input artifacts match the same source revision.
+The command rejects missing inputs and revision conflicts. It holds shared locks for retained input
+projections and an exclusive lock when the output is retained, acquired in deterministic path
+order. Read each journey runner first and verify that every input register belongs to the same
+source revision.
 
 ## 6. Run the authorization proof when authorization changed
 

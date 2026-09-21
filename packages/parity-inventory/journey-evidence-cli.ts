@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import { Effect, Layer, Schema } from "effect";
 import { canonicalJson } from "./src/canonical.js";
 import {
@@ -10,7 +10,7 @@ import {
   type JourneyProcessHandle,
 } from "./src/journey-evidence.js";
 import { ParityExecutionEnvironment, ParityFileSystem, ParityTerminal } from "./src/services.js";
-import { NodeRuntimeLayer } from "./node-runtime.js";
+import { assertPathComponentsNoFollow, NodeRuntimeLayer } from "./node-runtime.js";
 
 const JsonUnknownFromText = Schema.fromJsonString(Schema.Unknown);
 const decodeJsonText = Schema.decodeUnknownSync(JsonUnknownFromText, {
@@ -102,6 +102,13 @@ const NodeJourneyProcessLayer = Layer.succeed(JourneyProcessExecutor, {
   },
 });
 
+const assertOutsideFunctionalParityProjection = (path: string): void => {
+  const marker = `${sep}evidence${sep}functional-parity`;
+  if (path.endsWith(marker) || path.includes(`${marker}${sep}`))
+    throw new Error("JOURNEY_EVIDENCE_OUTPUT_OVERLAPS_FUNCTIONAL_PARITY_PROJECTION");
+  assertPathComponentsNoFollow(path);
+};
+
 const parseOutput = (arguments_: readonly string[]): string => {
   const index = arguments_.indexOf("--output");
   if (index === -1 || arguments_[index + 1] === undefined) {
@@ -110,7 +117,9 @@ const parseOutput = (arguments_: readonly string[]): string => {
   if (arguments_.length !== 4 || arguments_[2] !== "--output") {
     throw new Error("JOURNEY_EVIDENCE_ARGUMENTS_INVALID");
   }
-  return resolve(arguments_[index + 1]);
+  const output = resolve(arguments_[index + 1]);
+  assertOutsideFunctionalParityProjection(output);
+  return output;
 };
 
 const program = Effect.gen(function* () {
@@ -125,7 +134,7 @@ const program = Effect.gen(function* () {
     runnerSourcePath: resolve(execution.runnerDirectory, "journey-evidence.ts"),
   });
   const manifestBytes = canonicalJson(manifest);
-  fileSystem.writeFile(resolve(output, "native-run-manifest.json"), manifestBytes, "utf8");
+  fileSystem.writeFileNoFollow(resolve(output, "native-run-manifest.json"), manifestBytes);
   terminal.writeStandardOutput(`${manifestBytes}\n`);
 });
 

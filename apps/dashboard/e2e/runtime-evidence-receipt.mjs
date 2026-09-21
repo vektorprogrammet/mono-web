@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, relative, resolve, sep } from "node:path";
+import { readFile } from "node:fs/promises";
+import { relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+const defaultRepositoryRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const SOURCE_REF = /^src-[a-f0-9]{64}$/;
 const REVISION_REF = /^rev-[A-Za-z0-9:_-]{1,160}$/;
 const JOURNEY_REF = /^intent:\/\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -79,6 +81,21 @@ const requiredEnvironment = (name) => {
 };
 
 export const NATIVE_RUNTIME_EVIDENCE_DIRECTORY = "evidence/functional-parity/runtime";
+export const projectionDirectoryForEvidencePath = (path, repositoryRoot) => {
+  const projectionDirectory = resolve(repositoryRoot, "evidence", "functional-parity");
+  const relativePath = relative(projectionDirectory, resolve(path));
+  return relativePath.length === 0 ||
+    (!relativePath.startsWith(`..${sep}`) && relativePath !== ".." && !relativePath.startsWith(sep))
+    ? projectionDirectory
+    : null;
+};
+const nodeRuntime = () => import("../../../packages/parity-inventory/node-runtime.ts");
+const withEvidenceProjectionLock = async (projectionDirectory, operation) => {
+  const { withProjectionFileLock } = await nodeRuntime();
+  return withProjectionFileLock(projectionDirectory, "exclusive", operation);
+};
+
+
 
 export const resolveNativeRuntimeEvidencePath = (
   repositoryRoot,
@@ -139,6 +156,7 @@ export async function emitNativeRuntimeEvidenceReceipts({
     })),
   );
   return emitRuntimeEvidenceReceipts({
+    repositoryRoot,
     journeys,
     fixtureId,
     runnerSourceInputBytes,
@@ -156,6 +174,7 @@ const asBytes = (value, name) => {
 };
 
 export async function emitRuntimeEvidenceReceipts({
+  repositoryRoot = defaultRepositoryRoot,
   journeys,
   fixtureId,
   runnerSourceInputBytes,
@@ -287,12 +306,21 @@ export async function emitRuntimeEvidenceReceipts({
   );
   const bytes = canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister(receipts));
   assertSafeRuntimeEvidenceBytes(new TextEncoder().encode(bytes));
-  await mkdir(dirname(resolvedOutputPath), { recursive: true });
-  await writeFile(resolvedOutputPath, bytes, { encoding: "utf8" });
+  const writeReceipt = async () => {
+    const { writeFilePathNoFollow } = await nodeRuntime();
+    writeFilePathNoFollow(resolvedOutputPath, bytes);
+  };
+  const projectionDirectory = projectionDirectoryForEvidencePath(
+    resolvedOutputPath,
+    repositoryRoot,
+  );
+  if (projectionDirectory === null) await writeReceipt();
+  else await withEvidenceProjectionLock(projectionDirectory, writeReceipt);
   return receipts.map(({ receipt_ref_id }) => receipt_ref_id);
 }
 
 export async function emitRuntimeEvidenceReceipt({
+  repositoryRoot = defaultRepositoryRoot,
   journeyRefId,
   stepIds,
   fixtureId,
@@ -302,6 +330,7 @@ export async function emitRuntimeEvidenceReceipt({
   outputPath,
 }) {
   const receiptRefs = await emitRuntimeEvidenceReceipts({
+    repositoryRoot,
     journeys: [{ journeyRefId, stepIds }],
     fixtureId,
     runnerSourceInputBytes,

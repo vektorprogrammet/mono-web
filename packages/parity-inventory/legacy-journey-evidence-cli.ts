@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import { Effect, Layer, Schema } from "effect";
 import { canonicalJson } from "./src/canonical.js";
 import {
@@ -8,7 +8,7 @@ import {
   runClaimSpecificLegacyJourneyEvidence,
 } from "./src/legacy-journey-evidence.js";
 import { JourneyProcessExecutor, type JourneyProcessHandle } from "./src/journey-evidence.js";
-import { NodeRuntimeLayer } from "./node-runtime.js";
+import { assertPathComponentsNoFollow, NodeRuntimeLayer } from "./node-runtime.js";
 import { ParityExecutionEnvironment, ParityFileSystem, ParityTerminal } from "./src/services.js";
 
 const JsonUnknownFromText = Schema.fromJsonString(Schema.Unknown);
@@ -100,6 +100,12 @@ const NodeJourneyProcessLayer = Layer.succeed(JourneyProcessExecutor, {
     }
   },
 });
+const assertOutsideFunctionalParityProjection = (path: string): void => {
+  const marker = `${sep}evidence${sep}functional-parity`;
+  if (path.endsWith(marker) || path.includes(`${marker}${sep}`))
+    throw new Error("LEGACY_JOURNEY_EVIDENCE_OUTPUT_OVERLAPS_FUNCTIONAL_PARITY_PROJECTION");
+  assertPathComponentsNoFollow(path);
+};
 
 const parseArguments = (
   arguments_: readonly string[],
@@ -123,7 +129,9 @@ const parseArguments = (
       "LEGACY_JOURNEY_EVIDENCE_ARGUMENTS_INVALID:requires --output <dir> --php <path>",
     );
   }
-  return { output: resolve(output), phpExecutable: resolve(phpExecutable) };
+  const resolvedOutput = resolve(output);
+  assertOutsideFunctionalParityProjection(resolvedOutput);
+  return { output: resolvedOutput, phpExecutable: resolve(phpExecutable) };
 };
 
 const program = Effect.gen(function* () {
@@ -138,7 +146,7 @@ const program = Effect.gen(function* () {
     runnerSourcePath: resolve(execution.runnerDirectory, "legacy-journey-evidence.ts"),
   });
   const manifestBytes = canonicalJson(manifest);
-  fileSystem.writeFile(resolve(options.output, "legacy-run-manifest.json"), manifestBytes, "utf8");
+  fileSystem.writeFileNoFollow(resolve(options.output, "legacy-run-manifest.json"), manifestBytes);
   terminal.writeStandardOutput(`${manifestBytes}\n`);
 });
 

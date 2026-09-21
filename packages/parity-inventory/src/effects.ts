@@ -836,8 +836,14 @@ const normalizeLocalType = (raw: string | undefined): string | null => {
     ? null
     : value;
 };
-const constructorPropertyTypeFor = (source: string, property: string): string | null => {
-  const structure = withoutLiterals(withoutComments(source));
+const constructorPropertyTypeFor = (
+  source: string,
+  property: string,
+  ownerClass?: Pick<LanguageClass, "start" | "end">,
+): string | null => {
+  const selectedSource =
+    ownerClass === undefined ? source : source.slice(ownerClass.start, ownerClass.end);
+  const structure = withoutLiterals(withoutComments(selectedSource));
   const constructorMatch = /\bfunction\s+__construct\s*\(([^)]*)\)\s*(?::[^{]+)?\s*\{/i.exec(
     structure,
   );
@@ -1059,7 +1065,8 @@ const effectEvidence = (
           : undefined;
       const typedOwnerPropertyType =
         receiverRoot === "$this" && receiverParts[1] !== undefined
-          ? (constructorPropertyTypeFor(unit.text, receiverParts[1]) ?? declaredOwnerPropertyType)
+          ? (constructorPropertyTypeFor(unit.text, receiverParts[1], scope?.owner) ??
+            declaredOwnerPropertyType)
           : undefined;
       const typedOwnerProperty =
         receiverRoot === "$this" &&
@@ -4320,7 +4327,7 @@ const providerFromReceiverType = (
   if (receiverRoot === undefined) return null;
   let receiverType =
     /^(?:\$?this)$/i.test(receiverRoot) && receiverParts[1] !== undefined
-      ? (constructorPropertyTypeFor(unit.text, receiverParts[1]) ??
+      ? (constructorPropertyTypeFor(unit.text, receiverParts[1], ownerClass) ??
         ownerClass?.properties.get(receiverParts[1]))
       : localReceiverTypesFor(unit, call.offset).get(receiverRoot);
   if (receiverType === undefined && /\.[cm]?[jt]sx?$/i.test(unit.path)) {

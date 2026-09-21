@@ -1006,7 +1006,7 @@ const writeLegacyArtifact = (
   })(artifact);
   const bytes = canonicalJson(artifact);
   const fileName = `${journey}-legacy-symfony.json`;
-  fileSystem.writeFile(join(artifactDirectory, fileName), bytes, "utf8");
+  fileSystem.writeFileNoFollow(join(artifactDirectory, fileName), bytes);
   return {
     artifact_digest: sha256(bytes),
     artifact_pointer: `artifacts/${fileName}`,
@@ -1052,7 +1052,6 @@ export const runClaimSpecificLegacyJourneyEvidence = (
         const uploads = join(temporaryRoot, "uploads");
         fileSystem.makeDirectory(join(uploads, "receipts"), { recursive: true });
         fileSystem.makeDirectory(join(uploads, "profile"), { recursive: true });
-        fileSystem.makeDirectory(config.artifactDirectory, { recursive: true });
         const serverRoot = join(config.legacyRepositoryRoot, "apps/server");
         const databasePath = join(temporaryRoot, "witness.sqlite");
         const routerPath = writeRouterFile(fileSystem, temporaryRoot, serverRoot);

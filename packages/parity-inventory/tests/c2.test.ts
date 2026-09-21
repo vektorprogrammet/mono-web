@@ -1,8 +1,26 @@
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { NodeRuntimeLayer } from "../node-runtime.js";
+import {
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, join } from "node:path";
+import {
+  assertPathComponentsNoFollow,
+  exchangeDirectoriesAfterPinnedReplacementForTest,
+  NodeCommandExecutorLayer,
+  NodeExecutionEnvironmentLayer,
+  NodeFileSystemLayer,
+  NodeRuntimeLayer,
+  readFilePathNoFollow,
+  writeFilePathNoFollow,
+} from "../node-runtime.js";
 import { applyAcceptedAbsent, collectC2 } from "../src/effects.js";
 import { collectRoutes } from "../src/routes.js";
 import { acceptedIntentRevisionRefId } from "../src/coverage.js";
@@ -25,9 +43,14 @@ import {
   makeRuntimeEvidenceRegister,
 } from "../src/runtime-evidence.js";
 import { createManifestContextFromSnapshots } from "../src/source-manifest.js";
-import { readProjectionDirectoryEffect, scanRootEffect } from "../src/runtime.js";
+import {
+  readProjectionDirectoryEffect,
+  readProjectionSetEffect,
+  scanRootEffect,
+} from "../src/runtime.js";
 import { validateInventory } from "../src/schema.js";
 import type { InventoryRow } from "../src/types.js";
+import { ParityFileSystem } from "../src/services.js";
 const REPO_ROOT = join(import.meta.dir, "../../..");
 
 const put = (root: string, path: string, contents: string): void => {
@@ -173,11 +196,243 @@ test("terminal pipeline reaches write14 then fresh post-commit diff0 with stable
   expect(Object.keys(cycle.projectionBytes).sort()).toEqual([...COMMITTED_PROJECTIONS].sort());
   expect(cycle.projectionSubdirectories).toEqual(["retained-evidence"]);
   expect(cycle.retainedEvidence).toBe('{"result":"passed"}\n');
+  expect(cycle.retainedEvidenceMode).toBe(0o1755);
+  expect(cycle.projectionDirectoryModeAfter).toBe(cycle.projectionDirectoryModeBefore);
   expect(cycle.diffReport.source_manifest_sha256).toBe(cycle.writeReport.source_manifest_sha256);
   expect(cycle.diffReport.inventory_artifact_sha256).toEqual(
     cycle.writeReport.inventory_artifact_sha256,
   );
 }, 30_000);
+test("projection write rejects retained evidence changed during copy", async () => {
+  const nodeFileSystem = Effect.runSync(ParityFileSystem.pipe(Effect.provide(NodeFileSystemLayer)));
+  let projectionInspections = 0;
+  let exclusiveLockDepth = 0;
+  let cleanupObservedUnderLock = false;
+  const racingFileSystem = {
+    ...nodeFileSystem,
+    withFileLock: <A>(path: string, mode: "shared" | "exclusive", operation: () => A): A =>
+      nodeFileSystem.withFileLock(path, mode, () => {
+        if (mode === "exclusive") exclusiveLockDepth += 1;
+        try {
+          return operation();
+        } finally {
+          if (mode === "exclusive") exclusiveLockDepth -= 1;
+        }
+      }),
+    removeDirectoryTreeNoFollow: (
+      path: string,
+      expected?: { readonly dev: number; readonly ino: number },
+    ): void => {
+      if (path.includes(".functional-parity-staging-")) {
+        expect(exclusiveLockDepth).toBe(1);
+        cleanupObservedUnderLock = true;
+      }
+      nodeFileSystem.removeDirectoryTreeNoFollow(path, expected);
+    },
+    inspectDirectoryTreeNoFollow: (path: string, fileNames: readonly string[]) => {
+      if (path.endsWith(`/${basename(PROJECTION_DIRECTORY)}`)) {
+        projectionInspections += 1;
+        if (projectionInspections > 1) expect(exclusiveLockDepth).toBe(1);
+        if (projectionInspections === 3)
+          nodeFileSystem.writeFile(
+            join(path, "retained-evidence", "receipt.json"),
+            '{"result":"changed-during-copy"}\n',
+            "utf8",
+          );
+      }
+      return nodeFileSystem.inspectDirectoryTreeNoFollow(path, fileNames);
+    },
+  };
+  const racingRuntime = Layer.mergeAll(
+    NodeCommandExecutorLayer,
+    NodeExecutionEnvironmentLayer,
+    Layer.succeed(ParityFileSystem, racingFileSystem),
+  );
+  let failure: unknown;
+  try {
+    await Effect.runPromise(runTrustedFixtureTerminalCycle().pipe(Effect.provide(racingRuntime)));
+  } catch (cause) {
+    failure = cause;
+  }
+  expect(failure).toMatchObject({
+    _tag: "ParityRuntimeError",
+    operation: "write_projection",
+  });
+  expect((failure as Error).message).toContain("projection subdirectories changed during copy");
+  expect(cleanupObservedUnderLock).toBe(true);
+}, 30_000);
+test("descriptor-relative cleanup never follows staged symlinks", () => {
+  const root = mkdtempSync("/tmp/parity-projection-cleanup-");
+  const fileSystem = Effect.runSync(ParityFileSystem.pipe(Effect.provide(NodeFileSystemLayer)));
+  try {
+    const staging = join(root, "staging");
+    const outside = join(root, "outside");
+    fileSystem.makeDirectory(staging, { recursive: true });
+    fileSystem.makeDirectory(outside, { recursive: true });
+    fileSystem.writeFile(join(outside, "receipt.json"), "preserve", "utf8");
+    symlinkSync(outside, join(staging, "retained-link"));
+    fileSystem.removeDirectoryTreeNoFollow(staging);
+    expect(fileSystem.exists(staging)).toBe(false);
+    expect(fileSystem.readText(join(outside, "receipt.json"))).toBe("preserve");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("pinned directory writes stay on the opened parent after a path swap", () => {
+  const root = mkdtempSync("/tmp/parity-projection-parent-");
+  const fileSystem = Effect.runSync(ParityFileSystem.pipe(Effect.provide(NodeFileSystemLayer)));
+  try {
+    const parent = join(root, "evidence");
+    const displaced = join(root, "displaced");
+    const outside = join(root, "outside");
+    fileSystem.makeDirectory(parent);
+    fileSystem.makeDirectory(outside);
+    fileSystem.withDirectoryNoFollow(parent, { create: false }, (pinnedParent) => {
+      renameSync(parent, displaced);
+      symlinkSync(outside, parent);
+      fileSystem.writeFile(join(pinnedParent, "receipt.json"), "pinned", "utf8");
+    });
+    expect(fileSystem.readText(join(displaced, "receipt.json"))).toBe("pinned");
+    expect(fileSystem.exists(join(outside, "receipt.json"))).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("cleanup refuses a replacement directory with another inode", () => {
+  const root = mkdtempSync("/tmp/parity-projection-cleanup-identity-");
+  const fileSystem = Effect.runSync(ParityFileSystem.pipe(Effect.provide(NodeFileSystemLayer)));
+  try {
+    const staging = join(root, "staging");
+    const displaced = join(root, "displaced");
+    const replacement = join(root, "replacement");
+    fileSystem.makeDirectory(staging);
+    fileSystem.makeDirectory(replacement);
+    fileSystem.writeFile(join(replacement, "preserve.txt"), "preserve", "utf8");
+    const expected = fileSystem.lstat(staging);
+    renameSync(staging, displaced);
+    renameSync(replacement, staging);
+    expect(() => fileSystem.removeDirectoryTreeNoFollow(staging, expected)).toThrow(
+      "projection cleanup target changed",
+    );
+    expect(fileSystem.readText(join(staging, "preserve.txt"))).toBe("preserve");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("atomic projection rename rejects a swapped staging symlink", () => {
+  const root = mkdtempSync("/tmp/parity-projection-rename-");
+  const fileSystem = Effect.runSync(ParityFileSystem.pipe(Effect.provide(NodeFileSystemLayer)));
+  try {
+    const staging = join(root, "staging");
+    const live = join(root, "live");
+    const outside = join(root, "outside");
+
+    fileSystem.makeDirectory(staging, { recursive: true });
+    fileSystem.makeDirectory(live, { recursive: true });
+    fileSystem.makeDirectory(outside, { recursive: true });
+    fileSystem.removeDirectoryTreeNoFollow(staging);
+    symlinkSync(outside, staging);
+    expect(() => fileSystem.exchangeDirectoriesAtomically(staging, live)).toThrow();
+    expect(fileSystem.lstat(staging).isSymbolicLink()).toBe(true);
+    expect(fileSystem.lstat(live).isDirectory()).toBe(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("atomic projection rename restores live data after a pinned staging replacement", () => {
+  const root = mkdtempSync("/tmp/parity-projection-rename-race-");
+  const fileSystem = Effect.runSync(ParityFileSystem.pipe(Effect.provide(NodeFileSystemLayer)));
+  try {
+    const staging = join(root, "staging");
+    const displaced = join(root, "displaced");
+    const live = join(root, "live");
+    const outside = join(root, "outside");
+    const replacement = join(root, "replacement");
+    mkdirSync(staging);
+    mkdirSync(live);
+    mkdirSync(outside);
+    writeFileSync(join(staging, "candidate.json"), "candidate");
+    writeFileSync(join(live, "retained.json"), "retained");
+    symlinkSync(outside, replacement);
+    expect(() =>
+      exchangeDirectoriesAfterPinnedReplacementForTest(staging, live, replacement, displaced),
+    ).toThrow();
+    expect(fileSystem.lstat(live).isDirectory()).toBe(true);
+    expect(fileSystem.readText(join(live, "retained.json"))).toBe("retained");
+    expect(fileSystem.lstat(staging).isSymbolicLink()).toBe(true);
+    expect(fileSystem.lstat(displaced).isDirectory()).toBe(true);
+    expect(fileSystem.readText(join(displaced, "candidate.json"))).toBe("candidate");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("path-level evidence IO rejects symlinked parents and files", () => {
+  const root = mkdtempSync("/tmp/parity-evidence-io-");
+  try {
+    const outside = join(root, "outside");
+    const outsideFile = join(outside, "preserve.json");
+    mkdirSync(outside);
+    writeFileSync(outsideFile, "preserve", "utf8");
+    const linkedFile = join(root, "linked.json");
+    symlinkSync(outsideFile, linkedFile);
+    expect(() => readFilePathNoFollow(linkedFile)).toThrow();
+    expect(() => writeFilePathNoFollow(linkedFile, "replace")).toThrow();
+    const linkedParent = join(root, "linked-parent");
+    symlinkSync(outside, linkedParent);
+    expect(() => readFilePathNoFollow(join(linkedParent, "preserve.json"))).toThrow();
+    expect(() => writeFilePathNoFollow(join(linkedParent, "new.json"), "replace")).toThrow();
+    const hardlinkTarget = join(root, "hardlink-target.json");
+    const hardlink = join(root, "hardlink.json");
+    writeFileSync(hardlinkTarget, "preserve-hardlink", "utf8");
+    linkSync(hardlinkTarget, hardlink);
+    expect(() => readFilePathNoFollow(hardlink)).toThrow("aliased");
+    expect(() => writeFilePathNoFollow(hardlink, "replace")).toThrow("aliased");
+    expect(readFileSync(hardlinkTarget, "utf8")).toBe("preserve-hardlink");
+    const aliasedDirectory = join(root, "aliased-directory");
+    symlinkSync(outside, aliasedDirectory);
+    expect(() => assertPathComponentsNoFollow(join(aliasedDirectory, "missing"))).toThrow("unsafe");
+    expect(() =>
+      writeFilePathNoFollow(join(aliasedDirectory, "screenshot.png"), "escaped"),
+    ).toThrow();
+    expect(() => readFileSync(join(outside, "screenshot.png"))).toThrow();
+    const absentOutput = join(root, "absent", "nested");
+    assertPathComponentsNoFollow(absentOutput);
+    writeFilePathNoFollow(join(absentOutput, "manifest.json"), "created");
+    expect(readFileSync(join(absentOutput, "manifest.json"), "utf8")).toBe("created");
+    expect(readFilePathNoFollow(outsideFile)).toEqual(new TextEncoder().encode("preserve"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("projection reads reject a symlinked parent even when the target is missing", async () => {
+  const root = mkdtempSync("/tmp/parity-projection-missing-symlink-");
+  try {
+    const outside = join(root, "outside");
+    mkdirSync(outside, { recursive: true });
+    symlinkSync(outside, join(root, "evidence"));
+    const reads = [
+      readProjectionDirectoryEffect(root, PROJECTION_DIRECTORY),
+      readProjectionSetEffect(root, PROJECTION_DIRECTORY, COMMITTED_PROJECTIONS),
+    ];
+    for (const readEffect of reads) {
+      let failure: unknown;
+      try {
+        await Effect.runPromise(readEffect.pipe(Effect.provide(NodeRuntimeLayer)));
+      } catch (cause) {
+        failure = cause;
+      }
+      expect(failure).toMatchObject({ operation: "read_projection" });
+      expect((failure as Error).message).toContain("symbolic link");
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("projection diff rejects unsafe entries nested under retained evidence", async () => {
   const root = mkdtempSync("/tmp/parity-projection-retained-symlink-");
   try {
@@ -3262,6 +3517,36 @@ test("provider-specific calls and literal HTTP integration anchors remain visibl
       reason_codes: ["DEAD_UNIMPORTED_SOURCE"],
       details: { provider_ref: "github", protocol: "https" },
     });
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true });
+    rmSync(monoRoot, { recursive: true, force: true });
+  }
+});
+test("constructor property inference stays within the owning PHP class", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-provider-scope-legacy-");
+  const monoRoot = mkdtempSync("/tmp/parity-c2-provider-scope-mono-");
+  const path = "apps/server/src/App/Infrastructure/Service/MultiClient.php";
+  try {
+    put(
+      monoRoot,
+      path,
+      [
+        "<?php",
+        "final class FirstClient {",
+        "    public function __construct(private SlackClient $client) {}",
+        "}",
+        "final class SecondClient {",
+        "    private $client;",
+        "    public function __construct($client) { $this->client = $client; }",
+        "    public function dispatch(): void { $this->client->send(); }",
+        "}",
+      ].join("\n"),
+    );
+    const context = await contextFor(legacyRoot, monoRoot);
+    const rows = collectC2(context, sha256("provider-owner-scope")).integrations.rows.filter(
+      (row) => row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === path),
+    );
+    expect(rows).toEqual([]);
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true });
     rmSync(monoRoot, { recursive: true, force: true });

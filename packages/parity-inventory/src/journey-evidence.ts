@@ -404,7 +404,7 @@ const writeArtifact = (
   );
   const bytes = canonicalJson(artifact);
   const fileName = `${journey}-native-effect.json`;
-  fileSystem.writeFile(join(artifactDirectory, fileName), bytes, "utf8");
+  fileSystem.writeFileNoFollow(join(artifactDirectory, fileName), bytes);
   return {
     artifact_digest: sha256(bytes),
     artifact_pointer: `artifacts/${fileName}`,
@@ -1084,7 +1084,6 @@ export const runClaimSpecificJourneyEvidence = (
         const committedRoot = join(temporaryRoot, "receipt-committed");
         fileSystem.makeDirectory(stagingRoot, { recursive: true });
         fileSystem.makeDirectory(committedRoot, { recursive: true });
-        fileSystem.makeDirectory(config.artifactDirectory, { recursive: true });
         const portSeed = Number.parseInt(sha256(config.repositoryRoot).slice(-4), 16);
         const postgresPort = 46_000 + (portSeed % 1_000);
         const backendPort = postgresPort + 1_000;

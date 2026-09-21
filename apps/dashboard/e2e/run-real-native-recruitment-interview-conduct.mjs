@@ -1,10 +1,14 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  withProjectionFileLock,
+  writeFilePathNoFollow,
+} from "../../../packages/parity-inventory/node-runtime.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -230,6 +234,7 @@ const main = async () => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-native-conduct-0063-"));
   const postgresRoot = join(temporaryRoot, "postgres");
   const browserEvidencePath = join(temporaryRoot, "browser-evidence.json");
+  const screenshotDirectory = join(temporaryRoot, "screenshots");
   const evidenceDirectory = join(repositoryRoot, "evidence", "functional-parity", "0108");
   const baseEnvironment = { ...process.env };
   delete baseEnvironment.API_MODE;
@@ -239,6 +244,7 @@ const main = async () => {
   let dashboard;
   let proxy;
   let primaryError;
+  let screenshotEvidence;
   let runtimeEvidence;
   try {
     await run(
@@ -324,7 +330,7 @@ const main = async () => {
       DASHBOARD_ORIGIN: dashboardOrigin,
       REAL_NATIVE_CONDUCT_E2E: "1",
       CONDUCT_E2E_BROWSER_EVIDENCE_PATH: browserEvidencePath,
-      CONDUCT_E2E_SCREENSHOT_DIRECTORY: evidenceDirectory,
+      CONDUCT_E2E_SCREENSHOT_DIRECTORY: screenshotDirectory,
       CONDUCT_E2E_APPLICANT_A: "Sofie Gjennomfører",
       CONDUCT_E2E_APPLICANT_B: "Olav Konflikt",
       CONDUCT_E2E_LEADER_EMAIL: "lina.conduct@example.invalid",
@@ -437,6 +443,12 @@ const main = async () => {
           proxy.records.filter((record) => record.path.endsWith(":finalize")),
         )}`,
       );
+    screenshotEvidence = await Promise.all(
+      ["interview-completion-desktop.png", "interview-completion-mobile.png"].map(async (name) => ({
+        name,
+        bytes: await readFile(join(screenshotDirectory, name)),
+      })),
+    );
     runtimeEvidence = {
       topology: {
         postgres: "disposable-loopback-postgresql",
@@ -495,12 +507,20 @@ const main = async () => {
     );
   if (primaryError !== undefined) throw primaryError;
   if (cleanupErrors.length > 0) throw new AggregateError(cleanupErrors, "conduct cleanup failed");
-  if (runtimeEvidence === undefined) throw new Error("conduct evidence was not produced");
+  if (runtimeEvidence === undefined || screenshotEvidence === undefined)
+    throw new Error("conduct evidence was not produced");
   const retainedEvidence = { ...runtimeEvidence, cleanup: { disposableResourcesRemoved: true } };
-  await mkdir(evidenceDirectory, { recursive: true });
-  await writeFile(
-    join(evidenceDirectory, "runtime.json"),
-    `${JSON.stringify(retainedEvidence, null, 2)}\n`,
+  await withProjectionFileLock(
+    join(repositoryRoot, "evidence", "functional-parity"),
+    "exclusive",
+    async () => {
+      for (const { name, bytes } of screenshotEvidence)
+        writeFilePathNoFollow(join(evidenceDirectory, name), bytes);
+      writeFilePathNoFollow(
+        join(evidenceDirectory, "runtime.json"),
+        `${JSON.stringify(retainedEvidence, null, 2)}\n`,
+      );
+    },
   );
   process.stdout.write(`${JSON.stringify(retainedEvidence, null, 2)}\n`);
 };

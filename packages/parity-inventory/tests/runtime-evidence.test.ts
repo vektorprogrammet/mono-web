@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import {
   assertSafeRuntimeEvidenceBytes,
@@ -11,6 +11,7 @@ import {
 } from "../src/runtime-evidence.js"
 import { tryDecodeAcceptedIntentRegister } from "../src/coverage.js"
 import { canonicalJson, sha256 } from "../src/canonical.js"
+import { projectionLockPath, withProjectionFileLock } from "../node-runtime.js"
 
 const sourceRef = `src-${"a".repeat(64)}`
 const digest = (hex: string): string => `sha256:${hex.repeat(64).slice(0, 64)}`
@@ -114,7 +115,16 @@ describe("runtime evidence register", () => {
   })
   test("decodes the canonical bytes emitted by the browser receipt helper", async () => {
     const outputDirectory = mkdtempSync("/tmp/runtime-evidence-emitted-")
-    const outputPath = join(outputDirectory, "runtime-evidence.json")
+    const outputPath = join(
+      outputDirectory,
+      "evidence",
+      "functional-parity",
+      "0104",
+      "evidence",
+      "functional-parity",
+      "runtime",
+      "runtime-evidence.json",
+    )
     const sourceA = `src-${"0123456789abcdef".repeat(4)}`
     const sourceB = `src-${"fedcba9876543210".repeat(4)}`
     const names = [
@@ -130,10 +140,18 @@ describe("runtime evidence register", () => {
       process.env.RUNTIME_EVIDENCE_MONO_REVISION_REF_ID = `rev-mono-sha256-${"b".repeat(64)}`
       process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS = `${sourceA},${sourceB}`
       const helper = await import("../../../apps/dashboard/e2e/runtime-evidence-receipt.mjs")
+      expect(helper.projectionDirectoryForEvidencePath(outputPath, outputDirectory)).toBe(
+        join(outputDirectory, "evidence", "functional-parity"),
+      )
+      const nestedRepositoryRoot = join(outputDirectory, "evidence", "functional-parity", "0104")
+      expect(helper.projectionDirectoryForEvidencePath(outputPath, nestedRepositoryRoot)).toBe(
+        join(nestedRepositoryRoot, "evidence", "functional-parity"),
+      )
       const artifactBytes = helper.sanitizePlaywrightArtifact(new TextEncoder().encode(JSON.stringify({
         suites: [{ specs: [{ title: "accepted", ok: true, tests: [{ results: [{ status: "passed" }] }] }] }],
       })))
       const receiptRef = await helper.emitRuntimeEvidenceReceipt({
+        repositoryRoot: outputDirectory,
         journeyRefId: "intent://journey:test:emitted-receipt:v1",
         stepIds: ["emitted-step"],
         fixtureId: "emitted-receipt-fixture",
@@ -157,6 +175,26 @@ describe("runtime evidence register", () => {
       rmSync(outputDirectory, { recursive: true, force: true })
     }
   })
+  test("projection writer lock queue recovers after acquisition failure", async () => {
+    const projectionDirectory = mkdtempSync("/tmp/runtime-evidence-lock-")
+    const lockPath = projectionLockPath(projectionDirectory)
+    const symlinkTarget = join(projectionDirectory, "lock-target")
+    writeFileSync(symlinkTarget, "", "utf8")
+    symlinkSync(symlinkTarget, lockPath)
+    try {
+      await expect(
+        withProjectionFileLock(projectionDirectory, "exclusive", async () => "unreachable"),
+      ).rejects.toThrow()
+      rmSync(lockPath)
+      await expect(
+        withProjectionFileLock(projectionDirectory, "exclusive", async () => "recovered"),
+      ).resolves.toBe("recovered")
+    } finally {
+      rmSync(lockPath, { force: true })
+      rmSync(projectionDirectory, { recursive: true, force: true })
+    }
+  })
+
   test("emits one canonical register for multiple journey receipts", async () => {
     const outputDirectory = mkdtempSync("/tmp/runtime-evidence-batch-")
     const outputPath = join(outputDirectory, "runtime-evidence.json")
@@ -178,6 +216,7 @@ describe("runtime evidence register", () => {
         suites: [{ specs: [{ title: "accepted batch", ok: true, tests: [{ results: [{ status: "passed" }] }] }] }],
       })))
       const receiptRefs = await helper.emitRuntimeEvidenceReceipts({
+        repositoryRoot: outputDirectory,
         journeys: [
           { journeyRefId: "intent://journey:test:batch-a:v1", stepIds: ["step-a"] },
           { journeyRefId: "intent://journey:test:batch-b:v1", stepIds: ["step-b"] },
