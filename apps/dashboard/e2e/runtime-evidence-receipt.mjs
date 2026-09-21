@@ -89,7 +89,7 @@ export const projectionDirectoryForEvidencePath = (path, repositoryRoot) => {
     ? projectionDirectory
     : null;
 };
-const nodeRuntime = () => import("../../../packages/parity-inventory/node-runtime.ts");
+const nodeRuntime = () => import("../../../tools/parity/node-runtime.ts");
 const withEvidenceProjectionLock = async (projectionDirectory, operation) => {
   const { withProjectionFileLock } = await nodeRuntime();
   return withProjectionFileLock(projectionDirectory, "exclusive", operation);
@@ -202,7 +202,7 @@ export async function emitRuntimeEvidenceReceipts({
     .map((value) => value.trim())
     .filter((value) => value.length > 0);
   const contentAddressedRevisionRef = /^rev-(?:legacy|mono)-(?:[a-f0-9]{40,64}|sha256:[a-f0-9]{64})$/;
-  const { unsafeScalarReason } = await import("../../../packages/parity-inventory/src/source-manifest.ts");
+  const { unsafeScalarReason } = await import("../../../tools/parity/src/source-manifest.ts");
   if (
     !REVISION_REF.test(legacyRevisionRefId) ||
     !REVISION_REF.test(monoRevisionRefId) ||
@@ -288,7 +288,7 @@ export async function emitRuntimeEvidenceReceipts({
     canonicalRuntimeEvidenceBytes,
     makeRuntimeEvidenceReceipt,
     makeRuntimeEvidenceRegister,
-  } = await import("../../../packages/parity-inventory/src/runtime-evidence.ts");
+  } = await import("../../../tools/parity/src/runtime-evidence.ts");
   const receipts = normalizedJourneys.map(({ journeyRefId, stepIds }) =>
     makeRuntimeEvidenceReceipt({
       journey_ref_id: journeyRefId,

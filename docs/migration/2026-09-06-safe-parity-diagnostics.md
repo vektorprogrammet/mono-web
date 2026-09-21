@@ -12,7 +12,7 @@ Clean commit `c14703e9` ran `bun run parity:verify`: **exit 6, UNSAFE_SOURCE**.
 The failure is now actionable: effect failure 19 / effect row 537, source 8135,
 `packages/database/runtime/receipt-import-rehearsal.ts:451`.
 
-The parser in `packages/parity-inventory/src/effects.ts` searches HTTP URL text
+The parser in `tools/parity/src/effects.ts` searches HTTP URL text
 across `literalCall.rawArgs.join(",")`. For this sign-in fetch, that selects the
 Origin header's numeric loopback URL, rather than the dynamic destination in the
 first argument. The generic `unsafeScalarReason` endpoint check treats that

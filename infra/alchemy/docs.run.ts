@@ -17,7 +17,7 @@ export default Alchemy.Stack(
     }
     const build = yield* Command.Build("DocsBuild", {
       command: "bun run build",
-      cwd: "../../apps/docs",
+      cwd: "../../tools/migration-docs",
       outdir: "dist/public",
       memo: {
         include: [

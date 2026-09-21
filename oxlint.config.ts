@@ -36,7 +36,7 @@ const effectConfig = {
       strictness: "recommended",
     }),
     group({
-      files: ["packages/parity-inventory/src/**/*.ts"],
+      files: ["tools/parity/src/**/*.ts"],
       role: "application",
       platform: "node",
       strictness: "recommended",
@@ -54,7 +54,7 @@ const effectConfig = {
       strictness: "recommended",
     }),
     group({
-      files: ["infra/**/*.ts", "scripts/**/*.ts"],
+      files: ["infra/**/*.ts", "scripts/**/*.ts", "tools/preview-host/**/*.ts"],
       role: "composition-root",
       platform: "node",
       strictness: "recommended",
@@ -120,12 +120,12 @@ export default defineConfig({
     {
       files: [
         "infra/alchemy/scripts/docs-cli.test.ts",
-        "packages/parity-inventory/tests/claim-evidence.test.ts",
-        "packages/parity-inventory/tests/cli-contract.test.ts",
-        "packages/parity-inventory/tests/convention-alias.test.ts",
-        "packages/parity-inventory/tests/journey-evidence.test.ts",
-        "packages/parity-inventory/tests/legacy-journey-evidence.test.ts",
-        "packages/parity-inventory/tests/unsafe-diagnostics.test.ts",
+        "tools/parity/tests/claim-evidence.test.ts",
+        "tools/parity/tests/cli-contract.test.ts",
+        "tools/parity/tests/convention-alias.test.ts",
+        "tools/parity/tests/journey-evidence.test.ts",
+        "tools/parity/tests/legacy-journey-evidence.test.ts",
+        "tools/parity/tests/unsafe-diagnostics.test.ts",
       ],
       rules: {
         // Bun owns these exact suites; they deliberately exercise Node-compatible filesystem seams.
@@ -133,7 +133,7 @@ export default defineConfig({
       },
     },
     {
-      files: ["infra/host/password-recovery-check.ts", "scripts/changelog.ts"],
+      files: ["tools/preview-host/password-recovery-check.ts", "scripts/changelog.ts"],
       rules: {
         // These Bun entrypoints intentionally use Bun-native lifecycle APIs beside Node compatibility APIs.
         "effect/no-cross-runtime": "off",

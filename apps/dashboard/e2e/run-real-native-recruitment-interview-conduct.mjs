@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
   withProjectionFileLock,
   writeFilePathNoFollow,
-} from "../../../packages/parity-inventory/node-runtime.ts";
+} from "../../../tools/parity/node-runtime.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));

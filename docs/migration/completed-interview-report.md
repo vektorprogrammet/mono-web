@@ -40,9 +40,9 @@ Local synthetic rehearsal evidence and production release are distinct. See the
 frozen contract for the required browser, API, PostgreSQL, privacy and concurrent
 identity-link acceptance gates. No production availability is claimed here.
 
-The reusable local gate is `bun infra/host/recommendation-check.ts --report`.
+The reusable local gate is `bun tools/preview-host/recommendation-check.ts --report`.
 It builds the SDK and production dashboard and reuses the actual0101 interview
 journey before exercising this report. Run its lightweight input check first:
-`bun infra/host/recommendation-check.ts --report --validate-fixture`. The isolated
+`bun tools/preview-host/recommendation-check.ts --report --validate-fixture`. The isolated
 verification lane passed at `58391ed6`; combined-commit acceptance and retained
 artifacts are recorded separately.

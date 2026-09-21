@@ -82,7 +82,7 @@ engine, session deletion, audit and mail receiver.
 Reproduce the synthetic journey on a committed clean tree with:
 
 ```sh
-bun run infra/host/password-recovery-check.ts
+bun run tools/preview-host/password-recovery-check.ts
 ```
 
 It starts disposable PostgreSQL, the actual backend, production dashboard and an

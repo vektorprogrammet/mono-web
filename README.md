@@ -23,7 +23,7 @@ acceptance, and production cutover are separate milestones.
 
 The [root package manifest](package.json) owns workspace commands; each app's
 manifest owns its runtime and package checks. Follow a journey's design-spec
-and existing disposable runtime harness under [infra/host](infra/host) for its
+and existing disposable runtime harness under [tools/preview-host](tools/preview-host) for its
 browser/API/database acceptance. The [agent guide](AGENTS.md) gives working rules.
 
 ## Review an integration candidate

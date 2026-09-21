@@ -103,7 +103,7 @@
         "react-router-dom": "^8.3.0",
       },
     },
-    "apps/docs": {
+    "tools/migration-docs": {
       "name": "@monoweb/docs",
       "version": "0.1.0",
       "dependencies": {
@@ -263,7 +263,7 @@
         "vitest": "catalog:effect-v4",
       },
     },
-    "packages/parity-inventory": {
+    "tools/parity": {
       "name": "@monoweb/parity-inventory",
       "version": "0.1.0",
       "dependencies": {
@@ -875,11 +875,11 @@
 
     "@monoweb/dashboard": ["@monoweb/dashboard@workspace:apps/dashboard"],
 
-    "@monoweb/docs": ["@monoweb/docs@workspace:apps/docs"],
+    "@monoweb/docs": ["@monoweb/docs@workspace:tools/migration-docs"],
 
     "@monoweb/homepage": ["@monoweb/homepage@workspace:apps/homepage"],
 
-    "@monoweb/parity-inventory": ["@monoweb/parity-inventory@workspace:packages/parity-inventory"],
+    "@monoweb/parity-inventory": ["@monoweb/parity-inventory@workspace:tools/parity"],
 
     "@monoweb/server": ["@monoweb/server@workspace:apps/server"],
 

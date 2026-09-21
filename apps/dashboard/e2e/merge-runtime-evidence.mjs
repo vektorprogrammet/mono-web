@@ -39,7 +39,7 @@ export const mergeRuntimeEvidenceRegisters = async (inputBytesList) => {
     assertSafeRuntimeEvidenceBytes,
     canonicalRuntimeEvidenceBytes,
     makeRuntimeEvidenceRegister,
-  } = await import("../../../packages/parity-inventory/src/runtime-evidence.ts");
+  } = await import("../../../tools/parity/src/runtime-evidence.ts");
   const receiptsById = new Map();
   for (const inputBytes of inputBytesList) {
     const register = assertSafeRuntimeEvidenceBytes(inputBytes);
@@ -63,7 +63,7 @@ export const mergeRuntimeEvidenceRegisters = async (inputBytesList) => {
 const main = async () => {
   const { outputPath, inputPaths } = parseArgs(process.argv.slice(2));
   const { readFilePathNoFollow, withProjectionFileLock, writeFilePathNoFollow } = await import(
-    "../../../packages/parity-inventory/node-runtime.ts"
+    "../../../tools/parity/node-runtime.ts"
   );
   const lockModes = new Map();
   for (const inputPath of inputPaths) {
