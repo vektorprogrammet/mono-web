@@ -122,6 +122,19 @@ export const CAPABILITY_IDS = {
 
 export const AuthzLockModeSchema = Schema.Literals(["None", "ForShare"]);
 export type AuthzLockMode = typeof AuthzLockModeSchema.Type;
+
+/**
+ * Shared authorization read/write lock identity and protected row order.
+ * Database adapters select the PostgreSQL advisory-lock primitive.
+ */
+export const AUTHZ_LOCK_PROTOCOL = {
+  advisoryKey: "vektorprogrammet:authz-rules:v1",
+  rowOrder: [
+    "public.authz_tag_assignments",
+    "public.service_principal_grants",
+    "public.authz_rules",
+  ],
+} as const;
 const AuthzRuleCommonFields = {
   ruleId: AuthzRuleId,
   subject: AuthzRuleSubjectSchema,

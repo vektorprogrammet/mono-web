@@ -9,7 +9,6 @@ import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { normalizeRfc3339Instant, Rfc3339InstantSchema } from "@vektorprogrammet/domain/time";
 import {
-  AUTHZ_LOCK_PROTOCOL,
   createAuthzRule,
   createAuthzTag,
   createAuthzTagAssignment,
@@ -19,6 +18,7 @@ import {
   type AuthzPersistenceFailure,
 } from "./postgres.js";
 import {
+  AUTHZ_LOCK_PROTOCOL,
   AuthzRuleId,
   AuthzRuleScopeSchema,
   AuthzTagAssignmentId,

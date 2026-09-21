@@ -3,6 +3,7 @@ import { Database, type DatabaseShape } from "../service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { Rfc3339InstantSchema } from "@vektorprogrammet/domain/time";
 import {
+  AUTHZ_LOCK_PROTOCOL,
   DomainId,
   PrincipalSchema,
   ResourceId,
@@ -67,19 +68,6 @@ export type AuthzPersistenceFailure =
   | AuthzPersistenceError
   | AuthzRecordNotFound
   | AuthzWriteConflict;
-
-/**
- * Command integrations acquire the shared advisory key before these ordered
- * row projections. Every writer in this module acquires the exclusive key.
- */
-export const AUTHZ_LOCK_PROTOCOL = {
-  advisoryKey: "vektorprogrammet:authz-rules:v1",
-  rowOrder: [
-    "public.authz_tag_assignments",
-    "public.service_principal_grants",
-    "public.authz_rules",
-  ],
-} as const;
 
 const persistenceError = (operation: string, cause: unknown) =>
   new AuthzPersistenceError({ operation, message: String(cause) });
