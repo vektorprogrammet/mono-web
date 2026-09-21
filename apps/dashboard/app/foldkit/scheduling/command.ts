@@ -1,4 +1,4 @@
-import { RecruitmentInterviewId } from "@vektorprogrammet/domain/recruitment";
+import { RecruitmentInterviewId } from "@vektorprogrammet/http-api"
 import { Effect } from "effect";
 import { Command } from "foldkit";
 import type {

@@ -10,7 +10,7 @@ import {
   type ReceiptStatus,
   type ReceiptUiError,
 } from "@/lib/receipt-view";
-import { ReceiptId } from "@vektorprogrammet/domain/receipt";
+import { ReceiptId } from "@vektorprogrammet/http-api"
 import {
   IdempotencyKey,
   StrongETag,

@@ -1,4 +1,4 @@
-import { DepartmentId as DepartmentIdSchema } from "@vektorprogrammet/domain/organization";
+import { DepartmentId as DepartmentIdSchema } from "@vektorprogrammet/http-api"
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Message } from "./message";
 import { ChangedDepartmentFilter, ChangedDepartmentSelection, DeselectedArticle } from "./message";

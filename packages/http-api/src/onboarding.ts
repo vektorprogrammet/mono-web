@@ -18,6 +18,8 @@ import {
   endpointProblemResponses,
   problemUnion,
 } from "./http-semantics.js";
+export { OnboardingClaim, OnboardingCommand, OnboardingScope };
+
 export const OnboardingResource = Schema.Struct({
   ...OnboardingBoard.fields,
   etag: StrongETag,

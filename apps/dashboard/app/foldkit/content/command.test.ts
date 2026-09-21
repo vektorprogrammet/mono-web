@@ -1,5 +1,5 @@
-import { ArticleId } from "@vektorprogrammet/domain/content";
-import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { ArticleId } from "@vektorprogrammet/http-api"
+import { DepartmentId } from "@vektorprogrammet/http-api"
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";

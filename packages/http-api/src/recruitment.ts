@@ -7,18 +7,32 @@ import { AdmissionPeriodId } from "@vektorprogrammet/domain/admission-period";
 import { ApplicantIdSchema, PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
+  CancelInterviewObservationSchema,
+  containsRecruitmentInvitationCapabilitySequence,
+  FinalizeInterviewObservationSchema,
+  InterviewRecommendationSchema,
   InterviewReport,
   InterviewReportQuery,
   InterviewSchemaId,
+  interviewRecommendations,
+  interviewScoreTotal,
   RecruitmentAssignmentBoardQuerySchema,
   RecruitmentAssignmentBoardSchema,
   RecruitmentInterviewConductObservationSchema,
   RecruitmentInterviewId,
+  RecruitmentInterviewerOptionSchema,
+  RecruitmentInvitationCapabilitySchema,
   RecruitmentInvitationRejectInputSchema,
   RecruitmentInvitationRequestNewTimeInputSchema,
+  RecruitmentInvitationResponseMessageSchema,
   RecruitmentInvitationResponseObservationSchema,
+  RecruitmentInterviewQuestionSnapshot,
   RecruitmentSchedulingInterviewSchema,
   RecruitmentSchedulingBoardSchema,
+  type RecruitmentAssignmentBoard,
+  type RecruitmentAssignmentBoardQuery,
+  type RecruitmentInterviewConductObservation,
+  type RecruitmentSchedulingInterview,
 } from "@vektorprogrammet/domain/recruitment";
 const InvitationResponseObservationExample: any = {
   scheduledAt: "2026-09-10T14:00:00.000Z",
@@ -190,6 +204,34 @@ import {
   ScheduleInterviewRequest,
   ScheduleInterviewResponse,
 } from "./v2-schemas.js";
+export {
+  CancelInterviewObservationSchema,
+  containsRecruitmentInvitationCapabilitySequence,
+  FinalizeInterviewObservationSchema,
+  InterviewRecommendationSchema,
+  InterviewReport,
+  InterviewReportQuery,
+  InterviewSchemaId,
+  interviewRecommendations,
+  interviewScoreTotal,
+  RecruitmentAssignmentBoardQuerySchema,
+  RecruitmentAssignmentBoardSchema,
+  RecruitmentInterviewConductObservationSchema,
+  RecruitmentInterviewId,
+  RecruitmentInterviewerOptionSchema,
+  RecruitmentInvitationCapabilitySchema,
+  RecruitmentInvitationResponseMessageSchema,
+  RecruitmentInvitationResponseObservationSchema,
+  RecruitmentInterviewQuestionSnapshot,
+  RecruitmentSchedulingInterviewSchema,
+};
+export type {
+  RecruitmentAssignmentBoard,
+  RecruitmentAssignmentBoardQuery,
+  RecruitmentInterviewConductObservation,
+  RecruitmentSchedulingInterview,
+};
+
 
 const serviceFreePayload = <S extends Schema.Top>(
   schema: S,

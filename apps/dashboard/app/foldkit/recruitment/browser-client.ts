@@ -1,7 +1,5 @@
-import type {
-  RecruitmentAssignmentBoard,
-  RecruitmentAssignmentBoardQuery,
-} from "@vektorprogrammet/domain/recruitment";
+import type { RecruitmentAssignmentBoard,
+RecruitmentAssignmentBoardQuery, } from "@vektorprogrammet/http-api"
 import { Effect, Schema as S } from "effect";
 import {
   CancelInterviewInputSchema,

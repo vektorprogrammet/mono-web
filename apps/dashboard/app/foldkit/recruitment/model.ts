@@ -1,8 +1,6 @@
-import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
-import {
-  InterviewSchemaId,
-  RecruitmentInterviewerOptionSchema,
-} from "@vektorprogrammet/domain/recruitment";
+import { PublicApplicationIdSchema } from "@vektorprogrammet/http-api"
+import { InterviewSchemaId,
+RecruitmentInterviewerOptionSchema, } from "@vektorprogrammet/http-api"
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Dialog } from "@foldkit/ui";
 import { Schema as S } from "effect";

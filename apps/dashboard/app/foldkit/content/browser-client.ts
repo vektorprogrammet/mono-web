@@ -1,4 +1,4 @@
-import { ArticleId } from "@vektorprogrammet/domain/content";
+import { ArticleId } from "@vektorprogrammet/http-api"
 import { Effect, Schema as S } from "effect";
 import {
   ContentArticleObservationSchema,

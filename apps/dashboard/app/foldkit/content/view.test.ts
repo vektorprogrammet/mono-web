@@ -1,5 +1,5 @@
-import { ArticleId, type ContentWorkspace } from "@vektorprogrammet/domain/content";
-import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { ArticleId, type ContentWorkspace } from "@vektorprogrammet/http-api"
+import { DepartmentId } from "@vektorprogrammet/http-api"
 import { StrongETag } from "@vektorprogrammet/http-api";
 import type { HtmlBuilder } from "foldkit/html";
 import { describe, expect, it } from "vitest";

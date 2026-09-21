@@ -1,8 +1,6 @@
-import { DepartmentId } from "@vektorprogrammet/domain/organization";
-import {
-  SchoolDirectoryDepartmentSchema,
-  SchoolDirectorySchema,
-} from "@vektorprogrammet/domain/schools";
+import { DepartmentId } from "@vektorprogrammet/http-api"
+import { SchoolDirectoryDepartmentSchema,
+SchoolDirectorySchema, } from "@vektorprogrammet/http-api"
 import { Tabs } from "@foldkit/ui";
 import { Schema as S } from "effect";
 import { AsyncData } from "foldkit";

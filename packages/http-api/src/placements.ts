@@ -19,6 +19,8 @@ import {
   endpointProblemResponses,
   problemUnion,
 } from "./http-semantics.js";
+export { AffiliationScope, OwnAffiliationCommand, PlacementCommand, PlacementScope };
+
 export const OwnAffiliationResource = Schema.Struct({
   ...Affiliation.fields,
   etag: StrongETag,

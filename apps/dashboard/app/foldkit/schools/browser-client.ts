@@ -1,5 +1,5 @@
-import type { DepartmentId } from "@vektorprogrammet/domain/organization";
-import { SchoolDirectorySchema, type SchoolDirectory } from "@vektorprogrammet/domain/schools";
+import type { DepartmentId } from "@vektorprogrammet/http-api"
+import { SchoolDirectorySchema, type SchoolDirectory } from "@vektorprogrammet/http-api"
 import { Effect, Schema as S } from "effect";
 import {
   SchoolsBridgeFailureSchema,

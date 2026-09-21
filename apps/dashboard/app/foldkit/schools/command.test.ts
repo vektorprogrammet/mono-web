@@ -1,5 +1,5 @@
-import { DepartmentId } from "@vektorprogrammet/domain/organization";
-import { SchoolId, type SchoolDirectory } from "@vektorprogrammet/domain/schools";
+import { DepartmentId } from "@vektorprogrammet/http-api"
+import { SchoolId, type SchoolDirectory } from "@vektorprogrammet/http-api"
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import type { SchoolsDirectoryClient } from "./browser-client";

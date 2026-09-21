@@ -1,4 +1,4 @@
-import { SchoolId } from "@vektorprogrammet/domain/schools";
+import { SchoolId } from "@vektorprogrammet/http-api"
 import {
   IdempotencyKey,
   type IdempotencyKey as IdempotencyKeyValue,

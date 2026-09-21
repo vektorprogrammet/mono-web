@@ -1,8 +1,6 @@
-import {
-  InterviewSchemaId,
-  type RecruitmentAssignmentBoard,
-  RecruitmentInterviewerOptionSchema,
-} from "@vektorprogrammet/domain/recruitment";
+import { InterviewSchemaId,
+type RecruitmentAssignmentBoard,
+RecruitmentInterviewerOptionSchema, } from "@vektorprogrammet/http-api"
 import { Button, Dialog, Select } from "@foldkit/ui";
 import { Schema as S } from "effect";
 import { AsyncData } from "foldkit";

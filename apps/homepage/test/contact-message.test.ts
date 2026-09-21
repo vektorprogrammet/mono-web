@@ -1,4 +1,4 @@
-import { DepartmentJsonSchema, type DepartmentJson } from "@vektorprogrammet/domain/organization";
+import { DepartmentJsonSchema, type DepartmentJson } from "@vektorprogrammet/http-api"
 import { Schema } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 const contactApi = vi.hoisted(() => ({
@@ -28,7 +28,7 @@ const submitContactMessage = (request: Request, slug?: string) =>
     backendToken: "backend-test-00000000000000000000000",
     visitorIp: ContactVisitorIp.make("127.0.0.1"),
   });
-import { ContactVisitorIp } from "@vektorprogrammet/domain/contact";
+import { ContactVisitorIp } from "@vektorprogrammet/http-api"
 import { makeNativeProblem } from "@vektorprogrammet/http-api";
 
 const makeDepartment = (overrides: Record<string, unknown> = {}): DepartmentJson =>

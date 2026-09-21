@@ -1,8 +1,6 @@
-import type {
-  ApplicantProgressItem,
-  ApplicantProgressResponse,
-  ApplicantProgressState,
-} from "@vektorprogrammet/domain/application";
+import type { ApplicantProgressItem,
+ApplicantProgressResponse,
+ApplicantProgressState, } from "@vektorprogrammet/http-api"
 import { data, useLoaderData } from "react-router";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";

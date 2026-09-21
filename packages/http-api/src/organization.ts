@@ -8,8 +8,13 @@ import {
   DepartmentJsonSchema,
   FieldOfStudyJsonSchema,
   FieldOfStudyId,
+  PersonId,
+  SemesterId,
   TeamId,
   TeamJsonSchema,
+  type DepartmentJson,
+  type FieldOfStudyJson,
+  type TeamJson,
 } from "@vektorprogrammet/domain/organization";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
@@ -38,6 +43,16 @@ import {
   CreateFieldOfStudyRequest,
   CreateTeamRequest,
 } from "./v2-schemas.js";
+export {
+  DepartmentId,
+  DepartmentJsonSchema,
+  FieldOfStudyJsonSchema,
+  PersonId,
+  SemesterId,
+  TeamJsonSchema,
+};
+export type { DepartmentJson, FieldOfStudyJson, TeamJson };
+
 
 /**
  * Leader-scoped organization query. Repeated values remain representable because

@@ -1,10 +1,8 @@
-import {
-  CreateSocialEventRequest,
-  SocialEventAudience,
-  SocialEventListResource,
-  SocialEventResource,
-  SocialEventScopeResource,
-} from "@vektorprogrammet/domain/social-events";
+import { CreateSocialEventRequest,
+SocialEventAudience,
+SocialEventListResource,
+SocialEventResource,
+SocialEventScopeResource, } from "@vektorprogrammet/http-api"
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 

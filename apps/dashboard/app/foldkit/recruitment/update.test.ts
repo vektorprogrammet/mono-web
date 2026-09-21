@@ -1,4 +1,4 @@
-import { RecruitmentAssignmentBoardSchema } from "@vektorprogrammet/domain/recruitment";
+import { RecruitmentAssignmentBoardSchema } from "@vektorprogrammet/http-api"
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Effect, Schema as S } from "effect";
 import { AsyncData } from "foldkit";

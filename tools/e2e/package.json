@@ -1,0 +1,11 @@
+{
+  "name": "@monoweb/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@vektorprogrammet/database": "workspace:*",
+    "@vektorprogrammet/domain": "workspace:*",
+    "effect": "catalog:effect-v4"
+  }
+}

@@ -1,4 +1,4 @@
-import { OnboardingCommand, OnboardingScope } from "@vektorprogrammet/domain/onboarding";
+import { OnboardingCommand, OnboardingScope } from "@vektorprogrammet/http-api"
 import { IdempotencyIfMatchHeaders } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
 import { useState } from "react";

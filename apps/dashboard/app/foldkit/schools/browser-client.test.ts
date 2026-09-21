@@ -1,5 +1,5 @@
-import { DepartmentId } from "@vektorprogrammet/domain/organization";
-import { SchoolDirectorySchema } from "@vektorprogrammet/domain/schools";
+import { DepartmentId } from "@vektorprogrammet/http-api"
+import { SchoolDirectorySchema } from "@vektorprogrammet/http-api"
 import { Effect, Fiber, Schema as S } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBrowserSchoolsDirectoryClient } from "./browser-client";

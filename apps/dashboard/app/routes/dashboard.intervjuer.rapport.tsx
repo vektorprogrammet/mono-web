@@ -1,10 +1,8 @@
 import { Schema } from "effect";
 import { Form, Link, data, useLoaderData, useNavigation } from "react-router";
-import {
-  InterviewReport,
-  InterviewReportQuery,
-  interviewScoreTotal,
-} from "@vektorprogrammet/domain/recruitment";
+import { InterviewReport,
+InterviewReportQuery,
+interviewScoreTotal, } from "@vektorprogrammet/http-api"
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth, expiredSessionRedirect } from "../lib/auth.server";
 import { toRecruitmentBridgeFailure } from "../foldkit/recruitment/bridge";

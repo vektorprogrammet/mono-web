@@ -1,5 +1,5 @@
-import { ArticleId, ArticleSlug, type ContentWorkspace } from "@vektorprogrammet/domain/content";
-import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { ArticleId, ArticleSlug, type ContentWorkspace } from "@vektorprogrammet/http-api"
+import { DepartmentId } from "@vektorprogrammet/http-api"
 import { StrongETag } from "@vektorprogrammet/http-api";
 import { describe, expect, it } from "vitest";
 import { ChangedDepartmentFilter, RetriedWorkspace } from "./message";

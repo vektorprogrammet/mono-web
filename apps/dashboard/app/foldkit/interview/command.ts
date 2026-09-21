@@ -1,4 +1,4 @@
-import { RecruitmentInvitationResponseMessageSchema } from "@vektorprogrammet/domain/recruitment";
+import { RecruitmentInvitationResponseMessageSchema } from "@vektorprogrammet/http-api"
 import { StrongETag } from "@vektorprogrammet/http-api";
 import { Effect, Schema as S } from "effect";
 import { Command } from "foldkit";

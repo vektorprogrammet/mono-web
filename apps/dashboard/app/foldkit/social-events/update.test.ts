@@ -1,5 +1,5 @@
-import { SocialEventId, SocialEventObservedAt } from "@vektorprogrammet/domain/social-events";
-import { DepartmentId, SemesterId } from "@vektorprogrammet/domain/organization";
+import { SocialEventId, SocialEventObservedAt } from "@vektorprogrammet/http-api"
+import { DepartmentId, SemesterId } from "@vektorprogrammet/http-api"
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { describe, expect, it } from "vitest";
 import type { SocialEventsCommandFactories } from "./command";

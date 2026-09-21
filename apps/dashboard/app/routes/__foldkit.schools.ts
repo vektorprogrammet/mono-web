@@ -1,5 +1,5 @@
-import { DepartmentId } from "@vektorprogrammet/domain/organization";
-import { SchoolDirectorySchema } from "@vektorprogrammet/domain/schools";
+import { DepartmentId } from "@vektorprogrammet/http-api"
+import { SchoolDirectorySchema } from "@vektorprogrammet/http-api"
 import { Schema as S } from "effect";
 import { data } from "react-router";
 import { schoolsBridgeFailure, type SchoolsBridgeErrorTag } from "../foldkit/schools/bridge";

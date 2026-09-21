@@ -1,13 +1,11 @@
-import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
-import {
-  CancelInterviewObservationSchema,
-  FinalizeInterviewObservationSchema,
-  InterviewSchemaId,
-  RecruitmentAssignmentBoardQuerySchema,
-  RecruitmentAssignmentBoardSchema,
-  RecruitmentInterviewConductObservationSchema,
-  RecruitmentInterviewId,
-} from "@vektorprogrammet/domain/recruitment";
+import { PublicApplicationIdSchema } from "@vektorprogrammet/http-api"
+import { CancelInterviewObservationSchema,
+FinalizeInterviewObservationSchema,
+InterviewSchemaId,
+RecruitmentAssignmentBoardQuerySchema,
+RecruitmentAssignmentBoardSchema,
+RecruitmentInterviewConductObservationSchema,
+RecruitmentInterviewId, } from "@vektorprogrammet/http-api"
 import {
   CancelInterviewRequest,
   CancelInterviewResponse,

@@ -404,7 +404,7 @@ async function createOpenPeriod(leaderToken) {
 async function runOutboxDelivery(environment) {
   const result = await runCommand(
     "bun",
-    ["run", "apps/homepage/e2e/public-application-outbox-driver.ts"],
+    ["run", "tools/e2e/public-application-outbox-driver.ts"],
     {
       cwd: repositoryRoot,
       env: {

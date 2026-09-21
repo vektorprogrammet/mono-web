@@ -1,7 +1,9 @@
 import {
   CreateSocialEventRequest,
   SocialEventAudience,
+  SocialEventId,
   SocialEventListResource,
+  SocialEventObservedAt,
   SocialEventResource,
   SocialEventScope,
   SocialEventScopeResource,
@@ -20,11 +22,14 @@ import {
 export {
   CreateSocialEventRequest,
   SocialEventAudience,
+  SocialEventId,
   SocialEventListResource,
+  SocialEventObservedAt,
   SocialEventResource,
   SocialEventScope,
   SocialEventScopeResource,
 };
+
 
 export const SocialEventsReadScopeProblem = problemUnion("SocialEventsReadScopeProblem", [
   ["request.malformed", 400],

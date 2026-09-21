@@ -10,6 +10,7 @@ import {
   ContentWorkspaceSchema,
   PublishedNewsArticleSchema,
   PublishedNewsListingSchema,
+  type ContentWorkspace,
 } from "@vektorprogrammet/domain/content";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { Schema } from "effect";
@@ -45,6 +46,9 @@ import {
   UnpublishArticleRequest,
   UnpublishArticleResponse,
 } from "./v2-schemas.js";
+export { ArticleId, ArticleSlug, ContentWorkspaceSchema };
+export type { ContentWorkspace };
+
 
 /**
  * Optional public/staff department filter using the transport key.

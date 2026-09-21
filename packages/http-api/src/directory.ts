@@ -3,13 +3,23 @@
  *
  */
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
-import { SchoolDirectorySchema, SchoolId } from "@vektorprogrammet/domain/schools";
+import {
+  SchoolDirectoryDepartmentSchema,
+  SchoolDirectorySchema,
+  SchoolId,
+  type SchoolDirectory,
+  type SchoolDirectoryDepartment,
+  type SchoolDirectoryEntry,
+} from "@vektorprogrammet/domain/schools";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, personNativeAccess } from "./access.js";
 import { operationAnnotations, PersonSecurity } from "./common.js";
 import { DirectoryListPeopleProblem, DirectoryListSchoolsProblem } from "./endpoint-problems.js";
 import { endpointProblemResponses, privateReadResponse } from "./http-semantics.js";
+export { SchoolDirectoryDepartmentSchema, SchoolDirectorySchema, SchoolId };
+export type { SchoolDirectory, SchoolDirectoryDepartment, SchoolDirectoryEntry };
+
 
 /**
  * One profile/organization directory row.

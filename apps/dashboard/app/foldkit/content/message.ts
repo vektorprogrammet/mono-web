@@ -1,5 +1,5 @@
-import { ArticleId, ContentWorkspaceSchema } from "@vektorprogrammet/domain/content";
-import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { ArticleId, ContentWorkspaceSchema } from "@vektorprogrammet/http-api"
+import { DepartmentId } from "@vektorprogrammet/http-api"
 import { Schema as S } from "effect";
 import { m } from "foldkit/message";
 import { ContentArticleObservationSchema } from "./bridge";

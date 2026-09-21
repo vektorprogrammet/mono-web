@@ -1,5 +1,5 @@
-import { ReturningAssistantRegistrationInputSchema } from "@vektorprogrammet/domain/application";
-import { PersonId } from "@vektorprogrammet/domain/organization";
+import { ReturningAssistantRegistrationInputSchema } from "@vektorprogrammet/http-api"
+import { PersonId } from "@vektorprogrammet/http-api"
 import { IdempotencyHeaders } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
 import { data, useFetcher, useLoaderData, useNavigation, useRouteError, useSearchParams } from "react-router";

@@ -1,7 +1,5 @@
-import {
-  RecruitmentInvitationResponseMessageSchema,
-  RecruitmentInvitationResponseObservationSchema,
-} from "@vektorprogrammet/domain/recruitment";
+import { RecruitmentInvitationResponseMessageSchema,
+RecruitmentInvitationResponseObservationSchema, } from "@vektorprogrammet/http-api"
 import { StrongETag } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 

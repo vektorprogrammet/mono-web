@@ -1,4 +1,4 @@
-import { ArticleId, ContentArticleDetailSchema, ContentWorkspaceSchema } from "@vektorprogrammet/domain/content";
+import { ArticleId, ContentArticleDetailSchema, ContentWorkspaceSchema } from "@vektorprogrammet/http-api"
 import { ArticleMergePatch, CreateArticleRequest, IdempotencyKey, StrongETag } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 import { KnownDepartmentSchema } from "./model";

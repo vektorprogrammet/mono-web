@@ -1,5 +1,5 @@
-import { InterviewRecommendationSchema } from "@vektorprogrammet/domain/recruitment";
-import { RecruitmentInterviewId } from "@vektorprogrammet/domain/recruitment";
+import { InterviewRecommendationSchema } from "@vektorprogrammet/http-api"
+import { RecruitmentInterviewId } from "@vektorprogrammet/http-api"
 import { StrongETag } from "@vektorprogrammet/http-api";
 import { Dialog } from "@foldkit/ui";
 import { Schema as S } from "effect";

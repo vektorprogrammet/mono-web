@@ -1,4 +1,4 @@
-import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { DepartmentId } from "@vektorprogrammet/http-api"
 import { Effect, Schema as S } from "effect";
 import { Command } from "foldkit";
 import type { SchoolsBridgeFailure } from "./bridge";

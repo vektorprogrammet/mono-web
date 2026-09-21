@@ -5,6 +5,8 @@
  */
 import { Schema } from "effect";
 import { HttpApiSchema } from "effect/unstable/httpapi";
+export { parseJsonWithUniqueMembers } from "@vektorprogrammet/domain/http-semantics";
+
 
 const idempotencyKeyPattern = /^[A-Za-z0-9_-]{22,128}$/u;
 const strongETagPattern = /^"vkr2\.[A-Za-z0-9_-]{43}"$/u;

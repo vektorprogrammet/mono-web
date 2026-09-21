@@ -1,4 +1,4 @@
-import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/domain/recruitment";
+import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/http-api"
 import {
   IdempotencyKey,
   ScheduleInterviewResponse,

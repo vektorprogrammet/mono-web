@@ -1,4 +1,4 @@
-import type { RecruitmentInterviewQuestionSnapshot } from "@vektorprogrammet/domain/recruitment";
+import type { RecruitmentInterviewQuestionSnapshot } from "@vektorprogrammet/http-api"
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Dialog } from "@foldkit/ui";
 import { Match as M, Option, Schema as S } from "effect";

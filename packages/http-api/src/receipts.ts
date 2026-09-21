@@ -43,6 +43,8 @@ import {
   SubmitReceiptMultipartV2,
   WithdrawReceiptRequest,
 } from "./v2-schemas.js";
+export { ReceiptId };
+
 
 /**
  * Receipt list projection item.

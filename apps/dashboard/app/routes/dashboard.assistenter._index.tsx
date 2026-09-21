@@ -1,9 +1,7 @@
-import {
-  AffiliationScope,
-  OwnAffiliationCommand,
-  PlacementCommand,
-  PlacementScope,
-} from "@vektorprogrammet/domain/placements";
+import { AffiliationScope,
+OwnAffiliationCommand,
+PlacementCommand,
+PlacementScope, } from "@vektorprogrammet/http-api"
 import {
   IdempotencyIfMatchHeaders,
   type OwnAffiliationResource,

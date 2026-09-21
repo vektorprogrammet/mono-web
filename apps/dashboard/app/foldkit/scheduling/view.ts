@@ -1,9 +1,7 @@
-import { interviewRecommendations } from "@vektorprogrammet/domain/recruitment";
-import type {
-  RecruitmentInterviewConductObservation,
-  RecruitmentInterviewQuestionSnapshot,
-  RecruitmentSchedulingInterview,
-} from "@vektorprogrammet/domain/recruitment";
+import { interviewRecommendations } from "@vektorprogrammet/http-api"
+import type { RecruitmentInterviewConductObservation,
+RecruitmentInterviewQuestionSnapshot,
+RecruitmentSchedulingInterview, } from "@vektorprogrammet/http-api"
 import { Button, Dialog, Input } from "@foldkit/ui";
 import { AsyncData, FieldValidation } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";

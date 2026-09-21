@@ -1,4 +1,4 @@
-import { ReceiptId } from "@vektorprogrammet/domain/receipt";
+import { ReceiptId } from "@vektorprogrammet/http-api"
 import { Schema } from "effect";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";

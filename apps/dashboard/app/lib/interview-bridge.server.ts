@@ -1,8 +1,6 @@
-import {
-  RecruitmentInvitationCapabilitySchema,
-  RecruitmentInvitationResponseMessageSchema,
-} from "@vektorprogrammet/domain/recruitment";
-import { parseJsonWithUniqueMembers } from "@vektorprogrammet/domain/http-semantics";
+import { RecruitmentInvitationCapabilitySchema,
+RecruitmentInvitationResponseMessageSchema, } from "@vektorprogrammet/http-api"
+import { parseJsonWithUniqueMembers } from "@vektorprogrammet/http-api"
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { createConfiguredPromiseClient } from "@vektorprogrammet/sdk";
 import { Schema as S } from "effect";

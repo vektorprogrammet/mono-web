@@ -1,8 +1,6 @@
-import {
-  DepartmentJsonSchema,
-  FieldOfStudyJsonSchema,
-  TeamJsonSchema,
-} from "@vektorprogrammet/domain/organization";
+import { DepartmentJsonSchema,
+FieldOfStudyJsonSchema,
+TeamJsonSchema, } from "@vektorprogrammet/http-api"
 import { Effect, Schema as S } from "effect";
 import { AsyncData } from "foldkit";
 import { describe, expect, it } from "vitest";

@@ -1,7 +1,5 @@
-import {
-  containsRecruitmentInvitationCapabilitySequence,
-  RecruitmentInvitationResponseMessageSchema,
-} from "@vektorprogrammet/domain/recruitment";
+import { containsRecruitmentInvitationCapabilitySequence,
+RecruitmentInvitationResponseMessageSchema, } from "@vektorprogrammet/http-api"
 import { Match as M, Schema as S } from "effect";
 import { AsyncData, type Command, FieldValidation } from "foldkit";
 import type { InterviewCommands } from "./command";

@@ -1,7 +1,5 @@
-import type {
-  SchoolDirectory,
-  SchoolDirectoryDepartment,
-} from "@vektorprogrammet/domain/schools";
+import type { SchoolDirectory,
+SchoolDirectoryDepartment, } from "@vektorprogrammet/http-api"
 import { Tabs } from "@foldkit/ui";
 import { Match as M, Option } from "effect";
 import { Command } from "foldkit";

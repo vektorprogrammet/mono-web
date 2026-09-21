@@ -20,6 +20,8 @@ import {
   endpointProblemResponses,
   problemUnion,
 } from "./http-semantics.js";
+export { SubstituteMutation };
+
 
 export const ActiveSubstituteResource = Schema.Struct({
   ...SubstituteEntry.members[0].fields,

@@ -5,12 +5,17 @@
  */
 import { AdmissionPeriodId } from "@vektorprogrammet/domain/admission-period";
 import {
+  ApplicantProgressItemSchema,
   ApplicantProgressResponseSchema,
+  ApplicantProgressStateSchema,
   PublicApplicationCatalogSchema,
   PublicApplicationIdSchema,
   ReturningAssistantOptionsSchema,
   ReturningAssistantRegistrationInputSchema,
   ReturningAssistantRegistrationResponseSchema,
+  type ApplicantProgressItem,
+  type ApplicantProgressResponse,
+  type ApplicantProgressState,
 } from "@vektorprogrammet/domain/application";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, anonymousNativeAccess, personNativeAccess } from "./access.js";
@@ -48,6 +53,16 @@ import {
   PublicApplicationConfirmationSchema,
   SubmitApplicationRequest,
 } from "./v2-schemas.js";
+export {
+  AdmissionPeriodId,
+  ApplicantProgressItemSchema,
+  ApplicantProgressResponseSchema,
+  ApplicantProgressStateSchema,
+  PublicApplicationIdSchema,
+  ReturningAssistantRegistrationInputSchema,
+};
+export type { ApplicantProgressItem, ApplicantProgressResponse, ApplicantProgressState };
+
 
 /** @since 0.1.0 @category Endpoints */
 export const ListOpenAdmissionPeriodsEndpoint = HttpApiEndpoint.get(

@@ -1,5 +1,5 @@
-import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
-import { SubstituteMutation } from "@vektorprogrammet/domain/substitutes";
+import { PublicApplicationIdSchema } from "@vektorprogrammet/http-api"
+import { SubstituteMutation } from "@vektorprogrammet/http-api"
 import { IdempotencyKey, StrongETag } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
 import { nativeProblemFrom } from "./native-problem";

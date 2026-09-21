@@ -1,8 +1,86 @@
 /* ./src/index.css */
 @import "tailwindcss";
-@config "../tailwind.config.ts";
 @plugin "tailwindcss-animate";
 @custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 860px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+
+  --color-vektor-blue: #6fceee;
+  --color-vektor-blue-hover: #46b6dd;
+  --color-vektor-darkblue: #023874;
+  --color-vektor-darkblue-hover: #001854;
+  --color-vektor-DARKblue: #022346;
+  --color-table-grey: #efefef;
+  --color-vektor-kontrollblue: #292e4c;
+  --color-vektor-bg: #e2f4fa;
+  --color-vektor-bg-dark: #2a2a2a;
+  --color-text-light: #000;
+  --color-text-dark: #fff;
+  --color-vektor-light-blue: #c7ecf8;
+  --color-neutral: #b4c3c8;
+  --color-neutral-hover: #2a2e37;
+  --color-vektor-green: #4caf50;
+  --color-vektor-green-hover: #358438;
+  --color-success: #4caf50;
+  --color-info: #2094f3;
+  --color-warning: #ff9900;
+  --color-error: #ff5724;
+
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+    to {
+      height: 0;
+    }
+  }
+}
+
 /* width */
 body {
   overscroll-behavior: none;

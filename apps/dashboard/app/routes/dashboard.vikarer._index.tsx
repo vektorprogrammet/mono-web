@@ -1,4 +1,4 @@
-import { DepartmentId, SemesterId } from "@vektorprogrammet/domain/organization";
+import { DepartmentId, SemesterId } from "@vektorprogrammet/http-api"
 import { type SubstituteBoard, type SubstituteResource } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
 import { useState } from "react";

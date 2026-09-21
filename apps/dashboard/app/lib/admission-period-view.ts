@@ -2,7 +2,7 @@ import {
   nativeProblemFrom as decodeNativeProblem,
   type NativeProblemSummary as DecodedNativeProblem,
 } from "./native-problem";
-import { AdmissionPeriodId } from "@vektorprogrammet/domain/admission-period";
+import { AdmissionPeriodId } from "@vektorprogrammet/http-api"
 import {
   AdmissionPeriodManagementItem,
   AdmissionPeriodMergePatch,

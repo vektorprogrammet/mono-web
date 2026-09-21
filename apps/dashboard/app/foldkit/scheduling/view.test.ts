@@ -1,4 +1,4 @@
-import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/domain/recruitment";
+import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/http-api"
 import { IdempotencyKey, SchedulingBoard, StrongETag } from "@vektorprogrammet/http-api";
 import { Dialog } from "@foldkit/ui";
 import type { HtmlBuilder } from "foldkit/html";
