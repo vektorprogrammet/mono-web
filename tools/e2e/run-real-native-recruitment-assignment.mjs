@@ -9,15 +9,15 @@ import { fileURLToPath } from "node:url";
 import {
   databaseMigrationDefinitions,
   databaseSchemaRevision,
-} from "../../../packages/database/src/migrations.ts";
+} from "@vektorprogrammet/database";
 import {
   emitRuntimeEvidenceReceipts,
   sanitizePlaywrightArtifact,
-} from "./runtime-evidence-receipt.mjs";
+} from "../../apps/dashboard/e2e/runtime-evidence-receipt.mjs";
 
-const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
-const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
-const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
+const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
+const dashboardRoot = fileURLToPath(new URL("../../apps/dashboard/", import.meta.url));
+const sdkRoot = fileURLToPath(new URL("../../packages/sdk/", import.meta.url));
 const recruitmentAssignmentMigration = {
   id: 10,
   name: "native-recruitment-applicant-assignment",

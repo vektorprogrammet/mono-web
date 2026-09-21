@@ -1,14 +1,14 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { DatabaseLive } from "../../../packages/database/src/index.js";
-import { AdmissionsLive } from "../../../packages/domain/src/admissions/index.js";
-import { OrganizationLive } from "../../../packages/domain/src/organization/index.js";
-import { ProfileLive } from "../../../packages/domain/src/profile/index.js";
+import { DatabaseLive } from "@vektorprogrammet/database";
+import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
+import { OrganizationLive } from "@vektorprogrammet/database/organization";
+import { ProfileLive } from "@vektorprogrammet/database/profile";
 import {
   deliverNextRecruitmentInvitation,
   invitationPayloadForEvidence,
-} from "../../../packages/domain/src/recruitment/index.js";
-import { makeRecordingNotificationGateway } from "../../../packages/domain/src/notification/index.js";
+} from "@vektorprogrammet/database/recruitment";
+import { makeRecordingNotificationGateway } from "@vektorprogrammet/domain/notification";
 import { Effect, Layer, Redacted } from "effect";
 
 const requiredEnvironment = (name: string): string => {

@@ -63,7 +63,10 @@ const dockerAvailable =
 const postgresTopology = dockerAvailable ? "docker" : "local";
 const runnerPath = fileURLToPath(import.meta.url);
 const specPath = join(dashboardRoot, "e2e/native-recruitment-interview-scheduling.spec.ts");
-const recordingDriverPath = join(dashboardRoot, "e2e/record-native-recruitment-invitation.ts");
+const recordingDriverPath = join(
+  repositoryRoot,
+  "tools/e2e/record-native-recruitment-invitation.ts",
+);
 
 const seedSql = `
 BEGIN;

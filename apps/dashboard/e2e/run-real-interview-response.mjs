@@ -15,10 +15,12 @@ const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
-const domainRoot = fileURLToPath(new URL("../../../packages/domain/", import.meta.url));
 const composeFile = join(repositoryRoot, "docker-compose.yml");
 const runnerPath = fileURLToPath(import.meta.url);
 const specPath = join(dashboardRoot, "e2e/real-interview-response.spec.ts");
+const recordingDriverPath = fileURLToPath(
+  new URL("../../../tools/e2e/record-native-recruitment-invitation-response.ts", import.meta.url),
+);
 const dashboardPort = 5174;
 const backendPort = 8797;
 const postgresPort = 55432;
@@ -299,91 +301,7 @@ ${responseCases
 COMMIT;
 `;
 
-const recordingDriverSource = String.raw`
-import { DatabaseLive } from "../database/src/index.js";
-import { AdmissionsLive } from "./src/admissions/index.js";
-import { OrganizationLive } from "./src/organization/index.js";
-import { ProfileLive } from "./src/profile/index.js";
-import {
-  deliverNextRecruitmentInvitationResponse,
-  invitationResponsePayloadForEvidence,
-} from "./src/recruitment/index.js";
-import { makeRecordingNotificationGateway } from "./src/notification/index.js";
-import { Effect, Layer, Redacted } from "effect";
-
-const databaseUrl = process.env.BACKEND_PG_URL;
-if (databaseUrl === undefined || databaseUrl.length === 0) {
-  throw new Error("BACKEND_PG_URL is required for response recording evidence");
-}
-const deliveredAt = "2031-09-15T12:01:00.000Z";
-const recording = makeRecordingNotificationGateway(deliveredAt);
-const databaseLayer = DatabaseLive({
-  url: Redacted.make(databaseUrl),
-  applicationName: "native-invitation-response-recording-evidence",
-  maxConnections: 1,
-});
-const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
-const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
-const profileLayer = ProfileLive.pipe(
-  Layer.provide(Layer.merge(databaseLayer, organizationLayer)),
-);
-const authorityLayers = Layer.mergeAll(
-  databaseLayer,
-  admissionsLayer,
-  organizationLayer,
-  profileLayer,
-);
-
-let providerNetworkRequests = 0;
-const originalFetch = globalThis.fetch;
-globalThis.fetch = ((..._arguments: Parameters<typeof fetch>) => {
-  providerNetworkRequests += 1;
-  return Promise.reject(new Error("The recording NotificationGateway attempted network access"));
-}) as typeof fetch;
-
-try {
-  const results = [];
-  for (let index = 0; index < 2; index += 1) {
-    const result = await Effect.runPromise(
-      Effect.scoped(
-        deliverNextRecruitmentInvitationResponse(
-          "native-invitation-response-recording-claim-" + String(index + 1),
-          "2031-09-15T12:00:0" + String(index + 1) + ".000Z",
-        ).pipe(
-          Effect.provide(recording.layer),
-          Effect.provide(authorityLayers),
-        ),
-      ),
-    );
-    if (result._tag !== "Delivered") {
-      throw new Error("Expected a recorded invitation-response delivery");
-    }
-    results.push({
-      result: result._tag,
-      claim: {
-        effectId: result.claim.effectId,
-        claimId: result.claim.claimId,
-        attempts: result.claim.attempts,
-      },
-      notificationEvidence: result.evidence,
-    });
-  }
-  if (recording.responseRequests.length !== 2) {
-    throw new Error("Expected exactly two approved response requests");
-  }
-  if (providerNetworkRequests !== 0) {
-    throw new Error("The recording NotificationGateway performed network access");
-  }
-  const responseRequests = recording.responseRequests.map((request) =>
-    JSON.parse(invitationResponsePayloadForEvidence(request)) as unknown,
-  );
-  process.stdout.write(
-    JSON.stringify({ results, responseRequests, providerNetworkRequests }) + "\n",
-  );
-} finally {
-  globalThis.fetch = originalFetch;
-}
-`;
+const recordingDriverSource = await readFile(recordingDriverPath, "utf8");
 
 const dockerAvailable =
   spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0;
@@ -2243,8 +2161,8 @@ async function main() {
     const committedEvidence = await readResponseEvidence(baseEnvironment);
     assertCommittedEvidence(committedEvidence);
     await assertCanonicalDatabasePrivacy(baseEnvironment);
-    const recordingResult = await runCommand("bun", ["--eval", recordingDriverSource], {
-      cwd: domainRoot,
+    const recordingResult = await runCommand("bun", [recordingDriverPath], {
+      cwd: repositoryRoot,
       env: { ...baseEnvironment, BACKEND_PG_URL: postgresUrl },
       label: "Recording invitation-response NotificationGateway interpreter",
       captureOutput: true,
