@@ -6,6 +6,8 @@ export * from "./file-errors.js";
 export * from "./file-service.js";
 export * from "./auxiliary-service.js";
 export * from "./import.js";
+export * from "./outbox.js";
+export * from "./projections.js";
 export * from "./service.js";
 export * from "./schema.js";
 export * from "./update.js";

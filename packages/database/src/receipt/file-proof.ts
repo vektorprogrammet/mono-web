@@ -1,14 +1,18 @@
 import { Database } from "../service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { Cause, Effect } from "effect";
-import { ReceiptAuxiliaryEffects } from "@vektorprogrammet/domain/receipt";
-import { ReceiptFileService, type ReceiptFileRecordingSnapshot } from "@vektorprogrammet/domain/receipt";
+import {
+  ReceiptAuxiliaryEffects,
+  ReceiptFileService,
+  type ReceiptFileRecordingSnapshot,
+  type ReceiptOutboxDeliveryResult,
+  type ReceiptPersistenceError,
+} from "@vektorprogrammet/domain/receipt";
 import {
   claimNextReceiptOutbox,
   deliverNextReceiptOutbox,
   listStaleReceiptOutboxClaimIds,
   recoverStaleReceiptOutbox,
-  type ReceiptOutboxDeliveryResult,
 } from "./outbox.js";
 import { executeReceiptCommand } from "./postgres.js";
 import { ReceiptId, ReceiptVisualId, type ReceiptFile } from "@vektorprogrammet/domain/receipt";
@@ -188,7 +192,7 @@ const drain = (
   claimedAt: string,
 ): Effect.Effect<
   ReadonlyArray<ReceiptOutboxDeliveryResult>,
-  import("./errors.js").ReceiptPersistenceError,
+  ReceiptPersistenceError,
   Database | ReceiptFileService | ReceiptAuxiliaryEffects
 > =>
   Effect.forEach(

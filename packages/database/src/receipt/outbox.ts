@@ -2,14 +2,18 @@ import { Database } from "../service.js";
 import { Effect, Schema } from "effect";
 import {
   ReceiptAuxiliaryEffects,
+  ReceiptFileService,
+  ReceiptPersistenceError,
+  ReceiptOutboxRequestSchema,
+  type ClaimedReceiptOutbox,
   type ReceiptAuxiliaryEffectConflict,
   type ReceiptDeliveryUnavailable,
   type ReceiptAuxiliaryRequest,
+  type ReceiptFileFailure,
+  type ReceiptFileRequest,
+  type ReceiptOutboxDeliveryResult,
+  type ReceiptOutboxRequest,
 } from "@vektorprogrammet/domain/receipt";
-import { ReceiptOutboxRequestSchema, type ReceiptOutboxRequest } from "@vektorprogrammet/domain/receipt";
-import type { ReceiptFileFailure } from "@vektorprogrammet/domain/receipt";
-import { ReceiptFileService, type ReceiptFileRequest } from "@vektorprogrammet/domain/receipt";
-import { ReceiptPersistenceError } from "@vektorprogrammet/domain/receipt";
 
 interface ClaimedOutboxRow {
   readonly effect_id: string;
@@ -26,23 +30,6 @@ interface ClaimIdRow {
   readonly claim_id: string;
 }
 
-export interface ClaimedReceiptOutbox {
-  readonly effectId: string;
-  readonly commandId: string;
-  readonly ordinal: number;
-  readonly attempts: number;
-  readonly claimId: string;
-  readonly request: ReceiptOutboxRequest;
-}
-
-export type ReceiptOutboxDeliveryResult =
-  | { readonly _tag: "Idle" }
-  | { readonly _tag: "Delivered"; readonly claim: ClaimedReceiptOutbox }
-  | {
-      readonly _tag: "Failed";
-      readonly claim: ClaimedReceiptOutbox;
-      readonly failureTag: string;
-    };
 
 const persistenceError = (operation: string, cause: unknown) =>
   new ReceiptPersistenceError({ operation, message: String(cause) });

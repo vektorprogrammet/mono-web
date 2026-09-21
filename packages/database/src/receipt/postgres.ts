@@ -51,8 +51,12 @@ import {
   type ReceiptAuthorityResolutionError,
   type ReceiptFailure,
 } from "@vektorprogrammet/domain/receipt";
-import type { ReceiptImportResult, ReceiptQuarantineReason } from "@vektorprogrammet/domain/receipt";
-import { listApproverReceipts, type ReceiptListItem } from "./projections.js";
+import type {
+  ReceiptImportResult,
+  ReceiptListItem,
+  ReceiptQuarantineReason,
+} from "@vektorprogrammet/domain/receipt";
+import { listApproverReceipts } from "./projections.js";
 import {
   Receipt,
   ReceiptFileSchema,
