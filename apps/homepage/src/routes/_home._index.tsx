@@ -3,7 +3,7 @@ import { Link, useLoaderData } from "react-router";
 import { loadNewsTeaser } from "~/lib/news.server";
 import { Button } from "~/components/ui/button";
 import { BUILD_COMMIT, BUILD_CONTENT_DIGEST, BUILD_ROUTE_DIGEST } from "~/lib/build-provenance";
-import type { PublishedNewsSummary } from "@vektorprogrammet/domain/content";
+import type { PublishedNewsSummary } from "~/lib/api-types";
 import { DEV_CONTENT, DEV_CONTENT_SOURCE, type DevContent } from "~/lib/dev-content";
 
 export async function loader(): Promise<
@@ -23,7 +23,7 @@ export default function MainPage() {
   const supportingSponsors = content.sponsors.filter((sponsor) => !sponsor.featured);
 
   return (
-    <main className="flex-grow">
+    <main className="grow">
       <div className="border-b border-amber-300 bg-vektor-index-blue md:flex md:min-h-[32rem] md:pt-14">
         <div className="flex w-full flex-col items-center text-center md:w-1/2 md:p-8">
           <img

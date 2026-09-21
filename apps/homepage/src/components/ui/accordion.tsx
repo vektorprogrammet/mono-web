@@ -15,7 +15,7 @@ const AccordionItem = React.forwardRef<
     className={cn(
       "border-b",
       // vektor styling
-      "border-vektor-DARKblue dark:border-vektor-bg border-opacity-10", 
+      "border-vektor-DARKblue/10 dark:border-vektor-bg/10",
       className)}
     {...props}
   />

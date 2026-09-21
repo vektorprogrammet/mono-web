@@ -1,10 +1,9 @@
 import type {
-  ContentWorkspace,
+  HomepageDepartment,
   PublishedNewsArticle,
   PublishedNewsListing,
   PublishedNewsSummary,
-} from "@vektorprogrammet/domain/content";
-import type { DepartmentJson } from "@vektorprogrammet/domain/organization";
+} from "./api-types";
 
 /**
  * News data seam for the homepage loaders (spec 0062 §Homepage public surface
@@ -39,7 +38,7 @@ export const teaserFrom = (listing: PublishedNewsListing): readonly PublishedNew
  * fabricated rows.
  */
 export const resolveDepartmentFilter = (
-  departments: readonly DepartmentJson[],
+  departments: readonly HomepageDepartment[],
   departmentSlugOrId: string | undefined,
 ): { readonly departmentId: string | null; readonly degraded: boolean } => {
   if (departmentSlugOrId === undefined || departmentSlugOrId === "") {
@@ -82,4 +81,3 @@ export const paginateNewsListing = (
   articles: listing.articles.slice((page - 1) * NEWS_PAGE_SIZE, page * NEWS_PAGE_SIZE),
 });
 
-export type { ContentWorkspace };

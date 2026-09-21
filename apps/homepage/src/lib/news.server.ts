@@ -1,9 +1,8 @@
-import {
-  ArticleSlug,
-  type PublishedNewsArticle,
-  type PublishedNewsListing,
-} from "@vektorprogrammet/domain/content";
-import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import type {
+  NewsArticleSlug,
+  PublishedNewsArticle,
+  PublishedNewsListing,
+} from "./api-types";
 import { createHomepageApiClient } from "./api.server";
 import {
   applyDepartmentFilter,
@@ -30,11 +29,11 @@ const notFound = (): Response => new Response("Nyheten finnes ikke.", { status: 
 const hasProblemCode = (error: unknown, code: string): error is { readonly code: string } =>
   typeof error === "object" && error !== null && "code" in error && error.code === code;
 
-const readListing = async (departmentId: string | null): Promise<PublishedNewsListing> => {
+const readListing = async (): Promise<PublishedNewsListing> => {
   const client = createHomepageApiClient();
   try {
     const result = await client.content.listNews({
-      query: departmentId === null ? {} : { department: DepartmentId.make(departmentId) },
+      query: {},
       headers: {},
     });
     if (result.body === undefined) throw new Error("The conditional news response has no body.");
@@ -58,7 +57,7 @@ export const loadNewsListing = async (departmentSlugOrId?: string): Promise<News
   const { departmentId, degraded } = resolveDepartmentFilter(departments, departmentSlugOrId);
   // One fresh listing read per render; the filter is applied client-side on
   // the already-read snapshot so the teaser and the listing share one read.
-  const full = await readListing(null);
+  const full = await readListing();
   if (degraded) {
     return {
       listing: full,
@@ -69,7 +68,7 @@ export const loadNewsListing = async (departmentSlugOrId?: string): Promise<News
 };
 
 export const loadNewsTeaser = async (): Promise<PublishedNewsListing> => {
-  const listing = await readListing(null);
+  const listing = await readListing();
   return { articles: listing.articles.slice(0, NEWS_TEASER_COUNT) };
 };
 
@@ -85,7 +84,7 @@ export const loadNewsArticle = async (
   try {
     const [articleResult, listingResult] = await Promise.all([
       client.content.readNewsArticle({
-        params: { slug: ArticleSlug.make(slug) },
+        params: { slug: slug as NewsArticleSlug },
         query: version === undefined ? {} : { version },
         headers: {},
       }),

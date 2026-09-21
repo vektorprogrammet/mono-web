@@ -1,4 +1,4 @@
-import { SurveyId } from "@vektorprogrammet/domain";
+import { SurveyId } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
 import { useEffect, useRef } from "react";
 import { Form, useActionData, useLoaderData, useNavigation } from "react-router";

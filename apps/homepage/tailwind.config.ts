@@ -105,12 +105,4 @@ export default {
       },
     },
   },
-  variants: {
-    extend: {},
-  },
-  plugins: [
-    require("postcss-import"),
-    require("daisyui"),
-    require("tailwindcss-animate"),
-  ],
 } satisfies Config;

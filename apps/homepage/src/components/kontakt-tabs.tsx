@@ -1,5 +1,4 @@
-import { CONTACT_LIMITS } from "@vektorprogrammet/domain/contact";
-import type { DepartmentJson } from "@vektorprogrammet/domain/organization";
+import type { HomepageDepartment } from "~/lib/api-types";
 import { useState } from "react";
 import { Mail, MapPin } from "lucide-react";
 import { Form, Link, useActionData, useNavigation } from "react-router";
@@ -7,14 +6,18 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Textarea } from "~/components/ui/textarea";
-import { type ContactActionData, contactDepartmentSlug } from "~/lib/contact-message";
+import {
+  CONTACT_LIMITS,
+  type ContactActionData,
+  contactDepartmentSlug,
+} from "~/lib/contact-message";
 
 export function ContactTabs({
   department,
   departments,
 }: {
-  readonly department: DepartmentJson;
-  readonly departments: readonly DepartmentJson[];
+  readonly department: HomepageDepartment;
+  readonly departments: readonly HomepageDepartment[];
 }) {
   const actionData = useActionData<ContactActionData>();
   // Each action result is a new identity. Only acceptance replaces the uncontrolled draft.

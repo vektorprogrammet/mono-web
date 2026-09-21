@@ -1,4 +1,4 @@
-import type { PublicApplicationCatalog } from "@vektorprogrammet/domain/application";
+import type { PublicApplicationCatalog } from "./api-types";
 import { IdempotencyKey, SubmitApplicationRequest } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
 

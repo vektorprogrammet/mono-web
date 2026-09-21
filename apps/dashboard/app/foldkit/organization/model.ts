@@ -2,7 +2,7 @@ import {
   DepartmentJsonSchema,
   FieldOfStudyJsonSchema,
   TeamJsonSchema,
-} from "@vektorprogrammet/domain";
+} from "@vektorprogrammet/domain/organization";
 import { Schema as S } from "effect";
 import { AsyncData } from "foldkit";
 const DepartmentListSchema = S.Array(DepartmentJsonSchema);

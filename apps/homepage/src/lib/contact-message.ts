@@ -1,8 +1,10 @@
-import type { DepartmentJson } from "@vektorprogrammet/domain/organization";
+import type { HomepageDepartment } from "./api-types";
+
+export const CONTACT_LIMITS = { name: 100, email: 254, subject: 200, message: 5000 } as const;
 
 export type ContactPageData = {
-  readonly departments: readonly DepartmentJson[];
-  readonly selectedDepartment: DepartmentJson;
+  readonly departments: readonly HomepageDepartment[];
+  readonly selectedDepartment: HomepageDepartment;
 };
 
 export type ContactFormValues = {

@@ -1,12 +1,10 @@
-import {
-  SchoolId,
-  type SchoolSurveyFormResource,
-  type SubmitSchoolSurveyResponseRequest,
-  type SurveyId,
-} from "@vektorprogrammet/domain";
+import { SchoolId } from "@vektorprogrammet/domain/schools";
 import {
   IdempotencyKey,
   type IdempotencyKey as IdempotencyKeyValue,
+  type SchoolSurveyFormResource,
+  type SubmitSchoolSurveyResponseRequest,
+  type SurveyId,
 } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
 import { createServerClient } from "./api.server";

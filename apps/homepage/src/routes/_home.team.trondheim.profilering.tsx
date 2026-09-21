@@ -67,7 +67,7 @@ export default function Profilering() {
       </div>
 
       <div className="mx-3 flex flex-wrap justify-center sm:flex-nowrap sm:justify-between">
-        <div className="mt-3 flex-grow-1 place-content-start font-sans text-black text-lg">
+        <div className="mt-3 grow place-content-start font-sans text-black text-lg">
           <ul className="ml-10 list-disc">
             <li>
               Ansvar for et område du selv velger, innen profileringen. Dette

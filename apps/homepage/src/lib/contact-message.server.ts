@@ -1,13 +1,13 @@
-import { type DepartmentJson } from "@vektorprogrammet/domain/organization";
+import { SubmitContactMessageEndpoint } from "@vektorprogrammet/http-api";
+import { createEffectClient } from "@vektorprogrammet/sdk/effect";
 import { Effect, Schema } from "effect";
+import type { ContactMessagePayload, HomepageDepartment } from "./api-types";
+import { createHomepageApiClient } from "./api.server";
 import {
-  ContactMessage,
   CONTACT_BACKEND_HEADER,
   CONTACT_IP_HEADER,
-} from "@vektorprogrammet/domain/contact";
-import { createEffectClient } from "@vektorprogrammet/sdk/effect";
-import type { ContactIngress } from "./contact-context.server";
-import { createHomepageApiClient } from "./api.server";
+  type ContactIngress,
+} from "./contact-context.server";
 import {
   type ContactActionData,
   type ContactFormValues,
@@ -15,7 +15,12 @@ import {
   contactDepartmentSlug,
 } from "./contact-message";
 
-async function activeDepartments(backendOrigin?: string): Promise<readonly DepartmentJson[]> {
+const contactPayloadSchema = [...SubmitContactMessageEndpoint.payload.values()][0]?.schemas[0];
+if (contactPayloadSchema === undefined) {
+  throw new Error("Contact endpoint is missing its payload schema.");
+}
+
+async function activeDepartments(backendOrigin?: string): Promise<readonly HomepageDepartment[]> {
   try {
     const result = await createHomepageApiClient(backendOrigin).organization.listDepartments({
       headers: {},
@@ -90,12 +95,12 @@ export async function submitContactMessage(
     subject: formValue(formData, "subject"),
     message: formValue(formData, "message"),
   };
-  let payload: ContactMessage;
+  let payload: ContactMessagePayload;
   try {
-    payload = Schema.decodeUnknownSync(ContactMessage)(
+    payload = Schema.decodeUnknownSync(contactPayloadSchema)(
       { ...values, departmentId: page.selectedDepartment.departmentId },
       { onExcessProperty: "error" },
-    );
+    ) as ContactMessagePayload;
   } catch {
     return { ok: false, message: "Fyll ut alle feltene med gyldig informasjon." };
   }

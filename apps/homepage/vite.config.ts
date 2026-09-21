@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { reactRouter } from "@react-router/dev/vite";
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import { DEV_CONTENT, DEV_ROUTE_CENSUS } from "./src/lib/dev-content.ts";
 import {
@@ -49,7 +50,7 @@ export default defineConfig({
     __BUILD_CONTENT_DIGEST__: JSON.stringify(identity.digest),
     __BUILD_ROUTE_DIGEST__: JSON.stringify(identity.routeDigest),
   },
-  plugins: [...cloudflarePlugins, ...reactRouter()],
+  plugins: [...cloudflarePlugins, ...reactRouter(), tailwindcss()],
   build: {
     outDir: "./build",
   },

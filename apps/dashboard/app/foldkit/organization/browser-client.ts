@@ -1,4 +1,8 @@
-import type { DepartmentJson, FieldOfStudyJson, TeamJson } from "@vektorprogrammet/domain";
+import type {
+  DepartmentJson,
+  FieldOfStudyJson,
+  TeamJson,
+} from "@vektorprogrammet/domain/organization";
 import { createEffectClient } from "@vektorprogrammet/sdk/effect";
 import { Effect } from "effect";
 import { resolveBrowserApiUrl } from "../../lib/browser-api";
