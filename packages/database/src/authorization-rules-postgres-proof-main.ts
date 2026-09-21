@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  AUTHZ_LOCK_PROTOCOL,
   AuthorityVersion,
   AuthzRuleId,
   AuthzTagAssignmentId,
@@ -10,7 +11,6 @@ import {
   ResourceId,
 } from "@vektorprogrammet/domain/authz";
 import {
-  AUTHZ_LOCK_PROTOCOL,
   createAuthzRule,
   createAuthzTagAssignment,
   endAuthzRule,
@@ -60,12 +60,10 @@ import {
 import {
   createReceiptApprovalGrant,
   createReceiptPaymentAuthority,
-  endReceiptApprovalGrant,
-  endReceiptPaymentAuthority,
   removeReceiptApprovalGrant,
   removeReceiptPaymentAuthority,
+  resolveReceiptAuthorityForRead,
 } from "./receipt/authority-postgres.js";
-import { resolveReceiptAuthorityForRead } from "./receipt/postgres.js";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";

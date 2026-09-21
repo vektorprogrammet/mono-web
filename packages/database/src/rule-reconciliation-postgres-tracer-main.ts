@@ -9,7 +9,7 @@ import {
   ReceiptId,
   type ReceiptApprovalCandidate,
 } from "@vektorprogrammet/domain/receipt";
-import { resolveReceiptAuthorityForRead } from "./receipt/postgres.js";
+import { resolveReceiptAuthorityForRead } from "./receipt/authority-postgres.js";
 import { Effect, Redacted } from "effect";
 import { resolveOrganizationPersonAuthorityForRead } from "./organization/authority-postgres.js";
 import { executeReceiptCommand } from "./receipt/postgres.js";

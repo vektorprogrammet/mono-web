@@ -3,9 +3,8 @@ import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/
 import {
   makeReceiptAuxiliaryRecording,
   makeReceiptFileRecording,
-  runReceiptFileProof,
-  runReceiptPostgresProof,
-} from "./receipt/proof-index.js";
+} from "@vektorprogrammet/domain/receipt";
+import { runReceiptFileProof, runReceiptPostgresProof } from "./receipt/proof-index.js";
 import { DatabaseLive } from "./layers.js";
 
 export const program = Effect.gen(function* () {
