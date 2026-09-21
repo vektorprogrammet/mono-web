@@ -77,7 +77,7 @@ import {
 import {
   assignApplicant,
   cancelInterview,
-  correctInterviewAssessment,
+  correctInterviewAssessment as correctInterviewAssessmentPostgres,
   executeRecruitmentInvitationTransitionPostgres,
   finalizeInterview,
   readInterviewConductInTransaction,
@@ -88,7 +88,7 @@ import {
   readRecruitmentPersonAuthorityHttpSourcesPostgres,
   readRecruitmentTargetActorPostgres,
   readRecruitmentTargetAuthorityPostgres,
-  scheduleInterview,
+  scheduleInterview as scheduleInterviewPostgres,
   type RecruitmentAuthorityHttpSource,
   type RecruitmentInterviewHttpSource,
   type RecruitmentInvitationHttpSource,
@@ -1175,7 +1175,7 @@ const scheduleInterview = async (
         credentialSubject: `Person:${authorization.actor.personId}`,
         execute: (commandId) =>
           Effect.gen(function* () {
-            const result = yield* scheduleInterview(
+            const result = yield* scheduleInterviewPostgres(
               {
                 commandId,
                 interviewId,
@@ -1302,7 +1302,7 @@ const correctInterviewAssessment = async (
               );
             if (body.expectedRevision !== authorization.source.interviewRevision)
               return yield* Effect.fail(new HttpSemanticFailure("precondition.failed", 412));
-            const result = yield* correctInterviewAssessment(
+            const result = yield* correctInterviewAssessmentPostgres(
               {
                 commandId,
                 interviewId,

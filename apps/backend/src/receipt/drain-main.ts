@@ -2,12 +2,12 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseLive } from "@vektorprogrammet/database";
 import { Database, databaseHealth } from "@vektorprogrammet/database";
-import { Effect, Layer, Redacted, Schema } from "effect";
 import {
   deliverNextReceiptOutbox,
   listStaleReceiptOutboxClaimIds,
   recoverStaleReceiptOutbox,
-} from "@vektorprogrammet/domain/receipt";
+} from "@vektorprogrammet/database/receipt";
+import { Effect, Layer, Redacted, Schema } from "effect";
 import { ReceiptFileService, ReceiptId } from "@vektorprogrammet/domain/receipt";
 import { makeReceiptApiConfig } from "./config.js";
 import { makeReceiptFileStore } from "./filesystem.js";

@@ -3,12 +3,12 @@ import {
   ContactDelivery,
   ContactFailure,
   ContactMessage,
-  ContactQuotaLive,
   ContactVisitorIp,
   CONTACT_BACKEND_HEADER,
   CONTACT_IP_HEADER,
   submitContact,
 } from "@vektorprogrammet/domain/contact";
+import { ContactQuotaLive } from "@vektorprogrammet/database/contact";
 import { ExternalNativeApi } from "@vektorprogrammet/http-api";
 import { Effect, Layer, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";

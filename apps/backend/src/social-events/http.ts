@@ -16,9 +16,11 @@ import {
 } from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/database";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
+import { OrganizationAuthorityInstantSchema } from "@vektorprogrammet/domain/organization";
 import {
-  OrganizationAuthorityInstantSchema, type OrganizationAuthorityRowLockMode } from "@vektorprogrammet/domain/organization";
-import { resolveOrganizationPersonAuthorityWithSql } from "@vektorprogrammet/database/organization";
+  resolveOrganizationPersonAuthorityWithSql,
+  type OrganizationAuthorityRowLockMode,
+} from "@vektorprogrammet/database/organization";
 import {
   CreateSocialEventEndpoint,
   CreateSocialEventRequest,
