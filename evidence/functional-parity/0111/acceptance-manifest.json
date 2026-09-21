@@ -1,7 +1,7 @@
 {
   "specId": "0111",
   "result": "passed",
-  "runtimeRevision": "52caf3d6296d72f0e4ffe248724cc3acbafaf74f",
+  "runtimeRevision": "05e29ed7c6e96df92ce179f96fc90dfa07846a36",
   "command": "bun --cwd apps/dashboard e2e/run-real-native-school-survey.mjs",
   "topology": {
     "database": "17.11",
@@ -18,15 +18,22 @@
         "sourceOrder": true,
         "fourQuestionTypes": true,
         "browserServerGeneratedSdkBridge": true,
+        "dottedSurveyId": true,
+        "readFailureDraftPreserved": true,
         "rejectedDraftPreserved": true,
         "committedCompletion": true,
         "normalizedPostgresAnswers": true,
+        "createdResponseHeaders": true,
         "exactReplay": true,
         "reorderedReplay": true,
         "digestConflict": true,
         "inFlightReceipt": true,
         "expiredReceipt": true,
         "concurrentSingleResponse": true,
+        "requestBodyBoundary": {
+          "acceptedBytes": 65536,
+          "rejectedBytes": 65537
+        },
         "atomicValidationFailures": [
           "missing required answer",
           "unknown question",
@@ -93,7 +100,7 @@
     }
   },
   "checksums": {
-    "runner": "8a342d7a9bc41c0c27483c8fb75a44c53a0489aeb2c565a1e557aac284d2e5f3",
+    "runner": "d2c8699d8e31be7aa31083f4ccb717f007bfff9ce2562aba3b966612ae5d032f",
     "designSpec": "ae719b5e0a6c86bb233d28220cf468fd3deb29cee5d3b9e6049a93f940ba7c19"
   },
   "skippedOrUnavailable": [],
