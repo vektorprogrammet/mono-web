@@ -295,6 +295,7 @@ const startApexDispatcher = async (ledger) => {
   const dashboard = {
     fetch: async (request) => {
       const url = new URL(request.url);
+      const forwarded = await forwardApexDashboardRequest(request);
       ledger.push({
         method: request.method,
         path: url.pathname,
@@ -302,8 +303,9 @@ const startApexDispatcher = async (ledger) => {
         requestOrigin: url.origin,
         origin: request.headers.get("origin"),
         contentType: request.headers.get("content-type"),
+        status: forwarded.status,
       });
-      return forwardApexDashboardRequest(request);
+      return forwarded;
     },
   };
   const server = createServer(async (request, response) => {
@@ -619,11 +621,8 @@ const exerciseJourney = async (browser, ledger, apexLedger) => {
     }),
   );
   await desktopPage.getByRole("heading", { name: "Skjemaet har feil" }).waitFor();
-  assert.equal(
-    await desktopPage
-      .locator('[aria-labelledby="survey-error-summary"]')
-      .evaluate((summary) => document.activeElement === summary),
-    true,
+  await desktopPage.waitForFunction(
+    () => document.activeElement?.getAttribute("aria-labelledby") === "survey-error-summary",
   );
   assert.equal(await desktopPage.locator('input[name="commandId"]').inputValue(), initialCommandId);
   assert.equal(await desktopPage.getByLabel("Skole").inputValue(), String(ids.eligible));
@@ -635,11 +634,8 @@ const exerciseJourney = async (browser, ledger, apexLedger) => {
   await desktopPage.getByRole("button", { name: "Send inn" }).focus();
   await desktopPage.keyboard.press("Enter");
   await desktopPage.getByRole("heading", { name: "Takk for svaret" }).waitFor();
-  assert.equal(
-    await desktopPage
-      .getByRole("heading", { name: "Takk for svaret" })
-      .evaluate((heading) => document.activeElement === heading),
-    true,
+  await desktopPage.waitForFunction(
+    () => document.activeElement?.textContent?.trim() === "Takk for svaret",
   );
   assert.equal(await desktopPage.getByText("Takk. Svaret ditt er registrert.").count(), 1);
   assert.equal((await desktopPage.locator("body").innerText()).includes("survey_response_"), false);
@@ -667,7 +663,20 @@ const exerciseJourney = async (browser, ledger, apexLedger) => {
   );
   assert.equal(
     apexLedger.some(
-      (entry) => entry.method === "POST" && entry.path === `/undersokelse/${ids.survey}`,
+      (entry) => entry.method === "POST" && entry.path === `/undersokelse/${ids.survey}.data`,
+    ),
+    true,
+  );
+  assert.equal(
+    apexLedger.some(
+      (entry) =>
+        entry.method === "GET" && entry.path.startsWith("/assets/") && entry.status === 200,
+    ),
+    true,
+  );
+  assert.equal(
+    apexLedger.some(
+      (entry) => entry.method === "GET" && entry.path === "/__manifest" && entry.status === 200,
     ),
     true,
   );

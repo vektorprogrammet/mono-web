@@ -48,6 +48,51 @@ describe("apex edge worker", () => {
     expect(dashboardResponse.headers.get("x-mono-web-stage")).toBe("dev-main");
   });
 
+  it("serves dashboard assets before falling back to homepage assets", async () => {
+    const dashboardEnv = apexEnv();
+    const dashboardAsset = await worker.fetch(
+      apexRequest("/assets/dashboard-entry.abc123.js"),
+      dashboardEnv,
+    );
+
+    expect(await dashboardAsset.text()).toBe("dashboard");
+    expect(dashboardEnv.Dashboard.fetch).toHaveBeenCalledOnce();
+    expect(dashboardEnv.Homepage.fetch).not.toHaveBeenCalled();
+
+    const homepageEnv = apexEnv();
+    homepageEnv.Dashboard.fetch.mockResolvedValueOnce(new Response(null, { status: 404 }));
+    const homepageAsset = await worker.fetch(
+      apexRequest("/assets/homepage-entry.def456.js"),
+      homepageEnv,
+    );
+
+    expect(await homepageAsset.text()).toBe("homepage");
+    expect(homepageEnv.Dashboard.fetch).toHaveBeenCalledOnce();
+    expect(homepageEnv.Homepage.fetch).toHaveBeenCalledOnce();
+  });
+
+  it("routes React Router manifest patches to the application owning their paths", async () => {
+    const dashboardEnv = apexEnv();
+    const dashboardManifest = await worker.fetch(
+      apexRequest("/__manifest?paths=%2Fundersokelse%2C%2Fundersokelse%2Fsurvey-0111&version=abc"),
+      dashboardEnv,
+    );
+
+    expect(await dashboardManifest.text()).toBe("dashboard");
+    expect(dashboardEnv.Dashboard.fetch).toHaveBeenCalledOnce();
+    expect(dashboardEnv.Homepage.fetch).not.toHaveBeenCalled();
+
+    const homepageEnv = apexEnv();
+    const homepageManifest = await worker.fetch(
+      apexRequest("/__manifest?paths=%2Fnyheter%2C%2Fnyheter%2Farticle&version=abc"),
+      homepageEnv,
+    );
+
+    expect(await homepageManifest.text()).toBe("homepage");
+    expect(homepageEnv.Dashboard.fetch).not.toHaveBeenCalled();
+    expect(homepageEnv.Homepage.fetch).toHaveBeenCalledOnce();
+  });
+
   it.each(["/login", "/dashboard"])(
     "forwards apex dashboard entry %s without rewriting its path",
     async (path) => {

@@ -29,6 +29,15 @@ describe("apexSurface", () => {
     expect(apexSurface(path)).toBe("dashboard");
   });
 
+  it("routes dynamic manifest patches by their requested application paths", () => {
+    expect(
+      apexSurface("/__manifest?paths=%2Fundersokelse%2C%2Fundersokelse%2Fsurvey-0111&version=abc"),
+    ).toBe("dashboard");
+    expect(apexSurface("/__manifest?paths=%2Fnyheter%2C%2Fnyheter%2Farticle&version=abc")).toBe(
+      "homepage",
+    );
+  });
+
   it.each(["/dashboard/profile", "/dashboard/not-a-route", "/dashboard/recruitment"])(
     "keeps dashboard descendant %s on the dashboard worker",
     (path) => {

@@ -25,18 +25,30 @@ const DASHBOARD_ROUTE_ROOTS: Record<string, true> = {
   "/undersokelse": true,
 };
 
+const normalizedRoutePath = (pathname: string): string =>
+  pathname.endsWith(".data") ? pathname.slice(0, -".data".length) : pathname;
+
+const isDashboardRoute = (pathname: string): boolean => {
+  const routePath = normalizedRoutePath(pathname);
+  for (const root in DASHBOARD_ROUTE_ROOTS) {
+    if (routePath === root || routePath.startsWith(`${root}/`)) return true;
+  }
+  return false;
+};
+
 export function apexSurface(pathname: string): ApexSurface {
-  if (pathname === "/health" || pathname === "/api" || pathname.startsWith("/api/")) {
+  const url = new URL(pathname, "https://surface.invalid");
+  if (url.pathname === "/health" || url.pathname === "/api" || url.pathname.startsWith("/api/")) {
     return "server";
   }
-  const routePathWithQuery = pathname.split(/[?#]/u, 1)[0] ?? pathname;
-  const routePath = routePathWithQuery.endsWith(".data")
-    ? routePathWithQuery.slice(0, -".data".length)
-    : routePathWithQuery;
-  for (const root in DASHBOARD_ROUTE_ROOTS) {
-    if (routePath === root || routePath.startsWith(`${root}/`)) {
-      return "dashboard";
-    }
+  if (url.pathname === "/__manifest") {
+    const requestedPaths = url.searchParams
+      .getAll("paths")
+      .flatMap((paths) => paths.split(","))
+      .filter((path) => path !== "");
+    return requestedPaths.some((path) => isDashboardRoute(new URL(path, url).pathname))
+      ? "dashboard"
+      : "homepage";
   }
-  return "homepage";
+  return isDashboardRoute(url.pathname) ? "dashboard" : "homepage";
 }

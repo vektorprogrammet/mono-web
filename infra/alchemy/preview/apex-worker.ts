@@ -149,8 +149,21 @@ export default {
         stage,
       );
     }
+    // Both applications emit root-relative fingerprinted assets. Probe the
+    // dashboard binding first, then fall back to homepage assets on a genuine
+    // miss so each build remains the authority for its own asset manifest.
+    if (
+      (request.method === "GET" || request.method === "HEAD") &&
+      url.pathname.startsWith("/assets/")
+    ) {
+      const dashboardAsset = await env.Dashboard.fetch(request);
+      if (dashboardAsset.status !== 404) {
+        return withPreviewStage(dashboardAsset, stage);
+      }
+      return withPreviewStage(await env.Homepage.fetch(request), stage);
+    }
 
-    const surface = apexSurface(url.pathname);
+    const surface = apexSurface(`${url.pathname}${url.search}`);
     if (surface === "homepage") {
       return withPreviewStage(await env.Homepage.fetch(request), stage);
     }

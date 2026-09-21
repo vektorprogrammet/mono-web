@@ -1,5 +1,6 @@
 import { SurveyId } from "@vektorprogrammet/domain";
 import { Schema } from "effect";
+import { useEffect, useRef } from "react";
 import { Form, useActionData, useLoaderData, useNavigation } from "react-router";
 import {
   loadSchoolSurvey,
@@ -105,11 +106,21 @@ export default function SchoolSurveyRoute() {
   const failed = actionData?.success === false ? actionData : undefined;
   const submitted = actionData?.success === true ? actionData : undefined;
   const submitting = navigation.state === "submitting";
+  const errorSummaryRef = useRef<HTMLElement>(null);
+  const completionHeadingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    if (submitted !== undefined) {
+      completionHeadingRef.current?.focus();
+    } else if (failed !== undefined) {
+      errorSummaryRef.current?.focus();
+    }
+  }, [failed, submitted]);
 
   if (submitted) {
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col justify-center gap-6 px-4 py-8 sm:px-6">
-        <h1 className="font-semibold text-3xl" tabIndex={-1} autoFocus>
+        <h1 ref={completionHeadingRef} className="font-semibold text-3xl" tabIndex={-1}>
           Takk for svaret
         </h1>
         <p className="max-w-prose whitespace-pre-wrap break-words text-base leading-7">
@@ -134,10 +145,10 @@ export default function SchoolSurveyRoute() {
 
       {failed === undefined ? null : (
         <section
+          ref={errorSummaryRef}
           className="mt-6 rounded-md border border-red-300 bg-red-50 p-4 text-red-900"
           role="alert"
           tabIndex={-1}
-          autoFocus
           aria-labelledby="survey-error-summary"
         >
           <h2 id="survey-error-summary" className="font-semibold">
