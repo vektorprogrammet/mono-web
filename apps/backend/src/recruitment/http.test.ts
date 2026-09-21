@@ -22,6 +22,7 @@ import {
   HttpSemanticFailure,
 } from "../http-semantics.js";
 import { describe, expect, it } from "vitest";
+import { runTestPromise } from "../../test/runtime.js";
 import {
   RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS,
   conditionalJsonResponse,
@@ -105,23 +106,27 @@ describe("native recruitment HTTP boundary", () => {
 
   it("accepts one bounded JSON object and rejects invalid transport bodies", async () => {
     await expect(
+      runTestPromise(
+        readRecruitmentRequestBody(
+          new Request("http://backend.test/api/recruitment/invitation-response:reject", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ message: "Another time" }),
+          }),
+          64,
+        ),
+      ),
+    ).resolves.toEqual({ message: "Another time" });
+
+    const duplicate = runTestPromise(
       readRecruitmentRequestBody(
         new Request("http://backend.test/api/recruitment/invitation-response:reject", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ message: "Another time" }),
+          body: '{"message":"first","message":"second"}',
         }),
-        64,
+        128,
       ),
-    ).resolves.toEqual({ message: "Another time" });
-
-    const duplicate = readRecruitmentRequestBody(
-      new Request("http://backend.test/api/recruitment/invitation-response:reject", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: '{"message":"first","message":"second"}',
-      }),
-      128,
     );
     await expect(duplicate).rejects.toMatchObject({
       name: "HttpSemanticFailure",
@@ -129,27 +134,31 @@ describe("native recruitment HTTP boundary", () => {
       status: 400,
     });
 
-    const unsupported = readRecruitmentRequestBody(
-      new Request("http://backend.test/api/recruitment/invitation-response:reject", {
-        method: "POST",
-        headers: { "content-type": "text/plain" },
-        body: "{}",
-      }),
-      64,
+    const unsupported = runTestPromise(
+      readRecruitmentRequestBody(
+        new Request("http://backend.test/api/recruitment/invitation-response:reject", {
+          method: "POST",
+          headers: { "content-type": "text/plain" },
+          body: "{}",
+        }),
+        64,
+      ),
     );
     await expect(unsupported).rejects.toMatchObject({
       code: "media-type.unsupported",
       status: 415,
     });
 
-    const oversizedConfirm = readRecruitmentRequestBody(
-      new Request("http://backend.test/api/recruitment/invitation-response:confirm", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ unexpected: "x".repeat(64) }),
-      }),
-      16,
-      true,
+    const oversizedConfirm = runTestPromise(
+      readRecruitmentRequestBody(
+        new Request("http://backend.test/api/recruitment/invitation-response:confirm", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ unexpected: "x".repeat(64) }),
+        }),
+        16,
+        true,
+      ),
     );
     await expect(oversizedConfirm).rejects.toMatchObject({
       code: "request.malformed",
@@ -164,14 +173,16 @@ describe("native recruitment HTTP boundary", () => {
       },
     });
     await expect(
-      readRecruitmentRequestBody(
-        new Request("http://backend.test/api/recruitment/invitation-response:reject", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: streamed,
-          duplex: "half",
-        } as RequestInit & { readonly duplex: "half" }),
-        16,
+      runTestPromise(
+        readRecruitmentRequestBody(
+          new Request("http://backend.test/api/recruitment/invitation-response:reject", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: streamed,
+            duplex: "half",
+          } as RequestInit & { readonly duplex: "half" }),
+          16,
+        ),
       ),
     ).rejects.toMatchObject({ code: "request.too-large", status: 413 });
     expect(cancelled).toBe(true);
@@ -190,10 +201,12 @@ describe("native recruitment HTTP boundary", () => {
       responseState: "Pending",
       responseMessage: null,
     };
-    const fresh = conditionalJsonResponse(
-      new Request("http://backend.test/api/recruitment/invitation-response"),
-      body,
-      etag,
+    const fresh = await runTestPromise(
+      conditionalJsonResponse(
+        new Request("http://backend.test/api/recruitment/invitation-response"),
+        body,
+        etag,
+      ),
     );
     expect({
       status: fresh.status,
@@ -209,12 +222,14 @@ describe("native recruitment HTTP boundary", () => {
       body,
     });
 
-    const notModified = conditionalJsonResponse(
-      new Request("http://backend.test/api/recruitment/invitation-response", {
-        headers: { "if-none-match": etag },
-      }),
-      body,
-      etag,
+    const notModified = await runTestPromise(
+      conditionalJsonResponse(
+        new Request("http://backend.test/api/recruitment/invitation-response", {
+          headers: { "if-none-match": etag },
+        }),
+        body,
+        etag,
+      ),
     );
     expect({
       status: notModified.status,
@@ -230,12 +245,14 @@ describe("native recruitment HTTP boundary", () => {
       body: "",
     });
 
-    const stale = conditionalJsonResponse(
-      new Request("http://backend.test/api/recruitment/invitation-response", {
-        headers: { "if-match": '"vkr2.stale"' },
-      }),
-      body,
-      etag,
+    const stale = await runTestPromise(
+      conditionalJsonResponse(
+        new Request("http://backend.test/api/recruitment/invitation-response", {
+          headers: { "if-match": '"vkr2.stale"' },
+        }),
+        body,
+        etag,
+      ),
     );
     expect(stale.status).toBe(412);
     await expect(stale.json()).resolves.toMatchObject({

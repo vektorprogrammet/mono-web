@@ -9,18 +9,24 @@ import {
   type AcceptedOAuthServiceCredential,
   type ServicePrincipalReceiptGrantAuthority,
 } from "@vektorprogrammet/domain/authz";
-import { IdentitySnapshot } from "@vektorprogrammet/database";
+import {
+  Database,
+  IdentitySnapshot,
+  OAuthCredentialAuthority,
+  type DatabaseShape,
+} from "@vektorprogrammet/database";
 import {
   ReceiptResource,
   ReceiptListItem,
   ReceiptsReopenReceiptProblem,
 } from "@vektorprogrammet/http-api";
-import { Database, type DatabaseShape } from "@vektorprogrammet/database";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
+  Identity,
   IdentityActor,
   IdentityEngineError,
   IdentitySessionNotFound,
+  type IdentityShape,
 } from "@vektorprogrammet/domain/identity";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
@@ -529,46 +535,80 @@ const harness = (options: HarnessOptions = {}) => {
     revokeOtherSessions: () => Effect.die("unexpected receipt-test session mutation"),
     revokeAllSessions: () => Effect.die("unexpected receipt-test session mutation"),
   });
-  const run = (<A, E>(
-    effect: Effect.Effect<A, E, Database | Economy | IdentitySnapshot>,
+  const servicePrincipalGrantAuthority = ServicePrincipalGrantAuthority.of({
+    readReceiptApprovalCandidates: () =>
+      options.serviceApproval
+        ? Effect.succeed(options.serviceApproval)
+        : Effect.die("unexpected service receipt read"),
+    createGrant: () => Effect.die("unexpected grant write"),
+    endGrant: () => Effect.die("unexpected grant write"),
+    revokeGrant: () => Effect.die("unexpected grant write"),
+  });
+  const identity = Identity.of({
+    signIn: () => Promise.reject(new Error("unexpected sign-in")),
+    resolveSession: async () =>
+      new IdentityActor({
+        personId,
+        sessionId: "receipt-http-session",
+        expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
+      }),
+    readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
+    listSessions: () => Promise.reject(new Error("unexpected session list")),
+    revokeCurrentSession: () => Promise.reject(new Error("unexpected session mutation")),
+    revokeSession: () => Promise.reject(new Error("unexpected session mutation")),
+    revokeOtherSessions: () => Promise.reject(new Error("unexpected session mutation")),
+    revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
+    recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
+    signOut: async () => ({ setCookies: [] }),
+  } satisfies IdentityShape);
+  const oauthCredentialAuthority = OAuthCredentialAuthority.of({
+    resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
+    resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
+  });
+  const run = <A, E>(
+    effect: Effect.Effect<
+      A,
+      E,
+      Database | Economy | IdentitySnapshot | ServicePrincipalGrantAuthority
+    >,
   ): Promise<A> =>
     runTestPromise(
       effect.pipe(
         Effect.provideService(Database, sql),
         Effect.provideService(Economy, economy),
         Effect.provideService(IdentitySnapshot, identitySnapshot),
-        Effect.provideService(ServicePrincipalGrantAuthority, {
-          readReceiptApprovalCandidates: () =>
-            options.serviceApproval
-              ? Effect.succeed(options.serviceApproval)
-              : Effect.die("unexpected service receipt read"),
-          createGrant: () => Effect.die("unexpected grant write"),
-          endGrant: () => Effect.die("unexpected grant write"),
-          revokeGrant: () => Effect.die("unexpected grant write"),
-        }),
-      ) as Effect.Effect<A, E>,
-    )) as ReceiptApiHttpOptions["run"];
+        Effect.provideService(ServicePrincipalGrantAuthority, servicePrincipalGrantAuthority),
+      ),
+    );
+  const services = Layer.mergeAll(
+    Layer.succeed(Database, sql),
+    Layer.succeed(Economy, economy),
+    Layer.succeed(IdentitySnapshot, identitySnapshot),
+    Layer.succeed(ServicePrincipalGrantAuthority, servicePrincipalGrantAuthority),
+    Layer.succeed(Identity, identity),
+    Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
+  );
   const httpOptions = {
     config: { ...config, e2eTestMode: true },
     identity: {
       ...(serviceCredential === undefined
         ? {}
         : {
-            resolveApprovalCredential: async () => ({
-              credential: serviceCredential,
-              authorizationInstant: AuthorizationInstant.make(evaluatedAt),
-            }),
+            resolveApprovalCredential: () =>
+              Effect.succeed({
+                credential: serviceCredential,
+                authorizationInstant: AuthorizationInstant.make(evaluatedAt),
+              }),
           }),
-      resolveAuthorizationPrincipal: async () => {
-        authorizationPrincipalCalls += 1;
-        if (options.unauthenticated === true) {
-          throw new UnauthenticatedActor({ message: "no session" });
-        }
-        return { personId, authorizationInstant: evaluatedAt };
-      },
-      resolvePersonId: async () => personId,
+      resolveAuthorizationPrincipal: () =>
+        Effect.suspend(() => {
+          authorizationPrincipalCalls += 1;
+          return options.unauthenticated === true
+            ? Effect.fail(new UnauthenticatedActor({ message: "no session" }))
+            : Effect.succeed({ personId, authorizationInstant: evaluatedAt });
+        }),
+      resolvePersonId: () => Effect.succeed(personId),
     },
-    run,
     now: () => evaluatedAt,
     fileStore: {
       ...fileStore,
@@ -578,10 +618,10 @@ const harness = (options: HarnessOptions = {}) => {
         return new Uint8Array([1, 2, 3, 4]);
       },
     },
-  } satisfies ReceiptApiHttpOptions;
+  } satisfies ReceiptApiHttpOptions<UnauthenticatedActor, never>;
   return {
-    http: makeReceiptApiHttp(httpOptions),
-    internalHttp: makeInternalReceiptTestHttp(httpOptions),
+    http: makeReceiptApiHttp(httpOptions, services),
+    internalHttp: makeInternalReceiptTestHttp(httpOptions, services),
     commands,
     privateFileReads: () => privateFileReads,
     principals,

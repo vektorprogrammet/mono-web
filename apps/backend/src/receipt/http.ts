@@ -45,7 +45,6 @@ import {
   type ReceiptFile,
   type ReceiptMutationAuthorization,
   type ReceiptMutationAuthorizationTarget,
-  type ReceiptOutboxDeliveryResult,
   type ReceiptStatus,
   type ReceiptSubmissionAllocation,
   type OwnedReceiptProjectionItem,
@@ -138,7 +137,7 @@ export interface ReceiptApiHttpOptions<E = never, R = never> {
 const RECEIPT_E2E_CONCURRENCY_REQUEST_HEADER = "x-receipt-e2e-concurrency-probe";
 const RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER = "x-receipt-e2e-concurrency-synchronized";
 
-const makeReceiptE2ETransactionBarrier = () => {
+const makeReceiptE2ETransactionBarrier = (): ReceiptE2ETransactionBarrier => {
   let targetReceiptId: string | undefined;
   const arrived = new Set<ReceiptE2EConcurrencyLane>();
   let pending: Promise<void> | undefined;
@@ -646,22 +645,6 @@ const drainOutbox = <E, R>(
     return "Limit";
   });
 
-interface V2SubmitFields {
-  readonly description: string;
-  readonly amountOre: number;
-  readonly receiptDate: string;
-  readonly file: File;
-  readonly contentType: SupportedContentType;
-}
-
-interface V2ReviseFields {
-  readonly description?: string;
-  readonly amountOre?: number;
-  readonly receiptDate?: string;
-  readonly file?: File;
-  readonly contentType?: SupportedContentType;
-}
-
 const headerValues = (request: Request, name: string): ReadonlyArray<string> => {
   const value = request.headers.get(name);
   return value === null ? [] : [value];
@@ -1143,15 +1126,17 @@ const reviseV2 = <E, R>(
           catch: (cause) => cause,
         });
         if (fields.file !== undefined) {
-          if (fields.contentType === undefined) {
+          const file = fields.file;
+          const contentType = fields.contentType;
+          if (contentType === undefined) {
             return yield* Effect.fail(new ReceiptDecodeError({ message: "invalid receipt file" }));
           }
           const nextStaged = yield* Effect.tryPromise({
             try: () =>
               fileStore.stageBytes(
-                fields.file!,
+                file,
                 identity.commandId,
-                fields.contentType,
+                contentType,
                 options.config.maxFileBytes,
               ),
             catch: (cause) => cause,
@@ -1316,12 +1301,13 @@ const approvalCommandV2 = <E, R>(
         Effect.gen(function* () {
           const principal = yield* authorizationPrincipalInTransaction(request, options);
           if (route.action !== "reopen") {
+            const lane = route.action;
             const barrier = options.e2eTransactionBarrier;
             synchronized =
               barrier === undefined
                 ? false
                 : yield* Effect.tryPromise({
-                    try: () => barrier(request, route.receiptId, route.action),
+                    try: () => barrier(request, route.receiptId, lane),
                     catch: (cause) => cause,
                   });
           }

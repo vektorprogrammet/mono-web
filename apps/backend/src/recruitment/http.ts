@@ -420,13 +420,14 @@ const invitationCapability = (request: Request) =>
     { onExcessProperty: "error" },
   ).pipe(Effect.mapError(() => new HttpSemanticFailure("resource.not-found", 404)));
 
-const actorFor = <E, R>(request: Request, input: RecruitmentApiHttpOptions<E, R>) =>
-  input.resolveActor(request).pipe(
-    Effect.catch((cause) =>
-      errorTag(cause) === undefined
-        ? Effect.fail(new HttpSemanticFailure("credential.invalid", 401))
-        : Effect.fail(cause),
-    ),
+const actorFor = <E, R>(
+  request: Request,
+  input: RecruitmentApiHttpOptions<E, R>,
+): Effect.Effect<RecruitmentActor, E | HttpSemanticFailure, R> =>
+  Effect.catch(input.resolveActor(request), (cause) =>
+    errorTag(cause) === undefined
+      ? Effect.fail(new HttpSemanticFailure("credential.invalid", 401))
+      : Effect.fail(cause),
   );
 
 const capabilityForSpec = (spec: AccessSpec) =>
@@ -701,17 +702,17 @@ const commandIdentity = (
   });
 };
 
-const executeCommand = <CommandId, E, R>(input: {
+const executeCommand = <S extends Schema.ConstraintDecoder<unknown, never>, E, R>(input: {
   readonly request: Request;
   readonly operationId: string;
   readonly routeTemplate: string;
   readonly identities: Readonly<Record<string, string>>;
   readonly semanticRequest: CanonicalSemanticRequest;
-  readonly commandIdSchema: Schema.ConstraintDecoder<CommandId, never>;
+  readonly commandIdSchema: S;
   readonly prepare: () => Effect.Effect<{
     readonly credentialSubject: CredentialSubject;
     readonly execute: (
-      commandId: CommandId,
+      commandId: S["Type"],
     ) => Effect.Effect<
       Response,
       unknown,

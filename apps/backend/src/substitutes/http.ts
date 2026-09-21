@@ -221,7 +221,7 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
           if (!entry.active && auth.permission !== "Manage")
             return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
           const resource = yield* output(SubstituteResource, substituteResource(entry));
-          return yield* semantic(() => conditionalJsonResponse(request, resource, resource.etag));
+          return yield* conditionalJsonResponse(request, resource, resource.etag);
         }),
       ),
     );
