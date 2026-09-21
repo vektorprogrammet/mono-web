@@ -247,4 +247,28 @@ test("loopback-only guards require structural proof and preserve every near miss
       ]),
     );
   }
+
+  const classifiedPath = "packages/runtime/classified-boundaries.ts";
+  const classified = await collectFixtures([["classified-boundaries.ts", classifiedPath]]);
+  const classifiedRows = classified.result.integrations.rows.filter((row) =>
+    row.source_ref_ids.some(
+      (ref) => classified.context.sourcePathById.get(ref)?.path === classifiedPath,
+    ),
+  );
+  expect(
+    classifiedRows.some(
+      (row) =>
+        "call_site_ref" in row.details && row.details.call_site_ref?.endsWith("#delete") === true,
+    ),
+  ).toBe(false);
+  expect(
+    classifiedRows.map((row) =>
+      "provider_ref" in row.details ? row.details.provider_ref : null,
+    ),
+  ).toEqual(expect.arrayContaining(["ipinfo", "vektorprogrammet-api"]));
+  expect(
+    classifiedRows.every(
+      (row) => row.status !== "unresolved" && !row.reason_codes.includes("UNKNOWN_INTEGRATION"),
+    ),
+  ).toBe(true);
 });

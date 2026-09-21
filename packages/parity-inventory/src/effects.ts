@@ -758,7 +758,7 @@ const functionContextFor = (
       candidates.push({ name: match[1] ?? null, parameters: match[2], bodyStart });
   }
   const arrows =
-    /(?:(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*)?(?:async\s*)?(?:\(([^()]*)\)|([A-Za-z_$][A-Za-z0-9_$]*))\s*=>\s*\{/g;
+    /(?:(?:(?:const|let|var)\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:=|:)\s*)?(?:async\s*)?(?:\(([^()]*)\)|([A-Za-z_$][A-Za-z0-9_$]*))\s*(?::\s*[^={]+)?\s*=>\s*\{/g;
   for (const match of structure.matchAll(arrows)) {
     const bodyStart = (match.index ?? 0) + (match[0]?.lastIndexOf("{") ?? -1);
     if (bodyStart >= 0)
@@ -4180,6 +4180,26 @@ const localTransportReceiverFor = (unit: SourceUnit, call: EffectCall): boolean 
     `(?:[(,]|\\b(?:const|let|var)\\s+)\\s*\\$?${identifier}\\s*:\\s*Transport\\b`,
   ).test(withoutComments(unit.text).slice(0, call.offset));
 };
+const localCollectionMutationReceiverFor = (unit: SourceUnit, call: EffectCall): boolean => {
+  if (call.callable.toLowerCase() !== "delete" || call.receiver === null) return false;
+  const receiverRoot = call.receiver.split(/->|::|\./).find((part) => part.length > 0);
+  if (
+    receiverRoot === undefined ||
+    receiverRoot.startsWith("$") ||
+    !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(receiverRoot)
+  )
+    return false;
+  const prefix = withoutLiterals(withoutComments(unit.text)).slice(0, call.offset);
+  const declarations = [
+    ...prefix.matchAll(
+      new RegExp(
+        `\\b(?:const|let|var)\\s+${receiverRoot}\\s*=\\s*new\\s+(Map|Set|WeakMap|WeakSet)\\b`,
+        "g",
+      ),
+    ),
+  ];
+  return declarations.length > 0;
+};
 
 const scheduleCollection = (
   context: ManifestContext,
@@ -4272,7 +4292,7 @@ const scheduleCollection = (
 const providerFromText = (text: string): string | null => {
   const patterns: readonly [RegExp, string][] = [
     [/\b(?:Google|GoogleClient|GoogleApis?|GoogleAdapter|GoogleService)\b/i, "google"],
-    [/\bSlack(?:Mailer|Client|Webhook|Adapter|Service)?\b/i, "slack"],
+    [/\bSlack(?:Sms|Mailer|Client|Webhook|Adapter|Service)?\b/i, "slack"],
     [/\b(?:Mailer|MailerClient|MailerAdapter|MailerService|Mailgun|Smtp)\b/i, "mailer"],
     [/\b(?:Sms|SmsClient|SmsSender|SmsGateway|SmsAdapter|Twilio)\b/i, "sms"],
     [/\bGatewayAPI(?:Client|Adapter|Service)?\b/i, "gatewayapi"],
@@ -4280,6 +4300,11 @@ const providerFromText = (text: string): string | null => {
     [/\b(?:Aws|S3Client)\b/i, "aws"],
     [/\b(?:Github|GitHub)(?:Client|Adapter|Service|Controller)?\b/i, "github"],
     [/\b(?:OpenAI|Anthropic)(?:Client|Adapter|Service)?\b/i, "ai"],
+    [/\b(?:ipinfo\.io|IpInfo)\b/i, "ipinfo"],
+    [
+      /\b(?:JourneyHttpClient|NodeJourneyHttpLayer|createEffectClient|backendOrigin|apiOrigin|dashboardOrigin|serverOrigin|input\.api)\b|new\s+URL\s*\([^,]+,\s*origin\s*\)|\$\{\s*origin\s*\}/i,
+      "vektorprogrammet-api",
+    ],
   ];
   for (const [pattern, provider] of patterns) if (pattern.test(text)) return provider;
   return null;
@@ -5048,6 +5073,7 @@ const integrationCallsFor = (
       (boundary) => callOffset === boundary.start,
     );
     if (effectCall !== undefined && localTransportReceiverFor(unit, effectCall)) continue;
+    if (effectCall !== undefined && localCollectionMutationReceiverFor(unit, effectCall)) continue;
     if (
       ownerClass !== undefined &&
       effectCall !== undefined &&
@@ -5080,6 +5106,7 @@ const integrationCallsFor = (
     const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(endpointArguments);
     const endpointRaw = endpointMatch?.[0] ?? typeScriptBoundary?.backendOriginEndpoint ?? null;
     const endpointRef = endpointRaw === null ? null : safeEndpoint(endpointRaw, reasons);
+    const endpointProvider = endpointRef === null ? null : providerFromText(endpointRef);
     const callSiteContext = functionContextFor(unit.text, callOffset, true);
     const callSiteName = callSiteContext?.name ?? callableName;
     const dynamicMailerDispatch = ownerShortName(ownerRef) === "Mailer" && callSiteName === "send";
@@ -5154,7 +5181,11 @@ const integrationCallsFor = (
         ? normalizeSafe(resolvedCall.symbol, "field", reasons)
         : null;
     const detectedProviderRef =
-      syntaxProvider ?? previewContainerProvider ?? namedProviderRef ?? resolvedProviderRef;
+      syntaxProvider ??
+      previewContainerProvider ??
+      endpointProvider ??
+      namedProviderRef ??
+      resolvedProviderRef;
     const providerRef = dynamicMailerDispatch
       ? "mailer"
       : normalizeSafe(detectedProviderRef, "field", reasons);
