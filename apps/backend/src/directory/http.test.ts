@@ -12,6 +12,7 @@ import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database"
 import { Content } from "@vektorprogrammet/domain/content";
 import { ContentManagement } from "@vektorprogrammet/domain/content";
 import type { Schools } from "@vektorprogrammet/domain/schools";
+import { SocialEvents } from "@vektorprogrammet/domain/social-events";
 import {
   DepartmentId,
   Organization,
@@ -288,6 +289,13 @@ const resetScenario = () => {
 };
 
 resetScenario();
+const socialEvents = SocialEvents.of({
+  readSnapshotInstant: () => Effect.die("unexpected social-event read"),
+  readScope: () => Effect.die("unexpected social-event read"),
+  readList: () => Effect.die("unexpected social-event read"),
+  validateScope: () => Effect.die("unexpected social-event validation"),
+  create: () => Effect.die("unexpected social-event create"),
+});
 const successfulRun: BackendRun = <A, E>(
   effect: Effect.Effect<
     A,
@@ -306,6 +314,7 @@ const successfulRun: BackendRun = <A, E>(
     | ServicePrincipalGrantAuthority
     | ContentManagement
     | Content
+    | SocialEvents
   >,
 ): Promise<A> =>
   runTestPromise(
@@ -313,6 +322,7 @@ const successfulRun: BackendRun = <A, E>(
       Effect.provideService(Database, database),
       Effect.provideService(Profile, profile),
       Effect.provideService(Organization, organization),
+      Effect.provideService(SocialEvents, socialEvents),
       Effect.provideService(Identity, {
         signIn: () => Promise.reject(new Error("unexpected sign-in")),
         resolveSession: async (cookieHeader: string | undefined) => {

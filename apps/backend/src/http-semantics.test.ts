@@ -61,6 +61,14 @@ describe("native HTTP semantics", () => {
     expect(first).toEqual(second);
     expect(first.identitySha256).toMatch(/^[a-f0-9]{64}$/u);
     expect(first.commandId).toMatch(/^httpv2_[A-Za-z0-9_-]{43}$/u);
+    expect(
+      deriveHttpIdentity({
+        credentialSubject: "Person:person-1",
+        qualifiedOperationId: "social-events.create",
+        normalizedTarget: "/api/social-events",
+        idempotencyKey: decoded,
+      }).identitySha256,
+    ).toMatch(/^[a-f0-9]{64}$/u);
 
     expect(() => parseIdempotencyKey([key, key])).toThrow(HttpSemanticFailure);
     expect(() => parseIdempotencyKey(["too-short"])).toThrow(HttpSemanticFailure);

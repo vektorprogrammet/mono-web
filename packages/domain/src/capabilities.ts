@@ -10,6 +10,7 @@ export const capabilityNames = [
   "Content",
   "ContentManagement",
   "PrivateFileStore",
+  "SocialEvents",
   "NotificationGateway",
 ] as const;
 
@@ -31,6 +32,7 @@ export const capabilityAuthorityDependencies = {
   Economy: ["Database", "Identity", "PrivateFileStore", "NotificationGateway"],
   Content: ["ContentManagement"],
   ContentManagement: [],
+  SocialEvents: ["Database", "Organization"],
   PrivateFileStore: [],
   NotificationGateway: [],
 } as const satisfies CapabilityAuthorityDependencyGraph;

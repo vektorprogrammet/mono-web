@@ -682,6 +682,24 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
   ["GET", "/api/news/:slug", "content.readNewsArticle", anonymous("content.public-news-by-slug")],
   [
     "GET",
+    "/api/social-events/scope",
+    "social-events.readScope",
+    person("social-events.read-scope", "social-events.scope", [], "SnapshotRead"),
+  ],
+  [
+    "GET",
+    "/api/social-events",
+    "social-events.list",
+    person("social-events.read", "social-events.list", [], "SnapshotRead"),
+  ],
+  [
+    "POST",
+    "/api/social-events",
+    "social-events.create",
+    person("social-events.create", "social-events.create", [], "Transaction"),
+  ],
+  [
+    "GET",
     "/api/receipt-lifecycle-evidence-records/:receiptId",
     "internal.readReceiptEvidence",
     expectedAccess({
@@ -728,6 +746,7 @@ const createdMutationOperations = [
   "recruitment.createApplicationInterview",
   "receipts.submitReceipt",
   "content.createArticle",
+  "social-events.create",
 ] as const;
 
 const entityMutationOperations = [
@@ -791,6 +810,8 @@ const privateReadOperations = [
   "receipts.listReceiptsForApproval",
   "content.readContentWorkspace",
   "admissions.readApplicantProgress",
+  "social-events.readScope",
+  "social-events.list",
 ] as const;
 const noStoreReadOperations = [
   "system.health",
@@ -1102,6 +1123,7 @@ describe("native API reflection", () => {
       ["profile", "Profile"],
       ["receipts", "Receipts"],
       ["recruitment", "Recruitment"],
+      ["social-events", "Social events"],
       ["system", "System"],
     ]);
     for (const [operationId, documented] of byId) {

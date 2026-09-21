@@ -373,6 +373,24 @@
       "path": "/api/recruitment/interviews/{interviewId}:schedule"
     },
     {
+      "group": "social-events",
+      "method": "POST",
+      "operationId": "social-events.create",
+      "path": "/api/social-events"
+    },
+    {
+      "group": "social-events",
+      "method": "GET",
+      "operationId": "social-events.list",
+      "path": "/api/social-events"
+    },
+    {
+      "group": "social-events",
+      "method": "GET",
+      "operationId": "social-events.readScope",
+      "path": "/api/social-events/scope"
+    },
+    {
       "group": "substitutes",
       "method": "POST",
       "operationId": "substitutes.activate",

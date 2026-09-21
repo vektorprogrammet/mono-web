@@ -7,6 +7,7 @@ import { Organization, OrganizationLive } from "./organization/index.js";
 import { Profile, ProfileLive } from "./profile/index.js";
 import { Recruitment, RecruitmentLive } from "./recruitment/index.js";
 import { Schools, SchoolsLive } from "./schools/index.js";
+import { SocialEvents, SocialEventsLive } from "./social-events/index.js";
 import type { Layer } from "effect";
 import {
   capabilityAuthorityDependencies,
@@ -36,6 +37,7 @@ const implementedCapabilityLayers = {
   Profile: ProfileLive,
   Schools: SchoolsLive,
   Recruitment: RecruitmentLive,
+  SocialEvents: SocialEventsLive,
 } satisfies {
   readonly Admissions: Layer.Layer<Admissions, never, Database>;
   readonly Economy: Layer.Layer<Economy, never, Database>;
@@ -47,6 +49,7 @@ const implementedCapabilityLayers = {
     never,
     Database | Admissions | Organization | Profile
   >;
+  readonly SocialEvents: Layer.Layer<SocialEvents>;
 };
 
 describe("logical capability dependencies", () => {
@@ -66,6 +69,7 @@ describe("logical capability dependencies", () => {
       Schools: ["Database", "Organization"],
       Recruitment: ["Database", "Admissions", "Organization", "Profile"],
       Economy: ["Database", "Identity", "PrivateFileStore", "NotificationGateway"],
+      SocialEvents: ["Database", "Organization"],
       Content: ["ContentManagement"],
       ContentManagement: [],
       PrivateFileStore: [],
@@ -81,6 +85,7 @@ describe("logical capability dependencies", () => {
       "Profile",
       "Recruitment",
       "Schools",
+      "SocialEvents",
     ]);
   });
 });

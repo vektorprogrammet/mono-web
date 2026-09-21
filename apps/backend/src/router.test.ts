@@ -29,6 +29,7 @@ import {
 import type { Economy } from "@vektorprogrammet/domain/receipt";
 import type { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { Schools } from "@vektorprogrammet/domain/schools";
+import { SocialEvents } from "@vektorprogrammet/domain/social-events";
 import { DateTime, Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeBackendConfig } from "./config.js";
@@ -166,6 +167,13 @@ const organization = {
 const schools = Schools.of({
   listDirectory: () => Effect.succeed({ activeSchools: [], inactiveSchools: [] }),
 });
+const socialEvents = SocialEvents.of({
+  readSnapshotInstant: () => Effect.die("unexpected social-event read"),
+  readScope: () => Effect.die("unexpected social-event read"),
+  readList: () => Effect.die("unexpected social-event read"),
+  validateScope: () => Effect.die("unexpected social-event validation"),
+  create: () => Effect.die("unexpected social-event create"),
+});
 
 const makeRun =
   (identity: IdentityShape, organizationService: OrganizationShape = organization): BackendRun =>
@@ -187,6 +195,7 @@ const makeRun =
       | ServicePrincipalGrantAuthority
       | ContentManagement
       | Content
+      | SocialEvents
     >,
   ): Promise<A> =>
     runTestPromise(
@@ -196,6 +205,7 @@ const makeRun =
         Effect.provideService(Organization, organizationService),
         Effect.provideService(Schools, schools),
         Effect.provideService(Identity, identity),
+        Effect.provideService(SocialEvents, socialEvents),
         Effect.provideService(
           IdentitySnapshot,
           IdentitySnapshot.of({

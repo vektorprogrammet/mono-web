@@ -159,6 +159,10 @@ const invitationResponseCapabilityConfinementMigrationUrl = new URL(
   "../migrations/0042-invitation-response-capability-confinement.sql",
   import.meta.url,
 );
+const nativeSocialEventCreationMigrationUrl = new URL(
+  "../migrations/0043-native-social-event-creation.sql",
+  import.meta.url,
+);
 export const databaseMigrationDefinitions = [
   { id: "1_receipt-authority", name: "receipt-authority", url: receiptMigrationUrl },
   {
@@ -357,6 +361,11 @@ export const databaseMigrationDefinitions = [
     id: "42_invitation-response-capability-confinement",
     name: "invitation-response-capability-confinement",
     url: invitationResponseCapabilityConfinementMigrationUrl,
+  },
+  {
+    id: "43_native-social-event-creation",
+    name: "native-social-event-creation",
+    url: nativeSocialEventCreationMigrationUrl,
   },
 ] as const;
 

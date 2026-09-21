@@ -9,6 +9,7 @@ import { Admissions } from "@vektorprogrammet/domain/admissions";
 import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
 import { InactiveActor, UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
+import { SocialEvents } from "@vektorprogrammet/domain";
 import { type Database } from "@vektorprogrammet/domain/database";
 import { Identity, type IdentityRequestContext } from "@vektorprogrammet/domain/identity";
 import { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
@@ -51,6 +52,10 @@ import {
 } from "./receipt/http.js";
 import { RecruitmentApiHandlers } from "./recruitment/http.js";
 import {
+  SocialEventsApiHandlers,
+  type SocialEventTransactionHook,
+} from "./social-events/http.js";
+import {
   allowsNativePreflightHeaders,
   decideTrustedOrigin,
   prepareIdentityBoundaryRequest,
@@ -78,6 +83,7 @@ export type BackendRun = <A, E>(
     | OAuthCredentialAuthority
     | ContentManagement
     | Content
+    | SocialEvents
   >,
 ) => Promise<A>;
 
@@ -123,6 +129,8 @@ export interface BackendAuthHandler {
 export interface BackendHttpOptions {
   /** Evidence compositions can pin one authorization instant without patching the global clock. */
   readonly now?: () => string;
+  /** Test-only social-event transaction coordination for real concurrent snapshot evidence. */
+  readonly socialEventsTransactionHook?: SocialEventTransactionHook;
 }
 
 /**
@@ -269,6 +277,7 @@ export const makeExternalNativeApiRouterLayer = (
       },
       run,
     }),
+    SocialEventsApiHandlers({ run, transactionHook: options.socialEventsTransactionHook }),
   ).pipe(Layer.provide(NativeHttpApiMiddlewareLive));
 
   const nativeRoutes = HttpApiBuilder.layer(ExternalNativeApi).pipe(

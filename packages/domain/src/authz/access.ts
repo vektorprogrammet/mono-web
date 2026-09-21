@@ -69,6 +69,9 @@ export const CAPABILITY_TYPE_IDS = [
   "content.read-article",
   "content.revise-article",
   "content.publish-article",
+  "social-events.read-scope",
+  "social-events.read",
+  "social-events.create",
   "receipts.read-internal-evidence",
 ] as const;
 const ruleTargetCapabilityTypeIds: ReadonlySet<(typeof CAPABILITY_TYPE_IDS)[number]> = new Set([
@@ -109,6 +112,11 @@ export const INVITATION_RESPONSE_CAPABILITY = CapabilityTypeId.make(
 export const READ_INTERNAL_RECEIPT_EVIDENCE_CAPABILITY = CapabilityTypeId.make(
   "receipts.read-internal-evidence",
 );
+export const SOCIAL_EVENTS_READ_SCOPE_CAPABILITY = CapabilityTypeId.make(
+  "social-events.read-scope",
+);
+export const SOCIAL_EVENTS_READ_CAPABILITY = CapabilityTypeId.make("social-events.read");
+export const SOCIAL_EVENTS_CREATE_CAPABILITY = CapabilityTypeId.make("social-events.create");
 
 export const DOMAIN_ID_VALUES = [
   "admissions",
@@ -119,6 +127,7 @@ export const DOMAIN_ID_VALUES = [
   "receipts",
   "recruitment",
   "schools",
+  "social-events",
   "system",
 ] as const;
 export const DOMAIN_IDS = Object.fromEntries(DOMAIN_ID_VALUES.map((id) => [id, true])) as {
@@ -128,6 +137,7 @@ export const DomainId = Schema.Literals(DOMAIN_ID_VALUES).pipe(Schema.brand("Dom
 export type DomainId = typeof DomainId.Type;
 export const RECEIPT_DOMAIN_ID = DomainId.make("receipts");
 export const SYSTEM_DOMAIN_ID = DomainId.make("system");
+export const SOCIAL_EVENTS_DOMAIN_ID = DomainId.make("social-events");
 
 export const RESOURCE_KIND_VALUES = [
   "identity-session",
@@ -236,6 +246,9 @@ export const SCOPE_RESOLVER_IDS = [
   "content.article-by-id",
   "content.public-news",
   "content.public-news-by-slug",
+  "social-events.scope",
+  "social-events.list",
+  "social-events.create",
 ] as const;
 export const ScopeResolverId = Schema.Literals(SCOPE_RESOLVER_IDS).pipe(
   Schema.brand("ScopeResolverId"),
@@ -246,6 +259,9 @@ export const RECEIPT_BY_ID_SCOPE_RESOLVER = ScopeResolverId.make("receipts.by-id
 export const RECEIPT_APPROVAL_QUEUE_SCOPE_RESOLVER =
   ScopeResolverId.make("receipts.approval-queue");
 export const SYSTEM_PUBLIC_SCOPE_RESOLVER = ScopeResolverId.make("system.health");
+export const SOCIAL_EVENTS_SCOPE_RESOLVER = ScopeResolverId.make("social-events.scope");
+export const SOCIAL_EVENTS_LIST_SCOPE_RESOLVER = ScopeResolverId.make("social-events.list");
+export const SOCIAL_EVENTS_CREATE_SCOPE_RESOLVER = ScopeResolverId.make("social-events.create");
 
 export const PrincipalSchema = Schema.TaggedUnion({
   Anonymous: {},

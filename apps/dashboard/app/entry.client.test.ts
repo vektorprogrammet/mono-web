@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => {
     registerOrganization: vi.fn(),
     registerSchools: vi.fn(),
     registerContent: vi.fn(),
+    registerSocialEvents: vi.fn(),
     registerProfile: vi.fn(),
   };
 });
@@ -40,6 +41,9 @@ vi.mock("./foldkit/schools/elements", () => ({
 vi.mock("./foldkit/content/elements", () => ({
   registerContentWorkspaceElement: mocks.registerContent,
 }));
+vi.mock("./foldkit/social-events/elements", () => ({
+  registerSocialEventsElement: mocks.registerSocialEvents,
+}));
 vi.mock("./foldkit/profile/elements", () => ({
   registerProfileEditorElement: mocks.registerProfile,
 }));
@@ -50,6 +54,7 @@ const registrations = [
   mocks.registerOrganization,
   mocks.registerSchools,
   mocks.registerContent,
+  mocks.registerSocialEvents,
   mocks.registerProfile,
 ] as const;
 
