@@ -48,6 +48,15 @@ describe("dashboardApplicationRequest", () => {
     expect(new URL(application.url).pathname).toBe(schoolSurveyPath("survey.0111.data"));
   });
 
+  it("decodes an escaped opaque ID before framing its canonical path", () => {
+    const original = new Request("https://vektor.phibkro.org/undersokelse/foo%2F%C3%A6.data", {
+      headers: { Accept: "text/html" },
+    });
+
+    const application = dashboardApplicationRequest(original);
+    expect(new URL(application.url).pathname).toBe(schoolSurveyPath("foo/æ.data"));
+  });
+
   it("leaves React Router data-action paths unchanged", () => {
     const original = new Request("https://vektor.phibkro.org/undersokelse/survey.0111.data.data", {
       headers: { Accept: "text/x-script" },

@@ -26,7 +26,14 @@ export const dashboardApplicationRequest = (request: Request): Request => {
     request.headers.get("accept")?.includes("text/html") === true;
   if (!documentRequest) return request;
 
-  url.pathname = schoolSurveyPath(url.pathname.slice("/undersokelse/".length));
+  const encodedSurveyId = url.pathname.slice("/undersokelse/".length);
+  let surveyId: string;
+  try {
+    surveyId = decodeURIComponent(encodedSurveyId);
+  } catch {
+    return request;
+  }
+  url.pathname = schoolSurveyPath(surveyId);
   return new Request(url, request);
 };
 
