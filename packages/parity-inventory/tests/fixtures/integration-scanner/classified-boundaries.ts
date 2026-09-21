@@ -11,6 +11,14 @@ export const methods = {
   },
   configured: async (url: string): Promise<Response> => fetch(url),
   configuredPath: async (assignmentPath: string): Promise<Response> => fetch(assignmentPath),
+  delivered: async (deliveredUrl: string): Promise<Response> => fetch(deliveredUrl),
+  loopback: async (port: number): Promise<Response> => fetch(`http://127.0.0.1:${port}/mail`),
+  backendProxy: async (request: Request): Promise<Response> =>
+    fetch(new Request(backendUrl(request))),
+  nestedClient: (backendOrigin: string) =>
+    createPromiseClient(backendOrigin, {
+      fetch: (input: Request, init?: RequestInit) => fetch(input, init),
+    }),
   journey: async (
     http: JourneyHttpClientShape,
     request: { readonly url: string },

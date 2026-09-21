@@ -4302,7 +4302,7 @@ const providerFromText = (text: string): string | null => {
     [/\b(?:OpenAI|Anthropic)(?:Client|Adapter|Service)?\b/i, "ai"],
     [/\b(?:ipinfo\.io|IpInfo)\b/i, "ipinfo"],
     [
-      /\b(?:JourneyHttpClient|NodeJourneyHttpLayer|createEffectClient|canonicalOrigin|backendOrigin|apiOrigin|dashboardOrigin|serverOrigin|input\.api)\b|\borigin\s*\+|new\s+URL\s*\([^,]+,\s*(?:origin|api|ui|canonicalOrigin|backendOrigin|apiOrigin|baseUrl)\s*\)|\$\{\s*(?:origin|api|ui|canonicalOrigin|backendOrigin|apiOrigin|baseUrl)\s*\}/i,
+      /\b(?:JourneyHttpClient|NodeJourneyHttpLayer|createEffectClient|backendUrl|canonicalOrigin|backendOrigin|apiOrigin|dashboardOrigin|serverOrigin|input\.api)\b|\borigin\s*\+|new\s+URL\s*\([^,]+,\s*(?:origin|api|ui|canonicalOrigin|backendOrigin|apiOrigin|baseUrl)\s*\)|\$\{\s*(?:origin|api|ui|canonicalOrigin|backendOrigin|apiOrigin|baseUrl)\s*\}/i,
       "vektorprogrammet-api",
     ],
   ];
@@ -4350,8 +4350,10 @@ const providerFromEndpointArguments = (argumentsText: string): string | null => 
   const named = providerFromText(argumentsText);
   if (named !== null) return named;
   const value = argumentsText.trim();
-  return /^(?:url|endpoint|request\.url|input\.url|[A-Za-z_$][A-Za-z0-9_$]*Path)$/i.test(value) ||
-    /\$\{\s*[A-Za-z_$][A-Za-z0-9_$]*Path\s*\}/.test(value)
+  if (/^`?https?:\/\/(?:127\.0\.0\.1|localhost)(?::|\b)/i.test(value)) return "loopback-http";
+  return /^(?:url|endpoint|request\.url|input\.url|[A-Za-z_$][A-Za-z0-9_$]*(?:Path|Url))$/i.test(
+    value,
+  ) || /\$\{\s*[A-Za-z_$][A-Za-z0-9_$]*Path\s*\}/.test(value)
     ? "configured-http-endpoint"
     : null;
 };
@@ -4378,7 +4380,19 @@ const providerFromCallExpression = (
   const named = providerFromText(callText);
   if (named !== null) return named;
   if (/^route\.fetch\s*\(/.test(callText)) return "configured-http-endpoint";
-  return providerFromEndpointArguments(selected.arguments[0]?.getText(sourceFile) ?? "");
+  const argumentProvider = providerFromEndpointArguments(
+    selected.arguments[0]?.getText(sourceFile) ?? "",
+  );
+  if (argumentProvider !== null) return argumentProvider;
+  let parent: ts.Node | undefined = selected.parent;
+  while (parent !== undefined && parent.getWidth(sourceFile) <= 4_000) {
+    if (ts.isCallExpression(parent)) {
+      const parentProvider = providerFromText(parent.getText(sourceFile));
+      if (parentProvider !== null) return parentProvider;
+    }
+    parent = parent.parent;
+  }
+  return null;
 };
 
 const integrationAdapterPattern =
@@ -5186,9 +5200,7 @@ const integrationCallsFor = (
     const argumentProviderRef = providerFromEndpointArguments(rawEndpointArguments);
     const guardedProviderRef =
       callableName === "fetch" &&
-      /\bnew\s+URL\s*\([^)]*\.url\)\.origin\s*!==?\s*[A-Za-z_$][A-Za-z0-9_$]*\.backendOrigin\b/.test(
-        contextStructure,
-      )
+      /\.origin\s*!==?\s*[A-Za-z_$][A-Za-z0-9_$]*\.backendOrigin\b/.test(contextStructure)
         ? providerFromText(contextStructure)
         : null;
     const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(endpointArguments);

@@ -269,7 +269,12 @@ test("loopback-only guards require structural proof and preserve every near miss
       "provider_ref" in row.details ? row.details.provider_ref : null,
     ),
   ).toEqual(
-    expect.arrayContaining(["configured-http-endpoint", "ipinfo", "vektorprogrammet-api"]),
+    expect.arrayContaining([
+      "configured-http-endpoint",
+      "ipinfo",
+      "loopback-http",
+      "vektorprogrammet-api",
+    ]),
   );
   expect(
     classifiedRows.every(
