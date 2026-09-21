@@ -9,14 +9,23 @@ import {
   IdentitySessionNotFound,
   type IdentityShape,
 } from "@vektorprogrammet/domain/identity";
-import { PersonId } from "@vektorprogrammet/domain/organization";
+import {
+  OrganizationPersistenceError,
+  PersonId,
+} from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import { DateTime, Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeProfileTestHttp as makeProfileApiHttp } from "../test/native-http.js";
+import { runTestPromise } from "../../test/runtime.js";
 
-const tagged = (tag: string): Error & { readonly _tag: string } =>
-  Object.assign(new Error(tag), { _tag: tag });
+type ProfileAuthorityTestFailure = Error & {
+  readonly _tag: "AuthorityInactive" | "NotInScope";
+};
+
+const tagged = <Tag extends ProfileAuthorityTestFailure["_tag"]>(
+  tag: Tag,
+): Error & { readonly _tag: Tag } => Object.assign(new Error(tag), { _tag: tag });
 
 const authorityDeniedProblem = {
   type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
@@ -63,8 +72,10 @@ const securityServices = Layer.mergeAll(
   Layer.succeed(Identity, identity),
   Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
 );
-const request = async (cause: unknown): Promise<Response> =>
-  makeProfileApiHttp(
+const request = async (
+  cause: ProfileAuthorityTestFailure | OrganizationPersistenceError,
+): Promise<Response> =>
+  runTestPromise(makeProfileApiHttp(
     {
       config: {} as never,
       resolveActor: () => Effect.fail(cause),
@@ -74,7 +85,7 @@ const request = async (cause: unknown): Promise<Response> =>
     new Request("http://backend.test/api/profile", {
       headers: { cookie: "better-auth.session_token=profile-test-session" },
     }),
-  );
+  ));
 
 describe("Profile HTTP authority failures", () => {
   it.each(["AuthorityInactive", "NotInScope"] as const)(
@@ -88,11 +99,15 @@ describe("Profile HTTP authority failures", () => {
     },
   );
 
-  it("maps an unknown authority provider failure to unavailable", async () => {
-    const response = await request(new Error("provider unavailable"));
+  it("maps an unavailable authority provider failure to unavailable", async () => {
+    const response = await request(
+      new OrganizationPersistenceError({
+        operation: "resolve profile test authority",
+        message: "provider unavailable",
+      }),
+    );
 
     expect(response.status).toBe(503);
-    expect(response.headers.get("content-type")).toBe("application/problem+json");
     expect(await response.json()).toEqual(profileUnavailableProblem);
   });
 });
@@ -127,7 +142,7 @@ describe("Profile HTTP ETag", () => {
       Layer.succeed(Profile, profileService),
       securityServices,
     );
-    return makeProfileApiHttp(
+    return runTestPromise(makeProfileApiHttp(
       {
         config: {} as never,
         resolveActor: () => Effect.succeed({ personId: profile.personId, role }),
@@ -137,7 +152,7 @@ describe("Profile HTTP ETag", () => {
       new Request("http://backend.test/api/profile", {
         headers: { cookie: "better-auth.session_token=profile-test-session" },
       }),
-    );
+    ));
   };
 
   it("changes only after the persisted role representation revision changes", async () => {

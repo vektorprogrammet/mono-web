@@ -31,6 +31,7 @@ import { DateTime, Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeBackendConfig } from "../config.js";
 import { makeBackendTestHttp as makeBackendHttp } from "../test/native-http.js";
+import { runTestPromise } from "../../test/runtime.js";
 
 const token = "better-auth.session_token";
 const environment = {
@@ -333,15 +334,15 @@ const backend = makeBackendHttp(config, backendServices, {
 });
 
 const request = (): Promise<Response> =>
-  backend.fetch(
+  runTestPromise(backend.fetch(
     new Request("http://backend.test/api/people", {
       headers: { cookie: `${token}=value` },
     }),
-  );
+  ));
 
 describe("GET /api/people (spec 0077.2)", () => {
   it("answers 401 without a session", async () => {
-    const response = await backend.fetch(new Request("http://backend.test/api/people"));
+    const response = await runTestPromise(backend.fetch(new Request("http://backend.test/api/people")));
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({
       type: "urn:vektorprogrammet:problem:v0.2:credential.invalid",
@@ -525,11 +526,11 @@ describe("GET /api/people (spec 0077.2)", () => {
 
   it("rejects a query string with 422", async () => {
     resetScenario();
-    const response = await backend.fetch(
+    const response = await runTestPromise(backend.fetch(
       new Request("http://backend.test/api/people?page=2", {
         headers: { cookie: `${token}=value` },
       }),
-    );
+    ));
     expect(response.status).toBe(422);
   });
 });

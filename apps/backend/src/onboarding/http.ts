@@ -57,6 +57,14 @@ const semantic = <A>(operation: () => A) =>
         ? cause
         : new HttpSemanticFailure("internal.error", 500),
   });
+const promise = <A>(operation: () => PromiseLike<A>) =>
+  Effect.tryPromise({
+    try: () => operation(),
+    catch: (cause) =>
+      cause instanceof HttpSemanticFailure
+        ? cause
+        : new HttpSemanticFailure("internal.error", 500),
+  });
 const tokenDigest = (token: string) =>
   Effect.tryPromise({
     try: () => crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)),

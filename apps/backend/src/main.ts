@@ -99,11 +99,14 @@ const nativeApiLayer = (
   ingress === "external"
     ? makeExternalNativeApiRouterLayer(config)
     : makeInternalNativeApiRouterLayer(config)
-).pipe(Layer.provide(backendServicesLayer), Layer.provide(httpLayer));
+).pipe(
+  HttpRouter.provideRequest(backendServicesLayer),
+  Layer.provide(httpLayer),
+);
 const backendLayer = Layer.mergeAll(backendServicesLayer, httpLayer, nativeApiLayer);
 const runtime = ManagedRuntime.make(backendLayer);
 const router = await runtime.runPromise(HttpRouter.HttpRouter);
-const nativeHandler = HttpEffect.toWebHandlerWith(await runtime.context())(router.asHttpEffect());
+const nativeHandler = HttpEffect.toWebHandler(router.asHttpEffect());
 const authBoundary = <A>(
   operation: (engine: AuthEngineService) => Promise<A>,
 ) =>

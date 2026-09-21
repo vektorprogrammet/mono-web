@@ -4,6 +4,7 @@ import {
   OAuthCredentialAuthority,
   type DatabaseShape,
 } from "@vektorprogrammet/database";
+import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
   Identity,
   IdentityActor,
@@ -25,6 +26,7 @@ import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeOrganizationApiConfig } from "./config.js";
 import { makeOrganizationTestHttp as makeOrganizationApiHttp } from "../test/native-http.js";
+import { runTestPromise } from "../../test/runtime.js";
 
 const ADMIN_SESSION = "organization-admin-session";
 const MEMBER_SESSION = "organization-member-session";
@@ -296,9 +298,7 @@ const http = makeOrganizationApiHttp(
     resolveActor: (request) => {
       const cookieHeader = request.headers.get("cookie");
       if (cookieHeader === null) {
-        return Effect.fail(
-          Object.assign(new Error("UnauthenticatedActor"), { _tag: "UnauthenticatedActor" }),
-        );
+        return Effect.fail(new UnauthenticatedActor({ message: "authentication required" }));
       }
       return Effect.succeed(
         cookieHeader.includes(`better-auth.session_token=${ADMIN_SESSION}`)
@@ -317,7 +317,7 @@ const http = makeOrganizationApiHttp(
   services,
 );
 const request = (pathname: string, init?: RequestInit): Promise<Response> =>
-  http.fetch(new Request(`http://backend.test${pathname}`, init));
+  runTestPromise(http.fetch(new Request(`http://backend.test${pathname}`, init)));
 const post = (
   pathname: string,
   session: string,

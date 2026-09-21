@@ -3,9 +3,18 @@ import { PlacementsApiHandlers } from "./placements/http.js";
 import { SubstitutesApiHandlers } from "./substitutes/http.js";
 import { ContactApiHandlers } from "./contact/http.js";
 import { BlockList, isIP } from "node:net";
-import { InactiveActor, UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
+import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
+import {
+  AdmissionScopeDenied,
+  InactiveActor,
+  UnauthenticatedActor,
+} from "@vektorprogrammet/domain/admission-period";
+import {
+  type Identity,
+  type IdentityEngineError,
+  type IdentityRequestContext,
+} from "@vektorprogrammet/domain/identity";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
-import { type IdentityRequestContext } from "@vektorprogrammet/domain/identity";
 import { ExternalNativeApi, InternalNativeApi } from "@vektorprogrammet/http-api";
 import { Effect, Layer } from "effect";
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
@@ -51,11 +60,10 @@ import {
   type NativeSessionBoundaryPolicy,
 } from "./session-security.js";
 
-
-
 export interface BackendHttp {
   readonly fetch: (request: Request) => Promise<Response>;
 }
+
 
 const jsonResponse = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {
@@ -128,16 +136,22 @@ export const makeExternalNativeApiRouterLayer = (
         }
         return Effect.try({
           try: () => admissionActorForDepartment(authority, DepartmentId.make(departmentScope)),
-          catch: (cause) => cause,
+          catch: (cause) => {
+            if (cause instanceof InactiveActor || cause instanceof AdmissionScopeDenied) return cause;
+            throw cause;
+          },
         });
       }),
     );
 
-  const receiptIdentity: ReceiptIdentityResolvers = {
-    resolveAuthorizationPrincipal: (request) =>
+  const receiptIdentity: ReceiptIdentityResolvers<
+    IdentityEngineError | UnauthenticatedActor,
+    Identity | OAuthCredentialAuthority
+  > = {
+    resolveAuthorizationPrincipal: (request: Request) =>
       resolveRequestPersonAtInstant(request, { now: options.now }),
-    resolvePersonId: (request) => resolveRequestPerson(request),
-    resolveApprovalCredential: (request) =>
+    resolvePersonId: (request: Request) => resolveRequestPerson(request),
+    resolveApprovalCredential: (request: Request) =>
       resolveRequestCredentialAtInstant(request, "Either", { now: options.now }),
   };
   const receiptOptions = {
@@ -247,16 +261,18 @@ export const makeInternalNativeApiRouterLayer = (
   config: BackendConfig,
   options: BackendHttpOptions = {},
 ) => {
-  const receiptOptions = {
-    config: config.receipt,
-    identity: {
+  const receiptIdentity: ReceiptIdentityResolvers<IdentityEngineError | UnauthenticatedActor, Identity> =
+    {
       resolveAuthorizationPrincipal: (request: Request) =>
         resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, {
           now: options.now,
         }),
       resolvePersonId: (request: Request) =>
         resolveAuthenticatedPerson(request.headers.get("cookie") ?? undefined),
-    } satisfies ReceiptIdentityResolvers,
+    };
+  const receiptOptions = {
+    config: config.receipt,
+    identity: receiptIdentity,
     now: options.now,
   };
   const middlewareLayer = makeNativeHttpApiMiddlewareLayer(config.contact);

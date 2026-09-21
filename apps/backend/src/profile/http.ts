@@ -289,7 +289,7 @@ const readOwnProfile = (request: Request, input: ProfileApiHttpOptions) =>
     );
   });
 
-const updateOwnProfile = (request: Request, input: ProfileApiHttpOptions) =>
+const updateOwnProfile = (request: Request) =>
   Effect.gen(function* () {
     const { idempotencyKey, ifMatch } = yield* Effect.try({
       try: () => ({
@@ -440,7 +440,7 @@ export const ProfileApiHandlers = (input: ProfileApiHttpOptions) =>
           toHttpApiResponse(request, (webRequest) => readOwnProfile(webRequest, input), errorResponse),
         )
         .handleRaw("updateOwnProfile", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => updateOwnProfile(webRequest, input), errorResponse),
+          toHttpApiResponse(request, (webRequest) => updateOwnProfile(webRequest), errorResponse),
         ),
     ),
   );

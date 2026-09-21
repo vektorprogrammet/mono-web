@@ -1,4 +1,5 @@
 import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
+import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
   Identity,
   IdentityActor,
@@ -15,6 +16,7 @@ import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeOrganizationApiConfig } from "./config.js";
 import { makeOrganizationTestHttp as makeOrganizationApiHttp } from "../test/native-http.js";
+import { runTestPromise } from "../../test/runtime.js";
 
 /**
  * Specs 0059/0060 gate matrix and wire shapes, driven through the backend
@@ -211,9 +213,7 @@ const http = makeOrganizationApiHttp(
     resolveAuthority: (request) => {
       const cookie = request.headers.get("cookie");
       if (cookie === null || cookie.length === 0) {
-        return Effect.fail(
-          Object.assign(new Error("UnauthenticatedActor"), { _tag: "UnauthenticatedActor" }),
-        );
+        return Effect.fail(new UnauthenticatedActor({ message: "authentication required" }));
       }
       const authority = authorityForToken(cookie);
       return Effect.succeed({
@@ -232,14 +232,14 @@ const http = makeOrganizationApiHttp(
 );
 
 const get = (pathname: string, cookie?: string): Promise<Response> =>
-  http.fetch(
+  runTestPromise(http.fetch(
     new Request(`http://backend.test${pathname}`, {
       headers:
         cookie === undefined
           ? {}
           : { cookie: `better-auth.session_token=${cookie.replace(/^session=/, "")}` },
     }),
-  );
+  ));
 
 describe("spec 0059 team-interest HTTP boundary", () => {
   it("answers 401 without a session before any data leaves the store", async () => {

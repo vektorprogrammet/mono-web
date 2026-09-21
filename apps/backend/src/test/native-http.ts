@@ -3,6 +3,7 @@ import * as BunFileSystem from "@effect/platform-bun/BunFileSystem";
 import * as BunPath from "@effect/platform-bun/BunPath";
 import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import type { Identity } from "@vektorprogrammet/domain/identity";
+import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
   ContentApi,
   DirectoryApi,
@@ -92,106 +93,95 @@ type NativeMiddlewareRequirements =
   | PersonSecurity
   | InvitationCapabilitySecurity
   | RequestSchemaErrorMiddleware;
-type TestServiceLayer = Layer.Layer<unknown>;
-const provideTestServices = <Output, Error, Requirements>(
-  layer: Layer.Layer<Output, Error, Requirements>,
-  services: TestServiceLayer,
-) => layer.pipe(Layer.provide(services as Layer.Layer<Requirements>));
+type TestServiceLayer = Layer.Layer<Identity | OAuthCredentialAuthority>;
 
-const testRouterFetch = <Id extends string, Groups extends HttpApiGroup.Constraint, R>(
+const testRouterFetch = <
+  Id extends string,
+  Groups extends HttpApiGroup.Constraint,
+  R,
+  S extends TestServiceLayer,
+>(
   contract: HttpApi.HttpApi<Id, Groups>,
-  handlers: Layer.Layer<
-    HttpApiGroup.ToService<Id, Groups>,
-    never,
-    R | NativeMiddlewareRequirements
-  >,
-  services: TestServiceLayer,
-): ((request: Request) => Promise<Response>) => {
-  const middleware = provideTestServices(NativeHttpApiMiddlewareLive, services);
-  const app = provideTestServices(
-    HttpApiBuilder.layer(contract).pipe(
-      Layer.provide(handlers),
-      Layer.provide(middleware),
-    ),
-    services,
-  ).pipe(Layer.provide(platform));
-  const routerLayer = Layer.merge(app, notFound);
+  handlers: Layer.Layer<HttpApiGroup.ToService<Id, Groups>, never, R>,
+  services: S,
+) => {
+  const middleware = NativeHttpApiMiddlewareLive.pipe(Layer.provide(services));
+  const app = HttpApiBuilder.layer(contract).pipe(
+    Layer.provide(handlers),
+    Layer.provide(middleware),
+    Layer.provide(platform),
+  );
+  const remainingServices = Layer.effectContext(
+    Effect.context<Exclude<HttpRouter.Request.Only<"Requires", R>, Layer.Success<S>>>(),
+  );
+  const routerLayer = HttpRouter.provideRequest(remainingServices)(
+    HttpRouter.provideRequest(services)(Layer.merge(app, notFound)),
+  );
   // Each test request owns and releases the handler layer that serves it.
-  return async (request) => {
-    const webHandler = HttpRouter.toWebHandler(routerLayer, {
-      disableLogger: true,
-    });
-    // HttpRouter's conditional context type cannot reduce across this generic group helper.
-    const handler = webHandler.handler as unknown as (request: Request) => Promise<Response>;
-    try {
-      return await handler(request);
-    } finally {
-      await webHandler.dispose();
-    }
-  };
+  return (request: Request) =>
+    Effect.contextWith((context) =>
+      Effect.acquireUseRelease(
+        Effect.sync(() => HttpRouter.toWebHandler(routerLayer, { disableLogger: true })),
+        (webHandler) => Effect.promise(() => webHandler.handler(request, context)),
+        (webHandler) => Effect.promise(() => webHandler.dispose()),
+      ),
+    );
 };
 
-const testFetch = <Id extends string, Groups extends HttpApiGroup.Constraint, R>(
+const testFetch = <
+  Id extends string,
+  Groups extends HttpApiGroup.Constraint,
+  R,
+  S extends TestServiceLayer,
+>(
   contract: HttpApi.HttpApi<Id, Groups>,
-  handlers: Layer.Layer<
-    HttpApiGroup.ToService<Id, Groups>,
-    never,
-    R | NativeMiddlewareRequirements
-  >,
-  services: TestServiceLayer,
-): ((request: Request) => Promise<Response>) =>
-  makeBackendHttp(
-    testRouterFetch(contract, handlers, services),
-    {
-      handle: () => Promise.resolve(new Response(null, { status: 404 })),
-      recordTrustedOriginRejection: () => Promise.resolve(),
-    },
-    testSessionBoundary,
-  ).fetch;
+  handlers: Layer.Layer<HttpApiGroup.ToService<Id, Groups>, never, R>,
+  services: S,
+) => testRouterFetch(contract, handlers, services);
 
-export const makeOrganizationTestHttp = (
+export const makeOrganizationTestHttp = <S extends TestServiceLayer>(
   options: OrganizationApiHttpOptions,
-  services: TestServiceLayer,
+  services: S,
 ) => ({
   fetch: testFetch(organizationContract, OrganizationApiHandlers(options), services),
 });
 
-export const makeProfileTestHttp = (
+export const makeProfileTestHttp = <S extends TestServiceLayer>(
   options: ProfileApiHttpOptions,
-  services: TestServiceLayer,
+  services: S,
 ) => ({
   fetch: testFetch(profileContract, ProfileApiHandlers(options), services),
 });
 
-export const makeRecruitmentTestHttp = (
+export const makeRecruitmentTestHttp = <S extends TestServiceLayer>(
   options: RecruitmentApiHttpOptions,
-  services: TestServiceLayer,
+  services: S,
 ) => ({
   fetch: testFetch(recruitmentContract, RecruitmentApiHandlers(options), services),
 });
 
-export const makeReceiptTestHttp = (
-  options: ReceiptApiHttpOptions,
-  services: TestServiceLayer,
+export const makeReceiptTestHttp = <E, R, S extends TestServiceLayer>(
+  options: ReceiptApiHttpOptions<E, R>,
+  services: S,
 ) => ({
   fetch: testFetch(receiptContract, ReceiptApiHandlers(options), services),
 });
 
-export const makeInternalReceiptTestHttp = (
-  options: ReceiptApiHttpOptions,
-  services: TestServiceLayer,
+export const makeInternalReceiptTestHttp = <E, R, S extends TestServiceLayer>(
+  options: ReceiptApiHttpOptions<E, R>,
+  services: S,
 ) => ({
   fetch: testRouterFetch(internalReceiptContract, InternalReceiptApiHandlers(options), services),
 });
 
-export const makeContentManagementTestHttp = <E, R>(
+export const makeContentManagementTestHttp = <E, R, S extends TestServiceLayer>(
   resolveActor: (request: Request) => Effect.Effect<ContentRequestActor, E, R>,
-  services: TestServiceLayer,
+  services: S,
 ) => ({
   fetch: testFetch(contentContract, ContentApiHandlers(resolveActor), services),
 });
 
-export const makePublicNewsTestHttp = (services: TestServiceLayer) => ({
+export const makePublicNewsTestHttp = <S extends TestServiceLayer>(services: S) => ({
   fetch: testFetch(
     contentContract,
     ContentApiHandlers(() =>
@@ -201,29 +191,32 @@ export const makePublicNewsTestHttp = (services: TestServiceLayer) => ({
   ),
 });
 
-export const makeDirectoryTestHttp = (
+export const makeDirectoryTestHttp = <S extends TestServiceLayer>(
   options: DirectoryApiHttpOptions,
-  services: TestServiceLayer,
+  services: S,
 ) => ({
   fetch: testFetch(
     directoryContract,
     DirectoryApiHandlers(options, {
-      resolveActor: () => Effect.fail(new Error("school actor resolution is unavailable")),
+      resolveActor: () =>
+        Effect.fail(new UnauthenticatedActor({ message: "school actor resolution is unavailable" })),
     }),
     services,
   ),
 });
 
-export const makeSchoolsTestHttp = (
+export const makeSchoolsTestHttp = <S extends TestServiceLayer>(
   options: SchoolsApiHttpOptions,
-  services: TestServiceLayer,
+  services: S,
 ) => ({
   fetch: testFetch(
     directoryContract,
     DirectoryApiHandlers(
       {
         resolveAuthority: () =>
-          Effect.fail(new Error("people directory authority is unavailable")),
+          Effect.fail(
+            new UnauthenticatedActor({ message: "people directory authority is unavailable" }),
+          ),
       },
       options,
     ),

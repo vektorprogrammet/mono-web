@@ -13,6 +13,7 @@ import { Effect, Layer, Redacted, Result, type SchemaIssue } from "effect";
 import { HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiError, HttpApiMiddleware } from "effect/unstable/httpapi";
 import {
+  resolveAuthenticatedPerson,
   resolveAuthenticatedSession,
   resolveRequestPerson,
 } from "../authority.js";
@@ -118,14 +119,17 @@ const personSecurityLayer = Layer.effect(
       cookieHeader: (httpEffect, { credential }) =>
         Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest;
-          const webRequest = yield* HttpServerRequest.toWeb(request);
+          const webRequest = new Request(request.url, {
+            method: request.method,
+            headers: request.headers,
+          });
           const authentication = yield* Effect.result(
-            webRequest.headers.has("authorization")
+            request.headers.has("authorization")
               ? resolveRequestPerson(webRequest).pipe(
                   Effect.provideService(Identity, identity),
                   Effect.provideService(OAuthCredentialAuthority, oauthCredentialAuthority),
                 )
-              : resolveAuthenticatedSession(Redacted.value(credential)).pipe(
+              : resolveAuthenticatedPerson(Redacted.value(credential)).pipe(
                   Effect.provideService(Identity, identity),
                 ),
           );
@@ -137,7 +141,10 @@ const personSecurityLayer = Layer.effect(
       oauthUserBearer: (httpEffect) =>
         Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest;
-          const webRequest = yield* HttpServerRequest.toWeb(request);
+          const webRequest = new Request(request.url, {
+            method: request.method,
+            headers: request.headers,
+          });
           const authentication = yield* Effect.result(
             resolveRequestPerson(webRequest).pipe(
               Effect.provideService(Identity, identity),

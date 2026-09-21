@@ -1,4 +1,5 @@
 import { Database, type DatabaseShape } from "@vektorprogrammet/database";
+import { Organization } from "@vektorprogrammet/domain/organization";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { contactConfig } from "./config.js";
@@ -7,13 +8,39 @@ import { runTestPromise } from "../../test/runtime.js";
 
 const makeDatabase = () =>
   vi.fn(() => Effect.die("contact quota should not run")) as unknown as DatabaseShape;
+const unexpectedOrganizationAccess = () => Effect.die("unexpected organization access");
+const organization = Organization.of({
+  readDepartment: unexpectedOrganizationAccess,
+  listDepartments: unexpectedOrganizationAccess(),
+  readTeam: unexpectedOrganizationAccess,
+  listTeams: unexpectedOrganizationAccess,
+  listFieldOfStudies: unexpectedOrganizationAccess(),
+  listTeamInterestRegistrations: unexpectedOrganizationAccess,
+  projectMailingLists: unexpectedOrganizationAccess,
+  createDepartment: unexpectedOrganizationAccess,
+  createTeam: unexpectedOrganizationAccess,
+  createFieldOfStudy: unexpectedOrganizationAccess,
+  readMembership: unexpectedOrganizationAccess,
+  listMembershipsForTeam: unexpectedOrganizationAccess,
+  listHistoricalMemberships: unexpectedOrganizationAccess(),
+  resolvePersonAuthority: unexpectedOrganizationAccess,
+  resolvePersonAuthorityForRead: unexpectedOrganizationAccess,
+  deriveDirectoryFacts: unexpectedOrganizationAccess,
+  reviseMembership: unexpectedOrganizationAccess,
+  suspendMembership: unexpectedOrganizationAccess,
+  reinstateMembership: unexpectedOrganizationAccess,
+  importLegacyOrganization: unexpectedOrganizationAccess,
+});
 const handleContact = (
   request: Request,
   config: Parameters<typeof makeContactHandler>[0],
   database: DatabaseShape,
 ) =>
   runTestPromise(
-    makeContactHandler(config)(request).pipe(Effect.provideService(Database, database)),
+    makeContactHandler(config)(request).pipe(
+      Effect.provideService(Database, database),
+      Effect.provideService(Organization, organization),
+    ),
   );
 const config = contactConfig({
   CONTACT_BACKEND_TOKEN: "backend-test-credential-0000000000000000",

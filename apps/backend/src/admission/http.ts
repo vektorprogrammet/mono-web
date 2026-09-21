@@ -2,10 +2,11 @@ import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { Database } from "@vektorprogrammet/database";
 import { Effect, Option, Schema } from "effect";
 import {
-  InactiveActor,
-  UnauthenticatedActor,
   AdmissionPeriodCommandId,
   AdmissionPeriodId,
+  AdmissionScopeDenied,
+  InactiveActor,
+  UnauthenticatedActor,
   type AdmissionPeriodActor,
 } from "@vektorprogrammet/domain/admission-period";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
@@ -22,6 +23,7 @@ import type { Identity, IdentityEngineError } from "@vektorprogrammet/domain/ide
 import {
   DepartmentId,
   type Organization,
+  type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
@@ -92,6 +94,7 @@ export interface AdmissionApiHttpOptions {
     | IdentityEngineError
     | UnauthenticatedActor
     | InactiveActor
+    | AdmissionScopeDenied
     | OrganizationResolutionError
     | TaggedHttpError,
     Identity | OAuthCredentialAuthority | Organization

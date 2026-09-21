@@ -23,6 +23,7 @@ import { DateTime, Effect, Layer } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 import { makeBackendConfig } from "./config.js";
 import { makeBackendTestHttp as makeBackendHttp } from "./test/native-http.js";
+import { runTestPromise } from "../test/runtime.js";
 
 const leaderToken = "leader-session-token";
 const memberToken = "member-session-token";
@@ -206,11 +207,11 @@ const backend = makeBackendHttp(config, backendServices, {
 });
 
 const request = (pathname: string, sessionValue: string): Promise<Response> =>
-  backend.fetch(
+  runTestPromise(backend.fetch(
     new Request(`http://backend.test${pathname}`, {
       headers: { cookie: `better-auth.session_token=${sessionValue}` },
     }),
-  );
+  ));
 
 describe("recruitment actors from authorized departments (spec 0055)", () => {
   beforeEach(() => {

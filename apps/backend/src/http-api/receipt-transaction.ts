@@ -237,13 +237,13 @@ const writeCompleteReceipt = (
  * prepared program. Domain state, audit, outbox, and receipt writes therefore
  * commit or roll back as one unit.
  */
-export const executeNativeHttpCommandPostgres = <E, R>(
-  prepare: Effect.Effect<NativeHttpCommandPlan<E, R>, E, R | Database>,
+export const executeNativeHttpCommandPostgres = <EPrepare, RPrepare, EExecute, RExecute>(
+  prepare: Effect.Effect<NativeHttpCommandPlan<EExecute, RExecute>, EPrepare, RPrepare>,
   options: NativeHttpCommandExecutionOptions = {},
 ): Effect.Effect<
   NativeHttpCommandOutcome,
-  E | NativeHttpReceiptInvalid | NativeHttpReceiptPersistenceError,
-  R | Database
+  EPrepare | EExecute | NativeHttpReceiptInvalid | NativeHttpReceiptPersistenceError,
+  RPrepare | RExecute | Database
 > => {
   const transaction = Database.use((sql) =>
     sql.withTransaction(
