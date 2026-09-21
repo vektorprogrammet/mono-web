@@ -1,7 +1,7 @@
 {
   "specId": "0111",
   "result": "passed",
-  "runtimeRevision": "8aab64a4a3e00f1b6536f7fb905079bdcba20570",
+  "runtimeRevision": "8574848ab07fa273953039708f1d2cc248b250c6",
   "command": "bun --cwd apps/dashboard e2e/run-real-native-school-survey.mjs",
   "topology": {
     "database": "17.11",
@@ -22,6 +22,7 @@
         "dottedSurveyId": true,
         "canonicalDocumentRedirect": true,
         "opaqueSurveyIdPathCodec": true,
+        "urlDotSegmentIdsRejected": true,
         "dashboardWorkerAssetFallback": true,
         "readFailureDraftPreserved": true,
         "rejectedDraftPreserved": true,
@@ -90,8 +91,8 @@
     }
   },
   "checksums": {
-    "runner": "78e5d5ce84a3fd3eeab22a2c15ecc1affcbc0f525a8c4e5417ea0e84ca6caf11",
-    "designSpec": "45d3b4956605a22f71602a1bc29efdbaa5bb418f21b34dd421c56ff74ab6fa46"
+    "runner": "3e104ad8f9f093ae849f42713f97bce64658eadba26a676f4334d649c762d4e6",
+    "designSpec": "9050ccf1617b1c143e7e5ae94fd09113d23984de2683ba867106923bc7b0ecb2"
   },
   "skippedOrUnavailable": [],
   "cleanup": {
