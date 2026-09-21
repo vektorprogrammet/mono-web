@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { NodeRuntimeLayer } from "../node-runtime.js";
 import { applyAcceptedAbsent, collectC2 } from "../src/effects.js";
@@ -25,7 +25,7 @@ import {
   makeRuntimeEvidenceRegister,
 } from "../src/runtime-evidence.js";
 import { createManifestContextFromSnapshots } from "../src/source-manifest.js";
-import { scanRootEffect } from "../src/runtime.js";
+import { readProjectionDirectoryEffect, scanRootEffect } from "../src/runtime.js";
 import { validateInventory } from "../src/schema.js";
 import type { InventoryRow } from "../src/types.js";
 const REPO_ROOT = join(import.meta.dir, "../../..");
@@ -178,6 +178,30 @@ test("terminal pipeline reaches write14 then fresh post-commit diff0 with stable
     cycle.writeReport.inventory_artifact_sha256,
   );
 }, 30_000);
+test("projection diff rejects unsafe entries nested under retained evidence", async () => {
+  const root = mkdtempSync("/tmp/parity-projection-retained-symlink-");
+  try {
+    const retained = join(root, PROJECTION_DIRECTORY, "retained-evidence");
+    mkdirSync(retained, { recursive: true });
+    const target = join(root, "outside.txt");
+    writeFileSync(target, "not projection evidence", "utf8");
+    symlinkSync(target, join(retained, "receipt.json"));
+    let failure: unknown;
+    try {
+      await Effect.runPromise(
+        readProjectionDirectoryEffect(root, PROJECTION_DIRECTORY).pipe(
+          Effect.provide(NodeRuntimeLayer),
+        ),
+      );
+    } catch (cause) {
+      failure = cause;
+    }
+    expect(failure).toMatchObject({ operation: "read_projection" });
+    expect((failure as Error).message).toContain("symbolic link");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 test("accepted dispositions remove their collected failures from the report", () => {
   const failure = {
     failure_id: "failure-original",

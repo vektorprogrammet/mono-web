@@ -29,6 +29,7 @@ export interface ParityRemoveOptions {
 }
 
 export interface ParityFileSystemShape {
+  readonly chmod: (path: string, mode: number) => void;
   readonly exists: (path: string) => boolean;
   readonly exchangeDirectoriesAtomically: (source: string, target: string) => void;
   readonly lstat: (path: string) => ParityFileMetadata;

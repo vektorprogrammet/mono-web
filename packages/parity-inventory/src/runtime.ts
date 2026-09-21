@@ -927,6 +927,28 @@ export const readProjectionEffect = (
         }),
     }),
   );
+const assertRegularDirectoryTree = (
+  fileSystem: ParityFileSystemShape,
+  root: string,
+  directory: string,
+): void => {
+  assertWithinRoot(root, directory);
+  assertNoSymlinkPath(fileSystem, directory);
+  if (!fileSystem.lstat(directory).isDirectory())
+    throw new Error(`projection evidence path is not a directory: ${directory}`);
+  for (const entry of fileSystem.readDirectory(directory)) {
+    const path = join(directory, entry.name);
+    assertNoSymlinkPath(fileSystem, path);
+    const metadata = fileSystem.lstat(path);
+    if (entry.isDirectory() && metadata.isDirectory()) {
+      assertRegularDirectoryTree(fileSystem, root, path);
+      continue;
+    }
+    if (!entry.isFile() || !metadata.isFile())
+      throw new Error(`unsupported projection evidence entry: ${path}`);
+  }
+};
+
 export const readProjectionDirectoryEffect = (
   root: string,
   projectionDirectory: string,
@@ -944,7 +966,10 @@ export const readProjectionDirectoryEffect = (
         const projectionEntries = entries.filter((entry) => {
           const target = join(directory, entry.name);
           assertNoSymlinkPath(fileSystem, target);
-          if (entry.isDirectory()) return false;
+          if (entry.isDirectory()) {
+            assertRegularDirectoryTree(fileSystem, root, target);
+            return false;
+          }
           if (!entry.isFile()) throw new Error(`unsupported projection entry: ${target}`);
           return true;
         });
@@ -979,6 +1004,57 @@ const projectionSubdirectories = (
   return directories.sort(compareByteOrder);
 };
 
+interface ProjectionDirectorySnapshot {
+  readonly directories: readonly string[];
+  readonly treeDigest: string;
+}
+
+const projectionDirectorySnapshot = (
+  fileSystem: ParityFileSystemShape,
+  root: string,
+  directory: string,
+  names: readonly string[],
+): ProjectionDirectorySnapshot => {
+  const directories = projectionSubdirectories(fileSystem, directory, names);
+  const records: (readonly [string, string, number, string | null])[] = [];
+  const visit = (path: string): void => {
+    assertWithinRoot(root, path);
+    assertNoSymlinkPath(fileSystem, path);
+    const before = fileSystem.lstat(path);
+    const relativePath = relative(directory, path);
+    if (before.isDirectory()) {
+      records.push(["directory", relativePath, before.mode & 0o777, null]);
+      for (const entry of [...fileSystem.readDirectory(path)].sort((left, right) =>
+        compareByteOrder(left.name, right.name),
+      ))
+        visit(join(path, entry.name));
+      const after = fileSystem.lstat(path);
+      if (
+        !after.isDirectory() ||
+        before.dev !== after.dev ||
+        before.ino !== after.ino ||
+        before.mode !== after.mode
+      )
+        throw new Error(`projection evidence changed while reading: ${path}`);
+      return;
+    }
+    if (!before.isFile()) throw new Error(`unsupported projection evidence entry: ${path}`);
+    const bytes = fileSystem.readBytes(path);
+    const after = fileSystem.lstat(path);
+    if (
+      !after.isFile() ||
+      before.dev !== after.dev ||
+      before.ino !== after.ino ||
+      before.mode !== after.mode ||
+      before.size !== after.size
+    )
+      throw new Error(`projection evidence changed while reading: ${path}`);
+    records.push(["file", relativePath, before.mode & 0o777, sha256(bytes)]);
+  };
+  for (const name of directories) visit(join(directory, name));
+  return { directories, treeDigest: sha256(canonicalJson(records)) };
+};
+
 const copyDirectoryTree = (
   fileSystem: ParityFileSystemShape,
   root: string,
@@ -993,6 +1069,7 @@ const copyDirectoryTree = (
   if (!sourceMetadata.isDirectory())
     throw new Error(`projection evidence path is not a directory: ${source}`);
   fileSystem.makeDirectory(target, { mode: sourceMetadata.mode & 0o777 });
+  fileSystem.chmod(target, sourceMetadata.mode & 0o777);
   for (const entry of [...fileSystem.readDirectory(source)].sort((left, right) =>
     compareByteOrder(left.name, right.name),
   )) {
@@ -1009,6 +1086,7 @@ const copyDirectoryTree = (
         flag: "wx",
         mode: metadata.mode & 0o777,
       });
+      fileSystem.chmod(targetEntry, metadata.mode & 0o777);
       continue;
     }
     throw new Error(`unsupported projection evidence entry: ${sourceEntry}`);
@@ -1056,15 +1134,27 @@ export const writeProjectionSetEffect = (
         );
         const staging = fileSystem.makeTempDirectory(join(root, ".functional-parity-staging-"));
         assertNoSymlinkPath(fileSystem, staging);
+        let stagingSafeToRemove = true;
         try {
-          let preservedDirectories: readonly string[] = [];
-          if (!isMissingPath(fileSystem, directory)) {
+          const projectionDirectoryExisted = !isMissingPath(fileSystem, directory);
+          let preservedSnapshot: ProjectionDirectorySnapshot = {
+            directories: [],
+            treeDigest: sha256(canonicalJson([])),
+          };
+          if (projectionDirectoryExisted) {
             assertNoSymlinkPath(fileSystem, directory);
             if (!fileSystem.lstat(directory).isDirectory())
               throw new Error(`projection target is not a directory: ${directory}`);
-            preservedDirectories = projectionSubdirectories(fileSystem, directory, names);
-            for (const name of preservedDirectories)
+            preservedSnapshot = projectionDirectorySnapshot(fileSystem, root, directory, names);
+            for (const name of preservedSnapshot.directories)
               copyDirectoryTree(fileSystem, root, join(directory, name), join(staging, name));
+            const sourceAfterCopy = projectionDirectorySnapshot(fileSystem, root, directory, names);
+            const stagingAfterCopy = projectionDirectorySnapshot(fileSystem, root, staging, names);
+            if (
+              canonicalJson(sourceAfterCopy) !== canonicalJson(preservedSnapshot) ||
+              canonicalJson(stagingAfterCopy) !== canonicalJson(preservedSnapshot)
+            )
+              throw new Error("projection subdirectories changed during copy");
           }
           for (const name of names) {
             const contents = projections[name];
@@ -1091,17 +1181,49 @@ export const writeProjectionSetEffect = (
               root,
               projectionDirectory,
             );
-          if (isMissingPath(fileSystem, directory)) {
+          if (!projectionDirectoryExisted) {
+            if (!isMissingPath(fileSystem, directory))
+              throw new Error("projection directory changed during write");
             fileSystem.rename(staging, directory);
           } else {
-            const currentDirectories = projectionSubdirectories(fileSystem, directory, names);
-            if (canonicalJson(currentDirectories) !== canonicalJson(preservedDirectories))
+            if (isMissingPath(fileSystem, directory))
+              throw new Error("projection directory changed during write");
+            const currentSnapshot = projectionDirectorySnapshot(fileSystem, root, directory, names);
+            const stagedSnapshot = projectionDirectorySnapshot(fileSystem, root, staging, names);
+            if (
+              canonicalJson(currentSnapshot) !== canonicalJson(preservedSnapshot) ||
+              canonicalJson(stagedSnapshot) !== canonicalJson(preservedSnapshot)
+            )
               throw new Error("projection subdirectories changed during write");
             fileSystem.exchangeDirectoriesAtomically(staging, directory);
+            try {
+              const displacedSnapshot = projectionDirectorySnapshot(
+                fileSystem,
+                root,
+                staging,
+                names,
+              );
+              const liveSnapshot = projectionDirectorySnapshot(fileSystem, root, directory, names);
+              if (
+                canonicalJson(displacedSnapshot) !== canonicalJson(preservedSnapshot) ||
+                canonicalJson(liveSnapshot) !== canonicalJson(preservedSnapshot)
+              )
+                throw new Error("projection subdirectories changed during exchange");
+            } catch (cause) {
+              try {
+                fileSystem.exchangeDirectoriesAtomically(staging, directory);
+              } catch (rollbackCause) {
+                stagingSafeToRemove = false;
+                throw new Error("projection subdirectories changed and rollback failed", {
+                  cause: new AggregateError([cause, rollbackCause]),
+                });
+              }
+              throw cause;
+            }
             fileSystem.remove(staging, { recursive: true, force: true });
           }
         } catch (cause) {
-          if (!isMissingPath(fileSystem, staging))
+          if (stagingSafeToRemove && !isMissingPath(fileSystem, staging))
             fileSystem.remove(staging, { recursive: true, force: true });
           throw cause;
         }

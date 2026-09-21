@@ -3266,6 +3266,8 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
     readonly differentDiffReport: ZeroGapReport;
     readonly projectionEntries: readonly string[];
     readonly projectionBytes: Readonly<Record<string, string>>;
+    readonly projectionSubdirectories: readonly string[];
+    readonly retainedEvidence: string;
   },
   ParityRuntimeError,
   ParityCommandExecutor | ParityExecutionEnvironment | ParityFileSystem

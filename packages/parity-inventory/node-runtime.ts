@@ -6,6 +6,7 @@ import {
 } from "node:child_process";
 import {
   existsSync,
+  chmodSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -47,6 +48,7 @@ const result = libc.symbols.renameat2(-100, Buffer.from(source + String.fromChar
 if (result !== 0) process.exit(1)`;
 
 export const NodeFileSystemLayer = Layer.succeed(ParityFileSystem, {
+  chmod: chmodSync,
   exists: existsSync,
   exchangeDirectoriesAtomically: (source, target) => {
     if (process.platform !== "linux")
