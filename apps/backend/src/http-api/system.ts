@@ -396,5 +396,6 @@ export const SystemApiHandlers = (options: SystemOptions = {}) =>
               }),
             identityErrorResponse,
           ),
+        ),
     ),
   );
