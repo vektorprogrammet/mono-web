@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Data, Effect } from "effect";
+import { SqlError, UniqueViolation } from "effect/unstable/sql/SqlError";
 import { Database, type DatabaseShape } from "./database/service.js";
 import {
   executeNativeHttpCommandPostgres,
@@ -10,7 +11,7 @@ import {
 const identity: NativeHttpReceiptIdentity = {
   identitySha256: "a".repeat(64),
   requestSha256: "b".repeat(64),
-  operationId: "receipts.reviseReceipt",
+  operationId: "social-events.create",
 };
 
 const response: NativeHttpResponseCapsule = {
@@ -265,6 +266,42 @@ describe("native HTTP command receipt transaction", () => {
     expect(executed).toBe(false);
   });
 
+  it("restarts once when an allowed idempotency constraint loses a stale-snapshot race", async () => {
+    const state = makeSql();
+    let preparations = 0;
+    let executions = 0;
+    const command = executeNativeHttpCommandPostgres(
+      Effect.sync(() => {
+        preparations += 1;
+        return {
+          identity,
+          execute: Effect.suspend(() => {
+            executions += 1;
+            return executions === 1
+              ? Effect.fail(
+                  new SqlError({
+                    reason: new UniqueViolation({
+                      cause: new Error("concurrent command committed"),
+                      constraint: "social_events_created_command_id_key",
+                    }),
+                  }),
+                )
+              : Effect.succeed(response);
+          }),
+        };
+      }),
+      {
+        retry: "serialization-or-unique-once",
+        retryUniqueConstraints: ["social_events_created_command_id_key"],
+      },
+    );
+
+    await expect(run(state.sql, command)).resolves.toEqual({ _tag: "Committed", response });
+    expect(preparations).toBe(2);
+    expect(executions).toBe(2);
+    expect(state.serializableBegins()).toBe(2);
+    expect(state.committedReceiptCount()).toBe(1);
+  });
   it("checks current credential state before returning a replay", async () => {
     const state = makeSql();
     let credentialCurrent = true;

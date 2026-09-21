@@ -25,6 +25,7 @@ import {
   type RecruitmentShape,
 } from "@vektorprogrammet/domain/recruitment";
 import type { Schools } from "@vektorprogrammet/domain/schools";
+import { SocialEvents } from "@vektorprogrammet/domain/social-events";
 import { DateTime, Effect } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 import { makeBackendConfig } from "./config.js";
@@ -155,6 +156,13 @@ const recruitment = {
   rejectInvitation: () => Effect.die("unexpected rejectInvitation"),
   requestNewInvitationTime: () => Effect.die("unexpected requestNewInvitationTime"),
 } as unknown as RecruitmentShape;
+const socialEvents = SocialEvents.of({
+  readSnapshotInstant: () => Effect.die("unexpected social-event read"),
+  readScope: () => Effect.die("unexpected social-event read"),
+  readList: () => Effect.die("unexpected social-event read"),
+  validateScope: () => Effect.die("unexpected social-event validation"),
+  create: () => Effect.die("unexpected social-event create"),
+});
 
 const run: BackendRun = <A, E>(
   effect: Effect.Effect<
@@ -174,6 +182,7 @@ const run: BackendRun = <A, E>(
     | ServicePrincipalGrantAuthority
     | ContentManagement
     | Content
+    | SocialEvents
   >,
 ): Promise<A> =>
   runTestPromise(
@@ -181,6 +190,7 @@ const run: BackendRun = <A, E>(
       Effect.provideService(Database, database),
       Effect.provideService(OrganizationService, organization),
       Effect.provideService(RecruitmentService, recruitment),
+      Effect.provideService(SocialEvents, socialEvents),
       Effect.provideService(Identity, {
         signIn: () => Promise.reject(new Error("unexpected sign-in")),
         resolveSession: async (cookieHeader: string | undefined) => {

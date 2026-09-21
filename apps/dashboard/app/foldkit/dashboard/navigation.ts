@@ -85,6 +85,10 @@ export const navigationSections: ReadonlyArray<NavigationSection> = [
       { kind: "link", link: memberLink("Team", "/dashboard/team") },
       {
         kind: "link",
+        link: memberLink("Arrangementer", "/dashboard/arrangementer"),
+      },
+      {
+        kind: "link",
         link: leaderLink("Teaminteresse", "/dashboard/teaminteresse"),
       },
     ],

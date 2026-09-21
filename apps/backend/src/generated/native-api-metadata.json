@@ -1,8 +1,8 @@
 {
   "counts": {
-    "externalOperations": 75,
+    "externalOperations": 78,
     "internalOperations": 1,
-    "operations": 76
+    "operations": 79
   },
   "operations": [
     {
@@ -2600,6 +2600,119 @@
         "503"
       ],
       "summary": "Schedule interview",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "social-events.create",
+        "capabilities": {
+          "one": "social-events.create"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "social-events",
+      "method": "POST",
+      "operationId": "social-events.create",
+      "path": "/api/social-events",
+      "statuses": [
+        "201",
+        "400",
+        "401",
+        "403",
+        "409",
+        "413",
+        "415",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "Create social event",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "social-events.list",
+        "capabilities": {
+          "one": "social-events.read"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "social-events",
+      "method": "GET",
+      "operationId": "social-events.list",
+      "path": "/api/social-events",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "List social events",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "social-events.scope",
+        "capabilities": {
+          "one": "social-events.read-scope"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "social-events",
+      "method": "GET",
+      "operationId": "social-events.readScope",
+      "path": "/api/social-events/scope",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "500",
+        "503"
+      ],
+      "summary": "Read social event scope",
       "visibility": "external"
     },
     {

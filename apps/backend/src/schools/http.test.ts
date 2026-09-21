@@ -27,6 +27,7 @@ import {
   type SchoolDirectory,
   type SchoolDirectoryListInput,
 } from "@vektorprogrammet/domain/schools";
+import { SocialEvents } from "@vektorprogrammet/domain/social-events";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import type { BackendRun } from "../router.js";
@@ -84,6 +85,13 @@ const makeRun = (
   } as never);
   const schools = Schools.of({ listDirectory });
   const database = makeDatabase();
+  const socialEvents = SocialEvents.of({
+    readSnapshotInstant: () => Effect.die("unexpected social-event read"),
+    readScope: () => Effect.die("unexpected social-event read"),
+    readList: () => Effect.die("unexpected social-event read"),
+    validateScope: () => Effect.die("unexpected social-event validation"),
+    create: () => Effect.die("unexpected social-event create"),
+  });
 
   return <A, E>(
     effect: Effect.Effect<
@@ -103,12 +111,14 @@ const makeRun = (
       | ServicePrincipalGrantAuthority
       | ContentManagement
       | Content
+      | SocialEvents
     >,
   ): Promise<A> => {
     const runnable = effect.pipe(
       Effect.provideService(Database, database),
       Effect.provideService(Organization, organization),
       Effect.provideService(Schools, schools),
+      Effect.provideService(SocialEvents, socialEvents),
     ) as Effect.Effect<A, E, never>;
     return runTestPromise(runnable);
   };

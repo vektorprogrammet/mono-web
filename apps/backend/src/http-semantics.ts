@@ -315,7 +315,8 @@ export interface DerivedHttpIdentity {
   readonly commandId: `httpv2_${string}`;
 }
 const validCredentialSubject = /^(?:Anonymous|(?:Person|Service|Capability):[^\s]+)$/u;
-const validQualifiedOperationId = /^[a-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+$/u;
+const validQualifiedOperationId =
+  /^[a-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*(?:\.[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*)+$/u;
 const validNormalizedTarget = /^\/(?:api(?:\/[^\s?#]*)?|health)$/u;
 
 /** Derives the private storage digest and domain command ID from the identity tuple. */

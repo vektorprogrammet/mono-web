@@ -197,6 +197,10 @@ const mainLinks = [
         title: "Skoler",
         url: href("/skoler"),
       },
+      {
+        title: "Arrangementer",
+        url: href("/arrangementer"),
+      },
     ],
   },
   {

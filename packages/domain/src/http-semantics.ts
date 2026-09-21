@@ -4,7 +4,8 @@ import type { DatabaseShape } from "./database/service.js";
 import { Database } from "./database/service.js";
 
 const sha256Pattern = /^[a-f0-9]{64}$/u;
-const operationPattern = /^[a-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+$/u;
+const operationPattern =
+  /^[a-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*(?:\.[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*)+$/u;
 const allowedHeaders: Readonly<Record<string, true>> = {
   "content-type": true,
   etag: true,
@@ -30,12 +31,25 @@ export interface NativeHttpCommandPlan<E, R> {
 }
 
 /**
- * `serialization-once` re-executes `prepare` and `execute` after rollback.
- * Callers must keep those effects rollback-safe and limited to database/outbox work.
+ * Retry modes re-execute `prepare` and `execute` once after rollback. The
+ * unique-constraint mode is for a command-specific idempotency collision whose
+ * winning transaction becomes visible only after this transaction restarts.
+ * Callers must keep both effects rollback-safe and limited to database/outbox
+ * work.
  */
-export interface NativeHttpCommandExecutionOptions {
-  readonly retry?: "serialization-once";
-}
+export type NativeHttpCommandExecutionOptions =
+  | {
+      readonly retry?: undefined;
+      readonly retryUniqueConstraints?: never;
+    }
+  | {
+      readonly retry: "serialization-once";
+      readonly retryUniqueConstraints?: never;
+    }
+  | {
+      readonly retry: "serialization-or-unique-once";
+      readonly retryUniqueConstraints: readonly [string, ...ReadonlyArray<string>];
+    };
 const strictJsonDecoder = new TextDecoder("utf-8", { fatal: true });
 
 /** Decodes UTF-8 JSON while rejecting duplicate object member names. */
@@ -113,14 +127,23 @@ export const parseJsonWithUniqueMembers = (bytes: Uint8Array): unknown => {
   return JSON.parse(text) as unknown;
 };
 
-const isSerializationOrDeadlock = (cause: unknown, seen = new Set<object>()): boolean => {
+const isRetryableCommandRace = (
+  cause: unknown,
+  retryUniqueConstraints: ReadonlySet<string>,
+  seen = new Set<object>(),
+): boolean => {
   if (cause === null || typeof cause !== "object" || seen.has(cause)) return false;
   seen.add(cause);
   if (isSqlError(cause)) {
-    return cause.reason._tag === "SerializationError" || cause.reason._tag === "DeadlockError";
+    return (
+      cause.reason._tag === "SerializationError" ||
+      cause.reason._tag === "DeadlockError" ||
+      (cause.reason._tag === "UniqueViolation" &&
+        retryUniqueConstraints.has(cause.reason.constraint))
+    );
   }
   if (!("cause" in cause)) return false;
-  return isSerializationOrDeadlock(cause.cause, seen);
+  return isRetryableCommandRace(cause.cause, retryUniqueConstraints, seen);
 };
 interface NativeHttpReceiptRow {
   readonly requestSha256: string;
@@ -348,10 +371,16 @@ export const executeNativeHttpCommandPostgres = <E, R>(
       }),
     ),
   );
+  const retryUniqueConstraints = new Set(
+    options.retry === "serialization-or-unique-once" ? options.retryUniqueConstraints : [],
+  );
   const executed =
-    options.retry === "serialization-once"
-      ? Effect.retry(transaction, { times: 1, while: isSerializationOrDeadlock })
-      : transaction;
+    options.retry === undefined
+      ? transaction
+      : Effect.retry(transaction, {
+          times: 1,
+          while: (cause) => isRetryableCommandRace(cause, retryUniqueConstraints),
+        });
   return executed.pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(new NativeHttpReceiptPersistenceError({ operation: "execute", cause })),
