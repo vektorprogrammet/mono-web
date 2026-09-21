@@ -4302,7 +4302,7 @@ const providerFromText = (text: string): string | null => {
     [/\b(?:OpenAI|Anthropic)(?:Client|Adapter|Service)?\b/i, "ai"],
     [/\b(?:ipinfo\.io|IpInfo)\b/i, "ipinfo"],
     [
-      /\b(?:JourneyHttpClient|NodeJourneyHttpLayer|createEffectClient|canonicalOrigin|backendOrigin|apiOrigin|dashboardOrigin|serverOrigin|input\.api)\b|new\s+URL\s*\([^,]+,\s*(?:origin|api|ui|canonicalOrigin|backendOrigin|apiOrigin|baseUrl)\s*\)|\$\{\s*(?:origin|api|ui|canonicalOrigin|backendOrigin|apiOrigin|baseUrl)\s*\}/i,
+      /\b(?:JourneyHttpClient|NodeJourneyHttpLayer|createEffectClient|canonicalOrigin|backendOrigin|apiOrigin|dashboardOrigin|serverOrigin|input\.api)\b|\borigin\s*\+|new\s+URL\s*\([^,]+,\s*(?:origin|api|ui|canonicalOrigin|backendOrigin|apiOrigin|baseUrl)\s*\)|\$\{\s*(?:origin|api|ui|canonicalOrigin|backendOrigin|apiOrigin|baseUrl)\s*\}/i,
       "vektorprogrammet-api",
     ],
   ];
@@ -4350,9 +4350,35 @@ const providerFromEndpointArguments = (argumentsText: string): string | null => 
   const named = providerFromText(argumentsText);
   if (named !== null) return named;
   const value = argumentsText.trim();
-  return /^(?:url|endpoint|request\.url|input\.url|[A-Za-z_$][A-Za-z0-9_$]*Path)$/i.test(value)
+  return /^(?:url|endpoint|request\.url|input\.url|[A-Za-z_$][A-Za-z0-9_$]*Path)$/i.test(value) ||
+    /\$\{\s*[A-Za-z_$][A-Za-z0-9_$]*Path\s*\}/.test(value)
     ? "configured-http-endpoint"
     : null;
+};
+const providerFromCallExpression = (
+  unit: SourceUnit,
+  call: EffectCall | undefined,
+): string | null => {
+  if (call === undefined || !/\.[cm]?[jt]sx?$/i.test(unit.path)) return null;
+  const sourceFile = ts.createSourceFile(unit.path, unit.text, ts.ScriptTarget.Latest, true);
+  let selected: ts.CallExpression | undefined;
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      node.getStart(sourceFile) <= call.offset &&
+      call.offset <= node.expression.end &&
+      (selected === undefined || node.getWidth(sourceFile) < selected.getWidth(sourceFile))
+    )
+      selected = node;
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  if (selected === undefined) return null;
+  const callText = selected.getText(sourceFile);
+  const named = providerFromText(callText);
+  if (named !== null) return named;
+  if (/^route\.fetch\s*\(/.test(callText)) return "configured-http-endpoint";
+  return providerFromEndpointArguments(selected.arguments[0]?.getText(sourceFile) ?? "");
 };
 
 const integrationAdapterPattern =
@@ -5127,13 +5153,19 @@ const integrationCallsFor = (
       ownerClass.methods.has(effectCall.callable)
     )
       continue;
+    const receiverTypeEvidence =
+      effectCall?.receiver === null || effectCall?.receiver === undefined
+        ? null
+        : localReceiverTypesFor(unit, effectCall.offset).get(
+            effectCall.receiver.split(/->|::|\./).find((part) => part.length > 0) ?? "",
+          );
     const adapterEvidence =
-      integrationAdapterPattern.test(contextStructure) ||
-      integrationAdapterPattern.test(resolvedCall?.symbol ?? "");
+      integrationAdapterPattern.test(resolvedCall?.symbol ?? "") ||
+      integrationAdapterPattern.test(effectCall?.receiver ?? "") ||
+      integrationAdapterPattern.test(receiverTypeEvidence ?? "");
+    const callProviderRef = providerFromCallExpression(unit, effectCall);
     const namedProviderRef =
-      providerFromText(resolvedCall?.symbol ?? "") ??
-      providerFromText(ownerRef ?? "") ??
-      providerFromText(contextStructure);
+      providerFromText(resolvedCall?.symbol ?? "") ?? providerFromText(ownerRef ?? "");
     const literalCall =
       callableName === null
         ? undefined
@@ -5152,6 +5184,13 @@ const integrationCallsFor = (
       ? literalDestination(literalCall?.rawArgs[0])
       : rawEndpointArguments;
     const argumentProviderRef = providerFromEndpointArguments(rawEndpointArguments);
+    const guardedProviderRef =
+      callableName === "fetch" &&
+      /\bnew\s+URL\s*\([^)]*\.url\)\.origin\s*!==?\s*[A-Za-z_$][A-Za-z0-9_$]*\.backendOrigin\b/.test(
+        contextStructure,
+      )
+        ? providerFromText(contextStructure)
+        : null;
     const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(endpointArguments);
     const endpointRaw = endpointMatch?.[0] ?? typeScriptBoundary?.backendOriginEndpoint ?? null;
     const endpointRef = endpointRaw === null ? null : safeEndpoint(endpointRaw, reasons);
@@ -5186,10 +5225,12 @@ const integrationCallsFor = (
       /^(?:fetch|file_get_contents|curl_exec|curl_init)$/i.test(callableName ?? "");
     const positiveAnchor =
       endpointRef !== null ||
+      callProviderRef !== null ||
       namedProviderRef !== null ||
       syntaxProvider !== null ||
       argumentProviderRef !== null ||
       receiverProviderRef !== null ||
+      guardedProviderRef !== null ||
       transportEvidence;
     if (!positiveAnchor) continue;
     if (protocol === null) reasons.push("UNKNOWN_INTEGRATION");
@@ -5234,6 +5275,8 @@ const integrationCallsFor = (
       syntaxProvider ??
       previewContainerProvider ??
       endpointProvider ??
+      callProviderRef ??
+      guardedProviderRef ??
       argumentProviderRef ??
       namedProviderRef ??
       receiverProviderRef ??
