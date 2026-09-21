@@ -1,13 +1,13 @@
 {
   "specId": "0111",
   "result": "passed",
-  "runtimeRevision": "05e29ed7c6e96df92ce179f96fc90dfa07846a36",
+  "runtimeRevision": "7ba43c47fd5ec170d9590e726667b8bc90d3c020",
   "command": "bun --cwd apps/dashboard e2e/run-real-native-school-survey.mjs",
   "topology": {
     "database": "17.11",
     "backend": "native Effect HTTP API",
     "sdk": "generated @vektorprogrammet/sdk",
-    "dashboard": "production React Router server bridge",
+    "dashboard": "dashboard worker asset dispatcher and production React Router server bridge",
     "apex": "local execution of the apex edge dispatcher",
     "browser": "real headless Chromium"
   },
@@ -16,15 +16,20 @@
       "gates": {
         "anonymousOpen": true,
         "sourceOrder": true,
+        "prototypeNamedQuestionId": true,
         "fourQuestionTypes": true,
         "browserServerGeneratedSdkBridge": true,
         "dottedSurveyId": true,
+        "canonicalDocumentRedirect": true,
+        "opaqueSurveyIdPathCodec": true,
+        "dashboardWorkerAssetFallback": true,
         "readFailureDraftPreserved": true,
         "rejectedDraftPreserved": true,
         "committedCompletion": true,
         "normalizedPostgresAnswers": true,
         "createdResponseHeaders": true,
         "exactReplay": true,
+        "trimmedAnswerBoundary": true,
         "reorderedReplay": true,
         "digestConflict": true,
         "inFlightReceipt": true,
@@ -76,32 +81,17 @@
       ]
     },
     "typeChecks": {
-      "commands": [
-        "bun run check-types (packages/domain)",
-        "bun run check-types (packages/http-api)",
-        "bun run check-types (packages/sdk)",
-        "bun run check-types (packages/database)",
-        "bun run check-types (apps/backend)",
-        "bun run check-types (apps/dashboard)"
-      ],
-      "result": "passed"
+      "commands": [],
+      "result": "not-run-separately"
     },
     "unitTests": {
-      "commands": [
-        "bun vitest run --no-file-parallelism (packages/domain: 252 passed)",
-        "bun vitest run --no-file-parallelism (packages/http-api: 15 passed)",
-        "bun vitest run --no-file-parallelism (packages/sdk: 3 passed)",
-        "bun vitest run --no-file-parallelism (apps/backend: 169 passed)",
-        "bun vitest run --no-file-parallelism (apps/dashboard: 283 passed)",
-        "bun vitest run --no-file-parallelism (packages/database: 122 passed, 4 skipped)",
-        "vitest run infra/alchemy/preview/apex-worker.test.ts (23 passed)"
-      ],
-      "result": "passed"
+      "commands": [],
+      "result": "not-run"
     }
   },
   "checksums": {
-    "runner": "d2c8699d8e31be7aa31083f4ccb717f007bfff9ce2562aba3b966612ae5d032f",
-    "designSpec": "ae719b5e0a6c86bb233d28220cf468fd3deb29cee5d3b9e6049a93f940ba7c19"
+    "runner": "5981fb552a467dba57cee557c939bd7d0446c73322747ddf6885bd0ee1289ec5",
+    "designSpec": "45d3b4956605a22f71602a1bc29efdbaa5bb418f21b34dd421c56ff74ab6fa46"
   },
   "skippedOrUnavailable": [],
   "cleanup": {
