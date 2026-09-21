@@ -40,7 +40,7 @@ const ids = {
   department: "department-school-survey-0111",
   foreignDepartment: "department-school-survey-foreign-0111",
   semester: "semester-school-survey-0111",
-  survey: "survey-school-0111",
+  survey: "survey.school.0111",
   teamSurvey: "survey-team-counterexample-0111",
   text: "question-school-survey-text-0111",
   list: "question-school-survey-list-0111",
@@ -173,7 +173,7 @@ const readRequestBody = async (request) => {
   return chunks.length === 0 ? undefined : Buffer.concat(chunks);
 };
 
-const startRecordingProxy = async (ledger) => {
+const startRecordingProxy = async (ledger, control) => {
   const server = createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", apiOrigin);
     const body = await readRequestBody(request);
@@ -198,7 +198,7 @@ const startRecordingProxy = async (ledger) => {
       idempotencyKey: headers.get("idempotency-key"),
       cookie: headers.get("cookie"),
       authorization: headers.get("authorization"),
-      objectCapability: headers.get("x-vektor-object-capability"),
+      objectCapability: headers.get("x-recruitment-invitation-capability"),
       requestJson,
       status: 0,
       responseHeaders: {},
@@ -206,12 +206,35 @@ const startRecordingProxy = async (ledger) => {
     };
     ledger.push(entry);
     try {
-      const upstream = await fetch(new URL(request.url ?? "/", backendOrigin), {
-        method: request.method,
-        headers,
-        body,
-        redirect: "manual",
-      });
+      const failSurveyRead =
+        control.failNextSurveyRead &&
+        request.method === "GET" &&
+        url.pathname.startsWith("/api/surveys/");
+      if (failSurveyRead) control.failNextSurveyRead = false;
+      const upstream = failSurveyRead
+        ? new Response(
+            JSON.stringify({
+              type: "urn:vektorprogrammet:problem:v0.2:dependency.unavailable",
+              title: "Dependency unavailable",
+              status: 503,
+              detail: "A required dependency is temporarily unavailable.",
+              code: "dependency.unavailable",
+            }),
+            {
+              status: 503,
+              headers: {
+                "cache-control": "no-store",
+                "content-type": "application/problem+json",
+                vary: "Origin",
+              },
+            },
+          )
+        : await fetch(new URL(request.url ?? "/", backendOrigin), {
+            method: request.method,
+            headers,
+            body,
+            redirect: "manual",
+          });
       const bytes = Buffer.from(await upstream.arrayBuffer());
       entry.status = upstream.status;
       entry.responseHeaders = Object.fromEntries(upstream.headers.entries());
@@ -545,7 +568,7 @@ const checksum = async (path) =>
     .update(await readFile(path))
     .digest("hex");
 
-const exerciseJourney = async (browser, ledger, apexLedger) => {
+const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   const initialForm = await api("GET", `/api/surveys/${ids.survey}`);
   assert.equal(initialForm.status, 200);
   assert.equal(initialForm.headers["cache-control"], "no-store");
@@ -605,6 +628,25 @@ const exerciseJourney = async (browser, ledger, apexLedger) => {
   await desktopPage.getByRole("radio", { name: "Første" }).check();
   await desktopPage.getByRole("checkbox", { name: "Første" }).check();
   await desktopPage.getByRole("checkbox", { name: "Andre" }).check();
+  proxyControl.failNextSurveyRead = true;
+  const unavailableResponsePromise = desktopPage.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      new URL(response.url()).pathname.startsWith(`/undersokelse/${ids.survey}`),
+  );
+  await desktopPage.getByRole("button", { name: "Send inn" }).click();
+  assert.equal((await unavailableResponsePromise).status(), 200);
+  await desktopPage.getByRole("heading", { name: "Skjemaet har feil" }).waitFor();
+  await desktopPage.waitForFunction(
+    () => document.activeElement?.getAttribute("aria-labelledby") === "survey-error-summary",
+  );
+  assert.equal(await desktopPage.locator('input[name="commandId"]').inputValue(), initialCommandId);
+  assert.equal(await desktopPage.getByLabel("Skole").inputValue(), String(ids.eligible));
+  assert.equal(await desktopPage.getByLabel("Tekstsvar").inputValue(), "Et anonymt tekstsvar");
+  assert.equal(await desktopPage.getByLabel("Valgfri kommentar").inputValue(), "Valgfritt svar");
+  assert.equal(await desktopPage.getByRole("checkbox", { name: "Første" }).isChecked(), true);
+  assert.equal(await desktopPage.getByRole("checkbox", { name: "Andre" }).isChecked(), true);
+  assert.deepEqual(await counts(), { responses: 0, answers: 0, receipts: 0 });
   const rejectedResponsePromise = desktopPage.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
@@ -697,6 +739,14 @@ const exerciseJourney = async (browser, ledger, apexLedger) => {
   const afterBrowser = await counts();
   assert.deepEqual(afterBrowser, { responses: 1, answers: 5, receipts: 1 });
   const browserResponseId = browserSubmission.responseJson.responseId;
+  assert.equal(browserSubmission.responseHeaders["cache-control"], "no-store");
+  assert.equal(browserSubmission.responseHeaders["content-type"], "application/json");
+  assert.equal(browserSubmission.responseHeaders.vary, "Origin");
+  assert.equal(
+    browserSubmission.responseHeaders.location,
+    `${submitPath}/${encodeURIComponent(browserResponseId)}`,
+  );
+  assert.match(browserSubmission.responseHeaders.etag, /^"vkr2\.[A-Za-z0-9_-]{43}"$/u);
   assert.deepEqual(await responseAnswers(browserResponseId), [
     { questionId: ids.text, answerValue: "Et anonymt tekstsvar", answerValues: null },
     { questionId: ids.list, answerValue: "Ja", answerValues: null },
@@ -992,12 +1042,25 @@ const exerciseJourney = async (browser, ledger, apexLedger) => {
     415,
     "media-type.unsupported",
   );
+  const bodyAtLimitPrefix = '{"unexpected":"';
+  const bodyAtLimitSuffix = '"}';
+  const rawBodyAtLimit = `${bodyAtLimitPrefix}${"x".repeat(
+    65_536 - Buffer.byteLength(bodyAtLimitPrefix) - Buffer.byteLength(bodyAtLimitSuffix),
+  )}${bodyAtLimitSuffix}`;
+  assert.equal(Buffer.byteLength(rawBodyAtLimit), 65_536);
   assertProblem(
     await api("POST", submitPath, {
-      rawBody: JSON.stringify({
-        schoolId: ids.eligible,
-        answers: [{ kind: "Text", questionId: ids.text, value: "x".repeat(140_000) }],
-      }),
+      rawBody: rawBodyAtLimit,
+      key: "school-survey-request-limit-0111",
+    }),
+    422,
+    "validation.failed",
+  );
+  const rawBodyAboveLimit = `${rawBodyAtLimit} `;
+  assert.equal(Buffer.byteLength(rawBodyAboveLimit), 65_537);
+  assertProblem(
+    await api("POST", submitPath, {
+      rawBody: rawBodyAboveLimit,
       key: "school-survey-large-request-0111",
     }),
     413,
@@ -1024,15 +1087,19 @@ const exerciseJourney = async (browser, ledger, apexLedger) => {
     sourceOrder: true,
     fourQuestionTypes: true,
     browserServerGeneratedSdkBridge: true,
+    dottedSurveyId: true,
+    readFailureDraftPreserved: true,
     rejectedDraftPreserved: true,
     committedCompletion: true,
     normalizedPostgresAnswers: true,
+    createdResponseHeaders: true,
     exactReplay: true,
     reorderedReplay: true,
     digestConflict: true,
     inFlightReceipt: true,
     expiredReceipt: true,
     concurrentSingleResponse: true,
+    requestBodyBoundary: { acceptedBytes: 65_536, rejectedBytes: 65_537 },
     atomicValidationFailures: noWriteCases.map(({ name }) => name),
     ineligibleSchools: ["inactive", "foreign department", "no placement", "unknown", "stale"],
     eligibilityReplayPrecedence: true,
@@ -1061,6 +1128,7 @@ const temporaryRoot = await mkdtemp(join(tmpdir(), "native-school-survey-0111-")
 const postgresData = join(temporaryRoot, "postgres");
 const ledger = [];
 const apexLedger = [];
+const proxyControl = { failNextSurveyRead: false };
 let postgres;
 let backend;
 let dashboard;
@@ -1117,7 +1185,7 @@ try {
   await waitForHttp(`${backendOrigin}/health`, "0111 native backend startup");
   await query(seedSql);
   version = (await query("SHOW server_version")).rows[0].server_version;
-  proxy = await startRecordingProxy(ledger);
+  proxy = await startRecordingProxy(ledger, proxyControl);
   await waitForHttp(`${apiOrigin}/health`, "0111 recording proxy startup");
 
   const dashboardEnvironment = {
@@ -1158,7 +1226,7 @@ try {
       process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ??
       "/etc/profiles/per-user/nori/bin/chromium-browser",
   });
-  journey = await exerciseJourney(browser, ledger, apexLedger);
+  journey = await exerciseJourney(browser, ledger, apexLedger, proxyControl);
 } catch (cause) {
   primaryError = cause;
   if (backend !== undefined) process.stderr.write(`Backend tail:\n${backend.output.join("")}\n`);

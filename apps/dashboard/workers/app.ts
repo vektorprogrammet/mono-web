@@ -64,7 +64,10 @@ export default {
 
     const url = new URL(request.url);
     if (isStaticAssetPath(url.pathname)) {
-      return withPreviewHeaders(await env.ASSETS.fetch(request), host, stage);
+      const assetResponse = await env.ASSETS.fetch(request);
+      if (assetResponse.status !== 404 || url.pathname.startsWith("/assets/")) {
+        return withPreviewHeaders(assetResponse, host, stage);
+      }
     }
 
     const response = await requestHandler(request, new RouterContextProvider());

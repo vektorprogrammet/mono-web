@@ -26,26 +26,31 @@ const utf8ByteLength = (value: string): number => {
   return length;
 };
 
+const databaseTrim = (value: string): string => value.replace(/^ +| +$/gu, "");
+
 const boundedText = (maximumBytes: number, message: string) =>
   Schema.String.pipe(
     Schema.check(
-      Schema.makeFilter((value) => utf8ByteLength(value.trim()) <= maximumBytes, { message }),
+      Schema.makeFilter((value) => utf8ByteLength(databaseTrim(value)) <= maximumBytes, {
+        message,
+      }),
     ),
   );
 const boundedIdentifier = (maximumBytes: number, message: string) =>
   boundedText(maximumBytes, message).pipe(
     Schema.check(
-      Schema.makeFilter((value) => value.length > 0 && value.trim() === value, {
-        message: "a trimmed non-empty identifier",
+      Schema.makeFilter((value) => value.length > 0 && databaseTrim(value) === value, {
+        message: "a database-trimmed non-empty identifier",
       }),
     ),
   );
 const boundedImportedText = (maximumBytes: number, message: string) =>
   boundedText(maximumBytes, message).pipe(
     Schema.check(
-      Schema.makeFilter((value) => value.trim().length > 0 && value.trim() === value, {
-        message: "a trimmed non-empty imported string",
-      }),
+      Schema.makeFilter(
+        (value) => databaseTrim(value).length > 0 && databaseTrim(value) === value,
+        { message: "a database-trimmed non-empty imported string" },
+      ),
     ),
   );
 const boundedArray = <S extends Schema.Top>(schema: S, maximum: number, message: string) =>

@@ -44,7 +44,9 @@ export async function action({ params, request }: Route.ActionArgs) {
   const loaded = await loadSchoolSurvey(surveyId);
   if (loaded._tag === "Failed") {
     return {
+      success: false as const,
       draft: schoolSurveyDraftFromForm(submittedForm),
+      fieldErrors: {},
       message:
         loaded.failure === "NotFound"
           ? "Skjemaet finnes ikke lenger."
