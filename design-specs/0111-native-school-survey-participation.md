@@ -6,7 +6,7 @@ Baseline: `0179948921c48fb376d48b962923c0abaf7c0807` (`migration/assistant-opera
 
 Revision 1, 2026-09-21: the contract now fixes ingress routing, wire schemas, database relations, canonical digests, and replay precedence. This revision follows pre-implementation review.
 
-Revision 2, 2026-09-21: post-implementation review defines one reversible, route-safe representation for every opaque survey ID and requires safe own-key handling for opaque question IDs.
+Revision 2, 2026-09-21: post-implementation review defines one reversible, route-safe representation for supported opaque survey IDs, reserves the exact API dot segments `.` and `..` at import, and requires safe own-key handling for opaque question IDs.
 
 ## Goal and product boundary
 
@@ -55,6 +55,7 @@ Database constraints must make these states impossible:
 - A response references a school outside the survey department.
 - A response has no survey, department, school, or timestamp.
 - A stored audience or question type is outside its closed set.
+- A survey ID is the URL dot segment `.` or `..`.
 
 The response stores the survey department. Composite foreign keys bind it to the survey and the school-department relation.
 

@@ -9,7 +9,10 @@ CREATE TABLE IF NOT EXISTS public.native_survey_definitions (
   completion_text text NOT NULL,
   target_audience text NOT NULL,
   CONSTRAINT native_survey_definitions_id_valid CHECK (
-    btrim(survey_id) <> '' AND survey_id = btrim(survey_id) AND octet_length(survey_id) <= 128
+    btrim(survey_id) <> ''
+    AND survey_id = btrim(survey_id)
+    AND survey_id NOT IN ('.', '..')
+    AND octet_length(survey_id) <= 128
   ),
   CONSTRAINT native_survey_definitions_semester_label_valid CHECK (
     btrim(semester_label) <> ''

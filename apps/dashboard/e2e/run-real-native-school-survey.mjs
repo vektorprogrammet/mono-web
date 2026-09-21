@@ -605,13 +605,25 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   const initialForm = await api("GET", `/api/surveys/${ids.survey}`);
   assert.equal(initialForm.status, 200);
   assert.equal(initialForm.headers["cache-control"], "no-store");
-  for (const opaqueId of [".", "..", "survey.data", "survey/%/æ"]) {
+  for (const opaqueId of ["survey.data", "survey/%/æ"]) {
     const path = schoolSurveyPath(opaqueId);
     const segment = path.slice("/undersokelse/".length);
     assert.equal(schoolSurveyIdFromPathSegment(segment), opaqueId);
     assert.notEqual(segment, ".");
     assert.notEqual(segment, "..");
     assert.equal(segment.endsWith(".data"), false);
+  }
+  for (const invalidSurveyId of [".", ".."]) {
+    await assert.rejects(
+      query(
+        `INSERT INTO public.native_survey_definitions
+           (survey_id, department_id, semester_id, semester_label, title, completion_text, target_audience)
+         VALUES
+           ($1, $2, $3, 'Høst 2026', 'Ugyldig', 'Ugyldig', 'School')`,
+        [invalidSurveyId, ids.department, ids.semester],
+      ),
+      (cause) => cause?.code === "23514",
+    );
   }
   assert.equal(initialForm.headers.vary, "Origin");
   assert.deepEqual(
@@ -1212,6 +1224,7 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
     dottedSurveyId: true,
     canonicalDocumentRedirect: true,
     opaqueSurveyIdPathCodec: true,
+    urlDotSegmentIdsRejected: true,
     dashboardWorkerAssetFallback: true,
     readFailureDraftPreserved: true,
     rejectedDraftPreserved: true,

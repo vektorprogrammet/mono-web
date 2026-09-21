@@ -92,7 +92,7 @@ describe("handleDashboardWorkerRequest", () => {
 });
 
 describe("school survey path codec", () => {
-  it.each([".", "..", "survey.data", "survey/%/æ", "~ZnJhbWVk.~"])(
+  it.each(["survey.data", "survey/%/æ", "~ZnJhbWVk.~"])(
     "round-trips opaque ID %s without a reserved route suffix",
     (surveyId) => {
       const path = schoolSurveyPath(surveyId);

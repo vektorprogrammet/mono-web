@@ -66,6 +66,11 @@ const boundedArray = <S extends Schema.Top>(schema: S, maximum: number, message:
 
 /** Opaque imported survey identity. */
 export const SurveyId = boundedIdentifier(128, "a survey ID at most 128 UTF-8 bytes").pipe(
+  Schema.check(
+    Schema.makeFilter((value) => value !== "." && value !== "..", {
+      message: "a survey ID other than a URL dot segment",
+    }),
+  ),
   Schema.brand("SurveyId"),
 );
 export type SurveyId = typeof SurveyId.Type;
