@@ -1,5 +1,5 @@
 import { DatabaseLive } from "@vektorprogrammet/database";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "@vektorprogrammet/database";
 import {
   deliverNextPublicApplicationOutbox,
   makeRecordingPublicApplicationEffectInterpreter,

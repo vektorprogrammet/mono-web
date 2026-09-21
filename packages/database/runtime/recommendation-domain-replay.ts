@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import { Effect, Layer, Redacted, Schema } from "effect";
 import { DatabaseLive } from "../src/layers.js";
-import { Database } from "../../domain/src/database/service.js";
-import { OrganizationLive } from "../../domain/src/organization/postgres-layer.js";
-import { finalizeInterview } from "../../domain/src/recruitment/conduct-postgres.js";
+import { Database } from "../src/service.js";
+import { OrganizationLive } from "../src/organization/postgres-layer.js";
+import { finalizeInterview } from "../src/recruitment/conduct-postgres.js";
 import {
   FinalizeInterviewCommandSchema,
   RecruitmentActorSchema,

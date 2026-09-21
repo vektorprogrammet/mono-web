@@ -23,24 +23,11 @@ import {
   AdmissionPeriodId,
   decideAdmissionPeriod,
 } from "@vektorprogrammet/domain/admission-period";
-import { AdmissionsLive } from "@vektorprogrammet/domain/admissions";
-import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
+import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
+import { Database, type DatabaseShape } from "./service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
-import {
-  DepartmentId,
-  OrganizationGlobalAdministratorGrantId,
-  OrganizationLive,
-  PersonId,
-  SemesterId,
-  authorizeOrganizationActor,
-  createOrganizationGlobalAdministratorGrant,
-  endOrganizationGlobalAdministratorGrant,
-  mapOrganizationAuthorityToAdmissionPeriodActor,
-  mapOrganizationAuthorityToOrganizationActor,
-  mapOrganizationAuthorityToProfileRole,
-  mapOrganizationAuthorityToRecruitmentActor,
-  removeOrganizationGlobalAdministratorGrant,
-} from "@vektorprogrammet/domain/organization";
+import { DepartmentId, OrganizationGlobalAdministratorGrantId, PersonId, SemesterId, authorizeOrganizationActor, createOrganizationGlobalAdministratorGrant, endOrganizationGlobalAdministratorGrant, mapOrganizationAuthorityToAdmissionPeriodActor, mapOrganizationAuthorityToOrganizationActor, mapOrganizationAuthorityToProfileRole, mapOrganizationAuthorityToRecruitmentActor, removeOrganizationGlobalAdministratorGrant } from "@vektorprogrammet/domain/organization";
+import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import {
   ReceiptApprovalGrantId,
   ReceiptId,
@@ -56,12 +43,13 @@ import {
   resolveReceiptAuthorityForRead,
   type ReceiptFile,
 } from "@vektorprogrammet/domain/receipt";
-import { ProfileLive } from "@vektorprogrammet/domain/profile";
-import { Recruitment, RecruitmentLive } from "@vektorprogrammet/domain/recruitment";
+import { ProfileLive } from "@vektorprogrammet/database/profile";
+import { Recruitment } from "@vektorprogrammet/domain/recruitment";
+import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { makeSpec0055OrganizationAuthorityFixtures } from "../../domain/src/organization/authority-fixtures.test-support.js";
-import { resolveOrganizationPersonAuthorityForRead } from "../../domain/src/organization/authority-postgres.js";
-import { executeReceiptCommand } from "../../domain/src/receipt/postgres.js";
+import { resolveOrganizationPersonAuthorityForRead } from "./organization/authority-postgres.js";
+import { executeReceiptCommand } from "./receipt/postgres.js";
 import { DatabaseLive } from "./layers.js";
 import { databaseMigrationDefinitions, databaseSchemaRevision } from "./migrations.js";
 import { proveRuleReconciliationMigration } from "./rule-reconciliation-migration-postgres-proof.js";

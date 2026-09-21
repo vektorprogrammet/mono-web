@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { DatabaseLive } from "../../packages/database/src/layers.js";
-import { OrganizationLive } from "../../packages/domain/src/organization/postgres-layer.js";
+import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { Organization } from "../../packages/domain/src/organization/service.js";
 import { PersonId } from "../../packages/domain/src/organization/schema.js";
 import { OrganizationCommandId } from "../../packages/domain/src/organization/administration-schema.js";

@@ -3,7 +3,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { Effect } from "effect";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "./service.js";
 import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 import { databaseMigrationDefinitions } from "./migrations.js";
@@ -35,8 +35,8 @@ const checkedSourceUrls = [
   new URL("../migrations/0016-person-keyed-organization-authority.sql", import.meta.url),
   new URL("../migrations/0017-person-keyed-receipt-authority.sql", import.meta.url),
   new URL("../migrations/0018-organization-team-interest.sql", import.meta.url),
-  new URL("../../domain/src/schools/migrations/0001-schools-directory.sql", import.meta.url),
-  new URL("../../domain/src/content/migrations/0001-content-publication.sql", import.meta.url),
+  new URL("../migrations/0019-schools-directory.sql", import.meta.url),
+  new URL("../migrations/0020-content-publication.sql", import.meta.url),
   new URL("../migrations/0021-native-recruitment-interview-conduct.sql", import.meta.url),
   new URL("../migrations/0023-declarative-authorization-rules.sql", import.meta.url),
 ];

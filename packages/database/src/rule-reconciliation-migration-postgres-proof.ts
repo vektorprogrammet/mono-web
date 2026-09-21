@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
+import { Database, type DatabaseShape } from "./service.js";
 import { Cause, Effect, Option, Redacted } from "effect";
 import { isSqlError } from "effect/unstable/sql/SqlError";
 import { DatabaseLive } from "./layers.js";

@@ -14,13 +14,11 @@ import {
   type AccessSpec,
   type CanonicalResourceContext,
 } from "@vektorprogrammet/domain/authz";
-import { Database } from "@vektorprogrammet/domain/database";
-import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
+import { Database } from "@vektorprogrammet/database";
+import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
-  OrganizationAuthorityInstantSchema,
-  resolveOrganizationPersonAuthorityWithSql,
-  type OrganizationAuthorityRowLockMode,
-} from "@vektorprogrammet/domain/organization";
+  OrganizationAuthorityInstantSchema, type OrganizationAuthorityRowLockMode } from "@vektorprogrammet/domain/organization";
+import { resolveOrganizationPersonAuthorityWithSql } from "@vektorprogrammet/database/organization";
 import {
   CreateSocialEventEndpoint,
   CreateSocialEventRequest,

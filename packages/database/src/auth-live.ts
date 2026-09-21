@@ -4,7 +4,7 @@ import { Context, Effect, Layer, Schema } from "effect";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type { AuthorizationInstant } from "@vektorprogrammet/domain/authz";
 import { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "./service.js";
 import {
   decodeIdentityActor,
   decodeIdentitySession,

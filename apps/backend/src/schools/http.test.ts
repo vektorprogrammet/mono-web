@@ -5,7 +5,7 @@ import type { Admissions } from "@vektorprogrammet/domain/admissions";
 import type { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import type { Identity } from "@vektorprogrammet/domain/identity";
-import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
+import { Database, type DatabaseShape } from "@vektorprogrammet/database";
 import {
   DepartmentId,
   DepartmentNotFound,

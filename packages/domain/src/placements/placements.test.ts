@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
-import { nextAffiliationStatus, canManagePlacements } from "./postgres.js";
+import { nextAffiliationStatus, canManagePlacements } from "./policy.js";
 import { OwnAffiliationCommand, PlacementCommand, PlacementValues } from "./schema.js";
 import { OrganizationPersonAuthoritySchema } from "../organization/authority.js";
 import { DepartmentId } from "../organization/schema.js";

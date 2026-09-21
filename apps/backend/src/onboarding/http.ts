@@ -1,18 +1,20 @@
-import { Database } from "@vektorprogrammet/domain/database";
-import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
+import { Database } from "@vektorprogrammet/database";
+import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import { canManagePlacements } from "@vektorprogrammet/domain/placements";
 import {
-  OnboardingScope,
-  OnboardingCommand,
   OnboardingClaim,
+  OnboardingCommand,
   OnboardingFailure,
-  readOnboardingBoard,
-  onboardingApplication,
-  lockOnboardingApplicant,
-  commandOnboarding,
-  claimOnboarding,
-  checkOnboardingClaim,
+  OnboardingScope,
 } from "@vektorprogrammet/domain/onboarding";
+import {
+  checkOnboardingClaim,
+  claimOnboarding,
+  commandOnboarding,
+  lockOnboardingApplicant,
+  onboardingApplication,
+  readOnboardingBoard,
+} from "@vektorprogrammet/database/onboarding";
 import { hashOnboardingPassword, provisionOnboardingAccount } from "@vektorprogrammet/database";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import {

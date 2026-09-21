@@ -6,7 +6,7 @@
  * SQL statement.
  */
 import { Rfc3339InstantSchema } from "@vektorprogrammet/domain/admission-period";
-import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
+import { Database, type DatabaseShape } from "../service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { DateTime, Effect, Schema } from "effect";

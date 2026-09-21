@@ -1,6 +1,6 @@
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import { IdentitySnapshot, type IdentitySnapshotService } from "@vektorprogrammet/database";
-import { databaseHealth, type Database } from "@vektorprogrammet/domain/database";
+import { databaseHealth, type Database } from "@vektorprogrammet/database";
 import {
   Identity,
   IdentityEngineError,
@@ -11,7 +11,7 @@ import {
   type IdentitySession,
   type IdentityShape,
 } from "@vektorprogrammet/domain/identity";
-import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
+import { executeNativeHttpCommandPostgres } from "./receipt-transaction.js";
 import {
   DeleteOwnedSessionEndpoint,
   DeleteSessionEndpoint,

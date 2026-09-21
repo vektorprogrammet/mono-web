@@ -1,9 +1,5 @@
-import {
-  OwnProfile,
-  Profile,
-  UpdateOwnProfileCommand,
-  readOwnProfileHttpSourcePostgres,
-} from "@vektorprogrammet/domain/profile";
+import { OwnProfile, Profile, UpdateOwnProfileCommand } from "@vektorprogrammet/domain/profile";
+import { readOwnProfileHttpSourcePostgres } from "@vektorprogrammet/database/profile";
 import {
   ExternalNativeApi,
   ProfileMergePatch,
@@ -12,7 +8,7 @@ import {
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { ResourceId, ResourceKind } from "@vektorprogrammet/domain/authz";
-import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
+import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import { Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { profileRoleFrom, resolveRequestPersonAuthorityInTransaction } from "../authority.js";

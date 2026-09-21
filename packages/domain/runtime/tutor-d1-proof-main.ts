@@ -240,7 +240,9 @@ const openRuntime = async (): Promise<LocalRuntime> => {
 
 const migrationSql = (): Promise<string> =>
   readFile(
-    fileURLToPath(new URL("../src/tutor/migrations/0001-tutor-event-store.sql", import.meta.url)),
+    fileURLToPath(
+      new URL("../../database/migrations/tutor/0001-tutor-event-store.sql", import.meta.url),
+    ),
     "utf8",
   );
 

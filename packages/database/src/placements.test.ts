@@ -1,16 +1,10 @@
 import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { afterAll, describe, expect, it } from "vitest";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "./service.js";
 import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
 import { SchoolId } from "@vektorprogrammet/domain/schools";
-import {
-  lockPlacementDepartment,
-  mutateAffiliation,
-  mutatePlacementBoard,
-  readOwnAffiliation,
-  readPlacementBoard,
-} from "@vektorprogrammet/domain/placements";
+import { lockPlacementDepartment, mutateAffiliation, mutatePlacementBoard, readOwnAffiliation, readPlacementBoard } from "@vektorprogrammet/database/placements";
 import { Effect } from "effect";
 import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";

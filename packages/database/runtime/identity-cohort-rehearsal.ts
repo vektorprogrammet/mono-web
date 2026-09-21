@@ -9,7 +9,7 @@ import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
 import { Pool } from "pg";
 import { Effect, Redacted } from "effect";
-import { databaseHealth } from "@vektorprogrammet/domain/database";
+import { databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "../src/layers.js";
 import { makeAuthEngine, makeAuthPool, type AuthEngineConfig } from "../src/auth-engine.js";
 import { makePasswordRecovery, drainPasswordResetMail } from "../src/password-recovery.js";

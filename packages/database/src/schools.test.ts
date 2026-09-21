@@ -1,13 +1,12 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "./service.js";
 import { databaseSchemaRevision } from "./migrations.js";
 import {
-  DepartmentId,
-  OrganizationAuthorityInstantSchema,
-  OrganizationLive,
-  PersonId,
-} from "@vektorprogrammet/domain/organization";
-import { readSchoolsDirectory, Schools, SchoolsLive } from "@vektorprogrammet/domain/schools";
+  DepartmentId, OrganizationAuthorityInstantSchema, PersonId } from "@vektorprogrammet/domain/organization";
+import { Schools } from "@vektorprogrammet/domain/schools";
+import { OrganizationLive } from "@vektorprogrammet/database/organization";
+import { readSchoolsDirectory } from "@vektorprogrammet/database/schools";
+import { SchoolsLive } from "@vektorprogrammet/database/schools";
 import { Effect, Layer } from "effect";
 import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";

@@ -13,45 +13,22 @@ import {
   PublicApplicationIdSchema,
   type PublicApplicationOutboxRequest,
 } from "@vektorprogrammet/domain/application";
-import { executePublicApplicationCommand } from "../../domain/src/application/postgres.js";
+import { executePublicApplicationCommand } from "./application/postgres.js";
 import {
-  AdmissionPeriodCommandId,
-  AdmissionPeriodId,
-} from "../../domain/src/admission-period/schema.js";
+  AdmissionPeriodCommandId, AdmissionPeriodId, } from "../../domain/src/admission-period/schema.js";
 import {
-  executeAdmissionPeriodCommand,
-  listOpenAdmissionPeriods,
-} from "../../domain/src/admission-period/postgres.js";
+  executeAdmissionPeriodCommand, listOpenAdmissionPeriods, } from "./admission-period/postgres.js";
 import {
-  importOrganizationSnapshot,
-  listOrganizationTeamInterestRegistrations,
-} from "../../domain/src/organization/postgres.js";
-import { DepartmentId, PersonId, SemesterId } from "../../domain/src/organization/schema.js";
-import { Database } from "@vektorprogrammet/domain/database";
-import { AdmissionsLive } from "@vektorprogrammet/domain/admissions";
-import {
-  departmentIdForCommand,
-  Organization,
-  OrganizationCommandId,
-  OrganizationLive,
-} from "@vektorprogrammet/domain/organization";
-import { ProfileLive } from "@vektorprogrammet/domain/profile";
-import {
-  deliverNextRecruitmentInterviewCompletion,
-  deliverNextRecruitmentInvitation,
-  deliverNextRecruitmentInvitationResponse,
-  InterviewSchemaId,
-  Recruitment,
-  RecruitmentAssignmentCommandId,
-  RecruitmentInterviewId,
-  RecruitmentInvitationId,
-  RecruitmentInvitationCapabilitySchema,
-  RecruitmentLive,
-  RecruitmentScheduleCommandId,
-  RecruitmentConductCommandId,
-  RecruitmentCancellationCommandId,
-  RecruitmentNotificationDeliveryError,
-} from "@vektorprogrammet/domain/recruitment";
+  importOrganizationSnapshot, listOrganizationTeamInterestRegistrations, } from "./organization/postgres.js";
+import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
+import { Database } from "./service.js";
+import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
+import { departmentIdForCommand, Organization, OrganizationCommandId } from "@vektorprogrammet/domain/organization";
+import { InterviewSchemaId, Recruitment, RecruitmentAssignmentCommandId, RecruitmentInterviewId, RecruitmentInvitationId, RecruitmentInvitationCapabilitySchema, RecruitmentScheduleCommandId, RecruitmentConductCommandId, RecruitmentCancellationCommandId, RecruitmentNotificationDeliveryError } from "@vektorprogrammet/domain/recruitment";
+import { OrganizationLive } from "@vektorprogrammet/database/organization";
+import { ProfileLive } from "@vektorprogrammet/database/profile";
+import { deliverNextRecruitmentInterviewCompletion, deliverNextRecruitmentInvitation, deliverNextRecruitmentInvitationResponse } from "@vektorprogrammet/database/recruitment";
+import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import {
   makeRecordingNotificationGateway,
   NotificationGateway,
@@ -62,8 +39,8 @@ import {
   ReceiptVisualId,
   importLegacyReceipt,
 } from "@vektorprogrammet/domain/receipt";
-import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
-import { storeReceiptImportResult } from "../../domain/src/receipt/postgres.js";
+import { EconomyLive } from "@vektorprogrammet/database/receipt";
+import { storeReceiptImportResult } from "./receipt/postgres.js";
 import { Deferred, Effect, Fiber, Layer } from "effect";
 import { DatabaseTest } from "./layers.js";
 import { databaseMigrationDefinitions, databaseSchemaRevision } from "./migrations.js";

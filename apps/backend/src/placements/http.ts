@@ -1,20 +1,8 @@
-import { Database } from "@vektorprogrammet/domain/database";
-import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
+import { Database } from "@vektorprogrammet/database";
+import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
-  AffiliationScope,
-  OwnAffiliationCommand,
-  PlacementCommand,
-  PlacementScope,
-  PlacementScopes,
-  PlacementFailure,
-  canManagePlacements,
-  lockPlacementDepartment,
-  mutateAffiliation,
-  mutatePlacementBoard,
-  readOwnAffiliation,
-  readPlacementBoard,
-  readPlacementScopes,
-} from "@vektorprogrammet/domain/placements";
+  AffiliationScope, OwnAffiliationCommand, PlacementCommand, PlacementScope, PlacementScopes, PlacementFailure, canManagePlacements } from "@vektorprogrammet/domain/placements";
+import { lockPlacementDepartment, mutateAffiliation, mutatePlacementBoard, readOwnAffiliation, readPlacementBoard, readPlacementScopes } from "@vektorprogrammet/database/placements";
 import {
   ExternalNativeApi,
   OwnAffiliationResource,

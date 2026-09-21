@@ -3,7 +3,7 @@ import {
   composeCapabilityEvidence,
   readApplicableAuthorizationRules,
 } from "@vektorprogrammet/domain/authz";
-import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
+import { Database, type DatabaseShape } from "./service.js";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
@@ -13,8 +13,8 @@ import {
   type ReceiptApprovalCandidate,
 } from "@vektorprogrammet/domain/receipt";
 import { Effect, Redacted } from "effect";
-import { resolveOrganizationPersonAuthorityForRead } from "../../domain/src/organization/authority-postgres.js";
-import { executeReceiptCommand } from "../../domain/src/receipt/postgres.js";
+import { resolveOrganizationPersonAuthorityForRead } from "./organization/authority-postgres.js";
+import { executeReceiptCommand } from "./receipt/postgres.js";
 import { DatabaseLive } from "./layers.js";
 import { proveRuleReconciliationMigration } from "./rule-reconciliation-migration-postgres-proof.js";
 

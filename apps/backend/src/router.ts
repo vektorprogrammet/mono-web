@@ -10,7 +10,7 @@ import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-pe
 import { InactiveActor, UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
 import { SchoolSurveys, SocialEvents } from "@vektorprogrammet/domain";
-import { type Database } from "@vektorprogrammet/domain/database";
+import { type Database } from "@vektorprogrammet/database";
 import { Identity, type IdentityRequestContext } from "@vektorprogrammet/domain/identity";
 import { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
 import { DepartmentId, type Organization } from "@vektorprogrammet/domain/organization";

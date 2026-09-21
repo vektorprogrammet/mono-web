@@ -5,7 +5,7 @@ import { DateTime, Effect, Layer, Redacted } from "effect";
 import { Pool } from "pg";
 import { afterAll, describe, expect, it } from "vitest";
 import { AuthorizationInstant } from "@vektorprogrammet/domain/authz";
-import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
+import { Database, type DatabaseShape } from "./service.js";
 import {
   Identity,
   IdentityActor,

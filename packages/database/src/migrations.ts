@@ -14,42 +14,36 @@ export class DatabaseMigrationExecutionError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
-const receiptMigrationUrl = new URL(
-  "../../domain/src/receipt/migrations/0001-receipt-authority.sql",
-  import.meta.url,
-);
+const receiptMigrationUrl = new URL("../migrations/0001-receipt-authority.sql", import.meta.url);
 const admissionPeriodMigrationUrl = new URL(
-  "../../domain/src/admission-period/migrations/0001-admission-period-authority.sql",
+  "../migrations/0002-admission-period-authority.sql",
   import.meta.url,
 );
 const publicApplicantMigrationUrl = new URL(
-  "../../domain/src/application/migrations/0002-public-applicant-admission.sql",
+  "../migrations/0003-public-applicant-admission.sql",
   import.meta.url,
 );
 const publicApplicantEffectLifecycleMigrationUrl = new URL(
-  "../../domain/src/application/migrations/0003-public-applicant-effect-lifecycle.sql",
+  "../migrations/0005-public-applicant-effect-lifecycle.sql",
   import.meta.url,
 );
 const publicApplicantDeliveredPayloadCleanupMigrationUrl = new URL(
-  "../../domain/src/application/migrations/0004-public-applicant-delivered-payload-cleanup.sql",
+  "../migrations/0006-public-applicant-delivered-payload-cleanup.sql",
   import.meta.url,
 );
 const publicApplicantActivationSnapshotMigrationUrl = new URL(
-  "../../domain/src/application/migrations/0005-public-applicant-activation-snapshot.sql",
+  "../migrations/0007-public-applicant-activation-snapshot.sql",
   import.meta.url,
 );
 const organizationMigrationUrl = new URL(
-  "../../domain/src/organization/migrations/0001-organization-authority.sql",
+  "../migrations/0008-organization-authority.sql",
   import.meta.url,
 );
 const contentPublicationMigrationUrl = new URL(
-  "../../domain/src/content/migrations/0001-content-publication.sql",
+  "../migrations/0020-content-publication.sql",
   import.meta.url,
 );
-const schoolsMigrationUrl = new URL(
-  "../../domain/src/schools/migrations/0001-schools-directory.sql",
-  import.meta.url,
-);
+const schoolsMigrationUrl = new URL("../migrations/0019-schools-directory.sql", import.meta.url);
 const importOccurrenceAuthorityMigrationUrl = new URL(
   "../migrations/0009-import-occurrence-authority.sql",
   import.meta.url,

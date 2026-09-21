@@ -3,7 +3,7 @@ import {
   RECEIPT_DOMAIN_ID,
   persistDisposableAuthzBackfill,
 } from "@vektorprogrammet/domain/authz";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "../service.js";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
 import { Effect } from "effect";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";

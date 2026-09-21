@@ -7,7 +7,7 @@ import {
 } from "@vektorprogrammet/domain/organization";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { Data, Effect, Schema } from "effect";
-import type { DatabaseShape } from "@vektorprogrammet/domain/database";
+import type { DatabaseShape } from "../service.js";
 
 export const SPEC_0067 = {
   contractRevision: "0067.0",

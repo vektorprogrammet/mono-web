@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { importLegacyOrganizationEffect } from "@vektorprogrammet/domain/organization";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
-import type { DatabaseShape } from "@vektorprogrammet/domain/database";
+import type { DatabaseShape } from "../service.js";
 import { Effect, Layer } from "effect";
 import { afterAll, describe, expect, it } from "vitest";
 import organizationImportPlaywrightConfig, {

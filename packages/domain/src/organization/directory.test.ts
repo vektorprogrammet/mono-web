@@ -6,7 +6,7 @@ import {
   resolveDirectoryGateScope,
   type OrganizationDirectoryFacts,
 } from "./directory.js";
-import { decodeDirectoryCursor, encodeDirectoryCursor } from "../profile/postgres.js";
+import { decodeDirectoryCursor, encodeDirectoryCursor } from "../profile/directory-cursor.js";
 import { DepartmentId, MembershipId, PersonId, TeamId } from "./schema.js";
 import type { OrganizationAuthorityMembership } from "./authority.js";
 

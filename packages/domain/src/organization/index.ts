@@ -1,15 +1,10 @@
 export * from "./administration.js";
-export * from "./administration-postgres.js";
 export * from "./administration-schema.js";
 export * from "./directory.js";
-export * from "./directory-postgres.js";
 export * from "./authority.js";
-export * from "./authority-postgres.js";
-export { lockOrganizationMembershipForRevision } from "./postgres.js";
 export * from "./mailing-lists.js";
 export * from "./errors.js";
 export * from "./import.js";
-export * from "./postgres-layer.js";
 export * from "./schema.js";
 export * from "./service.js";
 export * from "./transitions.js";

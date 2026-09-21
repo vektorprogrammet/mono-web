@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "./service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { createLocalAccountIssuer } from "better-auth";
 import { Config, Effect, Redacted } from "effect";

@@ -3,18 +3,23 @@ import { makeReceiptDeliveryLayer, receiptDeliveryConfig } from "./receipt/deliv
 import { randomUUID } from "node:crypto";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
-import { AuthEngine, AuthLive, DatabaseLive } from "@vektorprogrammet/database";
-import { SchoolSurveysLive, SocialEventsLive } from "@vektorprogrammet/domain";
-import { runPublicApplicationOutboxWorker } from "@vektorprogrammet/domain/application";
-import { AdmissionsLive } from "@vektorprogrammet/domain/admissions";
-import { ReturningAssistantsLive } from "@vektorprogrammet/domain/application";
-import { databaseHealth } from "@vektorprogrammet/domain/database";
-import { OrganizationLive } from "@vektorprogrammet/domain/organization";
-import { ProfileLive } from "@vektorprogrammet/domain/profile";
-import { RecruitmentLive } from "@vektorprogrammet/domain/recruitment";
-import { ContentLive, ContentManagementLive } from "@vektorprogrammet/domain/content";
-import { SchoolsLive } from "@vektorprogrammet/domain/schools";
-import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
+import {
+  AuthEngine,
+  AuthLive,
+  DatabaseLive,
+  databaseHealth,
+} from "@vektorprogrammet/database";
+import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
+import { ReturningAssistantsLive } from "@vektorprogrammet/database/application";
+import { ContentLive, ContentManagementLive } from "@vektorprogrammet/database/content";
+import { OrganizationLive } from "@vektorprogrammet/database/organization";
+import { ProfileLive } from "@vektorprogrammet/database/profile";
+import { EconomyLive } from "@vektorprogrammet/database/receipt";
+import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
+import { SchoolsLive } from "@vektorprogrammet/database/schools";
+import { SocialEventsLive } from "@vektorprogrammet/database/social-events";
+import { SchoolSurveysLive } from "@vektorprogrammet/database/surveys";
+import { runPublicApplicationOutboxWorker } from "./application/worker.js";
 import { Effect, Exit, Fiber, Layer, Redacted } from "effect";
 import { Etag, HttpEffect, HttpRouter } from "effect/unstable/http";
 import { makeHttpPublicApplicationEffectInterpreter } from "./application/effects.js";
@@ -63,8 +68,8 @@ const contentLayer = ContentLive.pipe(
 const recruitmentLayer = RecruitmentLive.pipe(
   Layer.provide(Layer.mergeAll(databaseLayer, admissionsLayer, organizationLayer, profileLayer)),
 );
-const socialEventsLayer = SocialEventsLive;
-const schoolSurveysLayer = SchoolSurveysLive;
+const socialEventsLayer = SocialEventsLive.pipe(Layer.provide(databaseLayer));
+const schoolSurveysLayer = SchoolSurveysLive.pipe(Layer.provide(databaseLayer));
 const capabilityLayers = Layer.mergeAll(
   returningAssistantsLayer,
   admissionsLayer,

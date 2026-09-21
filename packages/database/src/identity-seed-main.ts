@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "./service.js";
 import { createLocalAccountIssuer } from "better-auth";
 import { Effect, Redacted, Schema } from "effect";
 import { Pool } from "pg";

@@ -1,6 +1,6 @@
 import { databaseSchemaRevision } from "./migrations.js";
 import { afterAll, describe, expect, it } from "vitest";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "./service.js";
 import { ContentWorkspaceSchema } from "@vektorprogrammet/domain/content";
 import { Effect } from "effect";
 import { DatabaseTest } from "./layers.js";

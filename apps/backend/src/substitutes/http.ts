@@ -1,19 +1,8 @@
-import { Database } from "@vektorprogrammet/domain/database";
-import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
+import { Database } from "@vektorprogrammet/database";
+import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
-  SubstituteFailure,
-  SubstituteMutation,
-  SubstituteScope,
-  SubstituteScopes,
-  lockSubstituteApplication,
-  mutateSubstitute,
-  readSubstituteEntries,
-  readSubstituteEntry,
-  readSubstitutePeriod,
-  readSubstituteScopes,
-  substitutePermission,
-  type SubstituteEntry,
-} from "@vektorprogrammet/domain/substitutes";
+  SubstituteFailure, SubstituteMutation, SubstituteScope, SubstituteScopes, substitutePermission, type SubstituteEntry } from "@vektorprogrammet/domain/substitutes";
+import { lockSubstituteApplication, mutateSubstitute, readSubstituteEntries, readSubstituteEntry, readSubstitutePeriod, readSubstituteScopes } from "@vektorprogrammet/database/substitutes";
 import {
   ExternalNativeApi,
   SubstituteBoard,

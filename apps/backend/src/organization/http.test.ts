@@ -1,5 +1,5 @@
 import { IdentitySnapshot } from "@vektorprogrammet/database";
-import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
+import { Database, type DatabaseShape } from "@vektorprogrammet/database";
 import { IdentityActor, IdentitySessionNotFound } from "@vektorprogrammet/domain/identity";
 import {
   CreateDepartmentResultSchema,

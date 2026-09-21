@@ -20,17 +20,17 @@ import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { Effect, Redacted } from "effect";
 import { DatabaseLive } from "../../../packages/database/src/layers.js";
-import { Database, databaseHealth } from "../../../packages/domain/src/database/service.js";
+import { Database, databaseHealth } from "../src/service.js";
 import {
   storeReceiptImportResult,
   reconcileReceiptImport,
-} from "../../../packages/domain/src/receipt/postgres.js";
+} from "../src/receipt/postgres.js";
 import {
   ReceiptAuxiliaryEffects,
   ReceiptAuxiliaryEffectConflict,
 } from "../../../packages/domain/src/receipt/auxiliary-service.js";
 import { ReceiptFileService } from "../../../packages/domain/src/receipt/file-service.js";
-import { deliverNextReceiptOutbox } from "../../../packages/domain/src/receipt/outbox.js";
+import { deliverNextReceiptOutbox } from "../src/receipt/outbox.js";
 import type { ReceiptImportResult } from "../../../packages/domain/src/receipt/import.js";
 import { ReceiptId } from "../../../packages/domain/src/receipt/schema.js";
 import { createPromiseClient } from "../../../packages/sdk/src/promise.js";

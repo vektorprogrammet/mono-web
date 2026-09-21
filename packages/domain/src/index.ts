@@ -70,7 +70,6 @@ export * from "./admissions/index.js";
 export * from "./capabilities.js";
 export * from "./authz/index.js";
 export * from "./organization/import.js";
-export * from "./organization/postgres-layer.js";
 export * from "./organization/schema.js";
 export * from "./organization/service.js";
 export * from "./organization/transitions.js";
@@ -80,4 +79,3 @@ export * from "./recruitment/index.js";
 export * from "./social-events/index.js";
 export * from "./surveys/index.js";
 
-export * from "./database/index.js";

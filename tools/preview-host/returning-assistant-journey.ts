@@ -1522,7 +1522,7 @@ export const runReturningAssistantBrowserJourney = async ({
       actorContextBefore: assignmentActorContextBefore.rows,
       periodContextBefore: assignmentPeriodContextBefore.rows,
       source:
-        "assignmentInTransaction currentPeriod scope check (packages/domain/src/recruitment/postgres.ts:850-857) maps RecruitmentScopeDenied to authority.denied (apps/backend/src/recruitment/http.ts:251-255)",
+        "assignmentInTransaction currentPeriod scope check (packages/database/src/recruitment/postgres.ts:850-857) maps RecruitmentScopeDenied to authority.denied (apps/backend/src/recruitment/http.ts:251-255)",
       periodContext: assignmentPeriodContext.rows,
     });
     // Model the legitimate semester transition: the old period ends at a valid
@@ -1649,7 +1649,7 @@ export const runReturningAssistantBrowserJourney = async ({
           status: assignmentStatus,
           body: assignmentBodyText,
           source:
-            "assignment preflight reads target actor/interviewer eligibility in apps/backend/src/recruitment/http.ts:1008-1052; domain assignment then checks current period and live membership in packages/domain/src/recruitment/postgres.ts:843-931",
+            "assignment preflight reads target actor/interviewer eligibility in apps/backend/src/recruitment/http.ts:1008-1052; domain assignment then checks current period and live membership in packages/database/src/recruitment/postgres.ts:843-931",
           actorContext: assignmentActorContext.rows,
         });
         throw new Error(`next assignment failed ${assignmentStatus} ${assignmentBodyText}`);

@@ -1,4 +1,4 @@
-import type { DatabaseShape } from "@vektorprogrammet/domain/database";
+import type { DatabaseShape } from "../service.js";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { Effect } from "effect";
 

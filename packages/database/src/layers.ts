@@ -4,11 +4,7 @@ import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { Context, Duration, Effect, Layer, Redacted } from "effect";
 import { Pool } from "pg";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import {
-  Database,
-  type DatabaseShape,
-  DatabaseUnavailable,
-} from "@vektorprogrammet/domain/database";
+import { Database, type DatabaseShape, DatabaseUnavailable } from "./service.js";
 import {
   DatabaseMigrationExecutionError,
   databaseSchemaRevision,

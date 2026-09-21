@@ -5,13 +5,11 @@ import {
   publishPostgres,
   readNewsListingPostgres,
   unpublishPostgres,
-} from "@vektorprogrammet/domain/content";
-import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
-import {
-  OrganizationLive,
-  type OrganizationAuthorityInstant,
-} from "@vektorprogrammet/domain/organization";
-import { ProfileLive } from "@vektorprogrammet/domain/profile";
+} from "@vektorprogrammet/database/content";
+import type { OrganizationAuthorityInstant } from "@vektorprogrammet/domain/organization";
+import { Database, type DatabaseShape } from "./service.js";
+import { OrganizationLive } from "@vektorprogrammet/database/organization";
+import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "./layers.js";
 

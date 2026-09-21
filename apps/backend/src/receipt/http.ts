@@ -1,5 +1,5 @@
 import { reflectAccessSpec } from "../../../../packages/http-api/src/access.js";
-import { readOwnedReceiptFile } from "../../../../packages/domain/src/receipt/postgres.js";
+import { readOwnedReceiptFile } from "@vektorprogrammet/database/receipt";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -24,11 +24,11 @@ import {
   type CredentialOutcome,
   type ReceiptAccessFacts,
 } from "@vektorprogrammet/domain/authz";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "@vektorprogrammet/database";
 import {
   executeNativeHttpCommandPostgres,
   type NativeHttpResponseCapsule,
-} from "@vektorprogrammet/domain/http-semantics";
+} from "../http-api/receipt-transaction.js";
 import { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { Effect, Option } from "effect";
 import {

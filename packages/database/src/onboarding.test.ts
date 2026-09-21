@@ -1,13 +1,13 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "./service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
+import { OnboardingFailure } from "@vektorprogrammet/domain/onboarding";
 import {
-  commandOnboarding,
   claimOnboarding,
+  commandOnboarding,
   readOnboardingBoard,
-  OnboardingFailure,
-} from "@vektorprogrammet/domain/onboarding";
+} from "@vektorprogrammet/database/onboarding";
 import { Effect } from "effect";
 import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";

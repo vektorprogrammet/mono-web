@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "./service.js";
 import { Effect, ManagedRuntime, Redacted } from "effect";
 import * as PgClient from "@effect/sql-pg/PgClient";
 import * as SqlClient from "effect/unstable/sql/SqlClient";

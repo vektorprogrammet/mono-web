@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { Pool } from "pg";
 import { Effect, Redacted } from "effect";
-import { databaseHealth } from "@vektorprogrammet/domain/database";
+import { databaseHealth } from "./service.js";
 import { DatabaseLive } from "./layers.js";
 import { IdentityCohortFailure, importIdentityCohort } from "./identity-cohort.js";
 

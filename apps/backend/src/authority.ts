@@ -1,5 +1,5 @@
 import { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "@vektorprogrammet/database";
 import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
 import {
   AdmissionScopeDenied,

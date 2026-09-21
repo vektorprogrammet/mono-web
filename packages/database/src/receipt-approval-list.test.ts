@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "./service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { Economy } from "@vektorprogrammet/domain/receipt";
-import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
+import { EconomyLive } from "@vektorprogrammet/database/receipt";
 import { Effect, Layer } from "effect";
 import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";

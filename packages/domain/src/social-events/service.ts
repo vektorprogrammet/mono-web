@@ -1,5 +1,4 @@
 import { Context, Effect } from "effect";
-import type { Database } from "../database/service.js";
 import type { OrganizationPersonAuthority } from "../organization/authority.js";
 import type { DepartmentId, SemesterId } from "../organization/schema.js";
 import type { SocialEventFailure } from "./errors.js";
@@ -27,23 +26,19 @@ export interface ReadSocialEventListInput {
 
 /** Portable social-event capability; callers retain transaction ownership. */
 export interface SocialEventsShape {
-  readonly readSnapshotInstant: () => Effect.Effect<
-    SocialEventObservedAt,
-    SocialEventFailure,
-    Database
-  >;
+  readonly readSnapshotInstant: () => Effect.Effect<SocialEventObservedAt, SocialEventFailure>;
   readonly readScope: (
     input: ReadSocialEventScopeInput,
-  ) => Effect.Effect<SocialEventScopeResource, SocialEventFailure, Database>;
+  ) => Effect.Effect<SocialEventScopeResource, SocialEventFailure>;
   readonly readList: (
     input: ReadSocialEventListInput,
-  ) => Effect.Effect<SocialEventListResource, SocialEventFailure, Database>;
+  ) => Effect.Effect<SocialEventListResource, SocialEventFailure>;
   readonly validateScope: (
     scope: SocialEventScope,
-  ) => Effect.Effect<SocialEventScope, SocialEventFailure, Database>;
+  ) => Effect.Effect<SocialEventScope, SocialEventFailure>;
   readonly create: (
     command: CreateSocialEventCommand,
-  ) => Effect.Effect<SocialEventResource, SocialEventFailure, Database>;
+  ) => Effect.Effect<SocialEventResource, SocialEventFailure>;
 }
 
 export class SocialEvents extends Context.Service<SocialEvents, SocialEventsShape>()(

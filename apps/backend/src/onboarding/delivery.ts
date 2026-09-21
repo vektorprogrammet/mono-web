@@ -1,4 +1,4 @@
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "@vektorprogrammet/database";
 import { Effect, Schema } from "effect";
 import { ContactEmail } from "@vektorprogrammet/domain/contact";
 import { deliverJson, type HttpDeliveryConfig, type DeliveryFetch } from "../delivery/http.js";

@@ -8,7 +8,7 @@ import {
   IdentitySessionNotFound,
   type IdentityShape,
 } from "@vektorprogrammet/domain/identity";
-import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
+import { Database, type DatabaseShape } from "@vektorprogrammet/database";
 import { Content } from "@vektorprogrammet/domain/content";
 import { ContentManagement } from "@vektorprogrammet/domain/content";
 import type { Schools } from "@vektorprogrammet/domain/schools";

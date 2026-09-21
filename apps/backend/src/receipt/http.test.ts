@@ -15,8 +15,8 @@ import {
   ReceiptListItem,
   ReceiptsReopenReceiptProblem,
 } from "@vektorprogrammet/http-api";
-import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
-import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
+import { Database, type DatabaseShape } from "@vektorprogrammet/database";
+import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
   IdentityActor,
   IdentityEngineError,

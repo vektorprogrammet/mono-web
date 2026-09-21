@@ -10,7 +10,7 @@ import {
   type SemesterId,
   type TeamInterestFilter,
 } from "@vektorprogrammet/domain/organization";
-import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
+import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
   CreateDepartmentEndpoint,
   CreateDepartmentRequest,

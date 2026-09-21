@@ -1,7 +1,7 @@
 /** Operator-only bounded retry of durable receipt work. No business command is issued. */
 import { randomUUID } from "node:crypto";
 import { DatabaseLive } from "@vektorprogrammet/database";
-import { Database, databaseHealth } from "@vektorprogrammet/domain/database";
+import { Database, databaseHealth } from "@vektorprogrammet/database";
 import { Effect, Layer, Redacted, Schema } from "effect";
 import {
   deliverNextReceiptOutbox,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import { SubstituteEntry, SubstituteMutation } from "./schema.js";
-import { substitutePermission } from "./postgres.js";
+import { substitutePermission } from "./policy.js";
 import { OrganizationPersonAuthoritySchema } from "../organization/authority.js";
 import { DepartmentId } from "../organization/schema.js";
 const preferences = {

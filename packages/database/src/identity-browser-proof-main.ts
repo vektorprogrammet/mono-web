@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Effect, Redacted } from "effect";
 import { Pool } from "pg";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "./service.js";
 import { DatabaseLive } from "./layers.js";
 
 const personId = "journey-0065-admin";

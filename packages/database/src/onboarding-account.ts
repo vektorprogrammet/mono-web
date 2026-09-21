@@ -1,4 +1,4 @@
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "./service.js";
 import { OnboardingFailure, type AccountProvisionInput } from "@vektorprogrammet/domain/onboarding";
 import { Effect } from "effect";
 import { hashPassword } from "better-auth/crypto";

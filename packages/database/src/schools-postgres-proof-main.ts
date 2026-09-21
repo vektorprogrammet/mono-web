@@ -1,20 +1,11 @@
 import assert from "node:assert/strict";
-import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
+import { Database, type DatabaseShape } from "./service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
-import {
-  DepartmentId,
-  Organization,
-  OrganizationAuthorityInstantSchema,
-  OrganizationLive,
-  PersonId,
-} from "@vektorprogrammet/domain/organization";
-import {
-  readSchoolsDirectory,
-  Schools,
-  SchoolsLive,
-  SchoolsPersistenceError,
-  type SchoolDirectoryListInput,
-} from "@vektorprogrammet/domain/schools";
+import { DepartmentId, Organization, OrganizationAuthorityInstantSchema, PersonId } from "@vektorprogrammet/domain/organization";
+import { Schools, SchoolsPersistenceError, type SchoolDirectoryListInput } from "@vektorprogrammet/domain/schools";
+import { OrganizationLive } from "@vektorprogrammet/database/organization";
+import { readSchoolsDirectory } from "@vektorprogrammet/database/schools";
+import { SchoolsLive } from "@vektorprogrammet/database/schools";
 import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "./layers.js";
 import { databaseSchemaRevision } from "./migrations.js";

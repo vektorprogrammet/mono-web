@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { PersonId } from "@vektorprogrammet/domain/organization";
-import { readApplicantProgress } from "../../domain/src/application/postgres.js";
-import { Database } from "@vektorprogrammet/domain/database";
+import { readApplicantProgress } from "./application/postgres.js";
+import { Database } from "./service.js";
 import { Effect } from "effect";
 import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";

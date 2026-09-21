@@ -1,10 +1,6 @@
-import {
-  readCompletedInterviewReport,
-  resolveInterviewReportLeader,
-  InterviewReportQuery,
-  InterviewReport,
-} from "@vektorprogrammet/domain/recruitment";
-import { guardInterviewApplicantIdentity } from "@vektorprogrammet/domain/recruitment";
+import { InterviewReportQuery, InterviewReport } from "@vektorprogrammet/domain/recruitment";
+import { readCompletedInterviewReport, resolveInterviewReportLeader } from "@vektorprogrammet/database/recruitment";
+import { guardInterviewApplicantIdentity } from "@vektorprogrammet/database/recruitment";
 import {
   AssignmentBoard,
   AssignApplicantEndpoint,
@@ -61,8 +57,8 @@ import {
   type CanonicalScopeResolution,
   type Scope,
 } from "@vektorprogrammet/domain/authz";
-import { Database } from "@vektorprogrammet/domain/database";
-import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
+import { Database } from "@vektorprogrammet/database";
+import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import { DepartmentId, Organization } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import {
@@ -75,27 +71,29 @@ import {
   RecruitmentInterviewId,
   RecruitmentInvitationCapabilitySchema,
   RecruitmentScheduleCommandId,
-  assignApplicantPostgres,
-  cancelInterviewPostgres,
-  correctInterviewAssessmentPostgres,
+  type RecruitmentActor,
+  type RecruitmentSchedulingBoard,
+} from "@vektorprogrammet/domain/recruitment";
+import {
+  assignApplicant,
+  cancelInterview,
+  correctInterviewAssessment,
   executeRecruitmentInvitationTransitionPostgres,
-  finalizeInterviewPostgres,
+  finalizeInterview,
   readInterviewConductInTransaction,
   readRecruitmentApplicationHttpAccessPostgres,
   readRecruitmentInterviewHttpSourcePostgres,
-  readRecruitmentPersonAuthorityHttpSourcesPostgres,
   readRecruitmentInvitationHttpSnapshotPostgres,
   readRecruitmentInvitationHttpSourcePostgres,
+  readRecruitmentPersonAuthorityHttpSourcesPostgres,
   readRecruitmentTargetActorPostgres,
   readRecruitmentTargetAuthorityPostgres,
-  scheduleInterviewPostgres,
-  type RecruitmentActor,
-  type RecruitmentInterviewHttpSource,
+  scheduleInterview,
   type RecruitmentAuthorityHttpSource,
+  type RecruitmentInterviewHttpSource,
   type RecruitmentInvitationHttpSource,
-  type RecruitmentSchedulingBoard,
   type RecruitmentInvitationHttpTransition,
-} from "@vektorprogrammet/domain/recruitment";
+} from "@vektorprogrammet/database/recruitment";
 import { Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { resolveRequestPersonAuthorityInTransaction } from "../authority.js";
@@ -1052,7 +1050,7 @@ const createApplicationInterview = async (
         credentialSubject: `Person:${actor.personId}`,
         execute: (commandId) =>
           Effect.gen(function* () {
-            const result = yield* assignApplicantPostgres(
+            const result = yield* assignApplicant(
               { commandId, applicationId, ...body },
               {
                 actor,
@@ -1177,7 +1175,7 @@ const scheduleInterview = async (
         credentialSubject: `Person:${authorization.actor.personId}`,
         execute: (commandId) =>
           Effect.gen(function* () {
-            const result = yield* scheduleInterviewPostgres(
+            const result = yield* scheduleInterview(
               {
                 commandId,
                 interviewId,
@@ -1304,7 +1302,7 @@ const correctInterviewAssessment = async (
               );
             if (body.expectedRevision !== authorization.source.interviewRevision)
               return yield* Effect.fail(new HttpSemanticFailure("precondition.failed", 412));
-            const result = yield* correctInterviewAssessmentPostgres(
+            const result = yield* correctInterviewAssessment(
               {
                 commandId,
                 interviewId,
@@ -1392,7 +1390,7 @@ const lifecycleInterview = async (
                 return yield* Effect.fail(
                   new HttpSemanticFailure(precondition.code, precondition.status),
                 );
-              const result = yield* finalizeInterviewPostgres(
+              const result = yield* finalizeInterview(
                 {
                   commandId,
                   interviewId,
@@ -1455,7 +1453,7 @@ const lifecycleInterview = async (
               return yield* Effect.fail(
                 new HttpSemanticFailure(precondition.code, precondition.status),
               );
-            const result = yield* cancelInterviewPostgres(
+            const result = yield* cancelInterview(
               {
                 commandId,
                 interviewId,

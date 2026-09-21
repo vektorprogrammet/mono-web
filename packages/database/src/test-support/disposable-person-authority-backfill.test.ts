@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "../service.js";
 import { Effect } from "effect";
 import { DatabaseTest } from "../layers.js";
 import {

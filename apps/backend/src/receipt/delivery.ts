@@ -1,5 +1,5 @@
 import { ContactEmail } from "@vektorprogrammet/domain/contact";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "@vektorprogrammet/database";
 import {
   ReceiptAuxiliaryEffects,
   ReceiptDeliveryUnavailable,

@@ -1,10 +1,5 @@
-import {
-  readSchoolsDirectory,
-  SchoolDirectoryQuerySchema,
-  SchoolDirectorySchema,
-  SchoolsDecodeError,
-  type SchoolDirectoryQuery,
-} from "@vektorprogrammet/domain/schools";
+import { SchoolDirectoryQuerySchema, SchoolDirectorySchema, SchoolsDecodeError, type SchoolDirectoryQuery } from "@vektorprogrammet/domain/schools";
+import { readSchoolsDirectory } from "@vektorprogrammet/database/schools";
 import type { OrganizationAuthorityInstant, PersonId } from "@vektorprogrammet/domain/organization";
 import { ListSchoolsEndpoint, reflectAccessSpec } from "@vektorprogrammet/http-api";
 import { Effect, Option, Schema } from "effect";

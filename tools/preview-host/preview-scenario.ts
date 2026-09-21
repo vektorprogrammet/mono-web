@@ -39,7 +39,7 @@ import { IdempotencyKey, StrongETag } from "../../packages/http-api/src/http-sem
 import { DepartmentId, SemesterId } from "../../packages/domain/src/organization/schema.js";
 import { AdmissionFieldOfStudyId } from "../../packages/domain/src/admission-period/schema.js";
 import { InterviewSchemaId } from "../../packages/domain/src/recruitment/schema.js";
-import { OrganizationLive } from "../../packages/domain/src/organization/postgres-layer.js";
+import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { Organization } from "../../packages/domain/src/organization/service.js";
 import { contactDepartmentSlug } from "../../apps/homepage/src/lib/contact-message.js";
 import {

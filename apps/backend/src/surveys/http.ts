@@ -5,8 +5,8 @@ import {
   SurveyResponseId,
   type PreparedSchoolSurveyResponse,
 } from "@vektorprogrammet/domain";
-import { Database } from "@vektorprogrammet/domain/database";
-import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
+import { Database } from "@vektorprogrammet/database";
+import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
   ExternalNativeApi,
   makeNativeValidationError,

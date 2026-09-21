@@ -4,7 +4,25 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./admission-period": "./src/admission-period/index.ts",
+    "./admissions": "./src/admissions/index.ts",
+    "./application": "./src/application/index.ts",
+    "./authz": "./src/authz/index.ts",
+    "./contact": "./src/contact/index.ts",
+    "./content": "./src/content/index.ts",
+    "./onboarding": "./src/onboarding/index.ts",
+    "./organization": "./src/organization/index.ts",
+    "./placements": "./src/placements/index.ts",
+    "./profile": "./src/profile/index.ts",
+    "./receipt": "./src/receipt/index.ts",
+    "./receipt/postgres": "./src/receipt/postgres-index.ts",
+    "./receipt/proof": "./src/receipt/proof-index.ts",
+    "./recruitment": "./src/recruitment/index.ts",
+    "./schools": "./src/schools/index.ts",
+    "./social-events": "./src/social-events/index.ts",
+    "./substitutes": "./src/substitutes/index.ts",
+    "./surveys": "./src/surveys/index.ts"
   },
   "scripts": {
     "test": "vitest run",

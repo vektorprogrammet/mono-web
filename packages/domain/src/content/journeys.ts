@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-import { Database } from "../database/service.js";
 import type { OrganizationAuthorityInstant } from "../organization/authority.js";
 import type { PersonId } from "../organization/schema.js";
 import { Organization } from "../organization/service.js";
@@ -21,7 +20,6 @@ export const runContentWorkspace = (
   query: ContentWorkspaceQuery,
 ) =>
   Effect.gen(function* () {
-    yield* Database;
     yield* Organization;
     yield* Profile;
     const content = yield* ContentManagement;
@@ -33,7 +31,6 @@ export const runContentArticleDetail = (
   articleId: ArticleId,
 ) =>
   Effect.gen(function* () {
-    yield* Database;
     yield* Organization;
     yield* Profile;
     const content = yield* ContentManagement;
@@ -52,7 +49,6 @@ export const runPublicationTransition = (
   input: ContentManagementCommand,
 ) =>
   Effect.gen(function* () {
-    yield* Database;
     yield* Organization;
     const content = yield* ContentManagement;
     const context = { personId, authorizationInstant };
@@ -77,7 +73,6 @@ export type PublicNewsRead =
 
 export const readPublicNews = (input: PublicNewsRead) =>
   Effect.gen(function* () {
-    yield* Database;
     yield* Organization;
     yield* Profile;
     const content = yield* Content;

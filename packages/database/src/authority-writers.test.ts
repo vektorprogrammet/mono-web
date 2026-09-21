@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { Effect, Layer } from "effect";
-import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
+import { Database, type DatabaseShape } from "./service.js";
 import {
   OrganizationGlobalAdministratorGrantId,
   OrganizationAuthorityWriteConflict,

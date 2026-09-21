@@ -1,50 +1,7 @@
+import { ArticleMergePatch, CreateArticleEndpoint, CreateArticleRequest, ExternalNativeApi, ListNewsEndpoint, PublishArticleEndpoint, PublishArticleRequest, PublishArticleResponse, ReadArticleEndpoint, ReadContentWorkspaceEndpoint, ReadNewsArticleEndpoint, ReviseArticleEndpoint, UnpublishArticleEndpoint, UnpublishArticleRequest, UnpublishArticleResponse, reflectAccessSpec, type StrongETag, } from "@vektorprogrammet/http-api";
 import {
-  ArticleMergePatch,
-  CreateArticleEndpoint,
-  CreateArticleRequest,
-  ExternalNativeApi,
-  ListNewsEndpoint,
-  PublishArticleEndpoint,
-  PublishArticleRequest,
-  PublishArticleResponse,
-  ReadArticleEndpoint,
-  ReadContentWorkspaceEndpoint,
-  ReadNewsArticleEndpoint,
-  ReviseArticleEndpoint,
-  UnpublishArticleEndpoint,
-  UnpublishArticleRequest,
-  UnpublishArticleResponse,
-  reflectAccessSpec,
-  type StrongETag,
-} from "@vektorprogrammet/http-api";
-import {
-  ArticleId,
-  Content,
-  ContentArticleDetailSchema,
-  ContentAuthorityInactive,
-  ContentCommandId,
-  ContentManagement,
-  ContentNotInScope,
-  ContentWorkspaceQuerySchema,
-  ContentWorkspaceSchema,
-  PublishedNewsArticleSchema,
-  PublishedNewsListingSchema,
-  createDraftPostgres,
-  publishPostgres,
-  readContentArticleHttpSourcePostgres,
-  readArticleDetailInTransactionPostgres,
-  readContentAuthorityHttpSourcesPostgres,
-  readPublicNews,
-  readPublishedNewsArticleHttpSourcePostgres,
-  readPublishedNewsCollectionHttpSourcesPostgres,
-  resolveContentActor,
-  reviseDraftPostgres,
-  runContentArticleDetail,
-  runContentWorkspace,
-  unpublishPostgres,
-  type ContentActor,
-  type ContentArticleDetail,
-} from "@vektorprogrammet/domain/content";
+  ArticleId, Content, ContentArticleDetailSchema, ContentAuthorityInactive, ContentCommandId, ContentManagement, ContentNotInScope, ContentWorkspaceQuerySchema, ContentWorkspaceSchema, PublishedNewsArticleSchema, PublishedNewsListingSchema, readPublicNews, resolveContentActor, runContentArticleDetail, runContentWorkspace, type ContentActor, type ContentArticleDetail } from "@vektorprogrammet/domain/content";
+import { createDraftPostgres, publishPostgres, readContentArticleHttpSourcePostgres, readArticleDetailInTransactionPostgres, readContentAuthorityHttpSourcesPostgres, readPublishedNewsArticleHttpSourcePostgres, readPublishedNewsCollectionHttpSourcesPostgres, reviseDraftPostgres, unpublishPostgres } from "@vektorprogrammet/database/content";
 import {
   AuthorityRef,
   AuthorityVersion,
@@ -61,10 +18,10 @@ import {
   type CanonicalScopeResolution,
   type Scope,
 } from "@vektorprogrammet/domain/authz";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "@vektorprogrammet/database";
 import { Organization, PersonId } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
-import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
+import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import { Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {

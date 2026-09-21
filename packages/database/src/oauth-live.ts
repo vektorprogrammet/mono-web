@@ -7,7 +7,7 @@ import {
   type CredentialOutcome,
 } from "@vektorprogrammet/domain/authz";
 import { PersonId } from "@vektorprogrammet/domain/organization";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "./service.js";
 import type { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
 import {
   NativeAccessTokenClaimsSchema,

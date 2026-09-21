@@ -1,12 +1,9 @@
 import assert from "node:assert/strict";
-import {
-  Profile,
-  ProfileCommandId,
-  ProfileLive,
-  type UpdateOwnProfileCommand,
-} from "@vektorprogrammet/domain/profile";
-import { PersonId, OrganizationLive } from "@vektorprogrammet/domain/organization";
-import { Database } from "@vektorprogrammet/domain/database";
+import { Profile, ProfileCommandId, type UpdateOwnProfileCommand } from "@vektorprogrammet/domain/profile";
+import { ProfileLive } from "@vektorprogrammet/database/profile";
+import { PersonId } from "@vektorprogrammet/domain/organization";
+import { OrganizationLive } from "@vektorprogrammet/database/organization";
+import { Database } from "./service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "./layers.js";

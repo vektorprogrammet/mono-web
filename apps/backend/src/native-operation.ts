@@ -19,7 +19,7 @@ import {
 import type {
   NativeHttpCommandOutcome,
   NativeHttpCommandPlan,
-} from "@vektorprogrammet/domain/http-semantics";
+} from "./http-api/receipt-transaction.js";
 import type { PersonId } from "@vektorprogrammet/domain/organization";
 import { Effect } from "effect";
 import {

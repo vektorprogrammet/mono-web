@@ -1,4 +1,4 @@
-import { Database } from "@vektorprogrammet/domain/database";
+import { Database } from "@vektorprogrammet/database";
 import { Effect, Option, Schema } from "effect";
 import {
   InactiveActor,
@@ -21,7 +21,7 @@ import {
   DepartmentId,
   type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
-import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
+import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
   CreateAdmissionPeriodEndpoint,
   CreateAdmissionPeriodRequest,

@@ -1,20 +1,16 @@
 import assert from "node:assert/strict";
-import { AdmissionsLive } from "@vektorprogrammet/domain/admissions";
-import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
+import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
+import { Database, type DatabaseShape } from "./service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import {
   NotificationGateway,
   makeRecordingNotificationGateway,
 } from "@vektorprogrammet/domain/notification";
-import { OrganizationLive } from "@vektorprogrammet/domain/organization";
-import { ProfileLive } from "@vektorprogrammet/domain/profile";
-import {
-  Recruitment,
-  RecruitmentInvitationCapabilitySchema,
-  RecruitmentLive,
-  RecruitmentNotificationDeliveryError,
-  deliverNextRecruitmentInvitationResponse,
-} from "@vektorprogrammet/domain/recruitment";
+import { OrganizationLive } from "@vektorprogrammet/database/organization";
+import { ProfileLive } from "@vektorprogrammet/database/profile";
+import { Recruitment, RecruitmentInvitationCapabilitySchema, RecruitmentNotificationDeliveryError } from "@vektorprogrammet/domain/recruitment";
+import { deliverNextRecruitmentInvitationResponse } from "@vektorprogrammet/database/recruitment";
+import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "./layers.js";
 import { databaseMigrationDefinitions, databaseSchemaRevision } from "./migrations.js";
