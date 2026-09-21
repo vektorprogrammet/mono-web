@@ -4302,12 +4302,31 @@ const providerFromText = (text: string): string | null => {
     [/\b(?:OpenAI|Anthropic)(?:Client|Adapter|Service)?\b/i, "ai"],
     [/\b(?:ipinfo\.io|IpInfo)\b/i, "ipinfo"],
     [
-      /\b(?:JourneyHttpClient|NodeJourneyHttpLayer|createEffectClient|backendOrigin|apiOrigin|dashboardOrigin|serverOrigin|input\.api)\b|new\s+URL\s*\([^,]+,\s*origin\s*\)|\$\{\s*origin\s*\}/i,
+      /\b(?:JourneyHttpClient|NodeJourneyHttpLayer|createEffectClient|backendOrigin|apiOrigin|dashboardOrigin|serverOrigin|input\.api)\b|new\s+URL\s*\([^,]+,\s*(?:origin|api|backendOrigin|apiOrigin|baseUrl)\s*\)|\$\{\s*(?:origin|api|backendOrigin|apiOrigin|baseUrl)\s*\}/i,
       "vektorprogrammet-api",
     ],
   ];
   for (const [pattern, provider] of patterns) if (pattern.test(text)) return provider;
   return null;
+};
+const providerFromReceiverType = (unit: SourceUnit, call: EffectCall | undefined): string | null => {
+  if (call?.receiver === null || call?.receiver === undefined) return null;
+  const receiverRoot = call.receiver.split(/->|::|\./).find((part) => part.length > 0);
+  if (receiverRoot === undefined) return null;
+  const receiverType = localReceiverTypesFor(unit, call.offset).get(receiverRoot);
+  return receiverType !== null &&
+    receiverType !== undefined &&
+    /\bJourneyHttpClient(?:Shape)?\b/.test(receiverType)
+    ? "vektorprogrammet-api"
+    : null;
+};
+const providerFromEndpointArguments = (argumentsText: string): string | null => {
+  const named = providerFromText(argumentsText);
+  if (named !== null) return named;
+  const value = argumentsText.trim();
+  return /^(?:url|request\.url|input\.url)$/i.test(value)
+    ? "configured-http-endpoint"
+    : null;
 };
 
 const integrationAdapterPattern =
@@ -5069,6 +5088,7 @@ const integrationCallsFor = (
     const resolvedCall =
       effectCall === undefined ? null : resolveEffectCall(authority, unit, effectCall, ownerClass);
     if (loopbackDispatchOffsets.has(callOffset)) continue;
+    const receiverProviderRef = providerFromReceiverType(unit, effectCall);
     const typeScriptBoundary = typeScriptBoundaries.find(
       (boundary) => callOffset === boundary.start,
     );
@@ -5098,11 +5118,14 @@ const integrationCallsFor = (
           );
     // URL-first HTTP calls take their destination from the first argument.
     // Headers and body are request data, not integration endpoints.
-    const endpointArguments = /^(?:fetch|file_get_contents|post|put|delete)$/.test(
-      callableName ?? "",
-    )
-      ? literalDestination(literalCall?.rawArgs[0])
+    const urlFirstCall = /^(?:fetch|file_get_contents|post|put|delete)$/.test(callableName ?? "");
+    const rawEndpointArguments = urlFirstCall
+      ? (literalCall?.rawArgs[0] ?? "")
       : (literalCall?.rawArgs.join(",") ?? "");
+    const endpointArguments = urlFirstCall
+      ? literalDestination(literalCall?.rawArgs[0])
+      : rawEndpointArguments;
+    const argumentProviderRef = providerFromEndpointArguments(rawEndpointArguments);
     const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(endpointArguments);
     const endpointRaw = endpointMatch?.[0] ?? typeScriptBoundary?.backendOriginEndpoint ?? null;
     const endpointRef = endpointRaw === null ? null : safeEndpoint(endpointRaw, reasons);
@@ -5184,7 +5207,9 @@ const integrationCallsFor = (
       syntaxProvider ??
       previewContainerProvider ??
       endpointProvider ??
+      argumentProviderRef ??
       namedProviderRef ??
+      receiverProviderRef ??
       resolvedProviderRef;
     const providerRef = dynamicMailerDispatch
       ? "mailer"

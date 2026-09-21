@@ -265,7 +265,9 @@ test("loopback-only guards require structural proof and preserve every near miss
     classifiedRows.map((row) =>
       "provider_ref" in row.details ? row.details.provider_ref : null,
     ),
-  ).toEqual(expect.arrayContaining(["ipinfo", "vektorprogrammet-api"]));
+  ).toEqual(
+    expect.arrayContaining(["configured-http-endpoint", "ipinfo", "vektorprogrammet-api"]),
+  );
   expect(
     classifiedRows.every(
       (row) => row.status !== "unresolved" && !row.reason_codes.includes("UNKNOWN_INTEGRATION"),
