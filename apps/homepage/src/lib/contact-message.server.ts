@@ -1,4 +1,4 @@
-import { SubmitContactMessageEndpoint } from "@vektorprogrammet/http-api";
+import { ContactMessage } from "@vektorprogrammet/http-api";
 import { createEffectClient } from "@vektorprogrammet/sdk/effect";
 import { Effect, Schema } from "effect";
 import type { ContactMessagePayload, HomepageDepartment } from "./api-types";
@@ -15,10 +15,6 @@ import {
   contactDepartmentSlug,
 } from "./contact-message";
 
-const contactPayloadSchema = [...SubmitContactMessageEndpoint.payload.values()][0]?.schemas[0];
-if (contactPayloadSchema === undefined) {
-  throw new Error("Contact endpoint is missing its payload schema.");
-}
 
 async function activeDepartments(backendOrigin?: string): Promise<readonly HomepageDepartment[]> {
   try {
@@ -97,7 +93,7 @@ export async function submitContactMessage(
   };
   let payload: ContactMessagePayload;
   try {
-    payload = Schema.decodeUnknownSync(contactPayloadSchema)(
+    payload = Schema.decodeUnknownSync(ContactMessage)(
       { ...values, departmentId: page.selectedDepartment.departmentId },
       { onExcessProperty: "error" },
     ) as ContactMessagePayload;

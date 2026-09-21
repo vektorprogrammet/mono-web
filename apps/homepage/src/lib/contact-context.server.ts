@@ -1,4 +1,4 @@
-import { SubmitContactMessageEndpoint } from "@vektorprogrammet/http-api";
+import { ContactVisitorIp } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
 import { createContext } from "react-router";
 import type { ContactMessageHeaders } from "./api-types";
@@ -80,13 +80,9 @@ export const authenticateContactIngress = (
       !["http:", "https:"].includes(origin.protocol)
     )
       return undefined;
-    const headers = SubmitContactMessageEndpoint.headers;
-    if (headers === undefined) return undefined;
-    const visitorIp = (
-      Schema.decodeUnknownSync(headers)({
-        [CONTACT_IP_HEADER]: canonicalContactIp(request.headers.get(CONTACT_IP_HEADER) ?? ""),
-      }) as ContactMessageHeaders
-    )[CONTACT_IP_HEADER];
+    const visitorIp = Schema.decodeUnknownSync(ContactVisitorIp)(
+      canonicalContactIp(request.headers.get(CONTACT_IP_HEADER) ?? ""),
+    );
     return { backendOrigin: origin.origin, backendToken, visitorIp };
   } catch {
     return undefined;

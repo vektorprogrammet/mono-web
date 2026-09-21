@@ -17,7 +17,7 @@ import {
 import { annotateAccessSpec } from "./access.js";
 import { operationAnnotations, SessionUnauthorizedResponse } from "./common.js";
 import { endpointProblemResponses, problemUnion } from "./http-semantics.js";
-export { ContactVisitorIp };
+export { ContactMessage, ContactVisitorIp };
 
 
 export class ContactSsrSecurity extends HttpApiMiddleware.Service<ContactSsrSecurity>()(
