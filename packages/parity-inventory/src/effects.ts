@@ -4292,7 +4292,7 @@ const scheduleCollection = (
 const providerFromText = (text: string): string | null => {
   const patterns: readonly [RegExp, string][] = [
     [/\b(?:Google|GoogleClient|GoogleApis?|GoogleAdapter|GoogleService)\b/i, "google"],
-    [/\bSlack(?:Sms|Mailer|Client|Webhook|Adapter|Service)?\b/i, "slack"],
+    [/\bSlack(?:Sms|Mailer|Messenger|Client|Webhook|Adapter|Service)?\b/i, "slack"],
     [/\b(?:Mailer|MailerClient|MailerAdapter|MailerService|Mailgun|Smtp)\b/i, "mailer"],
     [/\b(?:Sms|SmsClient|SmsSender|SmsGateway|SmsAdapter|Twilio)\b/i, "sms"],
     [/\bGatewayAPI(?:Client|Adapter|Service)?\b/i, "gatewayapi"],
@@ -4309,11 +4309,20 @@ const providerFromText = (text: string): string | null => {
   for (const [pattern, provider] of patterns) if (pattern.test(text)) return provider;
   return null;
 };
-const providerFromReceiverType = (unit: SourceUnit, call: EffectCall | undefined): string | null => {
+const providerFromReceiverType = (
+  unit: SourceUnit,
+  call: EffectCall | undefined,
+  ownerClass: LanguageClass | undefined,
+): string | null => {
   if (call?.receiver === null || call?.receiver === undefined) return null;
-  const receiverRoot = call.receiver.split(/->|::|\./).find((part) => part.length > 0);
+  const receiverParts = call.receiver.split(/->|::|\./).filter((part) => part.length > 0);
+  const receiverRoot = receiverParts[0];
   if (receiverRoot === undefined) return null;
-  let receiverType = localReceiverTypesFor(unit, call.offset).get(receiverRoot);
+  let receiverType =
+    /^(?:\$?this)$/i.test(receiverRoot) && receiverParts[1] !== undefined
+      ? (constructorPropertyTypeFor(unit.text, receiverParts[1]) ??
+        ownerClass?.properties.get(receiverParts[1]))
+      : localReceiverTypesFor(unit, call.offset).get(receiverRoot);
   if (receiverType === undefined && /\.[cm]?[jt]sx?$/i.test(unit.path)) {
     const sourceFile = ts.createSourceFile(unit.path, unit.text, ts.ScriptTarget.Latest, true);
     let containingFunction: ts.FunctionLikeDeclaration | undefined;
@@ -4329,7 +4338,8 @@ const providerFromReceiverType = (unit: SourceUnit, call: EffectCall | undefined
         functionLike &&
         node.getStart(sourceFile) < call.offset &&
         call.offset < node.end &&
-        (containingFunction === undefined || node.getWidth(sourceFile) < containingFunction.getWidth(sourceFile))
+        (containingFunction === undefined ||
+          node.getWidth(sourceFile) < containingFunction.getWidth(sourceFile))
       )
         containingFunction = node;
       ts.forEachChild(node, visit);
@@ -4340,11 +4350,10 @@ const providerFromReceiverType = (unit: SourceUnit, call: EffectCall | undefined
     );
     receiverType = parameter?.type?.getText(sourceFile);
   }
-  return receiverType !== null &&
-    receiverType !== undefined &&
-    /\bJourneyHttpClient(?:Shape)?\b/.test(receiverType)
+  if (receiverType === null || receiverType === undefined) return null;
+  return /\bJourneyHttpClient(?:Shape)?\b/.test(receiverType)
     ? "vektorprogrammet-api"
-    : null;
+    : providerFromText(receiverType);
 };
 const providerFromEndpointArguments = (argumentsText: string): string | null => {
   const named = providerFromText(argumentsText);
@@ -5154,7 +5163,7 @@ const integrationCallsFor = (
     const resolvedCall =
       effectCall === undefined ? null : resolveEffectCall(authority, unit, effectCall, ownerClass);
     if (loopbackDispatchOffsets.has(callOffset)) continue;
-    const receiverProviderRef = providerFromReceiverType(unit, effectCall);
+    const receiverProviderRef = providerFromReceiverType(unit, effectCall, ownerClass);
     const typeScriptBoundary = typeScriptBoundaries.find(
       (boundary) => callOffset === boundary.start,
     );

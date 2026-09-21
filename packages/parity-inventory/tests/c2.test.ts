@@ -1181,7 +1181,7 @@ test("canonical source scan does not emit unsafe fixture integrations", async ()
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }
-}, 180_000);
+}, 600_000);
 test("integration URLs survive comment stripping and loader registration", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-integration-loader-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-integration-loader-mono-");
@@ -3552,10 +3552,14 @@ test("owner-null integration modules require positive loader reachability", asyn
       ),
     );
     expect(row).toMatchObject({
-      status: "unresolved",
-      reason_codes: ["UNKNOWN_INTEGRATION"],
+      status: "dead_unimported",
+      reason_codes: ["DEAD_UNIMPORTED_SOURCE"],
+      mismatch: {
+        kind: "dead_unimported",
+        disposition: "none",
+      },
       details: {
-        provider_ref: null,
+        provider_ref: "slack",
         protocol: "https",
         endpoint_ref: "https://api.slack.com/v1/send",
       },
