@@ -1,0 +1,111 @@
+{
+  "specId": "0111",
+  "result": "passed",
+  "runtimeRevision": "e7b33ce9ae1ea3a3474e2d737020843bc859a92c",
+  "command": "bun --cwd apps/dashboard e2e/run-real-native-school-survey.mjs",
+  "topology": {
+    "database": "17.11",
+    "backend": "native Effect HTTP API",
+    "sdk": "generated @vektorprogrammet/sdk",
+    "dashboard": "production React Router server bridge",
+    "apex": "local execution of the apex edge dispatcher",
+    "browser": "real headless Chromium"
+  },
+  "evidence": {
+    "runtime": {
+      "gates": {
+        "anonymousOpen": true,
+        "sourceOrder": true,
+        "fourQuestionTypes": true,
+        "browserServerGeneratedSdkBridge": true,
+        "rejectedDraftPreserved": true,
+        "committedCompletion": true,
+        "normalizedPostgresAnswers": true,
+        "exactReplay": true,
+        "reorderedReplay": true,
+        "digestConflict": true,
+        "inFlightReceipt": true,
+        "expiredReceipt": true,
+        "concurrentSingleResponse": true,
+        "atomicValidationFailures": [
+          "missing required answer",
+          "unknown question",
+          "duplicate question",
+          "cross-survey question",
+          "wrong question kind",
+          "duplicate omitted optional answer",
+          "malformed answer",
+          "invalid alternative",
+          "duplicate checkbox alternative",
+          "unknown request property"
+        ],
+        "ineligibleSchools": [
+          "inactive",
+          "foreign department",
+          "no placement",
+          "unknown",
+          "stale"
+        ],
+        "eligibilityReplayPrecedence": true,
+        "unknownAndNonSchoolNotFound": true,
+        "apexDispatcher": {
+          "document": true,
+          "dataAction": true
+        },
+        "responsive": {
+          "desktop": true,
+          "mobile390": true
+        },
+        "keyboardSubmission": true,
+        "errorFocus": true,
+        "completionFocus": true,
+        "accessibilityViolations": 0,
+        "noCredentialsObserved": true
+      },
+      "commands": [
+        "bun --cwd packages/sdk run build",
+        "bun --cwd apps/dashboard run build",
+        "Chromium school-survey journey"
+      ]
+    },
+    "typeChecks": {
+      "commands": [
+        "bun run check-types (packages/domain)",
+        "bun run check-types (packages/http-api)",
+        "bun run check-types (packages/sdk)",
+        "bun run check-types (packages/database)",
+        "bun run check-types (apps/backend)",
+        "bun run check-types (apps/dashboard)"
+      ],
+      "result": "passed"
+    },
+    "unitTests": {
+      "commands": [
+        "bun vitest run --no-file-parallelism (packages/domain: 252 passed)",
+        "bun vitest run --no-file-parallelism (packages/http-api: 15 passed)",
+        "bun vitest run --no-file-parallelism (packages/sdk: 3 passed)",
+        "bun vitest run --no-file-parallelism (apps/backend: 169 passed)",
+        "bun vitest run --no-file-parallelism (apps/dashboard: 283 passed)",
+        "bun vitest run --no-file-parallelism (packages/database: 122 passed, 4 skipped)"
+      ],
+      "result": "passed"
+    }
+  },
+  "checksums": {
+    "runner": "3cf8e8b08349e209f366890550b1944ca52053b34a1047234337f70308a4ab38",
+    "designSpec": "ae719b5e0a6c86bb233d28220cf468fd3deb29cee5d3b9e6049a93f940ba7c19"
+  },
+  "skippedOrUnavailable": [],
+  "cleanup": {
+    "postgresRemoved": true,
+    "temporaryRootRemoved": true,
+    "portsReleased": [
+      45370,
+      45371,
+      45372,
+      5174,
+      45373
+    ],
+    "productionResourcesUsed": false
+  }
+}
