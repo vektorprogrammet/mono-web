@@ -5207,7 +5207,6 @@ const integrationCallsFor = (
     );
     const identities = new Set<string>();
     return selected.filter((call) => {
-      if (call.reasonCodes.length > 0) return true;
       const identity = canonicalJson([
         call.providerRef,
         call.direction,

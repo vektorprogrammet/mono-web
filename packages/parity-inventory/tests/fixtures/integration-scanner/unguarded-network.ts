@@ -4,5 +4,9 @@ class LocalNetworkGuard {
 
 export async function callRemoteProvider(): Promise<Response> {
   const guard: LocalNetworkGuard = new LocalNetworkGuard();
-  return guard.fetch("https://api.example.test/remote");
+  const [response] = await Promise.all([
+    guard.fetch("https://api.example.test/remote"),
+    guard.fetch("https://api.example.test/remote"),
+  ]);
+  return response;
 }

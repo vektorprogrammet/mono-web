@@ -201,6 +201,19 @@ test("loopback-only guards require structural proof and preserve every near miss
       }),
     ]),
   );
+  expect(baselineRowsFor(remotePath)).toHaveLength(2);
+  expect(
+    new Set(baselineRowsFor(remotePath).map((row) => row.canonical_key)).size,
+  ).toBe(baselineRowsFor(remotePath).length);
+  expect(
+    baseline.result.failures.some(
+      (failure) =>
+        failure.reasonCode === "DUPLICATE_CANONICAL_IDENTITY" &&
+        failure.rowIds.some((rowId) =>
+          baselineRowsFor(remotePath).some((row) => row.row_id === rowId),
+        ),
+    ),
+  ).toBe(false);
 
   const nearMissFixtures = [
     "shadowed-fetch.ts",
