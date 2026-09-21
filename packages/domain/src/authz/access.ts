@@ -128,6 +128,7 @@ export const DOMAIN_ID_VALUES = [
   "recruitment",
   "schools",
   "social-events",
+  "surveys",
   "system",
 ] as const;
 export const DOMAIN_IDS = Object.fromEntries(DOMAIN_ID_VALUES.map((id) => [id, true])) as {
@@ -155,6 +156,7 @@ export const RESOURCE_KIND_VALUES = [
   "recruitment-interview",
   "receipt",
   "content-article",
+  "school-survey",
 ] as const;
 export const RESOURCE_KINDS = Object.fromEntries(
   RESOURCE_KIND_VALUES.map((kind) => [kind, true]),
@@ -249,6 +251,8 @@ export const SCOPE_RESOLVER_IDS = [
   "social-events.scope",
   "social-events.list",
   "social-events.create",
+  "surveys.form",
+  "surveys.response-create",
 ] as const;
 export const ScopeResolverId = Schema.Literals(SCOPE_RESOLVER_IDS).pipe(
   Schema.brand("ScopeResolverId"),

@@ -23,6 +23,8 @@ describe("apexSurface", () => {
     "/interview/schedule.data",
     "/interview-response/confirm",
     "/interview-response/confirm.data",
+    "/undersokelse",
+    "/undersokelse/survey-0111.data",
   ])("routes dashboard capability path %s to dashboard", (path) => {
     expect(apexSurface(path)).toBe("dashboard");
   });

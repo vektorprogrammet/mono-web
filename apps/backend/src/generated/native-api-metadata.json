@@ -1,8 +1,8 @@
 {
   "counts": {
-    "externalOperations": 78,
+    "externalOperations": 80,
     "internalOperations": 1,
-    "operations": 79
+    "operations": 81
   },
   "operations": [
     {
@@ -2966,6 +2966,78 @@
         "500"
       ],
       "summary": "Read substitute pool",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "None"
+        ],
+        "canonicalScopeResolver": "surveys.form",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Anonymous"
+        ],
+        "requirements": []
+      },
+      "group": "surveys",
+      "method": "GET",
+      "operationId": "surveys.readSchoolSurvey",
+      "path": "/api/surveys/{surveyId}",
+      "statuses": [
+        "200",
+        "400",
+        "404",
+        "500",
+        "503"
+      ],
+      "summary": "Read school survey",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "None"
+        ],
+        "canonicalScopeResolver": "surveys.response-create",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Anonymous"
+        ],
+        "requirements": []
+      },
+      "group": "surveys",
+      "method": "POST",
+      "operationId": "surveys.submitSchoolSurveyResponse",
+      "path": "/api/surveys/{surveyId}/responses",
+      "statuses": [
+        "201",
+        "400",
+        "404",
+        "409",
+        "413",
+        "415",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "Submit school survey response",
       "visibility": "external"
     },
     {

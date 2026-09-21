@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { AuthEngine, AuthLive, DatabaseLive } from "@vektorprogrammet/database";
-import { SocialEventsLive } from "@vektorprogrammet/domain";
+import { SchoolSurveysLive, SocialEventsLive } from "@vektorprogrammet/domain";
 import { runPublicApplicationOutboxWorker } from "@vektorprogrammet/domain/application";
 import { AdmissionsLive } from "@vektorprogrammet/domain/admissions";
 import { ReturningAssistantsLive } from "@vektorprogrammet/domain/application";
@@ -64,6 +64,7 @@ const recruitmentLayer = RecruitmentLive.pipe(
   Layer.provide(Layer.mergeAll(databaseLayer, admissionsLayer, organizationLayer, profileLayer)),
 );
 const socialEventsLayer = SocialEventsLive;
+const schoolSurveysLayer = SchoolSurveysLive;
 const capabilityLayers = Layer.mergeAll(
   returningAssistantsLayer,
   admissionsLayer,
@@ -75,6 +76,7 @@ const capabilityLayers = Layer.mergeAll(
   contentManagementLayer,
   contentLayer,
   socialEventsLayer,
+  schoolSurveysLayer,
 );
 const authLayers = AuthLive(config.auth).pipe(Layer.provide(databaseLayer));
 const httpPlatformLayer = Layer.mergeAll(BunServices.layer, BunHttpPlatform.layer, Etag.layer);

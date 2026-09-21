@@ -2,13 +2,13 @@ import type { Config } from "@react-router/dev/config";
 import { dashboardMount, type DashboardBaseEnvironment } from "./dashboard-base.ts";
 
 /**
- * `allowedActionOrigins` feeds React Router's server-side CSRF origin check
- * for form actions. The apex preview terminates TLS at Cloudflare and the
- * edge worker forwards the browser's Origin to this app, which is served on
- * a local port, so the apex origin must be explicitly trusted. The origin is
- * taken from PREVIEW_HOST so other deployments keep the default (empty) list.
+ * `allowedActionOrigins` feeds React Router's server-side CSRF check.
+ * Despite the option name, React Router 8 compares URL hosts (`host:port`),
+ * not serialized origins. The apex worker forwards the browser's Origin to
+ * the dashboard service, so both the apex host and explicit dashboard host
+ * must be listed without a scheme.
  */
-const configuredActionOrigin = (value: string | undefined): string | undefined => {
+const configuredActionHost = (value: string | undefined): string | undefined => {
   if (value === undefined) return undefined;
   let url: URL;
   try {
@@ -22,16 +22,19 @@ const configuredActionOrigin = (value: string | undefined): string | undefined =
     url.search === "" &&
     url.hash === "" &&
     (url.protocol === "https:" || fixedLoopback)
-    ? value
+    ? url.host
     : undefined;
 };
 
 export const makeReactRouterConfig = (environment: DashboardBaseEnvironment): Config => {
-  const previewOrigin = environment.PREVIEW_HOST;
-  const dashboardOrigin = configuredActionOrigin(environment.DASHBOARD_ORIGIN);
+  const previewHost =
+    environment.PREVIEW_HOST === undefined
+      ? undefined
+      : configuredActionHost(`https://${environment.PREVIEW_HOST}`);
+  const dashboardHost = configuredActionHost(environment.DASHBOARD_ORIGIN);
   const allowedActionOrigins = [
-    ...(previewOrigin === undefined ? [] : [`https://${previewOrigin}`]),
-    ...(dashboardOrigin === undefined ? [] : [dashboardOrigin]),
+    ...(previewHost === undefined ? [] : [previewHost]),
+    ...(dashboardHost === undefined ? [] : [dashboardHost]),
   ];
   return {
     appDirectory: "app",

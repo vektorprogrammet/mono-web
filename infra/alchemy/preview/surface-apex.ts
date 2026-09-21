@@ -22,6 +22,7 @@ const DASHBOARD_ROUTE_ROOTS: Record<string, true> = {
   "/recruitment": true,
   "/schools": true,
   "/tilbakestill-passord": true,
+  "/undersokelse": true,
 };
 
 export function apexSurface(pathname: string): ApexSurface {

@@ -36,7 +36,7 @@ export type SchoolCapacityId = typeof SchoolCapacityId.Type;
 export const SchoolLanguageSchema = Schema.Literals(["Norwegian", "International"]);
 export type SchoolLanguage = typeof SchoolLanguageSchema.Type;
 
-const SchoolName = text(255);
+export const SchoolName = text(255);
 const SchoolContactPerson = text(255);
 const SchoolEmail = text(255).pipe(
   Schema.check(

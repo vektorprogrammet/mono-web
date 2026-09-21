@@ -26,6 +26,7 @@ import {
 } from "@vektorprogrammet/domain/recruitment";
 import type { Schools } from "@vektorprogrammet/domain/schools";
 import { SocialEvents } from "@vektorprogrammet/domain/social-events";
+import { SchoolSurveys } from "@vektorprogrammet/domain";
 import { DateTime, Effect } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 import { makeBackendConfig } from "./config.js";
@@ -163,6 +164,11 @@ const socialEvents = SocialEvents.of({
   validateScope: () => Effect.die("unexpected social-event validation"),
   create: () => Effect.die("unexpected social-event create"),
 });
+const schoolSurveys = SchoolSurveys.of({
+  readForm: () => Effect.die("unexpected school-survey read"),
+  prepareResponse: () => Effect.die("unexpected school-survey preparation"),
+  persistResponse: () => Effect.die("unexpected school-survey persistence"),
+});
 
 const run: BackendRun = <A, E>(
   effect: Effect.Effect<
@@ -183,6 +189,7 @@ const run: BackendRun = <A, E>(
     | ContentManagement
     | Content
     | SocialEvents
+    | SchoolSurveys
   >,
 ): Promise<A> =>
   runTestPromise(
@@ -191,6 +198,7 @@ const run: BackendRun = <A, E>(
       Effect.provideService(OrganizationService, organization),
       Effect.provideService(RecruitmentService, recruitment),
       Effect.provideService(SocialEvents, socialEvents),
+      Effect.provideService(SchoolSurveys, schoolSurveys),
       Effect.provideService(Identity, {
         signIn: () => Promise.reject(new Error("unexpected sign-in")),
         resolveSession: async (cookieHeader: string | undefined) => {

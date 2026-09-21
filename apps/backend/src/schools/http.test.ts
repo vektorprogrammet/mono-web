@@ -28,6 +28,7 @@ import {
   type SchoolDirectoryListInput,
 } from "@vektorprogrammet/domain/schools";
 import { SocialEvents } from "@vektorprogrammet/domain/social-events";
+import { SchoolSurveys } from "@vektorprogrammet/domain";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import type { BackendRun } from "../router.js";
@@ -92,6 +93,11 @@ const makeRun = (
     validateScope: () => Effect.die("unexpected social-event validation"),
     create: () => Effect.die("unexpected social-event create"),
   });
+  const schoolSurveys = SchoolSurveys.of({
+    readForm: () => Effect.die("unexpected school-survey read"),
+    prepareResponse: () => Effect.die("unexpected school-survey preparation"),
+    persistResponse: () => Effect.die("unexpected school-survey persistence"),
+  });
 
   return <A, E>(
     effect: Effect.Effect<
@@ -112,6 +118,7 @@ const makeRun = (
       | ContentManagement
       | Content
       | SocialEvents
+      | SchoolSurveys
     >,
   ): Promise<A> => {
     const runnable = effect.pipe(
@@ -119,6 +126,7 @@ const makeRun = (
       Effect.provideService(Organization, organization),
       Effect.provideService(Schools, schools),
       Effect.provideService(SocialEvents, socialEvents),
+      Effect.provideService(SchoolSurveys, schoolSurveys),
     ) as Effect.Effect<A, E, never>;
     return runTestPromise(runnable);
   };

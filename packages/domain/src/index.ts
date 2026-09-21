@@ -78,5 +78,6 @@ export * from "./profile/index.js";
 export * from "./schools/index.js";
 export * from "./recruitment/index.js";
 export * from "./social-events/index.js";
+export * from "./surveys/index.js";
 
 export * from "./database/index.js";

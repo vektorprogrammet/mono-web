@@ -698,6 +698,14 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     "social-events.create",
     person("social-events.create", "social-events.create", [], "Transaction"),
   ],
+  ["GET", "/api/surveys/:surveyId", "surveys.readSchoolSurvey", anonymous("surveys.form")],
+  [
+    "POST",
+    "/api/surveys/:surveyId/responses",
+    "surveys.submitSchoolSurveyResponse",
+    anonymous("surveys.response-create", "Transaction"),
+  ],
+
   [
     "GET",
     "/api/receipt-lifecycle-evidence-records/:receiptId",
@@ -747,7 +755,8 @@ const createdMutationOperations = [
   "receipts.submitReceipt",
   "content.createArticle",
   "social-events.create",
-] as const;
+  "surveys.submitSchoolSurveyResponse",
+];
 
 const entityMutationOperations = [
   "onboarding.command",
@@ -817,7 +826,8 @@ const noStoreReadOperations = [
   "system.health",
   "admissions.readApplicationConfirmation",
   "admissions.readReturningAssistantOptions",
-] as const;
+  "surveys.readSchoolSurvey",
+];
 
 const existingResourceMutationOperations = new Set<string>([
   ...entityMutationOperations,
@@ -996,6 +1006,7 @@ describe("native API reflection", () => {
         "recruitment.readSchedulingBoard",
         "receipts.submitReceipt",
         "content.listNews",
+        "surveys.submitSchoolSurveyResponse",
       ]),
     );
     expect(internal).toEqual(["internal.readReceiptEvidence"]);
@@ -1124,6 +1135,7 @@ describe("native API reflection", () => {
       ["receipts", "Receipts"],
       ["recruitment", "Recruitment"],
       ["social-events", "Social events"],
+      ["surveys", "School surveys"],
       ["system", "System"],
     ]);
     for (const [operationId, documented] of byId) {

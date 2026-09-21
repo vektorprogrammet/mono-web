@@ -128,13 +128,13 @@ describe("dashboard router topology", () => {
       makeReactRouterConfig({
         DASHBOARD_ORIGIN: "http://127.0.0.1:5175",
       }).allowedActionOrigins,
-    ).toEqual(["http://127.0.0.1:5175"]);
+    ).toEqual(["127.0.0.1:5175"]);
     expect(
       makeReactRouterConfig({
         DASHBOARD_ORIGIN: "https://dashboard.example.invalid",
         PREVIEW_HOST: "preview.example.invalid",
       }).allowedActionOrigins,
-    ).toEqual(["https://preview.example.invalid", "https://dashboard.example.invalid"]);
+    ).toEqual(["preview.example.invalid", "dashboard.example.invalid"]);
     expect(
       makeReactRouterConfig({
         DASHBOARD_ORIGIN: "http://untrusted.example.invalid",

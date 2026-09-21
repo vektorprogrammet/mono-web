@@ -9,7 +9,7 @@ import { Admissions } from "@vektorprogrammet/domain/admissions";
 import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
 import { InactiveActor, UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
-import { SocialEvents } from "@vektorprogrammet/domain";
+import { SchoolSurveys, SocialEvents } from "@vektorprogrammet/domain";
 import { type Database } from "@vektorprogrammet/domain/database";
 import { Identity, type IdentityRequestContext } from "@vektorprogrammet/domain/identity";
 import { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
@@ -51,10 +51,8 @@ import {
   type ReceiptIdentityResolvers,
 } from "./receipt/http.js";
 import { RecruitmentApiHandlers } from "./recruitment/http.js";
-import {
-  SocialEventsApiHandlers,
-  type SocialEventTransactionHook,
-} from "./social-events/http.js";
+import { SocialEventsApiHandlers, type SocialEventTransactionHook } from "./social-events/http.js";
+import { SchoolSurveysApiHandlers } from "./surveys/http.js";
 import {
   allowsNativePreflightHeaders,
   decideTrustedOrigin,
@@ -83,6 +81,7 @@ export type BackendRun = <A, E>(
     | OAuthCredentialAuthority
     | ContentManagement
     | Content
+    | SchoolSurveys
     | SocialEvents
   >,
 ) => Promise<A>;
@@ -278,6 +277,7 @@ export const makeExternalNativeApiRouterLayer = (
       run,
     }),
     SocialEventsApiHandlers({ run, transactionHook: options.socialEventsTransactionHook }),
+    SchoolSurveysApiHandlers(run),
   ).pipe(Layer.provide(NativeHttpApiMiddlewareLive));
 
   const nativeRoutes = HttpApiBuilder.layer(ExternalNativeApi).pipe(

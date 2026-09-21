@@ -163,6 +163,10 @@ const nativeSocialEventCreationMigrationUrl = new URL(
   "../migrations/0043-native-social-event-creation.sql",
   import.meta.url,
 );
+const nativeSchoolSurveyParticipationMigrationUrl = new URL(
+  "../migrations/0044-native-school-survey-participation.sql",
+  import.meta.url,
+);
 export const databaseMigrationDefinitions = [
   { id: "1_receipt-authority", name: "receipt-authority", url: receiptMigrationUrl },
   {
@@ -366,6 +370,11 @@ export const databaseMigrationDefinitions = [
     id: "43_native-social-event-creation",
     name: "native-social-event-creation",
     url: nativeSocialEventCreationMigrationUrl,
+  },
+  {
+    id: "44_native-school-survey-participation",
+    name: "native-school-survey-participation",
+    url: nativeSchoolSurveyParticipationMigrationUrl,
   },
 ] as const;
 

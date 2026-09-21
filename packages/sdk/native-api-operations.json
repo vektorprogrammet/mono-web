@@ -427,6 +427,18 @@
       "path": "/api/substitutes"
     },
     {
+      "group": "surveys",
+      "method": "GET",
+      "operationId": "surveys.readSchoolSurvey",
+      "path": "/api/surveys/{surveyId}"
+    },
+    {
+      "group": "surveys",
+      "method": "POST",
+      "operationId": "surveys.submitSchoolSurveyResponse",
+      "path": "/api/surveys/{surveyId}/responses"
+    },
+    {
       "group": "system",
       "method": "DELETE",
       "operationId": "system.deleteOwnedSession",
