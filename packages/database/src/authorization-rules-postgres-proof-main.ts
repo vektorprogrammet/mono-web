@@ -1,23 +1,27 @@
 import assert from "node:assert/strict";
 import {
   AuthorityVersion,
-  AUTHZ_LOCK_PROTOCOL,
   AuthzRuleId,
   AuthzTagAssignmentId,
   AuthzTagId,
   composeCapabilityEvidence,
+  RECEIPT_DOMAIN_ID,
+  RECEIPT_RESOURCE_KIND,
+  ResourceId,
+} from "@vektorprogrammet/domain/authz";
+import {
+  AUTHZ_LOCK_PROTOCOL,
   createAuthzRule,
   createAuthzTagAssignment,
   endAuthzRule,
   endAuthzTagAssignment,
   loadApplicableAuthorizationRules,
-  persistDisposableAuthzBackfill,
-  RECEIPT_DOMAIN_ID,
-  RECEIPT_RESOURCE_KIND,
-  ResourceId,
   removeAuthzRule,
+} from "./authz/postgres.js";
+import {
+  persistDisposableAuthzBackfill,
   type DisposableAuthzBackfillPlan,
-} from "@vektorprogrammet/domain/authz";
+} from "./authz/disposable-backfill.js";
 import {
   AdmissionPeriodCommandId,
   AdmissionPeriodId,
@@ -26,23 +30,42 @@ import {
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { Database, type DatabaseShape } from "./service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
-import { DepartmentId, OrganizationGlobalAdministratorGrantId, PersonId, SemesterId, authorizeOrganizationActor, createOrganizationGlobalAdministratorGrant, endOrganizationGlobalAdministratorGrant, mapOrganizationAuthorityToAdmissionPeriodActor, mapOrganizationAuthorityToOrganizationActor, mapOrganizationAuthorityToProfileRole, mapOrganizationAuthorityToRecruitmentActor, removeOrganizationGlobalAdministratorGrant } from "@vektorprogrammet/domain/organization";
+import {
+  DepartmentId,
+  OrganizationGlobalAdministratorGrantId,
+  PersonId,
+  SemesterId,
+  authorizeOrganizationActor,
+  mapOrganizationAuthorityToAdmissionPeriodActor,
+  mapOrganizationAuthorityToOrganizationActor,
+  mapOrganizationAuthorityToProfileRole,
+  mapOrganizationAuthorityToRecruitmentActor,
+} from "@vektorprogrammet/domain/organization";
+import {
+  createOrganizationGlobalAdministratorGrant,
+  endOrganizationGlobalAdministratorGrant,
+  removeOrganizationGlobalAdministratorGrant,
+} from "./organization/authority-postgres.js";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import {
   ReceiptApprovalGrantId,
   ReceiptId,
   ReceiptPaymentAuthorityId,
   ReceiptVisualId,
-  createReceiptApprovalGrant,
-  createReceiptPaymentAuthority,
   mapReceiptApprovalActor,
   mapReceiptSubmissionPrincipal,
   projectReceiptAuthority,
-  removeReceiptApprovalGrant,
-  removeReceiptPaymentAuthority,
-  resolveReceiptAuthorityForRead,
   type ReceiptFile,
 } from "@vektorprogrammet/domain/receipt";
+import {
+  createReceiptApprovalGrant,
+  createReceiptPaymentAuthority,
+  endReceiptApprovalGrant,
+  endReceiptPaymentAuthority,
+  removeReceiptApprovalGrant,
+  removeReceiptPaymentAuthority,
+} from "./receipt/authority-postgres.js";
+import { resolveReceiptAuthorityForRead } from "./receipt/postgres.js";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";

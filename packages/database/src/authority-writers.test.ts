@@ -4,16 +4,20 @@ import { Database, type DatabaseShape } from "./service.js";
 import {
   OrganizationGlobalAdministratorGrantId,
   OrganizationAuthorityWriteConflict,
-  createOrganizationGlobalAdministratorGrant,
-  endOrganizationGlobalAdministratorGrant,
-  removeOrganizationGlobalAdministratorGrant,
-  lockOrganizationGlobalAdministratorGrantForWrite,
 } from "@vektorprogrammet/domain/organization";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
   ReceiptApprovalGrantId,
   ReceiptAuthorityWriteConflict,
   ReceiptPaymentAuthorityId,
+} from "@vektorprogrammet/domain/receipt";
+import {
+  createOrganizationGlobalAdministratorGrant,
+  endOrganizationGlobalAdministratorGrant,
+  lockOrganizationGlobalAdministratorGrantForWrite,
+  removeOrganizationGlobalAdministratorGrant,
+} from "./organization/authority-postgres.js";
+import {
   createReceiptApprovalGrant,
   createReceiptPaymentAuthority,
   endReceiptApprovalGrant,
@@ -22,7 +26,7 @@ import {
   lockReceiptPaymentAuthorityForWrite,
   removeReceiptApprovalGrant,
   removeReceiptPaymentAuthority,
-} from "@vektorprogrammet/domain/receipt";
+} from "./receipt/authority-postgres.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 import { DatabaseTest } from "./layers.js";
 

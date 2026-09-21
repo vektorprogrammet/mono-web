@@ -1,8 +1,8 @@
+import { RECEIPT_DOMAIN_ID } from "@vektorprogrammet/domain/authz";
 import {
   authorDisposableAuthzBackfill,
-  RECEIPT_DOMAIN_ID,
   persistDisposableAuthzBackfill,
-} from "@vektorprogrammet/domain/authz";
+} from "../authz/disposable-backfill.js";
 import { Database } from "../service.js";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
 import { Effect } from "effect";

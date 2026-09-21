@@ -8,7 +8,7 @@ import { finalizeInterview } from "../src/recruitment/conduct-postgres.js";
 import {
   FinalizeInterviewCommandSchema,
   RecruitmentActorSchema,
-} from "../../domain/src/recruitment/schema.js";
+} from "@vektorprogrammet/domain/recruitment";
 const url = process.env.JOURNEY_SEED_PG_URL!;
 assert.equal(new URL(url).hostname, "127.0.0.1");
 const layer = OrganizationLive.pipe(

@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { Cause, Config, Effect, Layer } from "@vektorprogrammet/domain/admissions";
-import { Redacted } from "effect";
+import { Cause, Config, Effect, Layer, Redacted } from "effect";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { Database, type DatabaseShape } from "./service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";

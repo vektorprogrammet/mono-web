@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { deliverJson } from "../../../apps/backend/src/delivery/http.js";
 import { AdmissionsLive } from "./admissions/postgres-layer.js";
 import { Database } from "./service.js";
-import { NotificationGateway } from "../../domain/src/notification/service.js";
+import { NotificationGateway } from "@vektorprogrammet/domain/notification";
 import { OrganizationLive } from "./organization/postgres-layer.js";
 import { ProfileLive } from "./profile/postgres-layer.js";
 import {

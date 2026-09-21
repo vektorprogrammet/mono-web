@@ -1,17 +1,15 @@
 import assert from "node:assert/strict";
-import {
-  composeCapabilityEvidence,
-  readApplicableAuthorizationRules,
-} from "@vektorprogrammet/domain/authz";
+import { composeCapabilityEvidence } from "@vektorprogrammet/domain/authz";
+import { readApplicableAuthorizationRules } from "./authz/postgres.js";
 import { Database, type DatabaseShape } from "./service.js";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
   makeReceiptApprovalContext,
   ReceiptId,
-  resolveReceiptAuthorityForRead,
   type ReceiptApprovalCandidate,
 } from "@vektorprogrammet/domain/receipt";
+import { resolveReceiptAuthorityForRead } from "./receipt/postgres.js";
 import { Effect, Redacted } from "effect";
 import { resolveOrganizationPersonAuthorityForRead } from "./organization/authority-postgres.js";
 import { executeReceiptCommand } from "./receipt/postgres.js";

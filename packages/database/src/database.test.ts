@@ -3,19 +3,19 @@ import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { afterAll, describe, expect, it } from "vitest";
 import {
-  deliverNextPublicApplicationOutbox,
-  makeRecordingPublicApplicationEffectInterpreter,
-  publicApplicationActivationDigest,
-  runPublicApplicationOutboxWorker,
-} from "@vektorprogrammet/domain/application";
-import {
   ApplicantIdSchema,
+  makeRecordingPublicApplicationEffectInterpreter,
   PublicApplicationIdSchema,
+  publicApplicationActivationDigest,
   type PublicApplicationOutboxRequest,
 } from "@vektorprogrammet/domain/application";
-import { executePublicApplicationCommand } from "./application/postgres.js";
 import {
-  AdmissionPeriodCommandId, AdmissionPeriodId, } from "../../domain/src/admission-period/schema.js";
+  AdmissionPeriodCommandId,
+  AdmissionPeriodId,
+} from "@vektorprogrammet/domain/admission-period";
+import { runPublicApplicationOutboxWorker } from "../../../apps/backend/src/application/worker.js";
+import { deliverNextPublicApplicationOutbox } from "./application/outbox.js";
+import { executePublicApplicationCommand } from "./application/postgres.js";
 import {
   executeAdmissionPeriodCommand, listOpenAdmissionPeriods, } from "./admission-period/postgres.js";
 import {

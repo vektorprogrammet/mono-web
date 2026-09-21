@@ -10,8 +10,7 @@ import { createConnection, createServer as createNetServer } from "node:net";
 import {
   access, cp, lstat, mkdir, readFile, readdir, readlink, rm, writeFile, } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, join } from "@vektorprogrammet/domain/admissions";
-import { relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
