@@ -1,14 +1,20 @@
+import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
+import {
+  Identity,
+  IdentityActor,
+  IdentitySessionNotFound,
+  type IdentityShape,
+} from "@vektorprogrammet/domain/identity";
 import {
   DepartmentJsonSchema,
   Organization,
+  PersonId,
   type OrganizationShape,
 } from "@vektorprogrammet/domain/organization";
-import { Effect, Schema } from "effect";
+import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import type { BackendRun } from "../router.js";
 import { makeOrganizationApiConfig } from "./config.js";
 import { makeOrganizationTestHttp as makeOrganizationApiHttp } from "../test/native-http.js";
-import { runTestPromise } from "../../test/runtime.js";
 
 /**
  * Specs 0059/0060 gate matrix and wire shapes, driven through the backend
@@ -164,36 +170,66 @@ const config = makeOrganizationApiConfig({
   ORGANIZATION_MAX_BODY_BYTES: "1024",
 });
 
-const run = (<A, E, R>(effect: Effect.Effect<A, E, R>): Promise<A> =>
-  runTestPromise(
-    effect.pipe(Effect.provideService(Organization, organization)) as Effect.Effect<A, E>,
-  )) as BackendRun;
-
-const http = makeOrganizationApiHttp({
-  config,
-  resolveActor: async () => ({
-    _tag: "OrganizationMember",
-    personId: "person-member" as never,
-  }),
-  resolveAuthority: async (request) => {
-    const cookie = request.headers.get("cookie");
-    if (cookie === null || cookie.length === 0) {
-      throw Object.assign(new Error("UnauthenticatedActor"), { _tag: "UnauthenticatedActor" });
+const oauthCredentialAuthority = OAuthCredentialAuthority.of({
+  resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
+  resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
+} as never);
+const identity = Identity.of({
+  signIn: () => Promise.reject(new Error("unexpected sign-in")),
+  resolveSession: async (cookieHeader: string | undefined) => {
+    if (cookieHeader === undefined || cookieHeader.length === 0) {
+      throw new IdentitySessionNotFound();
     }
-    const authority = authorityForToken(cookie);
-    return {
-      personId: "person-any",
-      evaluatedAt: "2031-09-15T12:00:00.000Z",
-      ...authority,
-      memberships: authority.memberships.map((membership, index) => ({
-        membershipId: `membership-${index}`,
-        teamId: `team-${index}`,
-        ...membership,
-      })),
-    } as never;
+    return new IdentityActor({
+      personId: PersonId.make("team-interest-person"),
+      sessionId: "team-interest-session",
+      expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
+    });
   },
-  run,
-});
+  readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
+  listSessions: () => Promise.reject(new Error("unexpected session list")),
+  revokeCurrentSession: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeSession: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeOtherSessions: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
+  recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
+  signOut: async () => ({ setCookies: [] }),
+} satisfies IdentityShape);
+const services = Layer.mergeAll(
+  Layer.succeed(Organization, organization),
+  Layer.succeed(Identity, identity),
+  Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
+);
+const http = makeOrganizationApiHttp(
+  {
+    config,
+    resolveActor: () =>
+      Effect.succeed({
+        _tag: "OrganizationMember",
+        personId: PersonId.make("person-member"),
+      }),
+    resolveAuthority: (request) => {
+      const cookie = request.headers.get("cookie");
+      if (cookie === null || cookie.length === 0) {
+        return Effect.fail(
+          Object.assign(new Error("UnauthenticatedActor"), { _tag: "UnauthenticatedActor" }),
+        );
+      }
+      const authority = authorityForToken(cookie);
+      return Effect.succeed({
+        personId: PersonId.make("person-any"),
+        evaluatedAt: "2031-09-15T12:00:00.000Z",
+        ...authority,
+        memberships: authority.memberships.map((membership, index) => ({
+          membershipId: `membership-${index}`,
+          teamId: `team-${index}`,
+          ...membership,
+        })),
+      } as never);
+    },
+  },
+  services,
+);
 
 const get = (pathname: string, cookie?: string): Promise<Response> =>
   http.fetch(

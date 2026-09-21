@@ -1,3 +1,6 @@
+import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
+import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
+import type { Identity, IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import {
   Organization,
   resolveDirectoryGateScope,
@@ -12,11 +15,11 @@ import {
 } from "@vektorprogrammet/http-api";
 import { Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
+import type { OrganizationResolutionError } from "../authority.js";
 import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js";
 import { authorizePersonNativeOperation, genericContext } from "../native-operation.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import { listSchools, schoolsErrorResponse, type SchoolsApiHttpOptions } from "../schools/http.js";
-import type { BackendRun } from "../router.js";
 
 /**
  * GET /api/people — the native people directory.
@@ -28,8 +31,13 @@ import type { BackendRun } from "../router.js";
 
 export interface DirectoryApiHttpOptions {
   /** Cookie -> PersonId + one authorizationInstant -> caller projection. */
-  readonly resolveAuthority: (request: Request) => Promise<OrganizationPersonAuthority>;
-  readonly run: BackendRun;
+  readonly resolveAuthority: (
+    request: Request,
+  ) => Effect.Effect<
+    OrganizationPersonAuthority,
+    IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
+    Organization | Identity | OAuthCredentialAuthority
+  >;
 }
 
 type TaggedHttpError = Error & { readonly _tag: string };
@@ -93,53 +101,54 @@ const errorResponse = (cause: unknown): Response => {
   }
 };
 
-const listPeople = async (request: Request, input: DirectoryApiHttpOptions): Promise<Response> => {
-  if (new URL(request.url).search !== "") {
-    return nativeProblemResponse("directory.cursor-malformed", 422);
-  }
-  // One captured authorizationInstant drives the gate and every row
-  // derivation; Profile and Organization read one database snapshot.
-  const authority = await input.resolveAuthority(request);
-  const decision = resolveDirectoryGateScope(authority);
-  if (decision._tag === "Deny") {
-    throw decision.reason === "AuthorityInactive"
-      ? taggedError("InactiveActor")
-      : taggedError("NotInScope");
-  }
-  const scope = decision.value;
-  const contexts =
-    scope._tag === "AllDepartments"
-      ? [
-          genericContext({
-            domainId: "profile",
-            authorityVersion: `directory:${authority.evaluatedAt}`,
-          }),
-        ]
-      : scope.departmentIds.map((departmentId) =>
-          genericContext({
-            domainId: "profile",
+const listPeople = (request: Request, input: DirectoryApiHttpOptions) =>
+  Effect.gen(function* () {
+    if (new URL(request.url).search !== "") {
+      return nativeProblemResponse("directory.cursor-malformed", 422);
+    }
+    // One captured authorizationInstant drives the gate and every row
+    // derivation; Profile and Organization read one database snapshot.
+    const authority = yield* input.resolveAuthority(request);
+    const decision = resolveDirectoryGateScope(authority);
+    if (decision._tag === "Deny") {
+      return yield* Effect.fail(
+        decision.reason === "AuthorityInactive"
+          ? taggedError("InactiveActor")
+          : taggedError("NotInScope"),
+      );
+    }
+    const scope = decision.value;
+    const contexts =
+      scope._tag === "AllDepartments"
+        ? [
+            genericContext({
+              domainId: "profile",
+              authorityVersion: `directory:${authority.evaluatedAt}`,
+            }),
+          ]
+        : scope.departmentIds.map((departmentId) =>
+            genericContext({
+              domainId: "profile",
+              departmentId,
+              authorityVersion: `directory:${authority.evaluatedAt}`,
+            }),
+          );
+    const grantScopes =
+      scope._tag === "AllDepartments"
+        ? [{ _tag: "Global" as const }]
+        : scope.departmentIds.map((departmentId) => ({
+            _tag: "Department" as const,
             departmentId,
-            authorityVersion: `directory:${authority.evaluatedAt}`,
-          }),
-        );
-  const grantScopes =
-    scope._tag === "AllDepartments"
-      ? [{ _tag: "Global" as const }]
-      : scope.departmentIds.map((departmentId) => ({
-          _tag: "Department" as const,
-          departmentId,
-        }));
-  await authorizePersonNativeOperation({
-    request,
-    personId: authority.personId,
-    spec: Option.getOrThrow(reflectAccessSpec(ListPeopleEndpoint)),
-    resolution: { selection: "AllMatching", contexts },
-    grantScopes,
-    now: authority.evaluatedAt,
-    run: input.run,
-  });
-  const response = await input.run(
-    Effect.gen(function* () {
+          }));
+    yield* authorizePersonNativeOperation({
+      request,
+      personId: authority.personId,
+      spec: Option.getOrThrow(reflectAccessSpec(ListPeopleEndpoint)),
+      resolution: { selection: "AllMatching", contexts },
+      grantScopes,
+      now: authority.evaluatedAt,
+    });
+    const response = yield* Effect.gen(function* () {
       const organization = yield* Organization;
       const profile = yield* Profile;
       const activePeople: Array<typeof DirectoryEntrySchema.Type> = [];
@@ -176,10 +185,9 @@ const listPeople = async (request: Request, input: DirectoryApiHttpOptions): Pro
         { activePeople, inactivePeople, nextCursor: cursor ?? null },
         { onExcessProperty: "error" },
       ).pipe(Effect.mapError(() => taggedError("ProfileDecodeError")));
-    }),
-  );
-  return privateJsonResponse(response);
-};
+    });
+    return privateJsonResponse(response);
+  });
 
 /** Native HttpApi implementation for the people and school directories. */
 export const DirectoryApiHandlers = (

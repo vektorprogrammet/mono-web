@@ -1,8 +1,4 @@
-import type { ReceiptAuxiliaryEffects } from "@vektorprogrammet/domain/receipt";
-import type { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
-import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
-import type { Admissions } from "@vektorprogrammet/domain/admissions";
-import type { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
+import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import {
   Identity,
   IdentityActor,
@@ -15,24 +11,18 @@ import {
   PersonId,
   type OrganizationShape,
 } from "@vektorprogrammet/domain/organization";
-import { Organization as OrganizationService } from "@vektorprogrammet/domain/organization";
-import type { Economy } from "@vektorprogrammet/domain/receipt";
-import type { Profile } from "@vektorprogrammet/domain/profile";
 import {
   Recruitment as RecruitmentService,
   RecruitmentRoleDenied,
   type RecruitmentActor,
   type RecruitmentShape,
 } from "@vektorprogrammet/domain/recruitment";
-import type { Schools } from "@vektorprogrammet/domain/schools";
 import { SocialEvents } from "@vektorprogrammet/domain/social-events";
 import { SchoolSurveys } from "@vektorprogrammet/domain";
-import { DateTime, Effect } from "effect";
+import { DateTime, Effect, Layer } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 import { makeBackendConfig } from "./config.js";
-import type { BackendRun } from "./router.js";
 import { makeBackendTestHttp as makeBackendHttp } from "./test/native-http.js";
-import { runTestPromise } from "../test/runtime.js";
 
 const leaderToken = "leader-session-token";
 const memberToken = "member-session-token";
@@ -170,65 +160,47 @@ const schoolSurveys = SchoolSurveys.of({
   persistResponse: () => Effect.die("unexpected school-survey persistence"),
 });
 
-const run: BackendRun = <A, E>(
-  effect: Effect.Effect<
-    A,
-    E,
-    | Database
-    | Admissions
-    | Economy
-    | ReceiptAuxiliaryEffects
-    | Organization
-    | Profile
-    | RecruitmentService
-    | Schools
-    | Identity
-    | IdentitySnapshot
-    | OAuthCredentialAuthority
-    | ServicePrincipalGrantAuthority
-    | ContentManagement
-    | Content
-    | SocialEvents
-    | SchoolSurveys
-  >,
-): Promise<A> =>
-  runTestPromise(
-    effect.pipe(
-      Effect.provideService(Database, database),
-      Effect.provideService(OrganizationService, organization),
-      Effect.provideService(RecruitmentService, recruitment),
-      Effect.provideService(SocialEvents, socialEvents),
-      Effect.provideService(SchoolSurveys, schoolSurveys),
-      Effect.provideService(Identity, {
-        signIn: () => Promise.reject(new Error("unexpected sign-in")),
-        resolveSession: async (cookieHeader: string | undefined) => {
-          const tokenValue = cookieHeader
-            ?.split(";")
-            .map((part) => part.trim())
-            .find((part) => part.startsWith("better-auth.session_token="))
-            ?.slice("better-auth.session_token=".length);
-          if (tokenValue !== undefined && tokenValue in membershipsByToken) {
-            return new IdentityActor({
-              personId: PersonId.make(personIdForToken(tokenValue)),
-              sessionId: "session-1",
-              expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
-            });
-          }
-          throw new IdentitySessionNotFound();
-        },
-        readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
-        listSessions: () => Promise.reject(new Error("unexpected session list")),
-        revokeCurrentSession: () => Promise.reject(new Error("unexpected session mutation")),
-        revokeSession: () => Promise.reject(new Error("unexpected session mutation")),
-        revokeOtherSessions: () => Promise.reject(new Error("unexpected session mutation")),
-        revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
-        recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
-        signOut: async () => ({ setCookies: [] }),
-      } satisfies IdentityShape),
-    ) as Effect.Effect<A, E>,
-  );
+const oauthCredentialAuthority = OAuthCredentialAuthority.of({
+  resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
+  resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
+} as never);
+const identity = Identity.of({
+  signIn: () => Promise.reject(new Error("unexpected sign-in")),
+  resolveSession: async (cookieHeader: string | undefined) => {
+    const tokenValue = cookieHeader
+      ?.split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith("better-auth.session_token="))
+      ?.slice("better-auth.session_token=".length);
+    if (tokenValue !== undefined && tokenValue in membershipsByToken) {
+      return new IdentityActor({
+        personId: PersonId.make(personIdForToken(tokenValue)),
+        sessionId: "session-1",
+        expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
+      });
+    }
+    throw new IdentitySessionNotFound();
+  },
+  readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
+  listSessions: () => Promise.reject(new Error("unexpected session list")),
+  revokeCurrentSession: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeSession: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeOtherSessions: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
+  recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
+  signOut: async () => ({ setCookies: [] }),
+} satisfies IdentityShape);
+const backendServices = Layer.mergeAll(
+  Layer.succeed(Database, database),
+  Layer.succeed(Organization, organization),
+  Layer.succeed(RecruitmentService, recruitment),
+  Layer.succeed(SocialEvents, socialEvents),
+  Layer.succeed(SchoolSurveys, schoolSurveys),
+  Layer.succeed(Identity, identity),
+  Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
+);
 
-const backend = makeBackendHttp(config, run, {
+const backend = makeBackendHttp(config, backendServices, {
   handle: async () => new Response(null, { status: 404 }),
   recordTrustedOriginRejection: async () => undefined,
 });

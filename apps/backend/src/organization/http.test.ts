@@ -1,6 +1,15 @@
-import { IdentitySnapshot } from "@vektorprogrammet/database";
-import { Database, type DatabaseShape } from "@vektorprogrammet/database";
-import { IdentityActor, IdentitySessionNotFound } from "@vektorprogrammet/domain/identity";
+import {
+  Database,
+  IdentitySnapshot,
+  OAuthCredentialAuthority,
+  type DatabaseShape,
+} from "@vektorprogrammet/database";
+import {
+  Identity,
+  IdentityActor,
+  IdentitySessionNotFound,
+  type IdentityShape,
+} from "@vektorprogrammet/domain/identity";
 import {
   CreateDepartmentResultSchema,
   CreateFieldOfStudyResultSchema,
@@ -12,12 +21,10 @@ import {
   TeamJsonSchema,
   type OrganizationShape,
 } from "@vektorprogrammet/domain/organization";
-import { DateTime, Effect, Schema } from "effect";
+import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import type { BackendRun } from "../router.js";
 import { makeOrganizationApiConfig } from "./config.js";
 import { makeOrganizationTestHttp as makeOrganizationApiHttp } from "../test/native-http.js";
-import { runTestPromise } from "../../test/runtime.js";
 
 const ADMIN_SESSION = "organization-admin-session";
 const MEMBER_SESSION = "organization-member-session";
@@ -248,35 +255,67 @@ const identitySnapshot = IdentitySnapshot.of({
   revokeAllSessions: () => Effect.succeed({ setCookies: [] }),
 });
 
-const run = (<A, E, R>(effect: Effect.Effect<A, E, R>): Promise<A> =>
-  runTestPromise(
-    effect.pipe(
-      Effect.provideService(Database, database),
-      Effect.provideService(IdentitySnapshot, identitySnapshot),
-      Effect.provideService(Organization, organization),
-    ) as Effect.Effect<A, E>,
-  )) as BackendRun;
-
-const http = makeOrganizationApiHttp({
-  config,
-  resolveActor: async (request) => {
-    const cookieHeader = request.headers.get("cookie");
-    if (cookieHeader === null) {
-      throw Object.assign(new Error("UnauthenticatedActor"), { _tag: "UnauthenticatedActor" });
-    }
-    if (cookieHeader.includes(`better-auth.session_token=${ADMIN_SESSION}`)) {
-      return { _tag: "OrganizationAdministrator", personId: PersonId.make("person-admin") };
-    }
-    return { _tag: "OrganizationMember", personId: PersonId.make("person-member") };
+const oauthCredentialAuthority = OAuthCredentialAuthority.of({
+  resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
+  resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
+} as never);
+const identity = Identity.of({
+  signIn: () => Promise.reject(new Error("unexpected sign-in")),
+  resolveSession: async (cookieHeader: string | undefined) => {
+    const personId = cookieHeader?.includes(ADMIN_SESSION)
+      ? PersonId.make("person-admin")
+      : cookieHeader?.includes(MEMBER_SESSION)
+        ? PersonId.make("person-member")
+        : undefined;
+    if (personId === undefined) throw new IdentitySessionNotFound();
+    return new IdentityActor({
+      personId,
+      sessionId: "organization-http-session",
+      expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
+    });
   },
-  resolveAuthority: async () => ({
-    personId: PersonId.make("person-admin"),
-    evaluatedAt: "2031-09-15T12:00:00.000Z",
-    globalAdministrator: "Active",
-    memberships: [],
-  }),
-  run,
-});
+  readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
+  listSessions: () => Promise.reject(new Error("unexpected session list")),
+  revokeCurrentSession: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeSession: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeOtherSessions: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
+  recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
+  signOut: async () => ({ setCookies: [] }),
+} satisfies IdentityShape);
+const services = Layer.mergeAll(
+  Layer.succeed(Database, database),
+  Layer.succeed(IdentitySnapshot, identitySnapshot),
+  Layer.succeed(Organization, organization),
+  Layer.succeed(Identity, identity),
+  Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
+);
+const http = makeOrganizationApiHttp(
+  {
+    config,
+    resolveActor: (request) => {
+      const cookieHeader = request.headers.get("cookie");
+      if (cookieHeader === null) {
+        return Effect.fail(
+          Object.assign(new Error("UnauthenticatedActor"), { _tag: "UnauthenticatedActor" }),
+        );
+      }
+      return Effect.succeed(
+        cookieHeader.includes(`better-auth.session_token=${ADMIN_SESSION}`)
+          ? { _tag: "OrganizationAdministrator" as const, personId: PersonId.make("person-admin") }
+          : { _tag: "OrganizationMember" as const, personId: PersonId.make("person-member") },
+      );
+    },
+    resolveAuthority: () =>
+      Effect.succeed({
+        personId: PersonId.make("person-admin"),
+        evaluatedAt: "2031-09-15T12:00:00.000Z",
+        globalAdministrator: "Active",
+        memberships: [],
+      }),
+  },
+  services,
+);
 const request = (pathname: string, init?: RequestInit): Promise<Response> =>
   http.fetch(new Request(`http://backend.test${pathname}`, init));
 const post = (

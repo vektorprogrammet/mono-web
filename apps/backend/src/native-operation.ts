@@ -16,10 +16,7 @@ import {
   evaluateAccessJourney,
   makeGrant,
 } from "@vektorprogrammet/domain/authz";
-import type {
-  NativeHttpCommandOutcome,
-  NativeHttpCommandPlan,
-} from "./http-api/receipt-transaction.js";
+import type { NativeHttpCommandOutcome } from "./http-api/receipt-transaction.js";
 import type { PersonId } from "@vektorprogrammet/domain/organization";
 import { Effect } from "effect";
 import {
@@ -27,7 +24,6 @@ import {
   nativeProblemResponse,
   responseFromCapsule,
 } from "./http-semantics.js";
-import type { BackendRun } from "./router.js";
 
 const capabilities = (spec: AccessSpec) => {
   switch (spec.capabilities._tag) {
@@ -47,58 +43,35 @@ const rejectedCode = (status: 401 | 403 | 404) =>
     : status === 404
       ? "resource.not-found"
       : "authority.denied";
-type RunRequirement<Run> =
-  Run extends <A, E>(effect: Effect.Effect<A, E, infer R>) => Promise<A> ? R : never;
 
-/**
- * Adapts an existing Promise-oriented backend boundary to the current Effect
- * runtime. The first argument is a type witness only. At execution, the nested
- * runner inherits the SQL transaction connection and the witness's services.
- */
-export const withNativeHttpRuntime = <Run, A, E = unknown>(
-  _run: Run,
-  execute: (run: Run) => Promise<A>,
-): Effect.Effect<A, E, RunRequirement<Run>> =>
-  Effect.flatMap(Effect.context<RunRequirement<Run>>(), (context) =>
-    Effect.tryPromise({
-      try: () => execute(Effect.runPromiseWith(context) as unknown as Run),
-      catch: (cause) => cause as E,
-    }),
-  );
-
-export const prepareNativeHttpCommand = <Run, E, R>(
-  run: Run,
-  prepare: (run: Run) => Promise<NativeHttpCommandPlan<E, R>>,
-): Effect.Effect<NativeHttpCommandPlan<E, R>, E, RunRequirement<Run>> =>
-  withNativeHttpRuntime<Run, NativeHttpCommandPlan<E, R>, E>(run, prepare);
-
-export const authorizeAnonymousNativeOperation = async (
+export const authorizeAnonymousNativeOperation = (
   spec: AccessSpec,
   resolution: CanonicalScopeResolution<Record<string, unknown>>,
   now: string,
-  run: BackendRun,
-): Promise<void> => {
-  const evaluation = await run(
-    evaluateAccessJourney(spec, undefined, {
-      now: Effect.succeed(AuthorizationInstant.make(now)),
-      resolveCredential: () =>
-        Effect.succeed({
-          _tag: "Accepted" as const,
-          mechanism: { _tag: "None" as const },
-          principal: { _tag: "Anonymous" as const },
-          evidenceRef: CredentialEvidenceRef.make("anonymous"),
-        }),
-      resolveScope: () => Effect.succeed(resolution),
-      resolveGrants: () => Effect.succeed([]),
+): Effect.Effect<void, HttpSemanticFailure> =>
+  evaluateAccessJourney(spec, undefined, {
+    now: Effect.succeed(AuthorizationInstant.make(now)),
+    resolveCredential: () =>
+      Effect.succeed({
+        _tag: "Accepted" as const,
+        mechanism: { _tag: "None" as const },
+        principal: { _tag: "Anonymous" as const },
+        evidenceRef: CredentialEvidenceRef.make("anonymous"),
+      }),
+    resolveScope: () => Effect.succeed(resolution),
+    resolveGrants: () => Effect.succeed([]),
+  }).pipe(
+    Effect.flatMap((evaluation) => {
+      const status = accessHttpStatus(evaluation, spec.concealment);
+      return status === 200
+        ? Effect.void
+        : Effect.fail(new HttpSemanticFailure(rejectedCode(status), status));
     }),
   );
-  const status = accessHttpStatus(evaluation, spec.concealment);
-  if (status !== 200) throw new HttpSemanticFailure(rejectedCode(status), status);
-};
 
 type AcceptedCredential = Extract<CredentialOutcome, { readonly _tag: "Accepted" }>;
 
-export const authorizePersonNativeOperation = async (input: {
+export const authorizePersonNativeOperation = (input: {
   readonly spec: AccessSpec;
   readonly credential?: AcceptedCredential;
   readonly request?: Request;
@@ -106,8 +79,7 @@ export const authorizePersonNativeOperation = async (input: {
   readonly resolution: CanonicalScopeResolution<Record<string, unknown>>;
   readonly grantScopes: ReadonlyArray<Scope>;
   readonly now: string;
-  readonly run: BackendRun;
-}): Promise<void> => {
+}): Effect.Effect<void, HttpSemanticFailure> => {
   const credential =
     input.credential ??
     (input.request === undefined
@@ -123,9 +95,11 @@ export const authorizePersonNativeOperation = async (input: {
           principal: { _tag: "Person" as const, personId: input.personId },
           evidenceRef: CredentialEvidenceRef.make("native-person-credential"),
         } satisfies AcceptedCredential));
-  if (credential === undefined) throw new HttpSemanticFailure("credential.invalid", 401);
+  if (credential === undefined) {
+    return Effect.fail(new HttpSemanticFailure("credential.invalid", 401));
+  }
   if (credential.principal._tag !== "Person" || credential.principal.personId !== input.personId) {
-    throw new HttpSemanticFailure("credential.invalid", 401);
+    return Effect.fail(new HttpSemanticFailure("credential.invalid", 401));
   }
   const instant = AuthorizationInstant.make(input.now);
   const principal = credential.principal;
@@ -147,16 +121,19 @@ export const authorizePersonNativeOperation = async (input: {
         }),
       ),
   );
-  const evaluation = await input.run(
-    evaluateAccessJourney(input.spec, undefined, {
-      now: Effect.succeed(instant),
-      resolveCredential: () => Effect.succeed(credential),
-      resolveScope: () => Effect.succeed(input.resolution),
-      resolveGrants: () => Effect.succeed(grants),
+  return evaluateAccessJourney(input.spec, undefined, {
+    now: Effect.succeed(instant),
+    resolveCredential: () => Effect.succeed(credential),
+    resolveScope: () => Effect.succeed(input.resolution),
+    resolveGrants: () => Effect.succeed(grants),
+  }).pipe(
+    Effect.flatMap((evaluation) => {
+      const status = accessHttpStatus(evaluation, input.spec.concealment);
+      return status === 200
+        ? Effect.void
+        : Effect.fail(new HttpSemanticFailure(rejectedCode(status), status));
     }),
   );
-  const status = accessHttpStatus(evaluation, input.spec.concealment);
-  if (status !== 200) throw new HttpSemanticFailure(rejectedCode(status), status);
 };
 
 export const genericContext = (input: {

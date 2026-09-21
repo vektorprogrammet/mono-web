@@ -1,8 +1,4 @@
-import type { ReceiptAuxiliaryEffects } from "@vektorprogrammet/domain/receipt";
-import { IdentitySnapshot, type OAuthCredentialAuthority } from "@vektorprogrammet/database";
-import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
-import type { Admissions } from "@vektorprogrammet/domain/admissions";
-import type { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
+import { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import {
   Identity,
   IdentityEngineError,
@@ -26,21 +22,17 @@ import {
   Profile,
   type ProfileShape,
 } from "@vektorprogrammet/domain/profile";
-import type { Economy } from "@vektorprogrammet/domain/receipt";
-import type { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { Schools } from "@vektorprogrammet/domain/schools";
 import { SocialEvents } from "@vektorprogrammet/domain/social-events";
 import { SchoolSurveys } from "@vektorprogrammet/domain";
-import { DateTime, Effect } from "effect";
+import { DateTime, Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeBackendConfig } from "./config.js";
 import {
   externalNativePreflightAttachmentGaps,
   externalNativePreflightMethodsForPath,
 } from "./native-api-preflight.js";
-import type { BackendRun } from "./router.js";
 import { makeBackendTestHttp as makeBackendHttp } from "./test/native-http.js";
-import { runTestPromise } from "../test/runtime.js";
 
 const token = "better-auth.session_token";
 const environment = {
@@ -181,65 +173,49 @@ const schoolSurveys = SchoolSurveys.of({
   persistResponse: () => Effect.die("unexpected school-survey persistence"),
 });
 
-const makeRun =
-  (identity: IdentityShape, organizationService: OrganizationShape = organization): BackendRun =>
-  <A, E>(
-    effect: Effect.Effect<
-      A,
-      E,
-      | Database
-      | Admissions
-      | Economy
-      | ReceiptAuxiliaryEffects
-      | Organization
-      | Profile
-      | Recruitment
-      | Schools
-      | Identity
-      | IdentitySnapshot
-      | OAuthCredentialAuthority
-      | ServicePrincipalGrantAuthority
-      | ContentManagement
-      | Content
-      | SocialEvents
-      | SchoolSurveys
-    >,
-  ): Promise<A> =>
-    runTestPromise(
-      effect.pipe(
-        Effect.provideService(Database, database),
-        Effect.provideService(Profile, profile),
-        Effect.provideService(Organization, organizationService),
-        Effect.provideService(Schools, schools),
-        Effect.provideService(Identity, identity),
-        Effect.provideService(SocialEvents, socialEvents),
-        Effect.provideService(SchoolSurveys, schoolSurveys),
-        Effect.provideService(
-          IdentitySnapshot,
-          IdentitySnapshot.of({
-            resolveSession: (cookieHeader) =>
-              Effect.tryPromise({
-                try: () => identity.resolveSession(cookieHeader),
-                catch: (cause) =>
-                  cause instanceof IdentitySessionNotFound || cause instanceof IdentityEngineError
-                    ? cause
-                    : new IdentityEngineError({
-                        operation: "resolveSnapshotSession",
-                        message: "test identity failure",
-                      }),
-              }),
-            revokeCurrentSession: () => Effect.succeed({ setCookies: [] }),
-            revokeSession: (_actor, sessionId, request) =>
-              Effect.tryPromise({
-                try: () => identity.revokeSession(undefined, sessionId, request),
-                catch: (cause) => cause as IdentityOwnedSessionNotFound,
-              }),
-            revokeOtherSessions: () => Effect.succeed({ setCookies: [] }),
-            revokeAllSessions: () => Effect.succeed({ setCookies: [] }),
+const oauthCredentialAuthority = OAuthCredentialAuthority.of({
+  resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
+  resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
+} as never);
+
+const makeBackendServices = (
+  identity: IdentityShape,
+  organizationService: OrganizationShape = organization,
+) =>
+  Layer.mergeAll(
+    Layer.succeed(Database, database),
+    Layer.succeed(Profile, profile),
+    Layer.succeed(Organization, organizationService),
+    Layer.succeed(Schools, schools),
+    Layer.succeed(Identity, identity),
+    Layer.succeed(SocialEvents, socialEvents),
+    Layer.succeed(SchoolSurveys, schoolSurveys),
+    Layer.succeed(
+      IdentitySnapshot,
+      IdentitySnapshot.of({
+        resolveSession: (cookieHeader) =>
+          Effect.tryPromise({
+            try: () => identity.resolveSession(cookieHeader),
+            catch: (cause) =>
+              cause instanceof IdentitySessionNotFound || cause instanceof IdentityEngineError
+                ? cause
+                : new IdentityEngineError({
+                    operation: "resolveSnapshotSession",
+                    message: "test identity failure",
+                  }),
           }),
-        ),
-      ) as Effect.Effect<A, E>,
-    );
+        revokeCurrentSession: () => Effect.succeed({ setCookies: [] }),
+        revokeSession: (_actor, sessionId, request) =>
+          Effect.tryPromise({
+            try: () => identity.revokeSession(undefined, sessionId, request),
+            catch: (cause) => cause as IdentityOwnedSessionNotFound,
+          }),
+        revokeOtherSessions: () => Effect.succeed({ setCookies: [] }),
+        revokeAllSessions: () => Effect.succeed({ setCookies: [] }),
+      }),
+    ),
+    Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
+  );
 
 const currentSession = new IdentitySession({
   sessionId: "session-1",
@@ -277,8 +253,8 @@ const unavailableAuthHandler = {
   recordTrustedOriginRejection: async () => undefined,
 };
 
-const successfulRun = makeRun(successfulIdentity);
-const backend = makeBackendHttp(config, successfulRun, unavailableAuthHandler);
+const successfulServices = makeBackendServices(successfulIdentity);
+const backend = makeBackendHttp(config, successfulServices, unavailableAuthHandler);
 
 const request = (pathname: string, init?: RequestInit): Promise<Response> =>
   backend.fetch(new Request(`http://backend.test${pathname}`, init));
@@ -493,7 +469,7 @@ describe("unified backend router", () => {
     let currentReads = 0;
     const guardedBackend = makeBackendHttp(
       config,
-      makeRun({
+      makeBackendServices({
         ...successfulIdentity,
         readCurrentSession: async () => {
           currentReads += 1;
@@ -529,7 +505,7 @@ describe("unified backend router", () => {
     let revokeCalls = 0;
     const ownerBackend = makeBackendHttp(
       config,
-      makeRun({
+      makeBackendServices({
         ...successfulIdentity,
         revokeSession: async (_cookie, sessionId) => {
           revokeCalls += 1;
@@ -579,7 +555,7 @@ describe("unified backend router", () => {
   it("centralizes trusted-origin, CSRF rejection, audit, and credentialed CORS", async () => {
     const handled: string[] = [];
     const rejectedCorrelations: string[] = [];
-    const originBackend = makeBackendHttp(config, successfulRun, {
+    const originBackend = makeBackendHttp(config, successfulServices, {
       handle: async (request) => {
         handled.push(new URL(request.url).pathname);
         return new Response(null, { status: 204 });
@@ -649,7 +625,7 @@ describe("unified backend router", () => {
   it("keeps OAuth protocol errors outside the native origin problem boundary", async () => {
     const oauthCalls: string[] = [];
     const rejectedCorrelations: string[] = [];
-    const oauthBackend = makeBackendHttp(config, successfulRun, {
+    const oauthBackend = makeBackendHttp(config, successfulServices, {
       handle: async () => new Response(null, { status: 404 }),
       handleOAuth: async (request) => {
         oauthCalls.push(`${request.method} ${new URL(request.url).pathname}`);
@@ -685,7 +661,7 @@ describe("unified backend router", () => {
     const dispatched: string[] = [];
     const rejectedCorrelations: string[] = [];
     const origin = "http://127.0.0.1:5174";
-    const backend = makeBackendHttp(config, successfulRun, {
+    const backend = makeBackendHttp(config, successfulServices, {
       handle: async (request) => {
         dispatched.push(new URL(request.url).pathname);
         return new Response(null, { status: 204 });
@@ -807,7 +783,7 @@ describe("unified backend router", () => {
     };
     const pinnedBackend = makeBackendHttp(
       config,
-      makeRun(successfulIdentity, observedOrganization),
+      makeBackendServices(successfulIdentity, observedOrganization),
       unavailableAuthHandler,
       { now: () => pinnedInstant },
     );
@@ -855,7 +831,7 @@ describe("unified backend router", () => {
     async (_name, failure, status, code, title, detail) => {
       const failingBackend = makeBackendHttp(
         config,
-        makeRun({
+        makeBackendServices({
           ...successfulIdentity,
           readCurrentSession: () => Promise.reject(failure),
         }),
@@ -876,7 +852,7 @@ describe("unified backend router", () => {
   );
 
   it("mounts the auth engine handler over the /api/auth/* surface", async () => {
-    const probingBackend = makeBackendHttp(config, successfulRun, {
+    const probingBackend = makeBackendHttp(config, successfulServices, {
       handle: async (request) => new Response(`auth-saw:${new URL(request.url).pathname}`),
       recordTrustedOriginRejection: async () => undefined,
     });
@@ -928,7 +904,7 @@ describe("unified backend router", () => {
 
 it("classifies only exact password recovery method/path origin rejections", async () => {
   const observed: Array<string | undefined> = [];
-  const backend = makeBackendHttp(config, successfulRun, {
+  const backend = makeBackendHttp(config, successfulServices, {
     handle: async () => {
       throw new Error("Rejected origin must not reach engine");
     },

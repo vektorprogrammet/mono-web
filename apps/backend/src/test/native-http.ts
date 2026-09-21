@@ -1,6 +1,8 @@
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunFileSystem from "@effect/platform-bun/BunFileSystem";
 import * as BunPath from "@effect/platform-bun/BunPath";
+import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
+import type { Identity } from "@vektorprogrammet/domain/identity";
 import {
   ContentApi,
   DirectoryApi,
@@ -34,7 +36,6 @@ import {
   makeInternalNativeApiRouterLayer,
   type BackendAuthHandler,
   type BackendHttpOptions,
-  type BackendRun,
 } from "../router.js";
 import { type SchoolsApiHttpOptions } from "../schools/http.js";
 import type { BackendConfig } from "../config.js";
@@ -86,19 +87,34 @@ const contentContract = HttpApi.make("external-native-api")
   .add(ContentApi)
   .middleware(RequestSchemaErrorMiddleware);
 
-const testRouterFetch = <Id extends string, Groups extends HttpApiGroup.Constraint>(
+type NativeMiddlewareRequirements =
+  | SessionSecurity
+  | PersonSecurity
+  | InvitationCapabilitySecurity
+  | RequestSchemaErrorMiddleware;
+type TestServiceLayer = Layer.Layer<unknown>;
+const provideTestServices = <Output, Error, Requirements>(
+  layer: Layer.Layer<Output, Error, Requirements>,
+  services: TestServiceLayer,
+) => layer.pipe(Layer.provide(services as Layer.Layer<Requirements>));
+
+const testRouterFetch = <Id extends string, Groups extends HttpApiGroup.Constraint, R>(
   contract: HttpApi.HttpApi<Id, Groups>,
   handlers: Layer.Layer<
     HttpApiGroup.ToService<Id, Groups>,
     never,
-    SessionSecurity | PersonSecurity | InvitationCapabilitySecurity | RequestSchemaErrorMiddleware
+    R | NativeMiddlewareRequirements
   >,
+  services: TestServiceLayer,
 ): ((request: Request) => Promise<Response>) => {
-  const app = HttpApiBuilder.layer(contract).pipe(
-    Layer.provide(handlers),
-    Layer.provide(NativeHttpApiMiddlewareLive),
-    Layer.provide(platform),
-  );
+  const middleware = provideTestServices(NativeHttpApiMiddlewareLive, services);
+  const app = provideTestServices(
+    HttpApiBuilder.layer(contract).pipe(
+      Layer.provide(handlers),
+      Layer.provide(middleware),
+    ),
+    services,
+  ).pipe(Layer.provide(platform));
   const routerLayer = Layer.merge(app, notFound);
   // Each test request owns and releases the handler layer that serves it.
   return async (request) => {
@@ -115,16 +131,17 @@ const testRouterFetch = <Id extends string, Groups extends HttpApiGroup.Constrai
   };
 };
 
-const testFetch = <Id extends string, Groups extends HttpApiGroup.Constraint>(
+const testFetch = <Id extends string, Groups extends HttpApiGroup.Constraint, R>(
   contract: HttpApi.HttpApi<Id, Groups>,
   handlers: Layer.Layer<
     HttpApiGroup.ToService<Id, Groups>,
     never,
-    SessionSecurity | PersonSecurity | InvitationCapabilitySecurity | RequestSchemaErrorMiddleware
+    R | NativeMiddlewareRequirements
   >,
+  services: TestServiceLayer,
 ): ((request: Request) => Promise<Response>) =>
   makeBackendHttp(
-    testRouterFetch(contract, handlers),
+    testRouterFetch(contract, handlers, services),
     {
       handle: () => Promise.resolve(new Response(null, { status: 404 })),
       recordTrustedOriginRejection: () => Promise.resolve(),
@@ -132,76 +149,98 @@ const testFetch = <Id extends string, Groups extends HttpApiGroup.Constraint>(
     testSessionBoundary,
   ).fetch;
 
-export const makeOrganizationTestHttp = (options: OrganizationApiHttpOptions) => ({
-  fetch: testFetch(organizationContract, OrganizationApiHandlers(options)),
-});
-
-export const makeProfileTestHttp = (options: ProfileApiHttpOptions) => ({
-  fetch: testFetch(profileContract, ProfileApiHandlers(options)),
-});
-
-export const makeRecruitmentTestHttp = (options: RecruitmentApiHttpOptions) => ({
-  fetch: testFetch(recruitmentContract, RecruitmentApiHandlers(options)),
-});
-
-export const makeReceiptTestHttp = (options: ReceiptApiHttpOptions) => ({
-  fetch: testFetch(receiptContract, ReceiptApiHandlers(options)),
-});
-
-export const makeInternalReceiptTestHttp = (options: ReceiptApiHttpOptions) => ({
-  fetch: testRouterFetch(internalReceiptContract, InternalReceiptApiHandlers(options)),
-});
-
-export const makeContentManagementTestHttp = (
-  resolveActor: (request: Request) => Promise<ContentRequestActor>,
-  run: BackendRun,
+export const makeOrganizationTestHttp = (
+  options: OrganizationApiHttpOptions,
+  services: TestServiceLayer,
 ) => ({
-  fetch: testFetch(contentContract, ContentApiHandlers(resolveActor, run)),
+  fetch: testFetch(organizationContract, OrganizationApiHandlers(options), services),
 });
 
-export const makePublicNewsTestHttp = (run: BackendRun) => ({
+export const makeProfileTestHttp = (
+  options: ProfileApiHttpOptions,
+  services: TestServiceLayer,
+) => ({
+  fetch: testFetch(profileContract, ProfileApiHandlers(options), services),
+});
+
+export const makeRecruitmentTestHttp = (
+  options: RecruitmentApiHttpOptions,
+  services: TestServiceLayer,
+) => ({
+  fetch: testFetch(recruitmentContract, RecruitmentApiHandlers(options), services),
+});
+
+export const makeReceiptTestHttp = (
+  options: ReceiptApiHttpOptions,
+  services: TestServiceLayer,
+) => ({
+  fetch: testFetch(receiptContract, ReceiptApiHandlers(options), services),
+});
+
+export const makeInternalReceiptTestHttp = (
+  options: ReceiptApiHttpOptions,
+  services: TestServiceLayer,
+) => ({
+  fetch: testRouterFetch(internalReceiptContract, InternalReceiptApiHandlers(options), services),
+});
+
+export const makeContentManagementTestHttp = <E, R>(
+  resolveActor: (request: Request) => Effect.Effect<ContentRequestActor, E, R>,
+  services: TestServiceLayer,
+) => ({
+  fetch: testFetch(contentContract, ContentApiHandlers(resolveActor), services),
+});
+
+export const makePublicNewsTestHttp = (services: TestServiceLayer) => ({
   fetch: testFetch(
     contentContract,
-    ContentApiHandlers(
-      () => Promise.reject(new Error("staff actor resolution is unavailable in public-news tests")),
-      run,
+    ContentApiHandlers(() =>
+      Effect.fail(new Error("staff actor resolution is unavailable in public-news tests")),
     ),
+    services,
   ),
 });
 
-export const makeDirectoryTestHttp = (options: DirectoryApiHttpOptions) => ({
+export const makeDirectoryTestHttp = (
+  options: DirectoryApiHttpOptions,
+  services: TestServiceLayer,
+) => ({
   fetch: testFetch(
     directoryContract,
     DirectoryApiHandlers(options, {
-      resolveActor: () => Promise.reject(new Error("school actor resolution is unavailable")),
-      run: options.run,
+      resolveActor: () => Effect.fail(new Error("school actor resolution is unavailable")),
     }),
+    services,
   ),
 });
 
-export const makeSchoolsTestHttp = (options: SchoolsApiHttpOptions) => ({
+export const makeSchoolsTestHttp = (
+  options: SchoolsApiHttpOptions,
+  services: TestServiceLayer,
+) => ({
   fetch: testFetch(
     directoryContract,
     DirectoryApiHandlers(
       {
         resolveAuthority: () =>
-          Promise.reject(new Error("people directory authority is unavailable")),
-        run: options.run,
+          Effect.fail(new Error("people directory authority is unavailable")),
       },
       options,
     ),
+    services,
   ),
 });
 
 export const makeBackendTestHttp = (
   config: BackendConfig,
-  run: BackendRun,
+  services: TestServiceLayer,
   authHandler: BackendAuthHandler,
   options: BackendHttpOptions = {},
 ) => {
-  const routerLayer = makeExternalNativeApiRouterLayer(config, run, options).pipe(
-    Layer.provide(platform),
-  );
+  const routerLayer = provideTestServices(
+    makeExternalNativeApiRouterLayer(config, options),
+    services,
+  ).pipe(Layer.provide(platform));
   const native = async (request: Request): Promise<Response> => {
     const { dispose, handler } = HttpRouter.toWebHandler(routerLayer, {
       disableLogger: true,
@@ -217,12 +256,13 @@ export const makeBackendTestHttp = (
 
 export const makeBackendInternalTestHttp = (
   config: BackendConfig,
-  run: BackendRun,
+  services: TestServiceLayer,
   options: BackendHttpOptions = {},
 ) => {
-  const routerLayer = makeInternalNativeApiRouterLayer(config, run, options).pipe(
-    Layer.provide(platform),
-  );
+  const routerLayer = provideTestServices(
+    makeInternalNativeApiRouterLayer(config, options),
+    services,
+  ).pipe(Layer.provide(platform));
   return {
     fetch: async (request: Request): Promise<Response> => {
       const { dispose, handler } = HttpRouter.toWebHandler(routerLayer, {

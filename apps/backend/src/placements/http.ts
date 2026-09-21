@@ -36,13 +36,16 @@ import {
 import {
   authorizePersonNativeOperation,
   genericContext,
-  withNativeHttpRuntime,
-  prepareNativeHttpCommand,
   nativeCommandOutcomeResponse,
 } from "../native-operation.js";
-import type { BackendRun } from "../router.js";
-type Requirements =
-  Parameters<BackendRun>[0] extends Effect.Effect<unknown, unknown, infer R> ? R : never;
+const semantic = <A>(operation: () => A) =>
+  Effect.try({
+    try: operation,
+    catch: (cause) =>
+      cause instanceof HttpSemanticFailure
+        ? cause
+        : new HttpSemanticFailure("internal.error", 500),
+  });
 const header = (r: Request, k: string) => (r.headers.has(k) ? [r.headers.get(k)!] : []);
 const resource = <A extends object>(body: A) => ({
   ...body,
@@ -61,63 +64,57 @@ const json = (body: unknown, etag?: string) =>
       ...(etag ? { etag } : {}),
     },
   });
-const decode = <S extends Schema.ConstraintDecoder<unknown, never>>(
-  schema: S,
-  value: unknown,
-  run: BackendRun,
-): Promise<S["Type"]> =>
-  run(
-    Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
-      Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)),
-    ),
+const decode = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S, value: unknown) =>
+  Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+    Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)),
   );
-const query = (request: Request, own: boolean) => {
-  const q = new URL(request.url).searchParams;
-  const keys = own ? ["departmentId"] : ["departmentId", "semesterId"];
-  if ([...q.keys()].some((k) => !keys.includes(k) || q.getAll(k).length !== 1))
-    throw new HttpSemanticFailure("request.malformed", 400);
-  return Object.fromEntries(q);
-};
+const query = (request: Request, own: boolean) =>
+  semantic(() => {
+    const q = new URL(request.url).searchParams;
+    const keys = own ? ["departmentId"] : ["departmentId", "semesterId"];
+    if ([...q.keys()].some((key) => !keys.includes(key) || q.getAll(key).length !== 1))
+      throw new HttpSemanticFailure("request.malformed", 400);
+    return Object.fromEntries(q);
+  });
 type Endpoint =
   | typeof ListPlacementScopesEndpoint
   | typeof ReadOwnAffiliationEndpoint
   | typeof CommandOwnAffiliationEndpoint
   | typeof ReadPlacementBoardEndpoint
   | typeof CommandPlacementBoardEndpoint;
-const authorize = async (
+const authorize = (
   request: Request,
-  run: BackendRun,
   endpoint: Endpoint,
   departmentId: PlacementScope["departmentId"] | null,
   manage: boolean,
   now?: () => string,
-) => {
-  const auth = await resolveRequestPersonAuthorityInTransaction(request, { run, now });
-  if (manage && (departmentId === null || !canManagePlacements(auth.authority, departmentId)))
-    throw new HttpSemanticFailure("authority.denied", 403);
-  await authorizePersonNativeOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
-    credential: auth.credential,
-    personId: auth.authority.personId,
-    resolution: {
-      selection: "ExactlyOne",
-      contexts: [
-        genericContext({
-          domainId: "organization",
-          ...(departmentId === null ? {} : { departmentId }),
-          authorityVersion: auth.authorizationInstant,
-        }),
-      ],
-    },
-    grantScopes:
-      departmentId === null
-        ? [{ _tag: "Domain", domainId: DomainId.make("organization") }]
-        : [{ _tag: "Department", departmentId }],
-    now: auth.authorizationInstant,
-    run,
+) =>
+  Effect.gen(function* () {
+    const auth = yield* resolveRequestPersonAuthorityInTransaction(request, { now });
+    if (manage && (departmentId === null || !canManagePlacements(auth.authority, departmentId)))
+      return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
+    yield* authorizePersonNativeOperation({
+      spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
+      credential: auth.credential,
+      personId: auth.authority.personId,
+      resolution: {
+        selection: "ExactlyOne",
+        contexts: [
+          genericContext({
+            domainId: "organization",
+            ...(departmentId === null ? {} : { departmentId }),
+            authorityVersion: auth.authorizationInstant,
+          }),
+        ],
+      },
+      grantScopes:
+        departmentId === null
+          ? [{ _tag: "Domain", domainId: DomainId.make("organization") }]
+          : [{ _tag: "Department", departmentId }],
+      now: auth.authorizationInstant,
+    });
+    return auth;
   });
-  return auth;
-};
 const errorResponse = (cause: unknown): Response => {
   if (cause instanceof HttpSemanticFailure || cause instanceof PlacementFailure)
     return nativeProblemResponse(cause.code, cause.status);
@@ -142,109 +139,100 @@ const errorResponse = (cause: unknown): Response => {
     return nativeProblemResponse("transaction.conflict", 409);
   return nativeProblemResponse("internal.error", 500);
 };
-export const PlacementsApiHandlers = (input: { run: BackendRun; now?: () => string }) => {
+export const PlacementsApiHandlers = (input: { now?: () => string }) => {
   const read = (request: Request, mode: "scopes" | "own" | "board") =>
-    input.run(
-      Database.use((sql) =>
-        sql.withTransaction(
-          withNativeHttpRuntime(input.run, async (run) => {
-            await run(Database.use((sql) => sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`));
-            if (mode === "scopes") {
+    Database.use((sql) =>
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* Database.use(
+            (transaction) => transaction`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`,
+          );
+          if (mode === "scopes") {
+            yield* semantic(() => {
               if (new URL(request.url).search)
                 throw new HttpSemanticFailure("request.malformed", 400);
-              const auth = await authorize(
-                request,
-                run,
-                ListPlacementScopesEndpoint,
-                null,
-                false,
-                input.now,
-              );
-              return json(
-                await decode(PlacementScopes, await run(readPlacementScopes(auth.authority)), run),
-              );
-            }
-            if (mode === "own") {
-              const scope = await decode(AffiliationScope, query(request, true), run);
-              const auth = await authorize(
-                request,
-                run,
-                ReadOwnAffiliationEndpoint,
-                scope.departmentId,
-                false,
-                input.now,
-              );
-              return json(
-                await decode(
-                  OwnAffiliationResource,
-                  resource(
-                    await run(readOwnAffiliation(auth.authority.personId, scope.departmentId)),
-                  ),
-                  run,
-                ),
-              );
-            }
-            const scope = await decode(PlacementScope, query(request, false), run);
-            await authorize(
+            });
+            const auth = yield* authorize(
               request,
-              run,
-              ReadPlacementBoardEndpoint,
+              ListPlacementScopesEndpoint,
+              null,
+              false,
+              input.now,
+            );
+            return json(yield* decode(PlacementScopes, yield* readPlacementScopes(auth.authority)));
+          }
+          if (mode === "own") {
+            const scope = yield* decode(AffiliationScope, yield* query(request, true));
+            const auth = yield* authorize(
+              request,
+              ReadOwnAffiliationEndpoint,
               scope.departmentId,
-              true,
+              false,
               input.now,
             );
             return json(
-              await decode(
-                PlacementBoardResource,
-                resource(await run(readPlacementBoard(scope))),
-                run,
+              yield* decode(
+                OwnAffiliationResource,
+                resource(yield* readOwnAffiliation(auth.authority.personId, scope.departmentId)),
               ),
             );
-          }),
-        ),
+          }
+          const scope = yield* decode(PlacementScope, yield* query(request, false));
+          yield* authorize(
+            request,
+            ReadPlacementBoardEndpoint,
+            scope.departmentId,
+            true,
+            input.now,
+          );
+          return json(
+            yield* decode(PlacementBoardResource, resource(yield* readPlacementBoard(scope))),
+          );
+        }),
       ),
     );
-  const mutate = async (request: Request, own: boolean) => {
-    if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json")
-      throw new HttpSemanticFailure("media-type.unsupported", 415);
-    const body = await readBoundedJson(request, 8192);
-    const selected = own
-      ? {
-          own: true as const,
-          scope: await decode(AffiliationScope, query(request, true), input.run),
-          command: await decode(OwnAffiliationCommand, body, input.run),
-        }
-      : {
-          own: false as const,
-          scope: await decode(PlacementScope, query(request, false), input.run),
-          command: await decode(PlacementCommand, body, input.run),
-        };
-    const ifMatch = parseRequiredIfMatch(header(request, "if-match"));
-    const key = parseIdempotencyKey(header(request, "idempotency-key"));
-    const endpoint = own ? CommandOwnAffiliationEndpoint : CommandPlacementBoardEndpoint;
-    const operationId = own ? "placements.commandOwnAffiliation" : "placements.commandBoard";
-    const outcome = await input.run(
-      executeNativeHttpCommandPostgres<unknown, Requirements>(
-        prepareNativeHttpCommand(input.run, async (run) => {
-          const auth = await authorize(
+  const mutate = (request: Request, own: boolean) =>
+    Effect.gen(function* () {
+      if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json")
+        return yield* Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
+      const body = yield* readBoundedJson(request, 8192);
+      const selected = own
+        ? {
+            own: true as const,
+            scope: yield* decode(AffiliationScope, yield* query(request, true)),
+            command: yield* decode(OwnAffiliationCommand, body),
+          }
+        : {
+            own: false as const,
+            scope: yield* decode(PlacementScope, yield* query(request, false)),
+            command: yield* decode(PlacementCommand, body),
+          };
+      const ifMatch = yield* semantic(() => parseRequiredIfMatch(header(request, "if-match")));
+      const key = yield* semantic(() => parseIdempotencyKey(header(request, "idempotency-key")));
+      const endpoint = own ? CommandOwnAffiliationEndpoint : CommandPlacementBoardEndpoint;
+      const operationId = own ? "placements.commandOwnAffiliation" : "placements.commandBoard";
+      const outcome = yield* executeNativeHttpCommandPostgres(
+        Effect.gen(function* () {
+          const auth = yield* authorize(
             request,
-            run,
             endpoint,
             selected.scope.departmentId,
             !own,
             input.now,
           );
-          const identity = deriveHttpIdentity({
-            credentialSubject: `Person:${auth.authority.personId}`,
-            qualifiedOperationId: operationId,
-            normalizedTarget: normalizeTarget(
-              own
-                ? "/api/placements/affiliation/{departmentId}"
-                : "/api/placements/{departmentId}/{semesterId}",
-              selected.scope,
-            ),
-            idempotencyKey: key,
-          });
+          const identity = yield* semantic(() =>
+            deriveHttpIdentity({
+              credentialSubject: `Person:${auth.authority.personId}`,
+              qualifiedOperationId: operationId,
+              normalizedTarget: normalizeTarget(
+                own
+                  ? "/api/placements/affiliation/{departmentId}"
+                  : "/api/placements/{departmentId}/{semesterId}",
+                selected.scope,
+              ),
+              idempotencyKey: key,
+            }),
+          );
           return {
             identity: {
               identitySha256: identity.identitySha256,
@@ -284,31 +272,36 @@ export const PlacementsApiHandlers = (input: { run: BackendRun; now?: () => stri
                       `placement-${identity.identitySha256}`,
                     ),
                   );
-              return yield* Effect.promise(() => responseCapsule(json(changed, changed.etag)));
+              return yield* Effect.tryPromise({
+                try: () => responseCapsule(json(changed, changed.etag)),
+                catch: (cause) =>
+                  cause instanceof HttpSemanticFailure
+                    ? cause
+                    : new HttpSemanticFailure("internal.error", 500),
+              });
             }),
           };
         }),
-      ),
-    );
-    return nativeCommandOutcomeResponse(outcome);
-  };
+      );
+      return nativeCommandOutcomeResponse(outcome);
+    });
   return HttpApiBuilder.group(ExternalNativeApi, "placements", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("listScopes", ({ request }) =>
-          toHttpApiResponse(request, (r) => read(r, "scopes"), errorResponse),
+          toHttpApiResponse(request, (webRequest) => read(webRequest, "scopes"), errorResponse),
         )
         .handleRaw("readOwnAffiliation", ({ request }) =>
-          toHttpApiResponse(request, (r) => read(r, "own"), errorResponse),
+          toHttpApiResponse(request, (webRequest) => read(webRequest, "own"), errorResponse),
         )
         .handleRaw("readBoard", ({ request }) =>
-          toHttpApiResponse(request, (r) => read(r, "board"), errorResponse),
+          toHttpApiResponse(request, (webRequest) => read(webRequest, "board"), errorResponse),
         )
         .handleRaw("commandOwnAffiliation", ({ request }) =>
-          toHttpApiResponse(request, (r) => mutate(r, true), errorResponse),
+          toHttpApiResponse(request, (webRequest) => mutate(webRequest, true), errorResponse),
         )
         .handleRaw("commandBoard", ({ request }) =>
-          toHttpApiResponse(request, (r) => mutate(r, false), errorResponse),
+          toHttpApiResponse(request, (webRequest) => mutate(webRequest, false), errorResponse),
         ),
     ),
   );

@@ -118,13 +118,7 @@ import {
   semanticMutationRequest,
   semanticRequestDigest,
 } from "../http-semantics.js";
-import {
-  authorizePersonNativeOperation,
-  nativeCommandOutcomeResponse,
-  prepareNativeHttpCommand,
-  withNativeHttpRuntime,
-} from "../native-operation.js";
-import type { BackendRun } from "../router.js";
+import { authorizePersonNativeOperation, nativeCommandOutcomeResponse } from "../native-operation.js";
 import { type RecruitmentApiConfig } from "./config.js";
 
 export interface RecruitmentConductContextResolution {
@@ -132,16 +126,13 @@ export interface RecruitmentConductContextResolution {
   readonly authorizationInstant: string;
 }
 
-export interface RecruitmentApiHttpOptions {
+export interface RecruitmentApiHttpOptions<E = never, R = never> {
   readonly config: RecruitmentApiConfig;
-  readonly resolveActor: (request: Request) => Promise<RecruitmentActor>;
+  readonly resolveActor: (request: Request) => Effect.Effect<RecruitmentActor, E, R>;
   readonly resolveConductContext?: (
     request: Request,
-  ) => Promise<RecruitmentConductContextResolution>;
-  readonly run: BackendRun;
+  ) => Effect.Effect<RecruitmentConductContextResolution, E, R>;
 }
-
-type RecruitmentBackendRun = RecruitmentApiHttpOptions["run"];
 
 type GenericFacts = Readonly<Record<string, unknown>>;
 
@@ -313,88 +304,86 @@ const errorResponse = (
 
 export const recruitmentHttpErrorResponse = errorResponse;
 
-const strictDecode = async <S extends Schema.ConstraintDecoder<unknown, never>>(
+const strictDecode = <S extends Schema.ConstraintDecoder<unknown, never>>(
   schema: S,
   value: unknown,
-  run: RecruitmentBackendRun,
   failure: {
     readonly code: "request.malformed" | "validation.failed";
     readonly status: 400 | 422;
   } = { code: "validation.failed", status: 422 },
-): Promise<S["Type"]> =>
-  run(
-    Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
-      Effect.mapError(() => new HttpSemanticFailure(failure.code, failure.status)),
-    ),
+) =>
+  Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+    Effect.mapError(() => new HttpSemanticFailure(failure.code, failure.status)),
   );
 
-const strictOutput = async <S extends Schema.ConstraintDecoder<unknown, never>>(
+const strictOutput = <S extends Schema.ConstraintDecoder<unknown, never>>(
   schema: S,
   value: unknown,
-  run: RecruitmentBackendRun,
-): Promise<S["Type"]> =>
-  run(
-    Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
-      Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)),
-    ),
+) =>
+  Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+    Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)),
   );
 
-const readJsonBody = async (
-  request: Request,
-  maxBodyBytes: number,
-  malformedOnly = false,
-): Promise<unknown> => {
-  const fail = (
-    code: "request.malformed" | "media-type.unsupported" | "request.too-large",
-    status: 400 | 413 | 415,
-  ) => {
-    throw new HttpSemanticFailure(
-      malformedOnly ? "request.malformed" : code,
-      malformedOnly ? 400 : status,
-    );
-  };
-  const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-  if (mediaType !== "application/json") fail("media-type.unsupported", 415);
-  const declaredLength = request.headers.get("content-length");
-  if (declaredLength !== null) {
-    const length = Number(declaredLength);
-    if (!Number.isSafeInteger(length) || length < 0) fail("request.malformed", 400);
-    if (length > maxBodyBytes) fail("request.too-large", 413);
-  }
-  const chunks: Uint8Array[] = [];
-  let byteLength = 0;
-  if (request.body !== null) {
-    const reader = request.body.getReader();
-    try {
-      while (true) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        byteLength += chunk.value.byteLength;
-        if (byteLength > maxBodyBytes) {
-          await reader.cancel().catch(() => undefined);
-          fail("request.too-large", 413);
-        }
-        chunks.push(chunk.value);
+const readJsonBody = (request: Request, maxBodyBytes: number, malformedOnly = false) =>
+  Effect.tryPromise({
+    try: async () => {
+      const fail = (
+        code: "request.malformed" | "media-type.unsupported" | "request.too-large",
+        status: 400 | 413 | 415,
+      ) => {
+        throw new HttpSemanticFailure(
+          malformedOnly ? "request.malformed" : code,
+          malformedOnly ? 400 : status,
+        );
+      };
+      const mediaType = request.headers
+        .get("content-type")
+        ?.split(";", 1)[0]
+        ?.trim()
+        .toLowerCase();
+      if (mediaType !== "application/json") fail("media-type.unsupported", 415);
+      const declaredLength = request.headers.get("content-length");
+      if (declaredLength !== null) {
+        const length = Number(declaredLength);
+        if (!Number.isSafeInteger(length) || length < 0) fail("request.malformed", 400);
+        if (length > maxBodyBytes) fail("request.too-large", 413);
       }
-    } finally {
-      reader.releaseLock();
-    }
-  }
-  const bytes = new Uint8Array(byteLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  try {
-    return parseJsonWithoutDuplicateMembers(bytes);
-  } catch (cause) {
-    if (malformedOnly && cause instanceof HttpSemanticFailure) {
-      throw new HttpSemanticFailure("request.malformed", 400);
-    }
-    throw cause;
-  }
-};
+      const chunks: Uint8Array[] = [];
+      let byteLength = 0;
+      if (request.body !== null) {
+        const reader = request.body.getReader();
+        try {
+          while (true) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            byteLength += chunk.value.byteLength;
+            if (byteLength > maxBodyBytes) {
+              await reader.cancel().catch(() => undefined);
+              fail("request.too-large", 413);
+            }
+            chunks.push(chunk.value);
+          }
+        } finally {
+          reader.releaseLock();
+        }
+      }
+      const bytes = new Uint8Array(byteLength);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      try {
+        return parseJsonWithoutDuplicateMembers(bytes);
+      } catch (cause) {
+        if (malformedOnly && cause instanceof HttpSemanticFailure) {
+          throw new HttpSemanticFailure("request.malformed", 400);
+        }
+        throw cause;
+      }
+    },
+    catch: (cause) => cause,
+  });
 
 export const readRecruitmentRequestBody = readJsonBody;
 
@@ -403,53 +392,47 @@ const headerValues = (request: Request, name: string): ReadonlyArray<string> => 
   return value === null ? [] : [value];
 };
 
-const noQuery = (request: Request): void => {
-  if (new URL(request.url).search.length > 0) {
-    throw new HttpSemanticFailure("request.malformed", 400);
-  }
-};
+const noQuery = (request: Request) =>
+  Effect.try({
+    try: () => {
+      if (new URL(request.url).search.length > 0) {
+        throw new HttpSemanticFailure("request.malformed", 400);
+      }
+    },
+    catch: (cause) => cause,
+  });
 
-const decodeBoardQuery = async (
-  request: Request,
-  run: RecruitmentBackendRun,
-): Promise<typeof RecruitmentAssignmentBoardQuerySchema.Type> => {
-  const parameters = [...new URL(request.url).searchParams];
-  if (parameters.length !== 1 || parameters[0]?.[0] !== "status") {
-    throw new HttpSemanticFailure("request.malformed", 400);
-  }
-  return strictDecode(RecruitmentAssignmentBoardQuerySchema, { status: parameters[0][1] }, run);
-};
+const decodeBoardQuery = (request: Request) =>
+  Effect.try({
+    try: () => {
+      const parameters = [...new URL(request.url).searchParams];
+      if (parameters.length !== 1 || parameters[0]?.[0] !== "status") {
+        throw new HttpSemanticFailure("request.malformed", 400);
+      }
+      return { status: parameters[0][1] };
+    },
+    catch: (cause) => cause,
+  }).pipe(Effect.flatMap((query) => strictDecode(RecruitmentAssignmentBoardQuerySchema, query)));
 
-const invitationCapability = async (
-  request: Request,
-  run: RecruitmentBackendRun,
-): Promise<typeof RecruitmentInvitationCapabilitySchema.Type> => {
-  const value = request.headers.get("x-recruitment-invitation-capability");
-  return run(
-    Schema.decodeUnknownEffect(RecruitmentInvitationCapabilitySchema)(value, {
-      onExcessProperty: "error",
-    }).pipe(Effect.mapError(() => new HttpSemanticFailure("resource.not-found", 404))),
+const invitationCapability = (request: Request) =>
+  Schema.decodeUnknownEffect(RecruitmentInvitationCapabilitySchema)(
+    request.headers.get("x-recruitment-invitation-capability"),
+    { onExcessProperty: "error" },
+  ).pipe(Effect.mapError(() => new HttpSemanticFailure("resource.not-found", 404)));
+
+const actorFor = <E, R>(request: Request, input: RecruitmentApiHttpOptions<E, R>) =>
+  input.resolveActor(request).pipe(
+    Effect.catch((cause) =>
+      errorTag(cause) === undefined
+        ? Effect.fail(new HttpSemanticFailure("credential.invalid", 401))
+        : Effect.fail(cause),
+    ),
   );
-};
 
-const actorFor = async (
-  request: Request,
-  input: RecruitmentApiHttpOptions,
-): Promise<RecruitmentActor> => {
-  try {
-    return await input.resolveActor(request);
-  } catch (cause) {
-    if (errorTag(cause) !== undefined) throw cause;
-    throw new HttpSemanticFailure("credential.invalid", 401);
-  }
-};
-
-const capabilityForSpec = (spec: AccessSpec) => {
-  if (spec.capabilities._tag !== "One") {
-    throw new HttpSemanticFailure("internal.error", 500);
-  }
-  return spec.capabilities.capability;
-};
+const capabilityForSpec = (spec: AccessSpec) =>
+  spec.capabilities._tag === "One"
+    ? Effect.succeed(spec.capabilities.capability)
+    : Effect.fail(new HttpSemanticFailure("internal.error", 500));
 
 const rejectedCode = (status: 401 | 403 | 404) =>
   status === 401
@@ -458,36 +441,35 @@ const rejectedCode = (status: 401 | 403 | 404) =>
       ? "resource.not-found"
       : "authority.denied";
 
-const authorizePersonOperation = async (input: {
+const authorizePersonOperation = (input: {
   readonly spec: AccessSpec;
   readonly request: Request;
   readonly actor: RecruitmentActor;
   readonly resolution: CanonicalScopeResolution<GenericFacts>;
   readonly grantScopes: ReadonlyArray<Scope>;
   readonly authorizationInstant: string;
-  readonly run: RecruitmentBackendRun;
-}): Promise<void> => {
-  const principal = { _tag: "Person" as const, personId: input.actor.personId };
-  const instant = AuthorizationInstant.make(input.authorizationInstant);
-  const capability = capabilityForSpec(input.spec);
-  const grants = input.grantScopes.map((scope, index) =>
-    makeGrant({
-      grantId: GrantId.make(
-        `native-recruitment:${input.actor.personId}:${capability.type}:${index}`,
-      ),
-      subject: principal,
-      capability,
-      scope,
-      startAt: instant,
-      endAt: null,
-      requirements: [],
-      source: AuthorityRef.make("native-recruitment-actor"),
-      revision: 0,
-    }),
-  );
-  const bearer = input.request.headers.get("authorization")?.startsWith("Bearer ") === true;
-  const evaluation = await input.run(
-    evaluateAccessJourney(input.spec, undefined, {
+}) =>
+  Effect.gen(function* () {
+    const principal = { _tag: "Person" as const, personId: input.actor.personId };
+    const instant = AuthorizationInstant.make(input.authorizationInstant);
+    const capability = yield* capabilityForSpec(input.spec);
+    const grants = input.grantScopes.map((scope, index) =>
+      makeGrant({
+        grantId: GrantId.make(
+          `native-recruitment:${input.actor.personId}:${capability.type}:${index}`,
+        ),
+        subject: principal,
+        capability,
+        scope,
+        startAt: instant,
+        endAt: null,
+        requirements: [],
+        source: AuthorityRef.make("native-recruitment-actor"),
+        revision: 0,
+      }),
+    );
+    const bearer = input.request.headers.get("authorization")?.startsWith("Bearer ") === true;
+    const evaluation = yield* evaluateAccessJourney(input.spec, undefined, {
       now: Effect.succeed(instant),
       resolveCredential: () =>
         Effect.succeed({
@@ -500,64 +482,62 @@ const authorizePersonOperation = async (input: {
         }),
       resolveScope: () => Effect.succeed(input.resolution),
       resolveGrants: () => Effect.succeed(grants),
-    }),
-  );
-  const status = accessHttpStatus(evaluation, input.spec.concealment);
-  if (status !== 200) {
-    throw new HttpSemanticFailure(rejectedCode(status), status);
-  }
-};
+    });
+    const status = accessHttpStatus(evaluation, input.spec.concealment);
+    if (status !== 200) {
+      return yield* Effect.fail(new HttpSemanticFailure(rejectedCode(status), status));
+    }
+  });
 
-const authorizeInvitationOperation = async (input: {
+const authorizeInvitationOperation = (input: {
   readonly spec: AccessSpec;
   readonly request: Request;
   readonly source: RecruitmentInvitationHttpSource;
   readonly authorizationInstant: string;
-  readonly run: RecruitmentBackendRun;
-}): Promise<void> => {
-  const capabilityId = CapabilityId.make(input.source.capabilitySha256);
-  const principal = { _tag: "CapabilityHolder" as const, capabilityId };
-  const instant = AuthorizationInstant.make(input.authorizationInstant);
-  const resource = {
-    kind: RECRUITMENT_INVITATION_RESOURCE_KIND,
-    id: ResourceId.make(input.source.invitationId),
-  };
-  const capability = capabilityForSpec(input.spec);
-  const resolution = {
-    selection: "ExactlyOne" as const,
-    contexts: [
-      {
-        domainId: DomainId.make("recruitment"),
-        departmentId: input.source.departmentId,
-        resource,
-        facts: {
-          capabilityId,
-          invitationId: input.source.invitationId,
-          interviewId: input.source.interviewId,
+}) =>
+  Effect.gen(function* () {
+    const capabilityId = CapabilityId.make(input.source.capabilitySha256);
+    const principal = { _tag: "CapabilityHolder" as const, capabilityId };
+    const instant = AuthorizationInstant.make(input.authorizationInstant);
+    const resource = {
+      kind: RECRUITMENT_INVITATION_RESOURCE_KIND,
+      id: ResourceId.make(input.source.invitationId),
+    };
+    const capability = yield* capabilityForSpec(input.spec);
+    const resolution = {
+      selection: "ExactlyOne" as const,
+      contexts: [
+        {
+          domainId: DomainId.make("recruitment"),
           departmentId: input.source.departmentId,
-          responseState: input.source.responseState,
-          responseRevision: input.source.responseRevision,
-          supersededAt: input.source.supersededAt,
+          resource,
+          facts: {
+            capabilityId,
+            invitationId: input.source.invitationId,
+            interviewId: input.source.interviewId,
+            departmentId: input.source.departmentId,
+            responseState: input.source.responseState,
+            responseRevision: input.source.responseRevision,
+            supersededAt: input.source.supersededAt,
+          },
+          authorityVersion: AuthorityVersion.make(
+            `${input.source.scheduleRevision}:${input.source.responseRevision}`,
+          ),
         },
-        authorityVersion: AuthorityVersion.make(
-          `${input.source.scheduleRevision}:${input.source.responseRevision}`,
-        ),
-      },
-    ],
-  };
-  const grant = makeGrant({
-    grantId: GrantId.make(`native-invitation:${input.source.capabilitySha256}`),
-    subject: principal,
-    capability,
-    scope: { _tag: "Resource", resource },
-    startAt: instant,
-    endAt: null,
-    requirements: [],
-    source: AuthorityRef.make("native-invitation-capability"),
-    revision: input.source.responseRevision,
-  });
-  const evaluation = await input.run(
-    evaluateAccessJourney(input.spec, undefined, {
+      ],
+    };
+    const grant = makeGrant({
+      grantId: GrantId.make(`native-invitation:${input.source.capabilitySha256}`),
+      subject: principal,
+      capability,
+      scope: { _tag: "Resource", resource },
+      startAt: instant,
+      endAt: null,
+      requirements: [],
+      source: AuthorityRef.make("native-invitation-capability"),
+      revision: input.source.responseRevision,
+    });
+    const evaluation = yield* evaluateAccessJourney(input.spec, undefined, {
       now: Effect.succeed(instant),
       resolveCredential: () =>
         Effect.succeed({
@@ -573,11 +553,12 @@ const authorizeInvitationOperation = async (input: {
         }),
       resolveScope: () => Effect.succeed(resolution),
       resolveGrants: () => Effect.succeed([grant]),
-    }),
-  );
-  const status = accessHttpStatus(evaluation, input.spec.concealment);
-  if (status !== 200) throw new HttpSemanticFailure(rejectedCode(status), status);
-};
+    });
+    const status = accessHttpStatus(evaluation, input.spec.concealment);
+    if (status !== 200) {
+      return yield* Effect.fail(new HttpSemanticFailure(rejectedCode(status), status));
+    }
+  });
 
 const actorDepartment = (actor: RecruitmentActor): DepartmentId | null =>
   actor._tag === "GlobalAdmin" ? null : actor.departmentId;
@@ -679,26 +660,30 @@ export const conditionalJsonResponse = (
   request: Request,
   body: unknown,
   etag: StrongETag,
-): Response => {
-  const decision = evaluateReadPreconditions({
-    currentETag: etag,
-    ifMatch: parseReadIfMatch(headerValues(request, "if-match")),
-    ifNoneMatch: parseIfNoneMatch(headerValues(request, "if-none-match")),
-  });
-  if (decision._tag === "Failed") return nativeProblemResponse(decision.code, decision.status);
-  if (decision._tag === "NotModified") {
-    return notModifiedResponse({ etag, cacheControl: PRIVATE_NO_STORE, vary: "Origin" });
-  }
-  return new Response(JSON.stringify(body), {
-    status: 200,
-    headers: {
-      "cache-control": PRIVATE_NO_STORE,
-      "content-type": "application/json",
-      etag,
-      vary: "Origin",
+) =>
+  Effect.try({
+    try: () => {
+      const decision = evaluateReadPreconditions({
+        currentETag: etag,
+        ifMatch: parseReadIfMatch(headerValues(request, "if-match")),
+        ifNoneMatch: parseIfNoneMatch(headerValues(request, "if-none-match")),
+      });
+      if (decision._tag === "Failed") return nativeProblemResponse(decision.code, decision.status);
+      if (decision._tag === "NotModified") {
+        return notModifiedResponse({ etag, cacheControl: PRIVATE_NO_STORE, vary: "Origin" });
+      }
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: {
+          "cache-control": PRIVATE_NO_STORE,
+          "content-type": "application/json",
+          etag,
+          vary: "Origin",
+        },
+      });
     },
+    catch: (cause) => cause,
   });
-};
 
 const commandIdentity = (
   request: Request,
@@ -716,14 +701,14 @@ const commandIdentity = (
   });
 };
 
-const executeCommand = async <CommandId>(input: {
+const executeCommand = <CommandId, E, R>(input: {
   readonly request: Request;
   readonly operationId: string;
   readonly routeTemplate: string;
   readonly identities: Readonly<Record<string, string>>;
   readonly semanticRequest: CanonicalSemanticRequest;
   readonly commandIdSchema: Schema.ConstraintDecoder<CommandId, never>;
-  readonly prepare: (run: RecruitmentBackendRun) => Promise<{
+  readonly prepare: () => Effect.Effect<{
     readonly credentialSubject: CredentialSubject;
     readonly execute: (
       commandId: CommandId,
@@ -732,359 +717,359 @@ const executeCommand = async <CommandId>(input: {
       unknown,
       never | Database | Admissions | Organization | Profile | Recruitment
     >;
-  }>;
+  }, E, R>;
   readonly retry?: "serialization-once";
-  readonly run: RecruitmentBackendRun;
-}): Promise<Response> => {
-  const outcome = await input.run(
-    executeNativeHttpCommandPostgres(
-      prepareNativeHttpCommand(input.run, async (txRun) => {
-        const prepared = await input.prepare(txRun);
-        const derived = commandIdentity(
-          input.request,
-          prepared.credentialSubject,
-          input.operationId,
-          input.routeTemplate,
-          input.identities,
-        );
-        const commandId = await strictDecode(input.commandIdSchema, derived.commandId, txRun);
+}) =>
+  Effect.gen(function* () {
+    const outcome = yield* executeNativeHttpCommandPostgres(
+      Effect.gen(function* () {
+        const prepared = yield* input.prepare();
+        const derived = yield* Effect.try({
+          try: () =>
+            commandIdentity(
+              input.request,
+              prepared.credentialSubject,
+              input.operationId,
+              input.routeTemplate,
+              input.identities,
+            ),
+          catch: (cause) => cause,
+        });
+        const commandId = yield* strictDecode(input.commandIdSchema, derived.commandId);
         return {
           identity: {
             identitySha256: derived.identitySha256,
             requestSha256: semanticRequestDigest(input.semanticRequest),
             operationId: input.operationId,
           },
-          execute: prepared
-            .execute(commandId)
-            .pipe(Effect.flatMap((response) => Effect.promise(() => responseCapsule(response)))),
+          execute: prepared.execute(commandId).pipe(
+            Effect.flatMap((response) =>
+              Effect.tryPromise({
+                try: () => responseCapsule(response),
+                catch: (cause) => cause,
+              }),
+            ),
+          ),
         };
       }),
       input.retry === undefined ? {} : { retry: input.retry },
-    ),
-  );
-  return nativeCommandOutcomeResponse(outcome);
-};
-
-const readInvitationResponse = async (
-  request: Request,
-  input: RecruitmentApiHttpOptions,
-): Promise<Response> => {
-  noQuery(request);
-  const capability = await invitationCapability(request, input.run);
-  const now = input.config.now();
-  const snapshot = await input.run(readRecruitmentInvitationHttpSnapshotPostgres(capability));
-  await authorizeInvitationOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(ReadInvitationResponseEndpoint)),
-    request,
-    source: snapshot.source,
-    authorizationInstant: now,
-    run: input.run,
+    );
+    return nativeCommandOutcomeResponse(outcome);
   });
-  const output = await strictOutput(InvitationResponseObservation, snapshot.observation, input.run);
-  return conditionalJsonResponse(request, output, invitationETag(snapshot.source));
-};
 
-const invitationMutation = async (
+const readInvitationResponse = <E, R>(
+  request: Request,
+  input: RecruitmentApiHttpOptions<E, R>,
+) =>
+  Effect.gen(function* () {
+    yield* noQuery(request);
+    const capability = yield* invitationCapability(request);
+    const now = input.config.now();
+    const snapshot = yield* readRecruitmentInvitationHttpSnapshotPostgres(capability);
+    yield* authorizeInvitationOperation({
+      spec: Option.getOrThrow(reflectAccessSpec(ReadInvitationResponseEndpoint)),
+      request,
+      source: snapshot.source,
+      authorizationInstant: now,
+    });
+    const output = yield* strictOutput(InvitationResponseObservation, snapshot.observation);
+    return yield* conditionalJsonResponse(request, output, invitationETag(snapshot.source));
+  });
+
+const invitationMutation = <E, R>(
   request: Request,
   operation: "Confirm" | "Reject" | "RequestNewTime",
-  input: RecruitmentApiHttpOptions,
-): Promise<Response> => {
-  noQuery(request);
-  const ifMatch = parseRequiredIfMatch(headerValues(request, "if-match"));
-  parseIdempotencyKey(headerValues(request, "idempotency-key"));
-  const capability = await invitationCapability(request, input.run);
-  const endpoint =
-    operation === "Confirm"
-      ? ConfirmInvitationEndpoint
-      : operation === "Reject"
-        ? RejectInvitationEndpoint
-        : RequestNewInvitationTimeEndpoint;
-  let transition: RecruitmentInvitationHttpTransition;
-  if (operation === "Confirm") {
-    await strictDecode(
-      ConfirmInvitationPayload,
-      await readJsonBody(request, input.config.maxBodyBytes, true),
-      input.run,
-      { code: "request.malformed", status: 400 },
-    );
-    transition = { _tag: "Confirm" };
-  } else if (operation === "Reject") {
-    const body = await strictDecode(
-      InvitationRejectInput,
-      await readJsonBody(request, input.config.maxBodyBytes),
-      input.run,
-    );
-    transition = {
-      _tag: "Reject",
-      ...(body.message === undefined ? {} : { message: body.message }),
-    };
-  } else {
-    const body = await strictDecode(
-      InvitationRequestNewTimeInput,
-      await readJsonBody(request, input.config.maxBodyBytes),
-      input.run,
-    );
-    transition = { _tag: "RequestNewTime", message: body.message };
-  }
-  const now = input.config.now();
-  const source = await input.run(readRecruitmentInvitationHttpSourcePostgres(capability));
-  await authorizeInvitationOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
-    request,
-    source,
-    authorizationInstant: now,
-    run: input.run,
-  });
-  if (source.responseState === "Pending") {
-    const precondition = evaluateMutationPrecondition(invitationETag(source), ifMatch);
-    if (precondition._tag === "Failed") {
-      throw new HttpSemanticFailure(precondition.code, precondition.status);
+  input: RecruitmentApiHttpOptions<E, R>,
+) =>
+  Effect.gen(function* () {
+    yield* noQuery(request);
+    const ifMatch = yield* Effect.try({
+      try: () => parseRequiredIfMatch(headerValues(request, "if-match")),
+      catch: (cause) => cause,
+    });
+    yield* Effect.try({
+      try: () => parseIdempotencyKey(headerValues(request, "idempotency-key")),
+      catch: (cause) => cause,
+    });
+    const capability = yield* invitationCapability(request);
+    const endpoint =
+      operation === "Confirm"
+        ? ConfirmInvitationEndpoint
+        : operation === "Reject"
+          ? RejectInvitationEndpoint
+          : RequestNewInvitationTimeEndpoint;
+    let transition: RecruitmentInvitationHttpTransition;
+    if (operation === "Confirm") {
+      yield* strictDecode(
+        ConfirmInvitationPayload,
+        yield* readJsonBody(request, input.config.maxBodyBytes, true),
+        { code: "request.malformed", status: 400 },
+      );
+      transition = { _tag: "Confirm" };
+    } else if (operation === "Reject") {
+      const body = yield* strictDecode(
+        InvitationRejectInput,
+        yield* readJsonBody(request, input.config.maxBodyBytes),
+      );
+      transition = {
+        _tag: "Reject",
+        ...(body.message === undefined ? {} : { message: body.message }),
+      };
+    } else {
+      const body = yield* strictDecode(
+        InvitationRequestNewTimeInput,
+        yield* readJsonBody(request, input.config.maxBodyBytes),
+      );
+      transition = { _tag: "RequestNewTime", message: body.message };
     }
-  }
-  await input.run(
-    executeRecruitmentInvitationTransitionPostgres({
+    const now = input.config.now();
+    const source = yield* readRecruitmentInvitationHttpSourcePostgres(capability);
+    yield* authorizeInvitationOperation({
+      spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
+      request,
+      source,
+      authorizationInstant: now,
+    });
+    if (source.responseState === "Pending") {
+      const precondition = evaluateMutationPrecondition(invitationETag(source), ifMatch);
+      if (precondition._tag === "Failed") {
+        return yield* Effect.fail(new HttpSemanticFailure(precondition.code, precondition.status));
+      }
+    }
+    yield* executeRecruitmentInvitationTransitionPostgres({
       capability,
       transition,
       now,
-    }),
-  );
-  const updated = await input.run(readRecruitmentInvitationHttpSourcePostgres(capability));
-  return new Response(null, {
-    status: 204,
-    headers: {
-      "cache-control": NO_STORE,
-      etag: invitationETag(updated),
-      vary: "Origin",
-    },
+    });
+    const updated = yield* readRecruitmentInvitationHttpSourcePostgres(capability);
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "cache-control": NO_STORE,
+        etag: invitationETag(updated),
+        vary: "Origin",
+      },
+    });
   });
-};
 
-const readAssignmentBoard = async (
+const readAssignmentBoard = <E, R>(request: Request, input: RecruitmentApiHttpOptions<E, R>) =>
+  Effect.gen(function* () {
+    const query = yield* decodeBoardQuery(request);
+    const actor = yield* actorFor(request, input);
+    const now = input.config.now();
+    const departmentId = actorDepartment(actor);
+    yield* authorizePersonOperation({
+      spec: Option.getOrThrow(reflectAccessSpec(ReadAssignmentBoardEndpoint)),
+      request,
+      actor,
+      resolution: {
+        selection: "AllMatching",
+        contexts: [
+          boardContext(
+            actor,
+            {
+              departmentLeaderPersonIds:
+                actor._tag === "DepartmentLeader" && actor.active ? [actor.personId] : [],
+            },
+            now,
+          ),
+        ],
+      },
+      grantScopes:
+        departmentId === null
+          ? [{ _tag: "Domain", domainId: DomainId.make("recruitment") }]
+          : [{ _tag: "Department", departmentId }],
+      authorizationInstant: now,
+    });
+    const observation = yield* Recruitment.use(({ readAssignmentBoard: read }) =>
+      read(query, { actor, now }),
+    );
+    const output = yield* strictOutput(AssignmentBoard, observation);
+    return new Response(JSON.stringify(output), {
+      status: 200,
+      headers: { "cache-control": PRIVATE_NO_STORE, "content-type": "application/json" },
+    });
+  });
+
+const readInterviewReport = <E, R>(request: Request, input: RecruitmentApiHttpOptions<E, R>) =>
+  Effect.gen(function* () {
+    const queryInput = yield* Effect.try({
+      try: () => {
+        const values = new URL(request.url).searchParams;
+        for (const key of values.keys()) {
+          if (values.getAll(key).length !== 1) {
+            throw new HttpSemanticFailure("request.malformed", 400);
+          }
+        }
+        return Object.fromEntries(values);
+      },
+      catch: (cause) => cause,
+    });
+    const query = yield* strictDecode(InterviewReportQuery, queryInput);
+    const caller = yield* actorFor(request, input);
+    const now = input.config.now();
+    const actor = yield* resolveInterviewReportLeader(caller.personId, now);
+    yield* authorizePersonOperation({
+      spec: Option.getOrThrow(reflectAccessSpec(ReadInterviewReportEndpoint)),
+      request,
+      actor,
+      resolution: {
+        selection: "AllMatching",
+        contexts: [boardContext(actor, { departmentLeaderPersonIds: [actor.personId] }, now)],
+      },
+      grantScopes: [{ _tag: "Department", departmentId: actor.departmentId }],
+      authorizationInstant: now,
+    });
+    const observation = yield* readCompletedInterviewReport(actor.personId, now, query);
+    const output = yield* strictOutput(InterviewReport, observation);
+    return new Response(JSON.stringify(output), {
+      status: 200,
+      headers: { "cache-control": PRIVATE_NO_STORE, "content-type": "application/json" },
+    });
+  });
+
+const readSchedulingBoard = <E, R>(
   request: Request,
-  input: RecruitmentApiHttpOptions,
-): Promise<Response> => {
-  const query = await decodeBoardQuery(request, input.run);
-  const actor = await actorFor(request, input);
-  const now = input.config.now();
-  const departmentId = actorDepartment(actor);
-  await authorizePersonOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(ReadAssignmentBoardEndpoint)),
-    request,
-    actor,
-    resolution: {
-      selection: "AllMatching",
-      contexts: [
-        boardContext(
-          actor,
-          {
-            departmentLeaderPersonIds:
-              actor._tag === "DepartmentLeader" && actor.active ? [actor.personId] : [],
-          },
-          now,
-        ),
-      ],
-    },
-    grantScopes:
-      departmentId === null
-        ? [{ _tag: "Domain", domainId: DomainId.make("recruitment") }]
-        : [{ _tag: "Department", departmentId }],
-    authorizationInstant: now,
-    run: input.run,
+  input: RecruitmentApiHttpOptions<E, R>,
+) =>
+  Effect.gen(function* () {
+    yield* noQuery(request);
+    const actor = yield* actorFor(request, input);
+    const now = input.config.now();
+    const departmentId = actorDepartment(actor);
+    yield* authorizePersonOperation({
+      spec: Option.getOrThrow(reflectAccessSpec(ReadSchedulingBoardEndpoint)),
+      request,
+      actor,
+      resolution: {
+        selection: "AllMatching",
+        contexts: [
+          boardContext(
+            actor,
+            {
+              departmentMemberPersonIds:
+                actor._tag !== "GlobalAdmin" && actor.active ? [actor.personId] : [],
+            },
+            now,
+          ),
+        ],
+      },
+      grantScopes:
+        departmentId === null
+          ? [{ _tag: "Domain", domainId: DomainId.make("recruitment") }]
+          : [{ _tag: "Department", departmentId }],
+      authorizationInstant: now,
+    });
+    const observation = yield* Recruitment.use(({ readSchedulingBoard: read }) => read({ actor, now }));
+    const authority = yield* readRecruitmentPersonAuthorityHttpSourcesPostgres(actor.personId);
+    const output = yield* strictOutput(
+      SchedulingBoard,
+      schedulingBoardWithETags(observation, authority),
+    );
+    return new Response(JSON.stringify(output), {
+      status: 200,
+      headers: { "cache-control": PRIVATE_NO_STORE, "content-type": "application/json" },
+    });
   });
-  const observation = await input.run(
-    Recruitment.use(({ readAssignmentBoard: read }) => read(query, { actor, now })),
-  );
-  const output = await strictOutput(AssignmentBoard, observation, input.run);
-  return new Response(JSON.stringify(output), {
-    status: 200,
-    headers: { "cache-control": PRIVATE_NO_STORE, "content-type": "application/json" },
-  });
-};
 
-const readInterviewReport = async (
-  request: Request,
-  input: RecruitmentApiHttpOptions,
-): Promise<Response> => {
-  const values = new URL(request.url).searchParams;
-  for (const key of values.keys())
-    if (values.getAll(key).length !== 1) throw new HttpSemanticFailure("request.malformed", 400);
-  const query = await strictDecode(InterviewReportQuery, Object.fromEntries(values), input.run);
-  const caller = await actorFor(request, input);
-  const now = input.config.now();
-  const actor = await input.run(resolveInterviewReportLeader(caller.personId, now));
-  await authorizePersonOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(ReadInterviewReportEndpoint)),
-    request,
-    actor,
-    resolution: {
-      selection: "AllMatching",
-      contexts: [boardContext(actor, { departmentLeaderPersonIds: [actor.personId] }, now)],
-    },
-    grantScopes: [{ _tag: "Department", departmentId: actor.departmentId }],
-    authorizationInstant: now,
-    run: input.run,
-  });
-  const observation = await input.run(readCompletedInterviewReport(actor.personId, now, query));
-  const output = await strictOutput(InterviewReport, observation, input.run);
-  return new Response(JSON.stringify(output), {
-    status: 200,
-    headers: { "cache-control": PRIVATE_NO_STORE, "content-type": "application/json" },
-  });
-};
-
-const readSchedulingBoard = async (
-  request: Request,
-  input: RecruitmentApiHttpOptions,
-): Promise<Response> => {
-  noQuery(request);
-  const actor = await actorFor(request, input);
-  const now = input.config.now();
-  const departmentId = actorDepartment(actor);
-  await authorizePersonOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(ReadSchedulingBoardEndpoint)),
-    request,
-    actor,
-    resolution: {
-      selection: "AllMatching",
-      contexts: [
-        boardContext(
-          actor,
-          {
-            departmentMemberPersonIds:
-              actor._tag !== "GlobalAdmin" && actor.active ? [actor.personId] : [],
-          },
-          now,
-        ),
-      ],
-    },
-    grantScopes:
-      departmentId === null
-        ? [{ _tag: "Domain", domainId: DomainId.make("recruitment") }]
-        : [{ _tag: "Department", departmentId }],
-    authorizationInstant: now,
-    run: input.run,
-  });
-  const observation = await input.run(
-    Recruitment.use(({ readSchedulingBoard: read }) => read({ actor, now })),
-  );
-  const authority = await input.run(
-    readRecruitmentPersonAuthorityHttpSourcesPostgres(actor.personId),
-  );
-  const output = await strictOutput(
-    SchedulingBoard,
-    schedulingBoardWithETags(observation, authority),
-    input.run,
-  );
-  return new Response(JSON.stringify(output), {
-    status: 200,
-    headers: { "cache-control": PRIVATE_NO_STORE, "content-type": "application/json" },
-  });
-};
-
-const createApplicationInterview = async (
+const createApplicationInterview = <E, R>(
   request: Request,
   applicationId: typeof PublicApplicationIdSchema.Type,
-  input: RecruitmentApiHttpOptions,
-): Promise<Response> => {
-  noQuery(request);
-  const body = await strictDecode(
-    CreateApplicationInterviewRequest,
-    await readJsonBody(request, input.config.maxBodyBytes),
-    input.run,
-  );
-  return executeCommand({
-    request,
-    operationId: "recruitment.createApplicationInterview",
-    routeTemplate: "/api/recruitment/applications/{applicationId}/interviews",
-    identities: { applicationId },
-    semanticRequest: { body },
-    commandIdSchema: RecruitmentAssignmentCommandId,
-    run: input.run,
-    prepare: async (txRun) => {
-      const authorization = await resolveRequestPersonAuthorityInTransaction(request, {
-        run: txRun,
-        now: input.config.now,
-      });
-      const access = await txRun(
-        readRecruitmentApplicationHttpAccessPostgres({
-          applicationId,
-          interviewerPersonId: body.interviewerPersonId,
-          authorizationInstant: authorization.authorizationInstant,
+  input: RecruitmentApiHttpOptions<E, R>,
+) =>
+  Effect.gen(function* () {
+    yield* noQuery(request);
+    const body = yield* strictDecode(
+      CreateApplicationInterviewRequest,
+      yield* readJsonBody(request, input.config.maxBodyBytes),
+    );
+    return yield* executeCommand({
+      request,
+      operationId: "recruitment.createApplicationInterview",
+      routeTemplate: "/api/recruitment/applications/{applicationId}/interviews",
+      identities: { applicationId },
+      semanticRequest: { body },
+      commandIdSchema: RecruitmentAssignmentCommandId,
+      prepare: () =>
+        Effect.gen(function* () {
+          const authorization = yield* resolveRequestPersonAuthorityInTransaction(request, {
+            now: input.config.now,
+          });
+          const access = yield* readRecruitmentApplicationHttpAccessPostgres({
+            applicationId,
+            interviewerPersonId: body.interviewerPersonId,
+            authorizationInstant: authorization.authorizationInstant,
+          });
+          const actor = yield* readRecruitmentTargetActorPostgres({
+            personId: authorization.authority.personId,
+            departmentId: access.departmentId,
+            authorizationInstant: authorization.authorizationInstant,
+          });
+          const resource = {
+            kind: ResourceKind.make("application"),
+            id: ResourceId.make(applicationId),
+          };
+          yield* authorizePersonNativeOperation({
+            spec: Option.getOrThrow(reflectAccessSpec(AssignApplicantEndpoint)),
+            credential: authorization.credential,
+            personId: actor.personId,
+            resolution: {
+              selection: "ExactlyOne",
+              contexts: [
+                applicationContext({
+                  applicationId,
+                  departmentId: access.departmentId,
+                  facts: {
+                    departmentLeaderPersonIds:
+                      actor._tag === "DepartmentLeader" && actor.active ? [actor.personId] : [],
+                    eligibleInterviewerPersonIds: access.interviewerEligible ? [actor.personId] : [],
+                  },
+                  version: authorization.authorizationInstant,
+                }),
+              ],
+            },
+            grantScopes: [{ _tag: "Resource", resource }],
+            now: authorization.authorizationInstant,
+          });
+          return {
+            credentialSubject: `Person:${actor.personId}`,
+            execute: (commandId) =>
+              Effect.gen(function* () {
+                const result = yield* assignApplicant(
+                  { commandId, applicationId, ...body },
+                  {
+                    actor,
+                    now: authorization.authorizationInstant,
+                    interviewId: input.config.nextInterviewId(),
+                  },
+                );
+                const output = yield* Schema.decodeEffect(RecruitmentInterviewResource)(
+                  result.observation.interview,
+                  { onExcessProperty: "error" },
+                ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+                const source = yield* readRecruitmentInterviewHttpSourcePostgres(
+                  result.observation.interview.interviewId,
+                  actor.personId,
+                );
+                const location = normalizeTarget("/api/recruitment/interviews/{interviewId}", {
+                  interviewId: result.observation.interview.interviewId,
+                });
+                return new Response(JSON.stringify(output), {
+                  status: 201,
+                  headers: {
+                    "cache-control": NO_STORE,
+                    "content-type": "application/json",
+                    etag: interviewETag(source),
+                    location,
+                  },
+                });
+              }),
+          };
         }),
-      );
-      const actor = await txRun(
-        readRecruitmentTargetActorPostgres({
-          personId: authorization.authority.personId,
-          departmentId: access.departmentId,
-          authorizationInstant: authorization.authorizationInstant,
-        }),
-      );
-      const resource = {
-        kind: ResourceKind.make("application"),
-        id: ResourceId.make(applicationId),
-      };
-      await authorizePersonNativeOperation({
-        spec: Option.getOrThrow(reflectAccessSpec(AssignApplicantEndpoint)),
-        credential: authorization.credential,
-        personId: actor.personId,
-        resolution: {
-          selection: "ExactlyOne",
-          contexts: [
-            applicationContext({
-              applicationId,
-              departmentId: access.departmentId,
-              facts: {
-                departmentLeaderPersonIds:
-                  actor._tag === "DepartmentLeader" && actor.active ? [actor.personId] : [],
-                eligibleInterviewerPersonIds: access.interviewerEligible ? [actor.personId] : [],
-              },
-              version: authorization.authorizationInstant,
-            }),
-          ],
-        },
-        grantScopes: [{ _tag: "Resource", resource }],
-        now: authorization.authorizationInstant,
-        run: txRun,
-      });
-      return {
-        credentialSubject: `Person:${actor.personId}`,
-        execute: (commandId) =>
-          Effect.gen(function* () {
-            const result = yield* assignApplicant(
-              { commandId, applicationId, ...body },
-              {
-                actor,
-                now: authorization.authorizationInstant,
-                interviewId: input.config.nextInterviewId(),
-              },
-            );
-            const output = yield* Schema.decodeEffect(RecruitmentInterviewResource)(
-              result.observation.interview,
-              { onExcessProperty: "error" },
-            ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
-            const source = yield* readRecruitmentInterviewHttpSourcePostgres(
-              result.observation.interview.interviewId,
-              actor.personId,
-            );
-            const location = normalizeTarget("/api/recruitment/interviews/{interviewId}", {
-              interviewId: result.observation.interview.interviewId,
-            });
-            return new Response(JSON.stringify(output), {
-              status: 201,
-              headers: {
-                "cache-control": NO_STORE,
-                "content-type": "application/json",
-                etag: interviewETag(source),
-                location,
-              },
-            });
-          }),
-      };
-    },
+    });
   });
-};
 
-const interviewAuthorizationInTransaction = async (
+const interviewAuthorizationInTransaction = <E, R>(
   request: Request,
   interviewId: RecruitmentInterviewId,
   endpoint:
@@ -1094,407 +1079,412 @@ const interviewAuthorizationInTransaction = async (
     | typeof CancelInterviewEndpoint
     | typeof CorrectInterviewAssessmentEndpoint,
   allowLeader: boolean,
-  input: RecruitmentApiHttpOptions,
-  txRun: RecruitmentBackendRun,
-) => {
-  const authorization = await resolveRequestPersonAuthorityInTransaction(request, {
-    run: txRun,
-    now: input.config.now,
-  });
-  await txRun(guardInterviewApplicantIdentity(interviewId, authorization.authority.personId));
-  const source = await txRun(
-    readRecruitmentInterviewHttpSourcePostgres(interviewId, authorization.authority.personId),
-  );
-  const { actor, activeMember } = await txRun(
-    readRecruitmentTargetAuthorityPostgres({
+  input: RecruitmentApiHttpOptions<E, R>,
+) =>
+  Effect.gen(function* () {
+    const authorization = yield* resolveRequestPersonAuthorityInTransaction(request, {
+      now: input.config.now,
+    });
+    yield* guardInterviewApplicantIdentity(interviewId, authorization.authority.personId);
+    const source = yield* readRecruitmentInterviewHttpSourcePostgres(
+      interviewId,
+      authorization.authority.personId,
+    );
+    const { actor, activeMember } = yield* readRecruitmentTargetAuthorityPostgres({
       personId: authorization.authority.personId,
       departmentId: source.departmentId,
       authorizationInstant: authorization.authorizationInstant,
-    }),
-  );
-  const resource = {
-    kind: ResourceKind.make("recruitment-interview"),
-    id: ResourceId.make(interviewId),
-  };
-  await authorizePersonNativeOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
-    credential: authorization.credential,
-    personId: actor.personId,
-    resolution: {
-      selection: "ExactlyOne",
-      contexts: [recruitmentInterviewAccessContext(source, actor, allowLeader, activeMember)],
-    },
-    grantScopes: [{ _tag: "Resource", resource }],
-    now: authorization.authorizationInstant,
-    run: txRun,
+    });
+    const resource = {
+      kind: ResourceKind.make("recruitment-interview"),
+      id: ResourceId.make(interviewId),
+    };
+    yield* authorizePersonNativeOperation({
+      spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
+      credential: authorization.credential,
+      personId: actor.personId,
+      resolution: {
+        selection: "ExactlyOne",
+        contexts: [recruitmentInterviewAccessContext(source, actor, allowLeader, activeMember)],
+      },
+      grantScopes: [{ _tag: "Resource", resource }],
+      now: authorization.authorizationInstant,
+    });
+    return {
+      actor,
+      authorizationInstant: authorization.authorizationInstant,
+      source,
+    };
   });
-  return {
-    actor,
-    authorizationInstant: authorization.authorizationInstant,
-    source,
-  };
-};
 
-const scheduleInterview = async (
+const scheduleInterview = <E, R>(
   request: Request,
   interviewId: RecruitmentInterviewId,
-  input: RecruitmentApiHttpOptions,
-): Promise<Response> => {
-  noQuery(request);
-  const body = await strictDecode(
-    ScheduleInterviewRequest,
-    await readJsonBody(request, input.config.maxBodyBytes),
-    input.run,
-  );
-  const ifMatch = parseRequiredIfMatch(headerValues(request, "if-match"));
-  return executeCommand({
-    request,
-    operationId: "recruitment.scheduleInterview",
-    routeTemplate: "/api/recruitment/interviews/{interviewId}:schedule",
-    identities: { interviewId },
-    semanticRequest: semanticMutationRequest(body, ifMatch),
-    commandIdSchema: RecruitmentScheduleCommandId,
-    run: input.run,
-    prepare: async (txRun) => {
-      const authorization = await interviewAuthorizationInTransaction(
-        request,
-        interviewId,
-        ScheduleInterviewEndpoint,
-        true,
-        input,
-        txRun,
-      );
-      const precondition = evaluateMutationPrecondition(
-        interviewETag(authorization.source),
-        ifMatch,
-      );
-      if (precondition._tag === "Failed") {
-        throw new HttpSemanticFailure(precondition.code, precondition.status);
-      }
-      return {
-        credentialSubject: `Person:${authorization.actor.personId}`,
-        execute: (commandId) =>
-          Effect.gen(function* () {
-            const result = yield* scheduleInterviewPostgres(
-              {
-                commandId,
-                interviewId,
-                expectedRevision: authorization.source.interviewRevision,
-                ...body,
-              },
-              {
-                actor: authorization.actor,
-                now: authorization.authorizationInstant,
-                invitationId: input.config.nextInvitationId(),
-                responseCapability: input.config.nextResponseCapability(),
-              },
-            );
-            const observation = result.observation;
-            const output = yield* Schema.decodeEffect(ScheduleInterviewResponse)(
-              {
-                interviewId: observation.interviewId,
-                schedule: observation.schedule,
-                responseState: observation.responseState,
-                notificationState: observation.notificationState,
-              },
-              { onExcessProperty: "error" },
-            ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
-            const updated = yield* readRecruitmentInterviewHttpSourcePostgres(
-              interviewId,
-              authorization.actor.personId,
-            );
-            return new Response(JSON.stringify(output), {
-              status: 200,
-              headers: {
-                "cache-control": NO_STORE,
-                "content-type": "application/json",
-                etag: interviewETag(updated),
-              },
-            });
-          }),
-      };
-    },
+  input: RecruitmentApiHttpOptions<E, R>,
+) =>
+  Effect.gen(function* () {
+    yield* noQuery(request);
+    const body = yield* strictDecode(
+      ScheduleInterviewRequest,
+      yield* readJsonBody(request, input.config.maxBodyBytes),
+    );
+    const ifMatch = yield* Effect.try({
+      try: () => parseRequiredIfMatch(headerValues(request, "if-match")),
+      catch: (cause) => cause,
+    });
+    return yield* executeCommand({
+      request,
+      operationId: "recruitment.scheduleInterview",
+      routeTemplate: "/api/recruitment/interviews/{interviewId}:schedule",
+      identities: { interviewId },
+      semanticRequest: semanticMutationRequest(body, ifMatch),
+      commandIdSchema: RecruitmentScheduleCommandId,
+      prepare: () =>
+        Effect.gen(function* () {
+          const authorization = yield* interviewAuthorizationInTransaction(
+            request,
+            interviewId,
+            ScheduleInterviewEndpoint,
+            true,
+            input,
+          );
+          const precondition = evaluateMutationPrecondition(
+            interviewETag(authorization.source),
+            ifMatch,
+          );
+          if (precondition._tag === "Failed") {
+            return yield* Effect.fail(new HttpSemanticFailure(precondition.code, precondition.status));
+          }
+          return {
+            credentialSubject: `Person:${authorization.actor.personId}`,
+            execute: (commandId) =>
+              Effect.gen(function* () {
+                const result = yield* scheduleInterviewPostgres(
+                  {
+                    commandId,
+                    interviewId,
+                    expectedRevision: authorization.source.interviewRevision,
+                    ...body,
+                  },
+                  {
+                    actor: authorization.actor,
+                    now: authorization.authorizationInstant,
+                    invitationId: input.config.nextInvitationId(),
+                    responseCapability: input.config.nextResponseCapability(),
+                  },
+                );
+                const observation = result.observation;
+                const output = yield* Schema.decodeEffect(ScheduleInterviewResponse)(
+                  {
+                    interviewId: observation.interviewId,
+                    schedule: observation.schedule,
+                    responseState: observation.responseState,
+                    notificationState: observation.notificationState,
+                  },
+                  { onExcessProperty: "error" },
+                ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+                const updated = yield* readRecruitmentInterviewHttpSourcePostgres(
+                  interviewId,
+                  authorization.actor.personId,
+                );
+                return new Response(JSON.stringify(output), {
+                  status: 200,
+                  headers: {
+                    "cache-control": NO_STORE,
+                    "content-type": "application/json",
+                    etag: interviewETag(updated),
+                  },
+                });
+              }),
+          };
+        }),
+    });
   });
-};
 
-const readInterviewConductHandler = async (
+const readInterviewConductHandler = <E, R>(
   request: Request,
   interviewId: RecruitmentInterviewId,
-  input: RecruitmentApiHttpOptions,
-): Promise<Response> => {
-  noQuery(request);
-  const snapshot = await input.run(
-    Effect.gen(function* () {
-      const sql = yield* Database;
-      return yield* sql.withTransaction(
-        withNativeHttpRuntime(input.run, async (txRun) => {
-          const authorization = await interviewAuthorizationInTransaction(
+  input: RecruitmentApiHttpOptions<E, R>,
+) =>
+  Effect.gen(function* () {
+    yield* noQuery(request);
+    const snapshot = yield* Database.use((sql) =>
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const authorization = yield* interviewAuthorizationInTransaction(
             request,
             interviewId,
             ReadInterviewConductEndpoint,
             false,
             input,
-            txRun,
           );
-          const observation = await txRun(
-            readInterviewConductInTransaction(
-              interviewId,
-              {
-                actor: authorization.actor,
-                now: input.config.now(),
-                authorizationInstant: authorization.authorizationInstant,
-              },
-              sql,
-            ),
+          const observation = yield* readInterviewConductInTransaction(
+            interviewId,
+            {
+              actor: authorization.actor,
+              now: input.config.now(),
+              authorizationInstant: authorization.authorizationInstant,
+            },
+            sql,
           );
-          const source = await txRun(
-            readRecruitmentInterviewHttpSourcePostgres(interviewId, authorization.actor.personId),
+          const source = yield* readRecruitmentInterviewHttpSourcePostgres(
+            interviewId,
+            authorization.actor.personId,
           );
           return { observation, source };
         }),
-      );
-    }),
-  );
-  const output = await strictOutput(ConductObservation, snapshot.observation, input.run);
-  return conditionalJsonResponse(request, output, interviewETag(snapshot.source));
-};
+      ),
+    );
+    const output = yield* strictOutput(ConductObservation, snapshot.observation);
+    return yield* conditionalJsonResponse(request, output, interviewETag(snapshot.source));
+  });
 
-const correctInterviewAssessment = async (
+const correctInterviewAssessment = <E, R>(
   request: Request,
   interviewId: RecruitmentInterviewId,
-  input: RecruitmentApiHttpOptions,
-): Promise<Response> => {
-  noQuery(request);
-  const body = await strictDecode(
-    CorrectInterviewAssessmentRequest,
-    await readJsonBody(request, input.config.maxBodyBytes),
-    input.run,
-  );
-  const ifMatch = parseRequiredIfMatch(headerValues(request, "if-match"));
-  return executeCommand({
-    request,
-    operationId: "recruitment.correctInterviewAssessment",
-    routeTemplate: "/api/recruitment/interviews/{interviewId}:correct",
-    identities: { interviewId },
-    semanticRequest: semanticMutationRequest(body, ifMatch),
-    commandIdSchema: RecruitmentInterviewCorrectionCommandId,
-    run: input.run,
-    prepare: async (txRun) => {
-      const authorization = await interviewAuthorizationInTransaction(
-        request,
-        interviewId,
-        CorrectInterviewAssessmentEndpoint,
-        false,
-        input,
-        txRun,
-      );
-      return {
-        credentialSubject: `Person:${authorization.actor.personId}`,
-        execute: (commandId) =>
-          Effect.gen(function* () {
-            const precondition = evaluateMutationPrecondition(
-              interviewETag(authorization.source),
-              ifMatch,
-            );
-            if (precondition._tag === "Failed")
-              return yield* Effect.fail(
-                new HttpSemanticFailure(precondition.code, precondition.status),
-              );
-            if (body.expectedRevision !== authorization.source.interviewRevision)
-              return yield* Effect.fail(new HttpSemanticFailure("precondition.failed", 412));
-            const result = yield* correctInterviewAssessmentPostgres(
-              {
-                commandId,
-                interviewId,
-                ...body,
-              },
-              {
-                actor: authorization.actor,
-                now: authorization.authorizationInstant,
-                authorizationInstant: authorization.authorizationInstant,
-              },
-            );
-            const observation = result.observation;
-            const output = yield* Schema.decodeEffect(CorrectInterviewAssessmentResponse)(
-              {
-                _tag: observation._tag,
-                commandId: observation.commandId,
-                interviewId: observation.interviewId,
-                predecessorRevision: observation.predecessorRevision,
-                resultingRevision: observation.resultingRevision,
-                replayed: result.replayed,
-              },
-              { onExcessProperty: "error" },
-            ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
-            const updated = yield* readRecruitmentInterviewHttpSourcePostgres(
-              interviewId,
-              authorization.actor.personId,
-            );
-            return new Response(JSON.stringify(output), {
-              status: 200,
-              headers: {
-                "cache-control": NO_STORE,
-                "content-type": "application/json",
-                etag: interviewETag(updated),
-              },
-            });
-          }),
-      };
-    },
+  input: RecruitmentApiHttpOptions<E, R>,
+) =>
+  Effect.gen(function* () {
+    yield* noQuery(request);
+    const body = yield* strictDecode(
+      CorrectInterviewAssessmentRequest,
+      yield* readJsonBody(request, input.config.maxBodyBytes),
+    );
+    const ifMatch = yield* Effect.try({
+      try: () => parseRequiredIfMatch(headerValues(request, "if-match")),
+      catch: (cause) => cause,
+    });
+    return yield* executeCommand({
+      request,
+      operationId: "recruitment.correctInterviewAssessment",
+      routeTemplate: "/api/recruitment/interviews/{interviewId}:correct",
+      identities: { interviewId },
+      semanticRequest: semanticMutationRequest(body, ifMatch),
+      commandIdSchema: RecruitmentInterviewCorrectionCommandId,
+      prepare: () =>
+        Effect.gen(function* () {
+          const authorization = yield* interviewAuthorizationInTransaction(
+            request,
+            interviewId,
+            CorrectInterviewAssessmentEndpoint,
+            false,
+            input,
+          );
+          return {
+            credentialSubject: `Person:${authorization.actor.personId}`,
+            execute: (commandId) =>
+              Effect.gen(function* () {
+                const precondition = evaluateMutationPrecondition(
+                  interviewETag(authorization.source),
+                  ifMatch,
+                );
+                if (precondition._tag === "Failed") {
+                  return yield* Effect.fail(
+                    new HttpSemanticFailure(precondition.code, precondition.status),
+                  );
+                }
+                if (body.expectedRevision !== authorization.source.interviewRevision) {
+                  return yield* Effect.fail(new HttpSemanticFailure("precondition.failed", 412));
+                }
+                const result = yield* correctInterviewAssessmentPostgres(
+                  {
+                    commandId,
+                    interviewId,
+                    ...body,
+                  },
+                  {
+                    actor: authorization.actor,
+                    now: authorization.authorizationInstant,
+                    authorizationInstant: authorization.authorizationInstant,
+                  },
+                );
+                const observation = result.observation;
+                const output = yield* Schema.decodeEffect(CorrectInterviewAssessmentResponse)(
+                  {
+                    _tag: observation._tag,
+                    commandId: observation.commandId,
+                    interviewId: observation.interviewId,
+                    predecessorRevision: observation.predecessorRevision,
+                    resultingRevision: observation.resultingRevision,
+                    replayed: result.replayed,
+                  },
+                  { onExcessProperty: "error" },
+                ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+                const updated = yield* readRecruitmentInterviewHttpSourcePostgres(
+                  interviewId,
+                  authorization.actor.personId,
+                );
+                return new Response(JSON.stringify(output), {
+                  status: 200,
+                  headers: {
+                    "cache-control": NO_STORE,
+                    "content-type": "application/json",
+                    etag: interviewETag(updated),
+                  },
+                });
+              }),
+          };
+        }),
+    });
   });
-};
 
-const lifecycleInterview = async (
+const lifecycleInterview = <E, R>(
   request: Request,
   interviewId: RecruitmentInterviewId,
   operation: "Finalize" | "Cancel",
-  input: RecruitmentApiHttpOptions,
-): Promise<Response> => {
-  noQuery(request);
-  const endpoint = operation === "Finalize" ? FinalizeInterviewEndpoint : CancelInterviewEndpoint;
-  const rawBody = await readJsonBody(request, input.config.maxBodyBytes);
-  const ifMatch = parseRequiredIfMatch(headerValues(request, "if-match"));
-  const prepareAuthorization = async (txRun: RecruitmentBackendRun) => {
-    const authorization = await interviewAuthorizationInTransaction(
+  input: RecruitmentApiHttpOptions<E, R>,
+) =>
+  Effect.gen(function* () {
+    yield* noQuery(request);
+    const endpoint = operation === "Finalize" ? FinalizeInterviewEndpoint : CancelInterviewEndpoint;
+    const rawBody = yield* readJsonBody(request, input.config.maxBodyBytes);
+    const ifMatch = yield* Effect.try({
+      try: () => parseRequiredIfMatch(headerValues(request, "if-match")),
+      catch: (cause) => cause,
+    });
+    const prepareAuthorization = () =>
+      Effect.gen(function* () {
+        const authorization = yield* interviewAuthorizationInTransaction(
+          request,
+          interviewId,
+          endpoint,
+          false,
+          input,
+        );
+        yield* guardInterviewApplicantIdentity(interviewId, authorization.actor.personId);
+        return authorization;
+      });
+    if (operation === "Finalize") {
+      const body = yield* strictDecode(FinalizeInterviewRequest, rawBody);
+      return yield* executeCommand({
+        request,
+        operationId: "recruitment.finalizeInterview",
+        routeTemplate: "/api/recruitment/interviews/{interviewId}:finalize",
+        identities: { interviewId },
+        semanticRequest: semanticMutationRequest(body, ifMatch),
+        commandIdSchema: RecruitmentConductCommandId,
+        prepare: () =>
+          Effect.gen(function* () {
+            const authorization = yield* prepareAuthorization();
+            return {
+              credentialSubject: `Person:${authorization.actor.personId}`,
+              execute: (commandId) =>
+                Effect.gen(function* () {
+                  const precondition = evaluateMutationPrecondition(
+                    interviewETag(authorization.source),
+                    ifMatch,
+                  );
+                  if (precondition._tag === "Failed") {
+                    return yield* Effect.fail(
+                      new HttpSemanticFailure(precondition.code, precondition.status),
+                    );
+                  }
+                  const result = yield* finalizeInterview(
+                    {
+                      commandId,
+                      interviewId,
+                      expectedRevision: authorization.source.interviewRevision,
+                      ...body,
+                    },
+                    {
+                      actor: authorization.actor,
+                      now: authorization.authorizationInstant,
+                      authorizationInstant: authorization.authorizationInstant,
+                    },
+                  );
+                  const observation = result.observation;
+                  const output = yield* Schema.decodeEffect(FinalizeInterviewResponse)(
+                    {
+                      interviewId: observation.interviewId,
+                      finalizedAt: observation.finalizedAt,
+                      completionState: observation.completionState,
+                      cancellationState: observation.cancellationState,
+                    },
+                    { onExcessProperty: "error" },
+                  ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+                  const updated = yield* readRecruitmentInterviewHttpSourcePostgres(
+                    interviewId,
+                    authorization.actor.personId,
+                  );
+                  return new Response(JSON.stringify(output), {
+                    status: 200,
+                    headers: {
+                      "cache-control": NO_STORE,
+                      "content-type": "application/json",
+                      etag: interviewETag(updated),
+                    },
+                  });
+                }),
+            };
+          }),
+      });
+    }
+    const body = yield* strictDecode(CancelInterviewRequest, rawBody);
+    return yield* executeCommand({
       request,
-      interviewId,
-      endpoint,
-      false,
-      input,
-      txRun,
-    );
-    await txRun(guardInterviewApplicantIdentity(interviewId, authorization.actor.personId));
-    return authorization;
-  };
-  if (operation === "Finalize") {
-    const body = await strictDecode(FinalizeInterviewRequest, rawBody, input.run);
-    return executeCommand({
-      request,
-      operationId: "recruitment.finalizeInterview",
-      routeTemplate: "/api/recruitment/interviews/{interviewId}:finalize",
+      operationId: "recruitment.cancelInterview",
+      routeTemplate: "/api/recruitment/interviews/{interviewId}:cancel",
       identities: { interviewId },
       semanticRequest: semanticMutationRequest(body, ifMatch),
-      commandIdSchema: RecruitmentConductCommandId,
-      run: input.run,
-      prepare: async (txRun) => {
-        const authorization = await prepareAuthorization(txRun);
-        return {
-          credentialSubject: `Person:${authorization.actor.personId}`,
-          execute: (commandId) =>
-            Effect.gen(function* () {
-              const precondition = evaluateMutationPrecondition(
-                interviewETag(authorization.source),
-                ifMatch,
-              );
-              if (precondition._tag === "Failed")
-                return yield* Effect.fail(
-                  new HttpSemanticFailure(precondition.code, precondition.status),
+      commandIdSchema: RecruitmentCancellationCommandId,
+      prepare: () =>
+        Effect.gen(function* () {
+          const authorization = yield* prepareAuthorization();
+          return {
+            credentialSubject: `Person:${authorization.actor.personId}`,
+            execute: (commandId) =>
+              Effect.gen(function* () {
+                const precondition = evaluateMutationPrecondition(
+                  interviewETag(authorization.source),
+                  ifMatch,
                 );
-              const result = yield* finalizeInterview(
-                {
-                  commandId,
+                if (precondition._tag === "Failed") {
+                  return yield* Effect.fail(
+                    new HttpSemanticFailure(precondition.code, precondition.status),
+                  );
+                }
+                const result = yield* cancelInterview(
+                  {
+                    commandId,
+                    interviewId,
+                    expectedRevision: authorization.source.interviewRevision,
+                  },
+                  {
+                    actor: authorization.actor,
+                    now: authorization.authorizationInstant,
+                    authorizationInstant: authorization.authorizationInstant,
+                  },
+                );
+                const observation = result.observation;
+                const output = yield* Schema.decodeEffect(CancelInterviewResponse)(
+                  {
+                    interviewId: observation.interviewId,
+                    cancelledAt: observation.cancelledAt,
+                    completionState: observation.completionState,
+                    cancellationState: observation.cancellationState,
+                  },
+                  { onExcessProperty: "error" },
+                ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+                const updated = yield* readRecruitmentInterviewHttpSourcePostgres(
                   interviewId,
-                  expectedRevision: authorization.source.interviewRevision,
-                  ...body,
-                },
-                {
-                  actor: authorization.actor,
-                  now: authorization.authorizationInstant,
-                  authorizationInstant: authorization.authorizationInstant,
-                },
-              );
-              const observation = result.observation;
-              const output = yield* Schema.decodeEffect(FinalizeInterviewResponse)(
-                {
-                  interviewId: observation.interviewId,
-                  finalizedAt: observation.finalizedAt,
-                  completionState: observation.completionState,
-                  cancellationState: observation.cancellationState,
-                },
-                { onExcessProperty: "error" },
-              ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
-              const updated = yield* readRecruitmentInterviewHttpSourcePostgres(
-                interviewId,
-                authorization.actor.personId,
-              );
-              return new Response(JSON.stringify(output), {
-                status: 200,
-                headers: {
-                  "cache-control": NO_STORE,
-                  "content-type": "application/json",
-                  etag: interviewETag(updated),
-                },
-              });
-            }),
-        };
-      },
+                  authorization.actor.personId,
+                );
+                return new Response(JSON.stringify(output), {
+                  status: 200,
+                  headers: {
+                    "cache-control": NO_STORE,
+                    "content-type": "application/json",
+                    etag: interviewETag(updated),
+                  },
+                });
+              }),
+          };
+        }),
     });
-  }
-  const body = await strictDecode(CancelInterviewRequest, rawBody, input.run);
-  return executeCommand({
-    request,
-    operationId: "recruitment.cancelInterview",
-    routeTemplate: "/api/recruitment/interviews/{interviewId}:cancel",
-    identities: { interviewId },
-    semanticRequest: semanticMutationRequest(body, ifMatch),
-    commandIdSchema: RecruitmentCancellationCommandId,
-    run: input.run,
-    prepare: async (txRun) => {
-      const authorization = await prepareAuthorization(txRun);
-      return {
-        credentialSubject: `Person:${authorization.actor.personId}`,
-        execute: (commandId) =>
-          Effect.gen(function* () {
-            const precondition = evaluateMutationPrecondition(
-              interviewETag(authorization.source),
-              ifMatch,
-            );
-            if (precondition._tag === "Failed")
-              return yield* Effect.fail(
-                new HttpSemanticFailure(precondition.code, precondition.status),
-              );
-            const result = yield* cancelInterview(
-              {
-                commandId,
-                interviewId,
-                expectedRevision: authorization.source.interviewRevision,
-              },
-              {
-                actor: authorization.actor,
-                now: authorization.authorizationInstant,
-                authorizationInstant: authorization.authorizationInstant,
-              },
-            );
-            const observation = result.observation;
-            const output = yield* Schema.decodeEffect(CancelInterviewResponse)(
-              {
-                interviewId: observation.interviewId,
-                cancelledAt: observation.cancelledAt,
-                completionState: observation.completionState,
-                cancellationState: observation.cancellationState,
-              },
-              { onExcessProperty: "error" },
-            ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
-            const updated = yield* readRecruitmentInterviewHttpSourcePostgres(
-              interviewId,
-              authorization.actor.personId,
-            );
-            return new Response(JSON.stringify(output), {
-              status: 200,
-              headers: {
-                "cache-control": NO_STORE,
-                "content-type": "application/json",
-                etag: interviewETag(updated),
-              },
-            });
-          }),
-      };
-    },
   });
-};
 
 /** Native HttpApi implementations for all frozen recruitment operations. */
-export const RecruitmentApiHandlers = (input: RecruitmentApiHttpOptions) =>
+export const RecruitmentApiHandlers = <E, R>(input: RecruitmentApiHttpOptions<E, R>) =>
   HttpApiBuilder.group(ExternalNativeApi, "recruitment", (handlers) =>
     Effect.succeed(
       handlers

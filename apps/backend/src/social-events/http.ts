@@ -51,12 +51,7 @@ import {
   parseIdempotencyKey,
   semanticRequestDigest,
 } from "../http-semantics.js";
-import {
-  nativeCommandOutcomeResponse,
-  prepareNativeHttpCommand,
-  withNativeHttpRuntime,
-} from "../native-operation.js";
-import type { BackendRun } from "../router.js";
+import { nativeCommandOutcomeResponse } from "../native-operation.js";
 
 const PERSON_CHALLENGE = 'VektorSession realm="native-api", Bearer realm="native-api"';
 const maxCreateBodyBytes = 32_768;
@@ -83,10 +78,9 @@ export type SocialEventTransactionHook = (input: {
   readonly request: Request;
   readonly operation: "readScope" | "list" | "create";
   readonly stage: SocialEventTransactionStage;
-}) => Promise<void>;
+}) => Effect.Effect<void>;
 
 export interface SocialEventsApiHttpOptions {
-  readonly run: BackendRun;
   /**
    * Test-only coordination seam for proving snapshot and create-authorization
    * behavior against real concurrent transactions.
@@ -94,159 +88,152 @@ export interface SocialEventsApiHttpOptions {
   readonly transactionHook?: SocialEventTransactionHook;
 }
 
-const noQuery = (request: Request): void => {
-  if (new URL(request.url).search !== "") {
-    throw new HttpSemanticFailure("request.malformed", 400);
-  }
-};
+const noQuery = (request: Request) =>
+  Effect.try({
+    try: () => {
+      if (new URL(request.url).search !== "") {
+        throw new HttpSemanticFailure("request.malformed", 400);
+      }
+    },
+    catch: (cause) => cause,
+  });
 
-const strictDecode = async <S extends Schema.ConstraintDecoder<unknown, never>>(
+const strictDecode = <S extends Schema.ConstraintDecoder<unknown, never>>(
   schema: S,
   value: unknown,
-  run: BackendRun,
   code: "request.malformed" | "validation.failed" | "internal.error",
-): Promise<S["Type"]> =>
-  run(
-    Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
-      Effect.mapError(
-        () =>
-          new HttpSemanticFailure(
-            code,
-            code === "request.malformed" ? 400 : code === "validation.failed" ? 422 : 500,
-          ),
-      ),
+) =>
+  Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+    Effect.mapError(
+      () =>
+        new HttpSemanticFailure(
+          code,
+          code === "request.malformed" ? 400 : code === "validation.failed" ? 422 : 500,
+        ),
     ),
   );
 
-const strictScope = async (request: Request, run: BackendRun) => {
-  const values = [...new URL(request.url).searchParams];
-  if (
-    values.length !== 2 ||
-    values.some(([name]) => socialEventScopeQueryKeys[name] !== true) ||
-    values.filter(([name]) => name === "departmentId").length !== 1 ||
-    values.filter(([name]) => name === "semesterId").length !== 1
-  ) {
-    throw new HttpSemanticFailure("request.malformed", 400);
-  }
-  return strictDecode(SocialEventScope, Object.fromEntries(values), run, "request.malformed");
-};
+const strictScope = (request: Request) =>
+  Effect.try({
+    try: () => {
+      const values = [...new URL(request.url).searchParams];
+      if (
+        values.length !== 2 ||
+        values.some(([name]) => socialEventScopeQueryKeys[name] !== true) ||
+        values.filter(([name]) => name === "departmentId").length !== 1 ||
+        values.filter(([name]) => name === "semesterId").length !== 1
+      ) {
+        throw new HttpSemanticFailure("request.malformed", 400);
+      }
+      return Object.fromEntries(values);
+    },
+    catch: (cause) => cause,
+  }).pipe(
+    Effect.flatMap((scope) => strictDecode(SocialEventScope, scope, "request.malformed")),
+  );
 
-const authorize = async (input: {
+const authorize = (input: {
   readonly endpoint: Endpoint;
   readonly credential: TransactionPersonAuthority["credential"];
   readonly authority: TransactionPersonAuthority["authority"];
   readonly authorizationInstant: string;
   readonly context: SocialEventAccessContext;
-  readonly run: BackendRun;
-}): Promise<void> => {
+}) => {
   const spec: AccessSpec = Option.getOrThrow(reflectAccessSpec(input.endpoint));
-  const evaluation = await input.run(
-    evaluateAccessJourney(spec, undefined, {
-      now: Effect.succeed(AuthorizationInstant.make(input.authorizationInstant)),
-      resolveCredential: () => Effect.succeed(input.credential),
-      resolveScope: () =>
-        Effect.succeed({
-          selection: "ExactlyOne" as const,
-          contexts: [input.context],
-        }),
-      resolveGrants: () => Effect.succeed(deriveSocialEventCandidateGrants(input.authority)),
+  return evaluateAccessJourney(spec, undefined, {
+    now: Effect.succeed(AuthorizationInstant.make(input.authorizationInstant)),
+    resolveCredential: () => Effect.succeed(input.credential),
+    resolveScope: () =>
+      Effect.succeed({
+        selection: "ExactlyOne" as const,
+        contexts: [input.context],
+      }),
+    resolveGrants: () => Effect.succeed(deriveSocialEventCandidateGrants(input.authority)),
+  }).pipe(
+    Effect.flatMap((evaluation) => {
+      const status = accessHttpStatus(evaluation, spec.concealment);
+      return status === 200
+        ? Effect.void
+        : Effect.fail(
+            new HttpSemanticFailure(
+              status === 401 ? "credential.invalid" : "authority.denied",
+              status,
+            ),
+          );
     }),
   );
-  const status = accessHttpStatus(evaluation, spec.concealment);
-  if (status !== 200) {
-    throw new HttpSemanticFailure(
-      status === 401 ? "credential.invalid" : "authority.denied",
-      status,
-    );
-  }
 };
 
-const runTransactionHook = async (
+const runTransactionHook = (
   options: SocialEventsApiHttpOptions,
   request: Request,
   operation: "readScope" | "list" | "create",
   stage: SocialEventTransactionStage,
-): Promise<void> => {
-  if (options.transactionHook !== undefined) {
-    await options.transactionHook({ request, operation, stage });
-  }
+) => {
+  const hook = options.transactionHook;
+  return hook === undefined ? Effect.void : hook({ request, operation, stage });
 };
 
-const resolveSocialEventAuthority = async (
+const resolveSocialEventAuthority = (
   request: Request,
-  run: BackendRun,
   observedAt: string,
   lockMode: OrganizationAuthorityRowLockMode,
-): Promise<TransactionPersonAuthority> => {
-  const authenticated = await resolveRequestCredentialInTransaction(request, "OAuthUserBearer", {
-    run,
-    now: () => observedAt,
-  });
-  if (authenticated.credential.principal._tag !== "Person") {
-    throw new HttpSemanticFailure("credential.invalid", 401);
-  }
-  const personId = authenticated.credential.principal.personId;
-  const authority = await run(
-    Database.use((sql) =>
+) =>
+  Effect.gen(function* () {
+    const authenticated = yield* resolveRequestCredentialInTransaction(request, "OAuthUserBearer", {
+      now: () => observedAt,
+    });
+    if (authenticated.credential.principal._tag !== "Person") {
+      return yield* Effect.fail(new HttpSemanticFailure("credential.invalid", 401));
+    }
+    const personId = authenticated.credential.principal.personId;
+    const authority = yield* Database.use((sql) =>
       resolveOrganizationPersonAuthorityWithSql(
         sql,
         personId,
         OrganizationAuthorityInstantSchema.make(observedAt),
         lockMode,
       ),
-    ),
-  );
-  return { ...authenticated, authority };
-};
+    );
+    return { ...authenticated, authority };
+  });
 
-const readSnapshot = async (
+const readSnapshot = (
   request: Request,
   mode: "scope" | "list",
   input: SocialEventsApiHttpOptions,
-): Promise<Response> => {
-  if (mode === "scope") noQuery(request);
-  const scope = mode === "list" ? await strictScope(request, input.run) : undefined;
-  return input.run(
-    Database.use((sql) =>
+) =>
+  Effect.gen(function* () {
+    if (mode === "scope") yield* noQuery(request);
+    const scope = mode === "list" ? yield* strictScope(request) : undefined;
+    return yield* Database.use((sql) =>
       sql.withTransaction(
-        withNativeHttpRuntime(input.run, async (txRun) => {
-          await txRun(
-            Database.use(
-              (transaction) =>
-                transaction`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`,
-            ),
-          );
+        Effect.gen(function* () {
+          yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`.pipe(Effect.asVoid);
           const operation = mode === "scope" ? "readScope" : "list";
-          await runTransactionHook(input, request, operation, "before-authority-snapshot");
-          const observedAt = await txRun(
-            SocialEvents.use(({ readSnapshotInstant }) => readSnapshotInstant()),
-          );
-          const authorization = await resolveSocialEventAuthority(
+          yield* runTransactionHook(input, request, operation, "before-authority-snapshot");
+          const observedAt = yield* SocialEvents.use(({ readSnapshotInstant }) => readSnapshotInstant());
+          const authorization = yield* resolveSocialEventAuthority(
             request,
-            txRun,
             observedAt,
             "None",
           );
-          await runTransactionHook(input, request, operation, "after-authority-snapshot");
+          yield* runTransactionHook(input, request, operation, "after-authority-snapshot");
 
           if (mode === "scope") {
-            await authorize({
+            yield* authorize({
               endpoint: ReadSocialEventScopeEndpoint,
               credential: authorization.credential,
               authority: authorization.authority,
               authorizationInstant: authorization.authorizationInstant,
               context: socialEventScopeAccessContext(authorization.authority),
-              run: txRun,
             });
-            const body = await txRun(
-              SocialEvents.use(({ readScope }) =>
-                readScope({ authority: authorization.authority, observedAt }),
-              ),
+            const body = yield* SocialEvents.use(({ readScope }) =>
+              readScope({ authority: authorization.authority, observedAt }),
             );
-            const response = await strictDecode(
+            const response = yield* strictDecode(
               SocialEventScopeResource,
               body,
-              txRun,
               "internal.error",
             );
             return new Response(JSON.stringify(response), {
@@ -258,28 +245,21 @@ const readSnapshot = async (
             });
           }
 
-          if (scope === undefined) throw new HttpSemanticFailure("internal.error", 500);
-          await authorize({
+          if (scope === undefined) {
+            return yield* Effect.fail(new HttpSemanticFailure("internal.error", 500));
+          }
+          yield* authorize({
             endpoint: ListSocialEventsEndpoint,
             credential: authorization.credential,
             authority: authorization.authority,
             authorizationInstant: authorization.authorizationInstant,
-            context: socialEventDepartmentAccessContext(
-              authorization.authority,
-              scope.departmentId,
-            ),
-            run: txRun,
+            context: socialEventDepartmentAccessContext(authorization.authority, scope.departmentId),
           });
-          await txRun(SocialEvents.use(({ validateScope }) => validateScope(scope)));
-          const body = await txRun(
-            SocialEvents.use(({ readList }) => readList({ ...scope, observedAt })),
+          yield* SocialEvents.use(({ validateScope }) => validateScope(scope));
+          const body = yield* SocialEvents.use(({ readList }) =>
+            readList({ ...scope, observedAt }),
           );
-          const response = await strictDecode(
-            SocialEventListResource,
-            body,
-            txRun,
-            "internal.error",
-          );
+          const response = yield* strictDecode(SocialEventListResource, body, "internal.error");
           return new Response(JSON.stringify(response), {
             headers: {
               "content-type": "application/json",
@@ -289,57 +269,50 @@ const readSnapshot = async (
           });
         }),
       ),
-    ),
-  );
-};
+    );
+  });
 
-const create = async (request: Request, input: SocialEventsApiHttpOptions): Promise<Response> => {
-  noQuery(request);
-  if (
-    request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !==
-    "application/json"
-  ) {
-    throw new HttpSemanticFailure("media-type.unsupported", 415);
-  }
-  const body = await strictDecode(
-    CreateSocialEventRequest,
-    await readBoundedJson(request, maxCreateBodyBytes),
-    input.run,
-    "validation.failed",
-  );
-  const idempotencyKeyHeader = request.headers.get("idempotency-key");
-  const idempotencyKey = parseIdempotencyKey(
-    idempotencyKeyHeader === null ? [] : [idempotencyKeyHeader],
-  );
-  const operationId = "social-events.create";
-  const outcome = await input.run(
-    executeNativeHttpCommandPostgres(
-      prepareNativeHttpCommand(input.run, async (txRun) => {
-        await runTransactionHook(input, request, "create", "before-authority-snapshot");
-        const observedAt = await txRun(
-          SocialEvents.use(({ readSnapshotInstant }) => readSnapshotInstant()),
-        );
-        const authorization = await resolveSocialEventAuthority(
-          request,
-          txRun,
-          observedAt,
-          "ForShare",
-        );
-        await runTransactionHook(input, request, "create", "after-authority-snapshot");
-        await runTransactionHook(input, request, "create", "before-create-authorization");
-        await authorize({
+const create = (request: Request, input: SocialEventsApiHttpOptions) =>
+  Effect.gen(function* () {
+    yield* noQuery(request);
+    yield* Effect.try({
+      try: () => {
+        if (
+          request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !==
+          "application/json"
+        ) {
+          throw new HttpSemanticFailure("media-type.unsupported", 415);
+        }
+      },
+      catch: (cause) => cause,
+    });
+    const rawBody = yield* readBoundedJson(request, maxCreateBodyBytes);
+    const body = yield* strictDecode(CreateSocialEventRequest, rawBody, "validation.failed");
+    const idempotencyKey = yield* Effect.try({
+      try: () => {
+        const idempotencyKeyHeader = request.headers.get("idempotency-key");
+        return parseIdempotencyKey(idempotencyKeyHeader === null ? [] : [idempotencyKeyHeader]);
+      },
+      catch: (cause) => cause,
+    });
+    const operationId = "social-events.create";
+    const outcome = yield* executeNativeHttpCommandPostgres(
+      Effect.gen(function* () {
+        yield* runTransactionHook(input, request, "create", "before-authority-snapshot");
+        const observedAt = yield* SocialEvents.use(({ readSnapshotInstant }) => readSnapshotInstant());
+        const authorization = yield* resolveSocialEventAuthority(request, observedAt, "ForShare");
+        yield* runTransactionHook(input, request, "create", "after-authority-snapshot");
+        yield* runTransactionHook(input, request, "create", "before-create-authorization");
+        yield* authorize({
           endpoint: CreateSocialEventEndpoint,
           credential: authorization.credential,
           authority: authorization.authority,
           authorizationInstant: authorization.authorizationInstant,
           context: socialEventDepartmentAccessContext(authorization.authority, body.departmentId),
-          run: txRun,
         });
-        await runTransactionHook(input, request, "create", "after-create-authorization");
-        await txRun(
-          SocialEvents.use(({ validateScope }) =>
-            validateScope({ departmentId: body.departmentId, semesterId: body.semesterId }),
-          ),
+        yield* runTransactionHook(input, request, "create", "after-create-authorization");
+        yield* SocialEvents.use(({ validateScope }) =>
+          validateScope({ departmentId: body.departmentId, semesterId: body.semesterId }),
         );
         const identity = deriveHttpIdentity({
           credentialSubject: `Person:${authorization.authority.personId}`,
@@ -392,10 +365,9 @@ const create = async (request: Request, input: SocialEventsApiHttpOptions): Prom
           "native_http_idempotency_receipts_pkey",
         ],
       },
-    ),
-  );
-  return nativeCommandOutcomeResponse(outcome);
-};
+    );
+    return nativeCommandOutcomeResponse(outcome);
+  });
 
 const errorResponse = (cause: unknown): Response => {
   if (cause instanceof HttpSemanticFailure) {

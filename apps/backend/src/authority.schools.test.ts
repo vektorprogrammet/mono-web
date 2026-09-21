@@ -1,4 +1,3 @@
-import type { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
   Identity,
@@ -9,28 +8,14 @@ import {
   type IdentityShape,
 } from "@vektorprogrammet/domain/identity";
 import { PersonId } from "@vektorprogrammet/domain/organization";
-import type { Organization } from "@vektorprogrammet/domain/organization";
 import { DateTime, Effect } from "effect";
 import { expect, it } from "vitest";
 import {
   resolveAuthenticatedPerson,
   resolveAuthenticatedPersonAtInstant,
-  type AuthorityResolutionOptions,
 } from "./authority.js";
 import { runTestPromise } from "../test/runtime.js";
 
-const makeRun =
-  (identity: IdentityShape): AuthorityResolutionOptions["run"] =>
-  <A, E>(
-    effect: Effect.Effect<
-      A,
-      E,
-      Organization | Identity | OAuthCredentialAuthority | IdentitySnapshot
-    >,
-  ): Promise<A> => {
-    const runnable = effect.pipe(Effect.provideService(Identity, identity)) as Effect.Effect<A, E>;
-    return runTestPromise(runnable);
-  };
 
 const unreachableSessionManagement = {
   readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
@@ -63,17 +48,17 @@ it("captures the Schools authorization instant exactly once after session decodi
     },
     ...unreachableSessionManagement,
   } satisfies IdentityShape);
-  const run = makeRun(identity);
   let clockCalls = 0;
 
-  const actor = await resolveAuthenticatedPersonAtInstant("session=valid", {
-    run,
-    now: () => {
-      clockCalls += 1;
-      events.push("now");
-      return "2032-05-01T12:00:00.000Z";
-    },
-  });
+  const actor = await runTestPromise(
+    resolveAuthenticatedPersonAtInstant("session=valid", {
+      now: () => {
+        clockCalls += 1;
+        events.push("now");
+        return "2032-05-01T12:00:00.000Z";
+      },
+    }).pipe(Effect.provideService(Identity, identity)),
+  );
 
   expect(actor).toEqual({
     personId: "schools-authority-person",
@@ -88,9 +73,11 @@ it.each([
   ["expired", new IdentitySessionExpired()],
 ] as const)("maps a %s session to unauthenticated authority", async (_name, failure) => {
   await expect(
-    resolveAuthenticatedPerson("better-auth.session_token=invalid", {
-      run: makeRun(rejectingIdentity(failure)),
-    }),
+    runTestPromise(
+      resolveAuthenticatedPerson("better-auth.session_token=invalid").pipe(
+        Effect.provideService(Identity, rejectingIdentity(failure)),
+      ),
+    ),
   ).rejects.toBeInstanceOf(UnauthenticatedActor);
 });
 
@@ -101,17 +88,21 @@ it("preserves a typed authentication engine failure", async () => {
   });
 
   await expect(
-    resolveAuthenticatedPerson("better-auth.session_token=provider-failure", {
-      run: makeRun(rejectingIdentity(failure)),
-    }),
+    runTestPromise(
+      resolveAuthenticatedPerson("better-auth.session_token=provider-failure").pipe(
+        Effect.provideService(Identity, rejectingIdentity(failure)),
+      ),
+    ),
   ).rejects.toBe(failure);
 });
 
 it("maps an unknown session provider rejection to typed infrastructure", async () => {
   await expect(
-    resolveAuthenticatedPerson("better-auth.session_token=provider-failure", {
-      run: makeRun(rejectingIdentity(new Error("connection refused"))),
-    }),
+    runTestPromise(
+      resolveAuthenticatedPerson("better-auth.session_token=provider-failure").pipe(
+        Effect.provideService(Identity, rejectingIdentity(new Error("connection refused"))),
+      ),
+    ),
   ).rejects.toMatchObject({
     _tag: "IdentityEngineError",
     operation: "resolveSession",

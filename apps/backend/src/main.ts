@@ -8,6 +8,7 @@ import {
   AuthLive,
   DatabaseLive,
   databaseHealth,
+  type AuthEngineService,
 } from "@vektorprogrammet/database";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { ReturningAssistantsLive } from "@vektorprogrammet/database/application";
@@ -20,7 +21,7 @@ import { SchoolsLive } from "@vektorprogrammet/database/schools";
 import { SocialEventsLive } from "@vektorprogrammet/database/social-events";
 import { SchoolSurveysLive } from "@vektorprogrammet/database/surveys";
 import { runPublicApplicationOutboxWorker } from "./application/worker.js";
-import { Effect, Exit, Fiber, Layer, Redacted } from "effect";
+import { Effect, Exit, Fiber, Layer, ManagedRuntime, Redacted } from "effect";
 import { Etag, HttpEffect, HttpRouter } from "effect/unstable/http";
 import { makeHttpPublicApplicationEffectInterpreter } from "./application/effects.js";
 import { makeBackendConfig } from "./config.js";
@@ -30,9 +31,7 @@ import {
   makeInternalBackendHttp,
   makeInternalNativeApiRouterLayer,
   type BackendAuthHandler,
-  type BackendRun,
 } from "./router.js";
-import { makeBackendRuntime } from "../runtime.js";
 
 declare const Bun: {
   serve: (options: {
@@ -83,54 +82,50 @@ const capabilityLayers = Layer.mergeAll(
   socialEventsLayer,
   schoolSurveysLayer,
 );
-const authLayers = AuthLive(config.auth).pipe(Layer.provide(databaseLayer));
+const receiptDeliveryLayer = makeReceiptDeliveryLayer(receiptDeliveryConfig(process.env)).pipe(
+  Layer.provide(databaseLayer),
+);
+const authLayer = AuthLive(config.auth).pipe(Layer.provide(databaseLayer));
+const backendServicesLayer = Layer.mergeAll(
+  databaseLayer,
+  capabilityLayers,
+  receiptDeliveryLayer,
+  authLayer,
+);
 const httpPlatformLayer = Layer.mergeAll(BunServices.layer, BunHttpPlatform.layer, Etag.layer);
 const httpRouterLayer = HttpRouter.layer;
-const run: BackendRun = (effect) => runtime.runPromise(effect);
+const httpLayer = Layer.merge(httpPlatformLayer, httpRouterLayer);
 const nativeApiLayer = (
   ingress === "external"
-    ? makeExternalNativeApiRouterLayer(config, run)
-    : makeInternalNativeApiRouterLayer(config, run)
-).pipe(Layer.provide(httpPlatformLayer), Layer.provide(httpRouterLayer));
-const runtime = makeBackendRuntime(
-  Layer.mergeAll(
-    databaseLayer,
-    capabilityLayers,
-    makeReceiptDeliveryLayer(receiptDeliveryConfig(process.env)).pipe(Layer.provide(databaseLayer)),
-    authLayers,
-    httpPlatformLayer,
-    httpRouterLayer,
-    nativeApiLayer,
-  ),
-);
+    ? makeExternalNativeApiRouterLayer(config)
+    : makeInternalNativeApiRouterLayer(config)
+).pipe(Layer.provide(backendServicesLayer), Layer.provide(httpLayer));
+const backendLayer = Layer.mergeAll(backendServicesLayer, httpLayer, nativeApiLayer);
+const runtime = ManagedRuntime.make(backendLayer);
 const router = await runtime.runPromise(HttpRouter.HttpRouter);
-const nativeHandler = HttpEffect.toWebHandler(router.asHttpEffect());
+const nativeHandler = HttpEffect.toWebHandlerWith(await runtime.context())(router.asHttpEffect());
+const authBoundary = <A>(
+  operation: (engine: AuthEngineService) => Promise<A>,
+) =>
+  AuthEngine.use((engine) =>
+    Effect.tryPromise({
+      try: () => operation(engine),
+      catch: (cause) =>
+        cause instanceof Error ? cause : new Error("Better Auth runtime operation failed"),
+    }),
+  );
 const authHandler: BackendAuthHandler = {
   handle: (request, context) =>
-    runtime.runPromise(
-      AuthEngine.use((engine) => Effect.promise(() => engine.handler(request, context))),
-    ),
+    runtime.runPromise(authBoundary((engine) => engine.handler(request, context))),
   handleOAuth: (request, context) =>
-    runtime.runPromise(
-      AuthEngine.use((engine) => Effect.promise(() => engine.oauthHandler(request, context))),
-    ),
+    runtime.runPromise(authBoundary((engine) => engine.oauthHandler(request, context))),
   handleOAuthIntrospection: (request, context) =>
-    runtime.runPromise(
-      AuthEngine.use((engine) =>
-        Effect.promise(() => engine.oauthIntrospectionHandler(request, context)),
-      ),
-    ),
+    runtime.runPromise(authBoundary((engine) => engine.oauthIntrospectionHandler(request, context))),
   exactRedirectAccepted: (clientId, redirectUri) =>
-    runtime.runPromise(
-      AuthEngine.use((engine) =>
-        Effect.promise(() => engine.exactRedirectAccepted(clientId, redirectUri)),
-      ),
-    ),
+    runtime.runPromise(authBoundary((engine) => engine.exactRedirectAccepted(clientId, redirectUri))),
   recordTrustedOriginRejection: (context, credentialFlow) =>
     runtime.runPromise(
-      AuthEngine.use((engine) =>
-        Effect.promise(() => engine.recordTrustedOriginRejection(context, credentialFlow)),
-      ),
+      authBoundary((engine) => engine.recordTrustedOriginRejection(context, credentialFlow)),
     ),
 };
 const api =
@@ -139,7 +134,7 @@ const api =
     : makeInternalBackendHttp(nativeHandler, authHandler, config.auth.internalSourceNetworks);
 
 try {
-  await run(databaseHealth);
+  await runtime.runPromise(databaseHealth);
 } catch {
   process.stderr.write("backend database initialization failed\n");
   process.exitCode = 1;

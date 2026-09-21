@@ -12,7 +12,6 @@ import { ContactQuotaLive } from "@vektorprogrammet/database/contact";
 import { ExternalNativeApi } from "@vektorprogrammet/http-api";
 import { Effect, Layer, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import type { BackendRun } from "../router.js";
 import type { ContactConfig } from "./config.js";
 import { deliverJson } from "../delivery/http.js";
 import { readBoundedJson } from "../http-api/read-json.js";
@@ -38,7 +37,7 @@ const failure = (error: unknown): Response => {
   }
   return nativeProblemResponse("contact.unavailable", 503);
 };
-export const makeContactHandler = (run: BackendRun, config: ContactConfig | undefined) => {
+export const makeContactHandler = (config: ContactConfig | undefined) => {
   const delivery = Layer.succeed(
     ContactDelivery,
     ContactDelivery.of({
@@ -59,51 +58,37 @@ export const makeContactHandler = (run: BackendRun, config: ContactConfig | unde
     }),
   );
   const services = Layer.merge(ContactQuotaLive, delivery);
-  return async (request: Request): Promise<Response> => {
-    if (config === undefined) return nativeProblemResponse("contact.unavailable", 503);
-    if (!tokenMatches(request.headers.get(CONTACT_BACKEND_HEADER), config.backendToken))
-      return denied();
-    let ip: ContactVisitorIp;
-    try {
-      ip = Schema.decodeUnknownSync(ContactVisitorIp)(request.headers.get(CONTACT_IP_HEADER));
-    } catch {
-      return denied();
-    }
-    if (!/^application\/json(?:\s*;|$)/iu.test(request.headers.get("content-type") ?? ""))
-      return nativeProblemResponse("media-type.unsupported", 415);
-    let input: unknown;
-    try {
-      input = await readBoundedJson(request, 65_536);
-    } catch (error) {
-      return failure(error);
-    }
-    let message: ContactMessage;
-    try {
-      message = Schema.decodeUnknownSync(ContactMessage)(input, { onExcessProperty: "error" });
-    } catch {
-      return nativeProblemResponse("validation.failed", 422);
-    }
-    try {
-      return await run(
-        submitContact(message, ip).pipe(
-          Effect.provide(services),
-          Effect.match({
-            onFailure: failure,
-            onSuccess: () =>
-              new Response(null, {
-                status: 201,
-                headers: { "cache-control": "no-store", vary: "Origin" },
-              }),
-          }),
-        ),
-      );
-    } catch (error) {
-      return failure(error);
-    }
-  };
+  return (request: Request) =>
+    Effect.gen(function* () {
+      if (config === undefined) return nativeProblemResponse("contact.unavailable", 503);
+      if (!tokenMatches(request.headers.get(CONTACT_BACKEND_HEADER), config.backendToken))
+        return denied();
+      const ip = yield* Effect.sync(() => {
+        try {
+          return Schema.decodeUnknownSync(ContactVisitorIp)(
+            request.headers.get(CONTACT_IP_HEADER),
+          );
+        } catch {
+          return undefined;
+        }
+      });
+      if (ip === undefined) return denied();
+      if (!/^application\/json(?:\s*;|$)/iu.test(request.headers.get("content-type") ?? ""))
+        return nativeProblemResponse("media-type.unsupported", 415);
+      const input = yield* readBoundedJson(request, 65_536);
+      const message = yield* Effect.try({
+        try: () => Schema.decodeUnknownSync(ContactMessage)(input, { onExcessProperty: "error" }),
+        catch: () => new HttpSemanticFailure("validation.failed", 422),
+      });
+      yield* submitContact(message, ip).pipe(Effect.provide(services));
+      return new Response(null, {
+        status: 201,
+        headers: { "cache-control": "no-store", vary: "Origin" },
+      });
+    }).pipe(Effect.match({ onFailure: failure, onSuccess: (response) => response }));
 };
-export const ContactApiHandlers = (run: BackendRun, config: ContactConfig | undefined) => {
-  const handle = makeContactHandler(run, config);
+export const ContactApiHandlers = (config: ContactConfig | undefined) => {
+  const handle = makeContactHandler(config);
   return HttpApiBuilder.group(ExternalNativeApi, "contact", (handlers) =>
     handlers.handleRaw("submitContactMessage", ({ request }) =>
       toHttpApiResponse(request, handle, failure),

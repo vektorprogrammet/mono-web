@@ -5,27 +5,31 @@ import {
   RequestSchemaErrorMiddleware,
   SessionSecurity,
 } from "@vektorprogrammet/http-api";
-import { Effect, Layer, type SchemaIssue } from "effect";
-import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { timingSafeEqual } from "node:crypto";
+import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
+import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
+import { Identity } from "@vektorprogrammet/domain/identity";
+import { Effect, Layer, Redacted, Result, type SchemaIssue } from "effect";
+import { HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiError, HttpApiMiddleware } from "effect/unstable/httpapi";
+import {
+  resolveAuthenticatedSession,
+  resolveRequestPerson,
+} from "../authority.js";
+import type { ContactConfig } from "../contact/config.js";
 import { nativeProblemResponse } from "../http-semantics.js";
-
 /**
- * Runs one existing Web transport operation and returns an Effect HTTP response.
- * The caller supplies the group's frozen error translation.
+ * Flattens one Effect-native Web transport operation into an HTTP API response.
+ * The caller supplies the group's frozen error translation while the handler's
+ * service requirements remain visible to the enclosing HttpApiBuilder Layer.
  */
-export const toHttpApiResponse = (
+export const toHttpApiResponse = <E, R>(
   request: HttpServerRequest.HttpServerRequest,
-  handle: (request: Request) => Promise<Response>,
-  mapError: (cause: unknown) => Response,
-): Effect.Effect<HttpServerResponse.HttpServerResponse> =>
+  handle: (request: Request) => Effect.Effect<Response, E, R>,
+  mapError: (cause: E | HttpServerError.RequestError) => Response,
+): Effect.Effect<HttpServerResponse.HttpServerResponse, never, R> =>
   HttpServerRequest.toWeb(request).pipe(
-    Effect.flatMap((webRequest) =>
-      Effect.tryPromise({
-        try: () => handle(webRequest),
-        catch: (cause) => cause,
-      }),
-    ),
+    Effect.flatMap(handle),
     Effect.catch((cause) => Effect.succeed(mapError(cause))),
     Effect.map(HttpServerResponse.fromWeb),
   );
@@ -75,41 +79,126 @@ export const requestSchemaErrorResponse = (error: HttpApiError.HttpApiSchemaErro
   return nativeProblemResponse("internal.error", 500);
 };
 
-const SessionSecurityLive = Layer.succeed(
+const rejectedCredential = (
+  challenge: "VektorSession realm=\"native-api\"" | "VektorSession realm=\"native-api\", Bearer realm=\"native-api\"" | "ContactSSR realm=\"native-contact\"",
+) =>
+  HttpServerResponse.fromWeb(
+    nativeProblemResponse("credential.invalid", 401, { "www-authenticate": challenge }),
+  );
+
+const isUnauthenticated = (cause: unknown): cause is UnauthenticatedActor =>
+  cause instanceof UnauthenticatedActor;
+
+const sessionSecurityLayer = Layer.effect(
   SessionSecurity,
-  SessionSecurity.of({
-    cookieHeader: (httpEffect) => httpEffect,
-  }),
+  Effect.map(Identity, (identity) =>
+    SessionSecurity.of({
+      cookieHeader: (httpEffect, { credential }) =>
+        Effect.gen(function* () {
+          const authentication = yield* Effect.result(
+            resolveAuthenticatedSession(Redacted.value(credential)).pipe(
+              Effect.provideService(Identity, identity),
+            ),
+          );
+          if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
+            return rejectedCredential('VektorSession realm="native-api"');
+          }
+          return yield* httpEffect;
+        }),
+    }),
+  ),
 );
 
-const PersonSecurityLive = Layer.succeed(
+const personSecurityLayer = Layer.effect(
   PersonSecurity,
-  PersonSecurity.of({
-    cookieHeader: (httpEffect) => httpEffect,
-    oauthUserBearer: (httpEffect) => httpEffect,
+  Effect.gen(function* () {
+    const identity = yield* Identity;
+    const oauthCredentialAuthority = yield* OAuthCredentialAuthority;
+    return PersonSecurity.of({
+      cookieHeader: (httpEffect, { credential }) =>
+        Effect.gen(function* () {
+          const request = yield* HttpServerRequest.HttpServerRequest;
+          const webRequest = yield* HttpServerRequest.toWeb(request);
+          const authentication = yield* Effect.result(
+            webRequest.headers.has("authorization")
+              ? resolveRequestPerson(webRequest).pipe(
+                  Effect.provideService(Identity, identity),
+                  Effect.provideService(OAuthCredentialAuthority, oauthCredentialAuthority),
+                )
+              : resolveAuthenticatedSession(Redacted.value(credential)).pipe(
+                  Effect.provideService(Identity, identity),
+                ),
+          );
+          if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
+            return rejectedCredential('VektorSession realm="native-api", Bearer realm="native-api"');
+          }
+          return yield* httpEffect;
+        }),
+      oauthUserBearer: (httpEffect) =>
+        Effect.gen(function* () {
+          const request = yield* HttpServerRequest.HttpServerRequest;
+          const webRequest = yield* HttpServerRequest.toWeb(request);
+          const authentication = yield* Effect.result(
+            resolveRequestPerson(webRequest).pipe(
+              Effect.provideService(Identity, identity),
+              Effect.provideService(OAuthCredentialAuthority, oauthCredentialAuthority),
+            ),
+          );
+          if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
+            return rejectedCredential('VektorSession realm="native-api", Bearer realm="native-api"');
+          }
+          return yield* httpEffect;
+        }),
+    });
   }),
 );
 
-const InvitationCapabilitySecurityLive = Layer.succeed(
+const invitationCapabilitySecurityLayer = Layer.succeed(
   InvitationCapabilitySecurity,
   InvitationCapabilitySecurity.of({
-    invitationCapability: (httpEffect) => httpEffect,
+    invitationCapability: (httpEffect, { credential }) =>
+      Redacted.value(credential).length === 0
+        ? Effect.succeed(
+            HttpServerResponse.fromWeb(nativeProblemResponse("resource.not-found", 404)),
+          )
+        : httpEffect,
   }),
 );
+
+const contactSsrSecurityLayer = (contact: ContactConfig | undefined) => {
+  const expected = contact === undefined ? undefined : Buffer.from(contact.backendToken);
+  return Layer.succeed(
+    ContactSsrSecurity,
+    ContactSsrSecurity.of({
+      contactBackend: (httpEffect, { credential }) => {
+        if (expected === undefined) return httpEffect;
+        const supplied = Buffer.from(Redacted.value(credential));
+        return supplied.length === expected.length && timingSafeEqual(supplied, expected)
+          ? httpEffect
+          : Effect.succeed(rejectedCredential('ContactSSR realm="native-contact"'));
+      },
+    }),
+  );
+};
 
 const RequestSchemaErrorLive = HttpApiMiddleware.layerSchemaErrorTransform(
   RequestSchemaErrorMiddleware,
   (error) => Effect.succeed(HttpServerResponse.fromWeb(requestSchemaErrorResponse(error))),
 );
 
-/** Contract middleware implementations shared by every native handler group. */
-export const NativeHttpApiMiddlewareLive = Layer.mergeAll(
-  Layer.succeed(
-    ContactSsrSecurity,
-    ContactSsrSecurity.of({ contactBackend: (httpEffect) => httpEffect }),
-  ),
-  SessionSecurityLive,
-  PersonSecurityLive,
-  InvitationCapabilitySecurityLive,
-  RequestSchemaErrorLive,
-);
+/**
+ * Implements declared transport security at ingress. Domain handlers retain
+ * transaction-scoped authorization so command authority is re-evaluated under
+ * the serializable transaction that commits the command.
+ */
+export const makeNativeHttpApiMiddlewareLayer = (contact?: ContactConfig) =>
+  Layer.mergeAll(
+    contactSsrSecurityLayer(contact),
+    sessionSecurityLayer,
+    personSecurityLayer,
+    invitationCapabilitySecurityLayer,
+    RequestSchemaErrorLive,
+  );
+
+/** Shared default for focused contract tests without configured contact delivery. */
+export const NativeHttpApiMiddlewareLive = makeNativeHttpApiMiddlewareLayer();

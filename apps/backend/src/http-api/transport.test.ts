@@ -1,3 +1,6 @@
+import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
+import { Identity } from "@vektorprogrammet/domain/identity";
+import { Effect, Layer } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import {
   makeContentManagementTestHttp,
@@ -18,9 +21,21 @@ const expectProblem = async (response: Response, status: number, code: string): 
   expect(body).not.toHaveProperty("error");
 };
 
-const unreachable = vi.fn(() => {
-  throw new Error("request schema failure reached endpoint dispatch");
-});
+const unreachable = vi.fn(() => Effect.die("request schema failure reached endpoint dispatch"));
+const securityServices = Layer.mergeAll(
+  Layer.succeed(
+    Identity,
+    Identity.of({
+      resolveSession: () => Promise.reject(new Error("request schema failure reached authentication")),
+    } as never),
+  ),
+  Layer.succeed(
+    OAuthCredentialAuthority,
+    OAuthCredentialAuthority.of({
+      resolve: () => Promise.reject(new Error("request schema failure reached authentication")),
+    } as never),
+  ),
+);
 
 const validIdempotencyKey = "A".repeat(22);
 const validETag = '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"';
@@ -42,11 +57,13 @@ describe("native request schema error transport", () => {
     ],
   ] as const)("maps %s before dispatch", async (_name, transportHeaders, status, code) => {
     unreachable.mockClear();
-    const response = await makeProfileTestHttp({
-      config: {} as never,
-      resolveActor: unreachable as never,
-      run: unreachable as never,
-    }).fetch(
+    const response = await makeProfileTestHttp(
+      {
+        config: {} as never,
+        resolveActor: unreachable as never,
+      },
+      securityServices,
+    ).fetch(
       new Request("http://backend.test/api/profile", {
         method: "PATCH",
         headers: {
@@ -65,17 +82,18 @@ describe("native request schema error transport", () => {
 
   it("maps query decoding to request.malformed before dispatch", async () => {
     unreachable.mockClear();
-    const response = await makeOrganizationTestHttp({
-      config: {} as never,
-      resolveActor: unreachable as never,
-      resolveAuthority: unreachable as never,
-      run: unreachable as never,
-    }).fetch(
+    const response = await makeOrganizationTestHttp(
+      {
+        config: {} as never,
+        resolveActor: unreachable as never,
+        resolveAuthority: unreachable as never,
+      },
+      securityServices,
+    ).fetch(
       new Request("http://backend.test/api/mailing-lists?type=unknown", {
         headers: { cookie: "better-auth.session_token=transport-test-session" },
       }),
     );
-
     await expectProblem(response, 400, "request.malformed");
     expect(unreachable).not.toHaveBeenCalled();
   });
@@ -84,13 +102,12 @@ describe("native request schema error transport", () => {
     unreachable.mockClear();
     const response = await makeContentManagementTestHttp(
       unreachable as never,
-      unreachable as never,
+      securityServices,
     ).fetch(
       new Request("http://backend.test/api/content/articles/not-a-number", {
         headers: { cookie: "better-auth.session_token=transport-test-session" },
       }),
     );
-
     await expectProblem(response, 400, "request.malformed");
     expect(unreachable).not.toHaveBeenCalled();
   });

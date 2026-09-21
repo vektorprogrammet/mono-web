@@ -36,68 +36,64 @@ import {
   authorizeAnonymousNativeOperation,
   genericContext,
   nativeCommandOutcomeResponse,
-  prepareNativeHttpCommand,
-  withNativeHttpRuntime,
 } from "../native-operation.js";
-import type { BackendRun } from "../router.js";
 
 const maxSubmitBodyBytes = 65_536;
 
 type Endpoint = typeof ReadSchoolSurveyEndpoint | typeof SubmitSchoolSurveyResponseEndpoint;
 
-const noQuery = (request: Request): void => {
-  if (new URL(request.url).search !== "") {
-    throw new HttpSemanticFailure("request.malformed", 400);
-  }
-};
+const semantic = <A>(operation: () => A) =>
+  Effect.try({
+    try: operation,
+    catch: (cause) =>
+      cause instanceof HttpSemanticFailure
+        ? cause
+        : new HttpSemanticFailure("internal.error", 500),
+  });
+const noQuery = (request: Request) =>
+  semantic(() => {
+    if (new URL(request.url).search !== "") {
+      throw new HttpSemanticFailure("request.malformed", 400);
+    }
+  });
 
-const strictDecode = async <S extends Schema.ConstraintDecoder<unknown, never>>(
+const strictDecode = <S extends Schema.ConstraintDecoder<unknown, never>>(
   schema: S,
   value: unknown,
-  run: BackendRun,
   code: "request.malformed" | "validation.failed" | "internal.error",
-): Promise<S["Type"]> =>
-  run(
-    Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
-      Effect.mapError(
-        () =>
-          new HttpSemanticFailure(
-            code,
-            code === "request.malformed" ? 400 : code === "validation.failed" ? 422 : 500,
-          ),
-      ),
+) =>
+  Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+    Effect.mapError(
+      () =>
+        new HttpSemanticFailure(
+          code,
+          code === "request.malformed" ? 400 : code === "validation.failed" ? 422 : 500,
+        ),
     ),
   );
 
-const transactionInstant = (run: BackendRun): Promise<string> =>
-  run(
-    Database.use((sql) =>
-      sql<{ readonly now: string }>`
-        SELECT to_char(
-          transaction_timestamp() AT TIME ZONE 'UTC',
-          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
-        ) AS now
-      `.pipe(
-        Effect.flatMap((rows) => {
-          const now = rows[0]?.now;
-          return now === undefined
-            ? Effect.fail(new HttpSemanticFailure("internal.error", 500))
-            : Effect.succeed(now);
-        }),
-      ),
-    ).pipe(
-      Effect.catchTag("SqlError", () =>
-        Effect.fail(new HttpSemanticFailure("dependency.unavailable", 503)),
-      ),
+const transactionInstant = () =>
+  Database.use((sql) =>
+    sql<{ readonly now: string }>`
+      SELECT to_char(
+        transaction_timestamp() AT TIME ZONE 'UTC',
+        'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+      ) AS now
+    `.pipe(
+      Effect.flatMap((rows) => {
+        const now = rows[0]?.now;
+        return now === undefined
+          ? Effect.fail(new HttpSemanticFailure("internal.error", 500))
+          : Effect.succeed(now);
+      }),
+    ),
+  ).pipe(
+    Effect.catchTag("SqlError", () =>
+      Effect.fail(new HttpSemanticFailure("dependency.unavailable", 503)),
     ),
   );
 
-const authorizeAnonymous = async (
-  endpoint: Endpoint,
-  surveyId: SurveyId,
-  now: string,
-  run: BackendRun,
-): Promise<void> =>
+const authorizeAnonymous = (endpoint: Endpoint, surveyId: SurveyId, now: string) =>
   authorizeAnonymousNativeOperation(
     Option.getOrThrow(reflectAccessSpec(endpoint)),
     {
@@ -112,7 +108,6 @@ const authorizeAnonymous = async (
       ],
     },
     now,
-    run,
   );
 
 /** Uses the service's position-normalized representation for idempotency semantics. */
@@ -125,27 +120,20 @@ const canonicalRequest = (prepared: PreparedSchoolSurveyResponse) => ({
   ),
 });
 
-const read = async (request: Request, surveyId: SurveyId, run: BackendRun): Promise<Response> => {
-  noQuery(request);
-  return run(
-    Database.use((sql) =>
+const read = (request: Request, surveyId: SurveyId) =>
+  Effect.gen(function* () {
+    yield* noQuery(request);
+    return yield* Database.use((sql) =>
       sql.withTransaction(
-        withNativeHttpRuntime(run, async (txRun) => {
-          await txRun(
-            Database.use(
-              (transaction) =>
-                transaction`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`,
-            ),
+        Effect.gen(function* () {
+          yield* Database.use(
+            (transaction) =>
+              transaction`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`,
           );
-          const now = await transactionInstant(txRun);
-          await authorizeAnonymous(ReadSchoolSurveyEndpoint, surveyId, now, txRun);
-          const body = await txRun(SchoolSurveys.use(({ readForm }) => readForm(surveyId)));
-          const response = await strictDecode(
-            SchoolSurveyFormResource,
-            body,
-            txRun,
-            "internal.error",
-          );
+          const now = yield* transactionInstant();
+          yield* authorizeAnonymous(ReadSchoolSurveyEndpoint, surveyId, now);
+          const body = yield* SchoolSurveys.use(({ readForm }) => readForm(surveyId));
+          const response = yield* strictDecode(SchoolSurveyFormResource, body, "internal.error");
           return new Response(JSON.stringify(response), {
             headers: {
               "content-type": "application/json",
@@ -155,43 +143,43 @@ const read = async (request: Request, surveyId: SurveyId, run: BackendRun): Prom
           });
         }),
       ),
-    ),
-  );
-};
+    );
+  });
 
-const submit = async (request: Request, surveyId: SurveyId, run: BackendRun): Promise<Response> => {
-  noQuery(request);
-  if (
-    request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !==
-    "application/json"
-  ) {
-    throw new HttpSemanticFailure("media-type.unsupported", 415);
-  }
-  const body = await strictDecode(
-    SubmitSchoolSurveyResponseRequest,
-    await readBoundedJson(request, maxSubmitBodyBytes),
-    run,
-    "validation.failed",
-  );
-  const idempotencyKeyHeader = request.headers.get("idempotency-key");
-  const idempotencyKey = parseIdempotencyKey(
-    idempotencyKeyHeader === null ? [] : [idempotencyKeyHeader],
-  );
-  const operationId = "surveys.submitSchoolSurveyResponse";
-  const outcome = await run(
-    executeNativeHttpCommandPostgres(
-      prepareNativeHttpCommand(run, async (txRun) => {
-        const now = await transactionInstant(txRun);
-        await authorizeAnonymous(SubmitSchoolSurveyResponseEndpoint, surveyId, now, txRun);
-        const prepared = await txRun(
-          SchoolSurveys.use(({ prepareResponse }) => prepareResponse({ surveyId, request: body })),
+const submit = (request: Request, surveyId: SurveyId) =>
+  Effect.gen(function* () {
+    yield* noQuery(request);
+    if (
+      request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !==
+      "application/json"
+    ) {
+      return yield* Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
+    }
+    const body = yield* strictDecode(
+      SubmitSchoolSurveyResponseRequest,
+      yield* readBoundedJson(request, maxSubmitBodyBytes),
+      "validation.failed",
+    );
+    const idempotencyKeyHeader = request.headers.get("idempotency-key");
+    const idempotencyKey = yield* semantic(() =>
+      parseIdempotencyKey(idempotencyKeyHeader === null ? [] : [idempotencyKeyHeader]),
+    );
+    const operationId = "surveys.submitSchoolSurveyResponse";
+    const outcome = yield* executeNativeHttpCommandPostgres(
+      Effect.gen(function* () {
+        const now = yield* transactionInstant();
+        yield* authorizeAnonymous(SubmitSchoolSurveyResponseEndpoint, surveyId, now);
+        const prepared = yield* SchoolSurveys.use(({ prepareResponse }) =>
+          prepareResponse({ surveyId, request: body }),
         );
-        const identity = deriveHttpIdentity({
-          credentialSubject: "Anonymous",
-          qualifiedOperationId: operationId,
-          normalizedTarget: `/api/surveys/${encodePathIdentity(surveyId)}/responses`,
-          idempotencyKey,
-        });
+        const identity = yield* semantic(() =>
+          deriveHttpIdentity({
+            credentialSubject: "Anonymous",
+            qualifiedOperationId: operationId,
+            normalizedTarget: `/api/surveys/${encodePathIdentity(surveyId)}/responses`,
+            idempotencyKey,
+          }),
+        );
         return {
           identity: {
             identitySha256: identity.identitySha256,
@@ -201,7 +189,9 @@ const submit = async (request: Request, surveyId: SurveyId, run: BackendRun): Pr
           execute: SchoolSurveys.use(({ persistResponse }) =>
             Effect.gen(function* () {
               const response = yield* persistResponse({
-                responseId: SurveyResponseId.make(`survey_response_${randomUUID()}`),
+                responseId: yield* semantic(() =>
+                  SurveyResponseId.make(`survey_response_${randomUUID()}`),
+                ),
                 prepared,
               });
               const decoded = yield* Schema.decodeUnknownEffect(SchoolSurveyResponseResource)(
@@ -232,10 +222,9 @@ const submit = async (request: Request, surveyId: SurveyId, run: BackendRun): Pr
         retry: "serialization-or-unique-once",
         retryUniqueConstraints: ["native_http_idempotency_receipts_pkey"],
       },
-    ),
-  );
-  return nativeCommandOutcomeResponse(outcome);
-};
+    );
+    return nativeCommandOutcomeResponse(outcome);
+  });
 
 const schoolSurveyValidationProblem = (): Response =>
   validationProblemResponse("validation.failed", [makeNativeValidationError("", "invalid")]);
@@ -268,21 +257,21 @@ const errorResponse = (cause: unknown): Response => {
 };
 
 /** Native HttpApi handlers for anonymous school-survey participation. */
-export const SchoolSurveysApiHandlers = (run: BackendRun) =>
+export const SchoolSurveysApiHandlers = () =>
   HttpApiBuilder.group(ExternalNativeApi, "surveys", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("readSchoolSurvey", ({ request, params }) =>
           toHttpApiResponse(
             request,
-            (webRequest) => read(webRequest, params.surveyId, run),
+            (webRequest) => read(webRequest, params.surveyId),
             errorResponse,
           ),
         )
         .handleRaw("submitSchoolSurveyResponse", ({ request, params }) =>
           toHttpApiResponse(
             request,
-            (webRequest) => submit(webRequest, params.surveyId, run),
+            (webRequest) => submit(webRequest, params.surveyId),
             errorResponse,
           ),
         ),

@@ -1,7 +1,4 @@
-import type { ReceiptAuxiliaryEffects } from "@vektorprogrammet/domain/receipt";
-import type { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
-import type { Admissions } from "@vektorprogrammet/domain/admissions";
-import type { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
+import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import {
   Identity,
   IdentityActor,
@@ -9,9 +6,6 @@ import {
   type IdentityShape,
 } from "@vektorprogrammet/domain/identity";
 import { Database, type DatabaseShape } from "@vektorprogrammet/database";
-import { Content } from "@vektorprogrammet/domain/content";
-import { ContentManagement } from "@vektorprogrammet/domain/content";
-import type { Schools } from "@vektorprogrammet/domain/schools";
 import { SocialEvents } from "@vektorprogrammet/domain/social-events";
 import { SchoolSurveys } from "@vektorprogrammet/domain";
 import {
@@ -33,14 +27,10 @@ import {
   type DirectoryEntry,
   type ProfileShape,
 } from "@vektorprogrammet/domain/profile";
-import type { Economy } from "@vektorprogrammet/domain/receipt";
-import type { Recruitment } from "@vektorprogrammet/domain/recruitment";
-import { DateTime, Effect } from "effect";
+import { DateTime, Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeBackendConfig } from "../config.js";
-import type { BackendRun } from "../router.js";
 import { makeBackendTestHttp as makeBackendHttp } from "../test/native-http.js";
-import { runTestPromise } from "../../test/runtime.js";
 
 const token = "better-auth.session_token";
 const environment = {
@@ -302,60 +292,42 @@ const schoolSurveys = SchoolSurveys.of({
   prepareResponse: () => Effect.die("unexpected school-survey preparation"),
   persistResponse: () => Effect.die("unexpected school-survey persistence"),
 });
-const successfulRun: BackendRun = <A, E>(
-  effect: Effect.Effect<
-    A,
-    E,
-    | Database
-    | Admissions
-    | Economy
-    | ReceiptAuxiliaryEffects
-    | Organization
-    | Profile
-    | Recruitment
-    | Schools
-    | Identity
-    | IdentitySnapshot
-    | OAuthCredentialAuthority
-    | ServicePrincipalGrantAuthority
-    | ContentManagement
-    | Content
-    | SocialEvents
-    | SchoolSurveys
-  >,
-): Promise<A> =>
-  runTestPromise(
-    effect.pipe(
-      Effect.provideService(Database, database),
-      Effect.provideService(Profile, profile),
-      Effect.provideService(Organization, organization),
-      Effect.provideService(SocialEvents, socialEvents),
-      Effect.provideService(SchoolSurveys, schoolSurveys),
-      Effect.provideService(Identity, {
-        signIn: () => Promise.reject(new Error("unexpected sign-in")),
-        resolveSession: async (cookieHeader: string | undefined) => {
-          if (cookieHeader !== undefined && cookieHeader.includes(`${token}=`)) {
-            return new IdentityActor({
-              personId: PersonId.make("person-caller"),
-              sessionId: "session-1",
-              expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T00:00:00.000Z")),
-            });
-          }
-          throw new IdentitySessionNotFound();
-        },
-        readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
-        listSessions: () => Promise.reject(new Error("unexpected session list")),
-        revokeCurrentSession: () => Promise.reject(new Error("unexpected session mutation")),
-        revokeSession: () => Promise.reject(new Error("unexpected session mutation")),
-        revokeOtherSessions: () => Promise.reject(new Error("unexpected session mutation")),
-        revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
-        recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
-        signOut: async () => ({ setCookies: [] }),
-      } satisfies IdentityShape),
-    ) as Effect.Effect<A, E>,
-  );
+const oauthCredentialAuthority = OAuthCredentialAuthority.of({
+  resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
+  resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
+} as never);
+const identity = Identity.of({
+  signIn: () => Promise.reject(new Error("unexpected sign-in")),
+  resolveSession: async (cookieHeader: string | undefined) => {
+    if (cookieHeader !== undefined && cookieHeader.includes(`${token}=`)) {
+      return new IdentityActor({
+        personId: PersonId.make("person-caller"),
+        sessionId: "session-1",
+        expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T00:00:00.000Z")),
+      });
+    }
+    throw new IdentitySessionNotFound();
+  },
+  readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
+  listSessions: () => Promise.reject(new Error("unexpected session list")),
+  revokeCurrentSession: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeSession: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeOtherSessions: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
+  recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
+  signOut: async () => ({ setCookies: [] }),
+} satisfies IdentityShape);
+const backendServices = Layer.mergeAll(
+  Layer.succeed(Database, database),
+  Layer.succeed(Profile, profile),
+  Layer.succeed(Organization, organization),
+  Layer.succeed(SocialEvents, socialEvents),
+  Layer.succeed(SchoolSurveys, schoolSurveys),
+  Layer.succeed(Identity, identity),
+  Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
+);
 
-const backend = makeBackendHttp(config, successfulRun, {
+const backend = makeBackendHttp(config, backendServices, {
   handle: async () => new Response(null, { status: 404 }),
   recordTrustedOriginRejection: async () => undefined,
 });

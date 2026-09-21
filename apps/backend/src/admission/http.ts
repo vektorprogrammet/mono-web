@@ -1,3 +1,4 @@
+import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { Database } from "@vektorprogrammet/database";
 import { Effect, Option, Schema } from "effect";
 import {
@@ -17,9 +18,10 @@ import {
   PublicApplicationCommandIdSchema,
 } from "@vektorprogrammet/domain/application";
 import { ResourceId, ResourceKind } from "@vektorprogrammet/domain/authz";
+import type { Identity, IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import {
   DepartmentId,
-  type OrganizationPersonAuthority,
+  type Organization,
 } from "@vektorprogrammet/domain/organization";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
@@ -44,7 +46,9 @@ import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   admissionActorForDepartment,
   resolveRequestPersonAuthorityInTransaction,
+  type OrganizationResolutionError,
 } from "../authority.js";
+import { readBoundedJson } from "../http-api/read-json.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
   type ETagVersionSource,
@@ -70,10 +74,7 @@ import {
   authorizePersonNativeOperation,
   genericContext,
   nativeCommandOutcomeResponse,
-  prepareNativeHttpCommand,
-  withNativeHttpRuntime,
 } from "../native-operation.js";
-import type { BackendRun } from "../router.js";
 import type { AdmissionApiConfig } from "./config.js";
 
 export interface AdmissionApiHttpOptions {
@@ -86,8 +87,15 @@ export interface AdmissionApiHttpOptions {
   readonly resolveActor: (
     request: Request,
     departmentScope?: string,
-  ) => Promise<AdmissionPeriodActor>;
-  readonly run: BackendRun;
+  ) => Effect.Effect<
+    AdmissionPeriodActor,
+    | IdentityEngineError
+    | UnauthenticatedActor
+    | InactiveActor
+    | OrganizationResolutionError
+    | TaggedHttpError,
+    Identity | OAuthCredentialAuthority | Organization
+  >;
 }
 
 type TaggedHttpError = Error & { readonly _tag: string };
@@ -199,17 +207,6 @@ const errorResponse = (cause: unknown): Response => {
   }
 };
 
-const runDatabase = <A, E>(
-  effect: Effect.Effect<A, E, Database | Admissions | ReturningAssistants>,
-  run: AdmissionApiHttpOptions["run"],
-): Promise<A> => run(effect as never);
-
-type ReturningRun = <A, E>(
-  effect: Effect.Effect<A, E, Database | ReturningAssistants>,
-) => Promise<A>;
-
-const returningRun = (run: BackendRun): ReturningRun => run as unknown as ReturningRun;
-
 const returningPersonResource = (personId: string) => ({
   _tag: "Resource" as const,
   resource: {
@@ -218,116 +215,110 @@ const returningPersonResource = (personId: string) => ({
   },
 });
 
-const returningAuthorization = async (
+const returningAuthorization = (
   request: Request,
   input: AdmissionApiHttpOptions,
   endpoint:
     | typeof ReadReturningAssistantOptionsEndpoint
     | typeof RegisterReturningAssistantEndpoint,
-  txRun: BackendRun,
-) => {
-  const authorization = await resolveRequestPersonAuthorityInTransaction(request, {
-    run: txRun,
-    now: input.config.now,
+) =>
+  Effect.gen(function* () {
+    const authorization = yield* resolveRequestPersonAuthorityInTransaction(request, {
+      now: input.config.now,
+    });
+    yield* authorizePersonNativeOperation({
+      spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
+      credential: authorization.credential,
+      personId: authorization.authority.personId,
+      resolution: {
+        selection: "ExactlyOne",
+        contexts: [
+          genericContext({
+            domainId: "admissions",
+            resourceKind: "person-profile",
+            resourceId: authorization.authority.personId,
+            facts: { ownerPersonId: authorization.authority.personId },
+            authorityVersion: "admissions:returning-assistant",
+          }),
+        ],
+      },
+      grantScopes: [returningPersonResource(authorization.authority.personId)],
+      now: authorization.authorizationInstant,
+    });
+    return authorization;
   });
-  await authorizePersonNativeOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
-    credential: authorization.credential,
-    personId: authorization.authority.personId,
-    resolution: {
-      selection: "ExactlyOne",
-      contexts: [
-        genericContext({
-          domainId: "admissions",
-          resourceKind: "person-profile",
-          resourceId: authorization.authority.personId,
-          facts: { ownerPersonId: authorization.authority.personId },
-          authorityVersion: "admissions:returning-assistant",
-        }),
-      ],
-    },
-    grantScopes: [returningPersonResource(authorization.authority.personId)],
-    now: authorization.authorizationInstant,
-    run: txRun,
-  });
-  return authorization;
-};
 
-const readReturningAssistantOptions = async (
-  request: Request,
-  input: AdmissionApiHttpOptions,
-): Promise<Response> => {
-  requireNoQuery(request);
-  const authorization = await returningAuthorization(
-    request,
-    input,
-    ReadReturningAssistantOptionsEndpoint,
-    input.run,
-  );
-  const options = await runDatabase(
-    ReturningAssistants.use(({ readOptions }) =>
+const readReturningAssistantOptions = (request: Request, input: AdmissionApiHttpOptions) =>
+  Effect.gen(function* () {
+    yield* requireNoQuery(request);
+    const authorization = yield* returningAuthorization(
+      request,
+      input,
+      ReadReturningAssistantOptionsEndpoint,
+    );
+    const options = yield* ReturningAssistants.use(({ readOptions }) =>
       readOptions({
         personId: authorization.authority.personId,
         now: authorization.authorizationInstant,
       }),
-    ),
-    input.run,
-  );
-  const body = await Schema.decodeUnknownPromise(ReturningAssistantOptionsSchema)(options, {
-    onExcessProperty: "error",
+    );
+    const body = yield* Schema.decodeUnknownEffect(ReturningAssistantOptionsSchema)(options, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError(() => taggedError("ReturningAssistantDecodeError")));
+    return jsonResponse(body);
   });
-  return jsonResponse(body);
-};
 
-const registerReturningAssistant = async (
-  request: Request,
-  input: AdmissionApiHttpOptions,
-): Promise<Response> => {
-  requireNoQuery(request);
-  const contentType = request.headers.get("content-type") ?? "";
-  if (!/^application\/json(?:\s*;|$)/iu.test(contentType)) {
-    throw new HttpSemanticFailure("media-type.unsupported", 415);
-  }
-  const payload = await decodeJson(
-    request,
-    ReturningAssistantRegistrationInputSchema,
-    input.config.maxBodyBytes,
-    "ReturningAssistantDecodeError",
-  );
-  const idempotencyKey = parseIdempotencyKey(
-    request.headers.get("idempotency-key") === null
-      ? []
-      : [request.headers.get("idempotency-key")!],
-  );
-  const operationId = "admissions.registerReturningAssistant";
-  const result = await returningRun(input.run)(
-    executeNativeHttpCommandPostgres(
-      prepareNativeHttpCommand(returningRun(input.run), async (txRun) => {
-        const authorization = await returningAuthorization(
+const registerReturningAssistant = (request: Request, input: AdmissionApiHttpOptions) =>
+  Effect.gen(function* () {
+    yield* requireNoQuery(request);
+    const contentType = request.headers.get("content-type") ?? "";
+    if (!/^application\/json(?:\s*;|$)/iu.test(contentType)) {
+      return yield* Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
+    }
+    const payload = yield* decodeJson(
+      request,
+      ReturningAssistantRegistrationInputSchema,
+      input.config.maxBodyBytes,
+      "ReturningAssistantDecodeError",
+    );
+    const idempotencyKey = yield* Effect.try({
+      try: () =>
+        parseIdempotencyKey(
+          request.headers.get("idempotency-key") === null
+            ? []
+            : [request.headers.get("idempotency-key")!],
+        ),
+      catch: (cause) => cause,
+    });
+    const operationId = "admissions.registerReturningAssistant";
+    const result = yield* executeNativeHttpCommandPostgres(
+      Effect.gen(function* () {
+        const authorization = yield* returningAuthorization(
           request,
           input,
           RegisterReturningAssistantEndpoint,
-          txRun as unknown as BackendRun,
         );
-        await returningRun(txRun as unknown as BackendRun)(
-          ReturningAssistants.use(({ preflight }) =>
-            preflight(
-              {
-                admissionPeriodId: payload.admissionPeriodId,
-                teamIds: payload.teamIds,
-              },
-              {
-                personId: authorization.authority.personId,
-                now: input.config.now,
-              },
-            ),
+        yield* ReturningAssistants.use(({ preflight }) =>
+          preflight(
+            {
+              admissionPeriodId: payload.admissionPeriodId,
+              teamIds: payload.teamIds,
+            },
+            {
+              personId: authorization.authority.personId,
+              now: input.config.now,
+            },
           ),
         );
-        const derived = deriveHttpIdentity({
-          credentialSubject: `Person:${authorization.authority.personId}`,
-          qualifiedOperationId: operationId,
-          normalizedTarget: "/api/returning-assistant/registrations",
-          idempotencyKey,
+        const derived = yield* Effect.try({
+          try: () =>
+            deriveHttpIdentity({
+              credentialSubject: `Person:${authorization.authority.personId}`,
+              qualifiedOperationId: operationId,
+              normalizedTarget: "/api/returning-assistant/registrations",
+              idempotencyKey,
+            }),
+          catch: (cause) => cause,
         });
         return {
           identity: {
@@ -366,148 +357,106 @@ const registerReturningAssistant = async (
         };
       }),
       { retry: "serialization-once" },
-    ),
-  );
-  return nativeCommandOutcomeResponse(result);
-};
+    );
+    return nativeCommandOutcomeResponse(result);
+  });
 
-const requireActive = (actor: AdmissionPeriodActor): AdmissionPeriodActor => {
-  if (!actor.active) throw new InactiveActor({ personId: actor.personId });
-  return actor;
-};
+const requireActive = (actor: AdmissionPeriodActor) =>
+  actor.active
+    ? Effect.succeed(actor)
+    : Effect.fail(new InactiveActor({ personId: actor.personId }));
 
-const actorFor = async (
+const actorFor = (
   request: Request,
   input: AdmissionApiHttpOptions,
   departmentScope?: string,
-): Promise<AdmissionPeriodActor> => {
-  try {
-    return await input.resolveActor(request, departmentScope);
-  } catch (cause) {
-    if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
-    throw new UnauthenticatedActor({ message: "authentication required" });
-  }
-};
+) =>
+  input.resolveActor(request, departmentScope).pipe(
+    Effect.catch((cause) =>
+      Effect.fail(
+        cause !== null && typeof cause === "object" && "_tag" in cause
+          ? cause
+          : new UnauthenticatedActor({ message: "authentication required" }),
+      ),
+    ),
+  );
 
 const admissionActorForAuthority = (
   authority: OrganizationPersonAuthority,
   departmentScope?: string,
-): AdmissionPeriodActor => {
-  if (departmentScope !== undefined) {
-    return requireActive(
-      admissionActorForDepartment(authority, DepartmentId.make(departmentScope)),
-    );
-  }
-  if (authority.globalAdministrator !== "Active") {
-    throw authority.globalAdministrator === "Inactive"
-      ? new InactiveActor({ personId: authority.personId })
-      : new UnauthenticatedActor({ message: "no authority for unscoped management route" });
-  }
-  return {
-    _tag: "GlobalAdmin",
-    personId: authority.personId,
-    active: true,
-  };
-};
-
-const requireNoQuery = (request: Request, tag = "AdmissionPeriodDecodeError"): void => {
-  if (new URL(request.url).search !== "") {
-    throw taggedError(tag);
-  }
-};
-
-const readBoundedBody = async (
-  request: Request,
-  maxBytes: number,
-  decodeTag: string,
-): Promise<string> => {
-  const contentLength = request.headers.get("content-length");
-  if (contentLength !== null) {
-    if (!/^\d+$/.test(contentLength)) throw taggedError(decodeTag);
-    const declaredLength = Number(contentLength);
-    if (!Number.isSafeInteger(declaredLength) || declaredLength > maxBytes) {
-      throw taggedError("RequestBodyTooLarge");
-    }
-  }
-  if (request.body === null) return "";
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      total += next.value.byteLength;
-      if (total > maxBytes) {
-        await reader.cancel();
-        throw taggedError("RequestBodyTooLarge");
+) =>
+  Effect.try({
+    try: () => {
+      if (departmentScope !== undefined) {
+        return admissionActorForDepartment(authority, DepartmentId.make(departmentScope));
       }
-      chunks.push(next.value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(bytes);
-};
+      if (authority.globalAdministrator !== "Active") {
+        throw authority.globalAdministrator === "Inactive"
+          ? new InactiveActor({ personId: authority.personId })
+          : new UnauthenticatedActor({ message: "no authority for unscoped management route" });
+      }
+      return {
+        _tag: "GlobalAdmin" as const,
+        personId: authority.personId,
+        active: true,
+      };
+    },
+    catch: (cause) => cause,
+  }).pipe(Effect.flatMap(requireActive));
 
-const decodeJson = async <S extends Schema.ConstraintDecoder<unknown, never>>(
+const requireNoQuery = (request: Request, tag = "AdmissionPeriodDecodeError") =>
+  new URL(request.url).search === "" ? Effect.void : Effect.fail(taggedError(tag));
+
+const boundedJsonWithTag = (request: Request, maxBytes: number, tag: string) =>
+  readBoundedJson(request, maxBytes).pipe(
+    Effect.mapError((cause) =>
+      cause instanceof HttpSemanticFailure && cause.code === "request.too-large"
+        ? taggedError("RequestBodyTooLarge")
+        : taggedError(tag),
+    ),
+  );
+
+const decodeJson = <S extends Schema.ConstraintDecoder<unknown, never>>(
   request: Request,
   schema: S,
   maxBodyBytes: number,
   tag: string,
-): Promise<S["Type"]> => {
-  const contentType = request.headers.get("content-type") ?? "";
-  if (!/^application\/json(?:\s*;|$)/i.test(contentType)) throw taggedError(tag);
-  let body: unknown;
-  try {
-    body = JSON.parse(await readBoundedBody(request, maxBodyBytes, tag)) as unknown;
-  } catch (cause) {
-    if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
-    throw taggedError(tag);
-  }
-  try {
-    return await Schema.decodeUnknownPromise(schema)(body, { onExcessProperty: "error" });
-  } catch {
-    throw taggedError(tag);
-  }
-};
-
-const decodeAdmissionPeriodPatch = async (
-  request: Request,
-  input: AdmissionApiHttpOptions,
-): Promise<typeof AdmissionPeriodMergePatch.Type> => {
-  const contentType = request.headers.get("content-type") ?? "";
-  if (!/^application\/merge-patch\+json(?:\s*;|$)/iu.test(contentType)) {
-    throw new HttpSemanticFailure("media-type.unsupported", 415);
-  }
-  let body: unknown;
-  try {
-    body = JSON.parse(
-      await readBoundedBody(request, input.config.maxBodyBytes, "AdmissionPeriodDecodeError"),
-    ) as unknown;
-  } catch (cause) {
-    if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
-    throw new HttpSemanticFailure("request.malformed", 400);
-  }
-  const patch = await Schema.decodeUnknownPromise(AdmissionPeriodMergePatch)(body, {
-    onExcessProperty: "error",
-  }).catch(() => {
-    throw new HttpSemanticFailure("validation.failed", 422);
+): Effect.Effect<S["Type"], TaggedHttpError> =>
+  Effect.gen(function* () {
+    const contentType = request.headers.get("content-type") ?? "";
+    if (!/^application\/json(?:\s*;|$)/iu.test(contentType)) {
+      return yield* Effect.fail(taggedError(tag));
+    }
+    const body = yield* boundedJsonWithTag(request, maxBodyBytes, tag);
+    return yield* Schema.decodeUnknownEffect(schema)(body, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError(() => taggedError(tag)));
   });
-  if (!Object.hasOwn(patch, "startAt") && !Object.hasOwn(patch, "endAt")) {
-    throw new HttpSemanticFailure("validation.no-change", 422);
-  }
-  if (patch.startAt === null || patch.endAt === null) {
-    throw new HttpSemanticFailure("validation.field-not-deletable", 422);
-  }
-  return patch;
-};
+
+const decodeAdmissionPeriodPatch = (request: Request, input: AdmissionApiHttpOptions) =>
+  Effect.gen(function* () {
+    const contentType = request.headers.get("content-type") ?? "";
+    if (!/^application\/merge-patch\+json(?:\s*;|$)/iu.test(contentType)) {
+      return yield* Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
+    }
+    const body = yield* readBoundedJson(request, input.config.maxBodyBytes).pipe(
+      Effect.mapError((cause) =>
+        cause instanceof HttpSemanticFailure && cause.code === "request.too-large"
+          ? taggedError("RequestBodyTooLarge")
+          : new HttpSemanticFailure("request.malformed", 400),
+      ),
+    );
+    const patch = yield* Schema.decodeUnknownEffect(AdmissionPeriodMergePatch)(body, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)));
+    if (!Object.hasOwn(patch, "startAt") && !Object.hasOwn(patch, "endAt")) {
+      return yield* Effect.fail(new HttpSemanticFailure("validation.no-change", 422));
+    }
+    if (patch.startAt === null || patch.endAt === null) {
+      return yield* Effect.fail(new HttpSemanticFailure("validation.field-not-deletable", 422));
+    }
+    return patch;
+  });
 
 const conditionalJsonResponse = (input: {
   readonly request: Request;
@@ -515,45 +464,49 @@ const conditionalJsonResponse = (input: {
   readonly representationKind: string;
   readonly version: ETagVersionSource;
   readonly cacheControl: string;
-}): Response => {
-  const etag = deriveStrongETag({
-    representationKind: input.representationKind,
-    resourceIdentity: "collection",
-    version: input.version,
-  });
-  const decision = evaluateReadPreconditions({
-    currentETag: etag,
-    ifMatch: parseReadIfMatch(
-      input.request.headers.get("if-match") === null
-        ? []
-        : [input.request.headers.get("if-match")!],
-    ),
-    ifNoneMatch: parseIfNoneMatch(
-      input.request.headers.get("if-none-match") === null
-        ? []
-        : [input.request.headers.get("if-none-match")!],
-    ),
-  });
-  if (decision._tag === "Failed") {
-    return nativeProblemResponse(decision.code, decision.status);
-  }
-  if (decision._tag === "NotModified") {
-    return notModifiedResponse({
-      etag,
-      cacheControl: input.cacheControl,
-      vary: "Origin",
-    });
-  }
-  return new Response(JSON.stringify(input.body), {
-    status: 200,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": input.cacheControl,
-      etag,
-      vary: "Origin",
+}) =>
+  Effect.try({
+    try: () => {
+      const etag = deriveStrongETag({
+        representationKind: input.representationKind,
+        resourceIdentity: "collection",
+        version: input.version,
+      });
+      const decision = evaluateReadPreconditions({
+        currentETag: etag,
+        ifMatch: parseReadIfMatch(
+          input.request.headers.get("if-match") === null
+            ? []
+            : [input.request.headers.get("if-match")!],
+        ),
+        ifNoneMatch: parseIfNoneMatch(
+          input.request.headers.get("if-none-match") === null
+            ? []
+            : [input.request.headers.get("if-none-match")!],
+        ),
+      });
+      if (decision._tag === "Failed") {
+        return nativeProblemResponse(decision.code, decision.status);
+      }
+      if (decision._tag === "NotModified") {
+        return notModifiedResponse({
+          etag,
+          cacheControl: input.cacheControl,
+          vary: "Origin",
+        });
+      }
+      return new Response(JSON.stringify(input.body), {
+        status: 200,
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          "cache-control": input.cacheControl,
+          etag,
+          vary: "Origin",
+        },
+      });
     },
+    catch: (cause) => cause,
   });
-};
 
 const dynamicAdmissionCache = (now: string, boundaries: ReadonlyArray<string>): string => {
   const nowMillis = Date.parse(now);
@@ -573,87 +526,89 @@ const admissionGrantScopes = (actor: AdmissionPeriodActor) =>
       ? ([{ _tag: "Department", departmentId: actor.departmentId }] as const)
       : [];
 
-const listManagement = async (
-  request: Request,
-  input: AdmissionApiHttpOptions,
-): Promise<Response> => {
-  requireNoQuery(request);
-  const actor = requireActive(await actorFor(request, input));
-  const now = input.config.now();
-  await authorizePersonNativeOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(ListAdmissionPeriodsEndpoint)),
-    request,
-    personId: actor.personId,
-    resolution: {
-      selection: "AllMatching",
-      contexts: [
-        genericContext({
-          domainId: "admissions",
-          departmentId: actor._tag === "DepartmentLeader" ? actor.departmentId : null,
-          authorityVersion: `admissions:${actor._tag}`,
-        }),
-      ],
-    },
-    grantScopes: admissionGrantScopes(actor),
-    now,
-    run: input.run as never,
-  });
-  const rows = await runDatabase(
-    Admissions.use(({ listAdmissionPeriodsForManagement }) =>
+const listManagement = (request: Request, input: AdmissionApiHttpOptions) =>
+  Effect.gen(function* () {
+    yield* requireNoQuery(request);
+    const actor = yield* actorFor(request, input).pipe(Effect.flatMap(requireActive));
+    const now = input.config.now();
+    yield* authorizePersonNativeOperation({
+      spec: Option.getOrThrow(reflectAccessSpec(ListAdmissionPeriodsEndpoint)),
+      request,
+      personId: actor.personId,
+      resolution: {
+        selection: "AllMatching",
+        contexts: [
+          genericContext({
+            domainId: "admissions",
+            departmentId: actor._tag === "DepartmentLeader" ? actor.departmentId : null,
+            authorityVersion: `admissions:${actor._tag}`,
+          }),
+        ],
+      },
+      grantScopes: admissionGrantScopes(actor),
+      now,
+    });
+    const rows = yield* Admissions.use(({ listAdmissionPeriodsForManagement }) =>
       listAdmissionPeriodsForManagement({ actor, now }),
-    ),
-    input.run,
-  );
-  const items = rows.map((row) => ({
-    id: row.id,
-    departmentId: row.departmentId,
-    semesterId: row.semesterId,
-    startAt: row.startAt,
-    endAt: row.endAt,
-    revision: row.revision,
-    etag: deriveStrongETag({
-      representationKind: "AdmissionPeriodManagementItem",
-      resourceIdentity: row.id,
-      version: row.revision,
-    }),
-  }));
-  const body = await Schema.decodeUnknownPromise(
-    Schema.Struct({ items: Schema.Array(AdmissionPeriodManagementItem), totalItems: Schema.Int }),
-  )({ items, totalItems: items.length }, { onExcessProperty: "error" });
-  return conditionalJsonResponse({
-    request,
-    body,
-    representationKind: "AdmissionPeriodManagementListResponse",
-    version: rows.map((row) => [row.id, row.revision] as const),
-    cacheControl: PRIVATE_NO_STORE,
+    );
+    const items = rows.map((row) => ({
+      id: row.id,
+      departmentId: row.departmentId,
+      semesterId: row.semesterId,
+      startAt: row.startAt,
+      endAt: row.endAt,
+      revision: row.revision,
+      etag: deriveStrongETag({
+        representationKind: "AdmissionPeriodManagementItem",
+        resourceIdentity: row.id,
+        version: row.revision,
+      }),
+    }));
+    const body = yield* Schema.decodeUnknownEffect(
+      Schema.Struct({ items: Schema.Array(AdmissionPeriodManagementItem), totalItems: Schema.Int }),
+    )({ items, totalItems: items.length }, { onExcessProperty: "error" }).pipe(
+      Effect.mapError(() => taggedError("AdmissionPeriodPersistenceError")),
+    );
+    return yield* conditionalJsonResponse({
+      request,
+      body,
+      representationKind: "AdmissionPeriodManagementListResponse",
+      version: rows.map((row) => [row.id, row.revision] as const),
+      cacheControl: PRIVATE_NO_STORE,
+    });
   });
-};
 
-const create = async (request: Request, input: AdmissionApiHttpOptions): Promise<Response> => {
-  requireNoQuery(request);
-  const payload = await decodeJson(
-    request,
-    CreateAdmissionPeriodRequest,
-    input.config.maxBodyBytes,
-    "AdmissionPeriodDecodeError",
-  );
-  const admissionPeriodId = input.config.nextAdmissionPeriodId();
-  const idempotencyKey = parseIdempotencyKey(
-    request.headers.get("idempotency-key") === null
-      ? []
-      : [request.headers.get("idempotency-key")!],
-  );
-  const operationId = "admissions.createAdmissionPeriod";
-  const result = await input.run(
-    executeNativeHttpCommandPostgres(
-      prepareNativeHttpCommand(input.run, async (txRun) => {
-        const authorization = await resolveRequestPersonAuthorityInTransaction(request, {
-          run: txRun,
+const create = (request: Request, input: AdmissionApiHttpOptions) =>
+  Effect.gen(function* () {
+    yield* requireNoQuery(request);
+    const payload = yield* decodeJson(
+      request,
+      CreateAdmissionPeriodRequest,
+      input.config.maxBodyBytes,
+      "AdmissionPeriodDecodeError",
+    );
+    const admissionPeriodId = input.config.nextAdmissionPeriodId();
+    const idempotencyKey = yield* Effect.try({
+      try: () =>
+        parseIdempotencyKey(
+          request.headers.get("idempotency-key") === null
+            ? []
+            : [request.headers.get("idempotency-key")!],
+        ),
+      catch: (cause) => cause,
+    });
+    const operationId = "admissions.createAdmissionPeriod";
+    const result = yield* executeNativeHttpCommandPostgres(
+      Effect.gen(function* () {
+        const authorization = yield* resolveRequestPersonAuthorityInTransaction(request, {
           now: input.config.now,
         });
-        const actor = admissionActorForAuthority(authorization.authority, payload.departmentId);
+        const actor = yield* admissionActorForAuthority(
+          authorization.authority,
+          payload.departmentId,
+        );
         const now = authorization.authorizationInstant;
-        await authorizePersonNativeOperation({
+        yield* authorizePersonNativeOperation({
           spec: Option.getOrThrow(reflectAccessSpec(CreateAdmissionPeriodEndpoint)),
           credential: authorization.credential,
           personId: actor.personId,
@@ -679,13 +634,16 @@ const create = async (request: Request, input: AdmissionApiHttpOptions): Promise
                 ? [{ _tag: "Department", departmentId: actor.departmentId }]
                 : [],
           now,
-          run: txRun,
         });
-        const derived = deriveHttpIdentity({
-          credentialSubject: `Person:${actor.personId}`,
-          qualifiedOperationId: operationId,
-          normalizedTarget: "/api/admission-periods",
-          idempotencyKey,
+        const derived = yield* Effect.try({
+          try: () =>
+            deriveHttpIdentity({
+              credentialSubject: `Person:${actor.personId}`,
+              qualifiedOperationId: operationId,
+              normalizedTarget: "/api/admission-periods",
+              idempotencyKey,
+            }),
+          catch: (cause) => cause,
         });
         return {
           identity: {
@@ -731,47 +689,55 @@ const create = async (request: Request, input: AdmissionApiHttpOptions): Promise
           ),
         };
       }),
-    ),
-  );
-  return nativeCommandOutcomeResponse(result);
-};
+    );
+    return nativeCommandOutcomeResponse(result);
+  });
 
-const revise = async (
+const revise = (
   request: Request,
   admissionPeriodId: string,
   input: AdmissionApiHttpOptions,
-): Promise<Response> => {
-  requireNoQuery(request);
-  const typedAdmissionPeriodId = AdmissionPeriodId.make(admissionPeriodId);
-  const ifMatch = parseRequiredIfMatch(
-    request.headers.get("if-match") === null ? [] : [request.headers.get("if-match")!],
-  );
-  const patch = await decodeAdmissionPeriodPatch(request, input);
-  const idempotencyKey = parseIdempotencyKey(
-    request.headers.get("idempotency-key") === null
-      ? []
-      : [request.headers.get("idempotency-key")!],
-  );
-  const normalizedTarget = `/api/admission-periods/${encodePathIdentity(typedAdmissionPeriodId)}`;
-  const operationId = "admissions.reviseAdmissionPeriod";
-  const result = await input.run(
-    executeNativeHttpCommandPostgres(
-      prepareNativeHttpCommand(input.run, async (txRun) => {
-        const authorization = await resolveRequestPersonAuthorityInTransaction(request, {
-          run: txRun,
+) =>
+  Effect.gen(function* () {
+    yield* requireNoQuery(request);
+    const { typedAdmissionPeriodId, ifMatch, idempotencyKey, normalizedTarget } =
+      yield* Effect.try({
+        try: () => {
+          const typedAdmissionPeriodId = AdmissionPeriodId.make(admissionPeriodId);
+          return {
+            typedAdmissionPeriodId,
+            ifMatch: parseRequiredIfMatch(
+              request.headers.get("if-match") === null
+                ? []
+                : [request.headers.get("if-match")!],
+            ),
+            idempotencyKey: parseIdempotencyKey(
+              request.headers.get("idempotency-key") === null
+                ? []
+                : [request.headers.get("idempotency-key")!],
+            ),
+            normalizedTarget: `/api/admission-periods/${encodePathIdentity(typedAdmissionPeriodId)}`,
+          };
+        },
+        catch: (cause) => cause,
+      });
+    const patch = yield* decodeAdmissionPeriodPatch(request, input);
+    const operationId = "admissions.reviseAdmissionPeriod";
+    const result = yield* executeNativeHttpCommandPostgres(
+      Effect.gen(function* () {
+        const authorization = yield* resolveRequestPersonAuthorityInTransaction(request, {
           now: input.config.now,
         });
-        const actor = admissionActorForAuthority(authorization.authority);
+        const actor = yield* admissionActorForAuthority(authorization.authority);
         const now = authorization.authorizationInstant;
-        const periods = await runDatabase(
-          Admissions.use(({ listAdmissionPeriodsForManagement }) =>
-            listAdmissionPeriodsForManagement({ actor, now }),
-          ),
-          txRun,
+        const periods = yield* Admissions.use(({ listAdmissionPeriodsForManagement }) =>
+          listAdmissionPeriodsForManagement({ actor, now }),
         );
         const current = periods.find((period) => period.id === typedAdmissionPeriodId);
-        if (current === undefined) throw taggedError("AdmissionPeriodNotFound");
-        await authorizePersonNativeOperation({
+        if (current === undefined) {
+          return yield* Effect.fail(taggedError("AdmissionPeriodNotFound"));
+        }
+        yield* authorizePersonNativeOperation({
           spec: Option.getOrThrow(reflectAccessSpec(ReviseAdmissionPeriodEndpoint)),
           credential: authorization.credential,
           personId: actor.personId,
@@ -789,22 +755,30 @@ const revise = async (
           },
           grantScopes: admissionGrantScopes(actor),
           now,
-          run: txRun,
         });
         const currentETag = deriveStrongETag({
           representationKind: "AdmissionPeriodManagementItem",
           resourceIdentity: current.id,
           version: current.revision,
         });
-        const precondition = evaluateMutationPrecondition(currentETag, ifMatch);
+        const precondition = yield* Effect.try({
+          try: () => evaluateMutationPrecondition(currentETag, ifMatch),
+          catch: (cause) => cause,
+        });
         if (precondition._tag === "Failed") {
-          throw new HttpSemanticFailure(precondition.code, precondition.status);
+          return yield* Effect.fail(
+            new HttpSemanticFailure(precondition.code, precondition.status),
+          );
         }
-        const derived = deriveHttpIdentity({
-          credentialSubject: `Person:${actor.personId}`,
-          qualifiedOperationId: operationId,
-          normalizedTarget,
-          idempotencyKey,
+        const derived = yield* Effect.try({
+          try: () =>
+            deriveHttpIdentity({
+              credentialSubject: `Person:${actor.personId}`,
+              qualifiedOperationId: operationId,
+              normalizedTarget,
+              idempotencyKey,
+            }),
+          catch: (cause) => cause,
         });
         return {
           identity: {
@@ -850,53 +824,51 @@ const revise = async (
           ),
         };
       }),
-    ),
-  );
-  return nativeCommandOutcomeResponse(result);
-};
-
-const listOpen = async (request: Request, input: AdmissionApiHttpOptions): Promise<Response> => {
-  requireNoQuery(request);
-  const now = input.config.now();
-  await authorizeAnonymousNativeOperation(
-    Option.getOrThrow(reflectAccessSpec(ListOpenAdmissionPeriodsEndpoint)),
-    {
-      selection: "AllMatching",
-      contexts: [
-        genericContext({
-          domainId: "admissions",
-          authorityVersion: `admissions-open:${now}`,
-        }),
-      ],
-    },
-    now,
-    input.run as never,
-  );
-  const rows = await runDatabase(
-    Admissions.use(({ listOpenAdmissionPeriods }) => listOpenAdmissionPeriods(now)),
-    input.run,
-  );
-  const body = {
-    items: rows.map((row) => ({
-      id: row.id,
-      departmentId: row.departmentId,
-      semesterId: row.semesterId,
-      startAt: row.startAt,
-      endAt: row.endAt,
-    })),
-    totalItems: rows.length,
-  };
-  return conditionalJsonResponse({
-    request,
-    body,
-    representationKind: "OpenAdmissionPeriodListResponse",
-    version: rows.map((row) => [row.id, row.revision] as const),
-    cacheControl: dynamicAdmissionCache(
-      now,
-      rows.flatMap((row) => [row.startAt, row.endAt]),
-    ),
+    );
+    return nativeCommandOutcomeResponse(result);
   });
-};
+
+const listOpen = (request: Request, input: AdmissionApiHttpOptions) =>
+  Effect.gen(function* () {
+    yield* requireNoQuery(request);
+    const now = input.config.now();
+    yield* authorizeAnonymousNativeOperation(
+      Option.getOrThrow(reflectAccessSpec(ListOpenAdmissionPeriodsEndpoint)),
+      {
+        selection: "AllMatching",
+        contexts: [
+          genericContext({
+            domainId: "admissions",
+            authorityVersion: `admissions-open:${now}`,
+          }),
+        ],
+      },
+      now,
+    );
+    const rows = yield* Admissions.use(({ listOpenAdmissionPeriods }) =>
+      listOpenAdmissionPeriods(now),
+    );
+    const body = {
+      items: rows.map((row) => ({
+        id: row.id,
+        departmentId: row.departmentId,
+        semesterId: row.semesterId,
+        startAt: row.startAt,
+        endAt: row.endAt,
+      })),
+      totalItems: rows.length,
+    };
+    return yield* conditionalJsonResponse({
+      request,
+      body,
+      representationKind: "OpenAdmissionPeriodListResponse",
+      version: rows.map((row) => [row.id, row.revision] as const),
+      cacheControl: dynamicAdmissionCache(
+        now,
+        rows.flatMap((row) => [row.startAt, row.endAt]),
+      ),
+    });
+  });
 
 /**
  * The Fetch Request does not expose a verified peer address. Treat all public
@@ -904,70 +876,67 @@ const listOpen = async (request: Request, input: AdmissionApiHttpOptions): Promi
  */
 const publicRateLimitKey = (_request: Request): string => "public";
 
-const listPublicCatalog = async (
-  request: Request,
-  input: AdmissionApiHttpOptions,
-): Promise<Response> => {
-  requireNoQuery(request, "PublicApplicationDecodeError");
-  const now = input.config.now();
-  await authorizeAnonymousNativeOperation(
-    Option.getOrThrow(reflectAccessSpec(ReadApplicationCatalogEndpoint)),
-    {
-      selection: "AllMatching",
-      contexts: [
-        genericContext({
-          domainId: "admissions",
-          authorityVersion: `admissions-catalog:${now}`,
-        }),
-      ],
-    },
-    now,
-    input.run as never,
-  );
-  const source = await runDatabase(
-    Admissions.use(({ listPublicApplicationCatalog }) => listPublicApplicationCatalog({ now })),
-    input.run,
-  );
-  return conditionalJsonResponse({
-    request,
-    body: source.catalog,
-    representationKind: "PublicApplicationCatalog",
-    version: {
-      intervalIdentity: source.validatorSource.intervalIdentity,
-      itemRevisions: source.validatorSource.itemRevisions,
-    },
-    cacheControl: dynamicAdmissionCache(
+const listPublicCatalog = (request: Request, input: AdmissionApiHttpOptions) =>
+  Effect.gen(function* () {
+    yield* requireNoQuery(request, "PublicApplicationDecodeError");
+    const now = input.config.now();
+    yield* authorizeAnonymousNativeOperation(
+      Option.getOrThrow(reflectAccessSpec(ReadApplicationCatalogEndpoint)),
+      {
+        selection: "AllMatching",
+        contexts: [
+          genericContext({
+            domainId: "admissions",
+            authorityVersion: `admissions-catalog:${now}`,
+          }),
+        ],
+      },
       now,
-      source.catalog.departments.map((department) => department.closesAt),
-    ),
+    );
+    const source = yield* Admissions.use(({ listPublicApplicationCatalog }) =>
+      listPublicApplicationCatalog({ now }),
+    );
+    return yield* conditionalJsonResponse({
+      request,
+      body: source.catalog,
+      representationKind: "PublicApplicationCatalog",
+      version: {
+        intervalIdentity: source.validatorSource.intervalIdentity,
+        itemRevisions: source.validatorSource.itemRevisions,
+      },
+      cacheControl: dynamicAdmissionCache(
+        now,
+        source.catalog.departments.map((department) => department.closesAt),
+      ),
+    });
   });
-};
 
-const submitApplication = async (
-  request: Request,
-  input: AdmissionApiHttpOptions,
-): Promise<Response> => {
-  requireNoQuery(request, "PublicApplicationDecodeError");
-  const now = input.config.now();
-  if (!input.config.rateLimit.consume(publicRateLimitKey(request), now)) {
-    throw taggedError("PublicApplicationRateLimitExceeded");
-  }
-  const payload = await decodeJson(
-    request,
-    SubmitApplicationRequest,
-    input.config.maxBodyBytes,
-    "PublicApplicationDecodeError",
-  );
-  const idempotencyKey = parseIdempotencyKey(
-    request.headers.get("idempotency-key") === null
-      ? []
-      : [request.headers.get("idempotency-key")!],
-  );
-  const operationId = "admissions.submitApplication";
-  const result = await input.run(
-    executeNativeHttpCommandPostgres(
-      prepareNativeHttpCommand(input.run, async (txRun) => {
-        await authorizeAnonymousNativeOperation(
+const submitApplication = (request: Request, input: AdmissionApiHttpOptions) =>
+  Effect.gen(function* () {
+    yield* requireNoQuery(request, "PublicApplicationDecodeError");
+    const now = input.config.now();
+    if (!input.config.rateLimit.consume(publicRateLimitKey(request), now)) {
+      return yield* Effect.fail(taggedError("PublicApplicationRateLimitExceeded"));
+    }
+    const payload = yield* decodeJson(
+      request,
+      SubmitApplicationRequest,
+      input.config.maxBodyBytes,
+      "PublicApplicationDecodeError",
+    );
+    const idempotencyKey = yield* Effect.try({
+      try: () =>
+        parseIdempotencyKey(
+          request.headers.get("idempotency-key") === null
+            ? []
+            : [request.headers.get("idempotency-key")!],
+        ),
+      catch: (cause) => cause,
+    });
+    const operationId = "admissions.submitApplication";
+    const result = yield* executeNativeHttpCommandPostgres(
+      Effect.gen(function* () {
+        yield* authorizeAnonymousNativeOperation(
           Option.getOrThrow(reflectAccessSpec(SubmitApplicationEndpoint)),
           {
             selection: "ExactlyOne",
@@ -979,13 +948,16 @@ const submitApplication = async (
             ],
           },
           now,
-          txRun,
         );
-        const derived = deriveHttpIdentity({
-          credentialSubject: "Anonymous",
-          qualifiedOperationId: operationId,
-          normalizedTarget: "/api/applications",
-          idempotencyKey,
+        const derived = yield* Effect.try({
+          try: () =>
+            deriveHttpIdentity({
+              credentialSubject: "Anonymous",
+              qualifiedOperationId: operationId,
+              normalizedTarget: "/api/applications",
+              idempotencyKey,
+            }),
+          catch: (cause) => cause,
         });
         return {
           identity: {
@@ -1029,104 +1001,89 @@ const submitApplication = async (
           ),
         };
       }),
-    ),
-  );
-  return nativeCommandOutcomeResponse(result);
-};
+    );
+    return nativeCommandOutcomeResponse(result);
+  });
 
-const publicConfirmation = async (
+const publicConfirmation = (
   request: Request,
   applicationId: string,
   input: AdmissionApiHttpOptions,
-): Promise<Response> => {
-  requireNoQuery(request, "PublicApplicationDecodeError");
-  const now = input.config.now();
-  await authorizeAnonymousNativeOperation(
-    Option.getOrThrow(reflectAccessSpec(ReadApplicationConfirmationEndpoint)),
-    {
-      selection: "ExactlyOne",
-      contexts: [
-        genericContext({
-          domainId: "admissions",
-          resourceKind: "application",
-          resourceId: applicationId,
-          authorityVersion: `admissions-application:${applicationId}`,
-        }),
-      ],
-    },
-    now,
-    input.run as never,
-  );
-  const confirmation = await runDatabase(
-    Admissions.use(({ findPublicApplicationConfirmation }) =>
+) =>
+  Effect.gen(function* () {
+    yield* requireNoQuery(request, "PublicApplicationDecodeError");
+    const now = input.config.now();
+    yield* authorizeAnonymousNativeOperation(
+      Option.getOrThrow(reflectAccessSpec(ReadApplicationConfirmationEndpoint)),
+      {
+        selection: "ExactlyOne",
+        contexts: [
+          genericContext({
+            domainId: "admissions",
+            resourceKind: "application",
+            resourceId: applicationId,
+            authorityVersion: `admissions-application:${applicationId}`,
+          }),
+        ],
+      },
+      now,
+    );
+    const confirmation = yield* Admissions.use(({ findPublicApplicationConfirmation }) =>
       findPublicApplicationConfirmation(applicationId),
-    ),
-    input.run,
-  );
-  return jsonResponse(confirmation);
-};
+    );
+    return jsonResponse(confirmation);
+  });
 
-const applicantProgress = (request: Request, input: AdmissionApiHttpOptions): Promise<Response> =>
-  input.run(
-    Database.use((sql) =>
-      sql.withTransaction(
-        withNativeHttpRuntime(input.run, async (txRun) => {
-          if (new URL(request.url).search !== "") {
-            throw new HttpSemanticFailure("request.malformed", 400);
-          }
-          await txRun(
-            Database.use(
-              (transaction) => transaction`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`,
-            ),
-          );
-          const authorization = await resolveRequestPersonAuthorityInTransaction(request, {
-            run: txRun,
-            now: input.config.now,
-          });
-          await authorizePersonNativeOperation({
-            spec: Option.getOrThrow(reflectAccessSpec(ReadApplicantProgressEndpoint)),
-            credential: authorization.credential,
-            personId: authorization.authority.personId,
-            resolution: {
-              selection: "ExactlyOne",
-              contexts: [
-                genericContext({
-                  domainId: "admissions",
-                  resourceKind: "person-profile",
-                  resourceId: authorization.authority.personId,
-                  facts: { ownerPersonId: authorization.authority.personId },
-                  authorityVersion: "admissions:applicant-progress",
-                }),
-              ],
-            },
-            grantScopes: [returningPersonResource(authorization.authority.personId)],
-            now: authorization.authorizationInstant,
-            run: txRun,
-          });
-          const body = await runDatabase(
-            Admissions.use(({ readApplicantProgress }) =>
-              readApplicantProgress(
-                authorization.authority.personId,
-                authorization.authorizationInstant,
-              ),
-            ),
-            txRun,
-          );
-          const decoded = await txRun(
-            Schema.decodeUnknownEffect(ApplicantProgressResponseSchema)(body, {
-              onExcessProperty: "error",
-            }).pipe(Effect.mapError(() => taggedError("PublicApplicationPersistenceError"))),
-          );
-          return new Response(JSON.stringify(decoded), {
-            headers: {
-              "content-type": "application/json; charset=utf-8",
-              "cache-control": "private, no-store",
-              "referrer-policy": "no-referrer",
-              vary: "Origin",
-            },
-          });
-        }),
-      ),
+const applicantProgress = (request: Request, input: AdmissionApiHttpOptions) =>
+  Database.use((sql) =>
+    sql.withTransaction(
+      Effect.gen(function* () {
+        if (new URL(request.url).search !== "") {
+          return yield* Effect.fail(new HttpSemanticFailure("request.malformed", 400));
+        }
+        yield* Database.use(
+          (transaction) => transaction`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`,
+        );
+        const authorization = yield* resolveRequestPersonAuthorityInTransaction(request, {
+          now: input.config.now,
+        });
+        yield* authorizePersonNativeOperation({
+          spec: Option.getOrThrow(reflectAccessSpec(ReadApplicantProgressEndpoint)),
+          credential: authorization.credential,
+          personId: authorization.authority.personId,
+          resolution: {
+            selection: "ExactlyOne",
+            contexts: [
+              genericContext({
+                domainId: "admissions",
+                resourceKind: "person-profile",
+                resourceId: authorization.authority.personId,
+                facts: { ownerPersonId: authorization.authority.personId },
+                authorityVersion: "admissions:applicant-progress",
+              }),
+            ],
+          },
+          grantScopes: [returningPersonResource(authorization.authority.personId)],
+          now: authorization.authorizationInstant,
+        });
+        const body = yield* Admissions.use(({ readApplicantProgress }) =>
+          readApplicantProgress(
+            authorization.authority.personId,
+            authorization.authorizationInstant,
+          ),
+        );
+        const decoded = yield* Schema.decodeUnknownEffect(ApplicantProgressResponseSchema)(body, {
+          onExcessProperty: "error",
+        }).pipe(Effect.mapError(() => taggedError("PublicApplicationPersistenceError")));
+        return new Response(JSON.stringify(decoded), {
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "private, no-store",
+            "referrer-policy": "no-referrer",
+            vary: "Origin",
+          },
+        });
+      }),
     ),
   );
 
@@ -1136,11 +1093,7 @@ export const AdmissionsApiHandlers = (input: AdmissionApiHttpOptions) =>
     Effect.succeed(
       handlers
         .handleRaw("listAdmissionPeriods", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => listManagement(webRequest, input),
-            errorResponse,
-          ),
+          toHttpApiResponse(request, (webRequest) => listManagement(webRequest, input), errorResponse),
         )
         .handleRaw("createAdmissionPeriod", ({ request }) =>
           toHttpApiResponse(request, (webRequest) => create(webRequest, input), errorResponse),
@@ -1163,11 +1116,7 @@ export const AdmissionsApiHandlers = (input: AdmissionApiHttpOptions) =>
           ),
         )
         .handleRaw("submitApplication", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => submitApplication(webRequest, input),
-            errorResponse,
-          ),
+          toHttpApiResponse(request, (webRequest) => submitApplication(webRequest, input), errorResponse),
         )
         .handleRaw("readApplicationConfirmation", ({ request, params }) =>
           toHttpApiResponse(
@@ -1177,11 +1126,7 @@ export const AdmissionsApiHandlers = (input: AdmissionApiHttpOptions) =>
           ),
         )
         .handleRaw("readApplicantProgress", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => applicantProgress(webRequest, input),
-            errorResponse,
-          ),
+          toHttpApiResponse(request, (webRequest) => applicantProgress(webRequest, input), errorResponse),
         )
         .handleRaw("readReturningAssistantOptions", ({ request }) =>
           toHttpApiResponse(

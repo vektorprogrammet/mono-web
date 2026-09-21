@@ -28,6 +28,7 @@ import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   resolveAuthenticatedPersonAtInstant,
   resolveRequestCredentialInTransaction,
+  type AuthenticatedPersonAtInstant,
 } from "../authority.js";
 import {
   HttpSemanticFailure,
@@ -42,9 +43,7 @@ import {
   authorizePersonNativeOperation,
   genericContext,
   nativeCommandOutcomeResponse,
-  prepareNativeHttpCommand,
 } from "../native-operation.js";
-import type { BackendRun } from "../router.js";
 import { identityRequestContext } from "../session-security.js";
 import { toHttpApiResponse } from "./transport.js";
 
@@ -99,52 +98,50 @@ const projection = (personId: string, session: IdentitySession) => ({
   current: session.current,
 });
 
-const identityPromise = <A>(
-  run: BackendRun,
+const identityOperation = <A>(
   operation: (identity: IdentityShape) => Promise<A>,
-): Promise<A> =>
-  run(
-    Identity.use((identity) =>
-      Effect.tryPromise({
-        try: () => operation(identity),
-        catch: (cause) =>
-          cause instanceof IdentityEngineError ||
-          cause instanceof IdentitySessionNotFound ||
-          cause instanceof IdentitySessionExpired ||
-          cause instanceof IdentityOwnedSessionNotFound
-            ? cause
-            : new IdentityEngineError({
-                operation: "nativeSessionResource",
-                message: cause instanceof Error ? cause.message : "identity provider failure",
-              }),
-      }),
-    ),
+): Effect.Effect<
+  A,
+  IdentityEngineError | IdentitySessionNotFound | IdentitySessionExpired | IdentityOwnedSessionNotFound,
+  Identity
+> =>
+  Identity.use((identity) =>
+    Effect.tryPromise({
+      try: () => operation(identity),
+      catch: (cause) =>
+        cause instanceof IdentityEngineError ||
+        cause instanceof IdentitySessionNotFound ||
+        cause instanceof IdentitySessionExpired ||
+        cause instanceof IdentityOwnedSessionNotFound
+          ? cause
+          : new IdentityEngineError({
+              operation: "nativeSessionResource",
+              message: cause instanceof Error ? cause.message : "identity provider failure",
+            }),
+    }),
   );
 
-const noQuery = (request: Request): void => {
-  if (new URL(request.url).search !== "") {
-    throw new HttpSemanticFailure("request.malformed", 400);
-  }
-};
+const noQuery = (request: Request): Effect.Effect<void, HttpSemanticFailure> =>
+  new URL(request.url).search === ""
+    ? Effect.void
+    : Effect.fail(new HttpSemanticFailure("request.malformed", 400));
 
 interface SystemOptions {
   readonly now?: () => string;
 }
 
-const principalFor = (request: Request, run: BackendRun, options: SystemOptions) =>
+const principalFor = (request: Request, options: SystemOptions) =>
   resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, {
-    run,
     now: options.now,
   });
 
-const authorizeSessionOperation = async (input: {
+const authorizeSessionOperation = (input: {
   readonly request: Request;
-  readonly run: BackendRun;
-  readonly principal: Awaited<ReturnType<typeof principalFor>>;
+  readonly principal: AuthenticatedPersonAtInstant;
   readonly endpoint: Parameters<typeof reflectAccessSpec>[0];
   readonly resourceId?: string;
   readonly collection?: boolean;
-}): Promise<void> =>
+}) =>
   authorizePersonNativeOperation({
     spec: Option.getOrThrow(reflectAccessSpec(input.endpoint)),
     request: input.request,
@@ -164,12 +161,10 @@ const authorizeSessionOperation = async (input: {
     },
     grantScopes: [{ _tag: "Global" }],
     now: input.principal.authorizationInstant,
-    run: input.run,
   });
 
-const executeSessionMutation = async (input: {
+const executeSessionMutation = (input: {
   readonly request: Request;
-  readonly run: BackendRun;
   readonly options: SystemOptions;
   readonly endpoint: Parameters<typeof reflectAccessSpec>[0];
   readonly operationId: string;
@@ -183,39 +178,33 @@ const executeSessionMutation = async (input: {
     IdentityEngineError | IdentitySessionNotFound | IdentityOwnedSessionNotFound,
     Database
   >;
-}): Promise<Response> => {
-  noQuery(input.request);
-  const idempotencyKey = parseIdempotencyKey(
-    input.request.headers.get("idempotency-key") === null
-      ? []
-      : [input.request.headers.get("idempotency-key")!],
-  );
-  const credentialHeaders = new Headers(input.request.headers);
-  credentialHeaders.delete("authorization");
-  const cookieRequest = new Request(input.request.url, {
-    method: input.request.method,
-    headers: credentialHeaders,
-  });
-  const result = await input.run(
-    executeNativeHttpCommandPostgres(
-      prepareNativeHttpCommand(input.run, async (txRun) => {
-        const authenticated = await resolveRequestCredentialInTransaction(
+}) =>
+  Effect.gen(function* () {
+    yield* noQuery(input.request);
+    const idempotencyKey = parseIdempotencyKey(
+      input.request.headers.get("idempotency-key") === null
+        ? []
+        : [input.request.headers.get("idempotency-key")!],
+    );
+    const credentialHeaders = new Headers(input.request.headers);
+    credentialHeaders.delete("authorization");
+    const cookieRequest = new Request(input.request.url, {
+      method: input.request.method,
+      headers: credentialHeaders,
+    });
+    const result = yield* executeNativeHttpCommandPostgres(
+      Effect.gen(function* () {
+        const authenticated = yield* resolveRequestCredentialInTransaction(
           cookieRequest,
           "OAuthUserBearer",
-          {
-            run: txRun,
-            now: input.options.now,
-          },
+          { now: input.options.now },
         );
-        const actor = await txRun(
-          IdentitySnapshot.use(({ resolveSession }) =>
-            resolveSession(
-              input.request.headers.get("cookie") ?? undefined,
-              authenticated.authorizationInstant,
-            ),
-          ),
+        const identity = yield* IdentitySnapshot;
+        const actor = yield* identity.resolveSession(
+          input.request.headers.get("cookie") ?? undefined,
+          authenticated.authorizationInstant,
         );
-        await authorizePersonNativeOperation({
+        yield* authorizePersonNativeOperation({
           spec: Option.getOrThrow(reflectAccessSpec(input.endpoint)),
           credential: authenticated.credential,
           personId: actor.personId,
@@ -234,7 +223,6 @@ const executeSessionMutation = async (input: {
           },
           grantScopes: [{ _tag: "Global" }],
           now: authenticated.authorizationInstant,
-          run: txRun,
         });
         const derived = deriveHttpIdentity({
           credentialSubject: `Person:${actor.personId}`,
@@ -248,48 +236,47 @@ const executeSessionMutation = async (input: {
             requestSha256: semanticRequestDigest({}),
             operationId: input.operationId,
           },
-          execute: IdentitySnapshot.use((identity) =>
-            Effect.map(input.mutate(identity, actor), () => ({
+          execute: input.mutate(identity, actor).pipe(
+            Effect.as({
               status: 204,
               mediaType: null,
               headers: {},
               bodyBytes: null,
-            })),
+            }),
           ),
         };
       }),
-    ),
-  );
-  return nativeCommandOutcomeResponse(result);
-};
+    );
+    return nativeCommandOutcomeResponse(result);
+  });
 
 /** Native HttpApi implementations for health and the six frozen session resources. */
-export const SystemApiHandlers = (run: BackendRun, options: SystemOptions = {}) =>
+export const SystemApiHandlers = (options: SystemOptions = {}) =>
   HttpApiBuilder.group(ExternalNativeApi, "system", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("health", ({ request }) =>
           toHttpApiResponse(
             request,
-            async (webRequest) => {
-              noQuery(webRequest);
-              await authorizeAnonymousNativeOperation(
-                Option.getOrThrow(reflectAccessSpec(HealthEndpoint)),
-                {
-                  selection: "ExactlyOne",
-                  contexts: [
-                    genericContext({
-                      domainId: "system",
-                      authorityVersion: "system-health",
-                    }),
-                  ],
-                },
-                (options.now ?? (() => new Date().toISOString()))(),
-                run,
-              );
-              await run(databaseHealth);
-              return jsonResponse({ status: "ok" }, "no-store");
-            },
+            (webRequest) =>
+              Effect.gen(function* () {
+                yield* noQuery(webRequest);
+                yield* authorizeAnonymousNativeOperation(
+                  Option.getOrThrow(reflectAccessSpec(HealthEndpoint)),
+                  {
+                    selection: "ExactlyOne",
+                    contexts: [
+                      genericContext({
+                        domainId: "system",
+                        authorityVersion: "system-health",
+                      }),
+                    ],
+                  },
+                  (options.now ?? (() => new Date().toISOString()))(),
+                );
+                yield* databaseHealth;
+                return jsonResponse({ status: "ok" }, "no-store");
+              }),
             (cause) =>
               cause instanceof HttpSemanticFailure
                 ? nativeProblemResponse(cause.code, cause.status)
@@ -299,21 +286,21 @@ export const SystemApiHandlers = (run: BackendRun, options: SystemOptions = {}) 
         .handleRaw("readSession", ({ request }) =>
           toHttpApiResponse(
             request,
-            async (webRequest) => {
-              noQuery(webRequest);
-              const principal = await principalFor(webRequest, run, options);
-              const session = await identityPromise(run, (identity) =>
-                identity.readCurrentSession(webRequest.headers.get("cookie") ?? undefined),
-              );
-              await authorizeSessionOperation({
-                request: webRequest,
-                run,
-                principal,
-                endpoint: ReadSessionEndpoint,
-                resourceId: session.sessionId,
-              });
-              return jsonResponse(projection(principal.personId, session), "private, no-store");
-            },
+            (webRequest) =>
+              Effect.gen(function* () {
+                yield* noQuery(webRequest);
+                const principal = yield* principalFor(webRequest, options);
+                const session = yield* identityOperation((identity) =>
+                  identity.readCurrentSession(webRequest.headers.get("cookie") ?? undefined),
+                );
+                yield* authorizeSessionOperation({
+                  request: webRequest,
+                  principal,
+                  endpoint: ReadSessionEndpoint,
+                  resourceId: session.sessionId,
+                });
+                return jsonResponse(projection(principal.personId, session), "private, no-store");
+              }),
             identityErrorResponse,
           ),
         )
@@ -323,7 +310,6 @@ export const SystemApiHandlers = (run: BackendRun, options: SystemOptions = {}) 
             (webRequest) =>
               executeSessionMutation({
                 request: webRequest,
-                run,
                 options,
                 endpoint: DeleteSessionEndpoint,
                 operationId: "system.deleteSession",
@@ -337,24 +323,24 @@ export const SystemApiHandlers = (run: BackendRun, options: SystemOptions = {}) 
         .handleRaw("listSessions", ({ request }) =>
           toHttpApiResponse(
             request,
-            async (webRequest) => {
-              noQuery(webRequest);
-              const principal = await principalFor(webRequest, run, options);
-              await authorizeSessionOperation({
-                request: webRequest,
-                run,
-                principal,
-                endpoint: ListSessionsEndpoint,
-                collection: true,
-              });
-              const sessions = await identityPromise(run, (identity) =>
-                identity.listSessions(webRequest.headers.get("cookie") ?? undefined),
-              );
-              return jsonResponse(
-                sessions.map((session) => projection(principal.personId, session)),
-                "private, no-store",
-              );
-            },
+            (webRequest) =>
+              Effect.gen(function* () {
+                yield* noQuery(webRequest);
+                const principal = yield* principalFor(webRequest, options);
+                yield* authorizeSessionOperation({
+                  request: webRequest,
+                  principal,
+                  endpoint: ListSessionsEndpoint,
+                  collection: true,
+                });
+                const sessions = yield* identityOperation((identity) =>
+                  identity.listSessions(webRequest.headers.get("cookie") ?? undefined),
+                );
+                return jsonResponse(
+                  sessions.map((session) => projection(principal.personId, session)),
+                  "private, no-store",
+                );
+              }),
             identityErrorResponse,
           ),
         )
@@ -364,7 +350,6 @@ export const SystemApiHandlers = (run: BackendRun, options: SystemOptions = {}) 
             (webRequest) =>
               executeSessionMutation({
                 request: webRequest,
-                run,
                 options,
                 endpoint: DeleteOwnedSessionEndpoint,
                 operationId: "system.deleteOwnedSession",
@@ -386,7 +371,6 @@ export const SystemApiHandlers = (run: BackendRun, options: SystemOptions = {}) 
             (webRequest) =>
               executeSessionMutation({
                 request: webRequest,
-                run,
                 options,
                 endpoint: RevokeOtherSessionsEndpoint,
                 operationId: "system.revokeOtherSessions",
@@ -403,7 +387,6 @@ export const SystemApiHandlers = (run: BackendRun, options: SystemOptions = {}) 
             (webRequest) =>
               executeSessionMutation({
                 request: webRequest,
-                run,
                 options,
                 endpoint: RevokeAllSessionsEndpoint,
                 operationId: "system.revokeAllSessions",
@@ -413,6 +396,5 @@ export const SystemApiHandlers = (run: BackendRun, options: SystemOptions = {}) 
               }),
             identityErrorResponse,
           ),
-        ),
     ),
   );

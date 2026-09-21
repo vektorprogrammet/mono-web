@@ -1,3 +1,6 @@
+import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
+import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
+import type { Identity, IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import {
   DepartmentJsonSchema,
   FieldOfStudyJsonSchema,
@@ -28,7 +31,11 @@ import {
 } from "@vektorprogrammet/http-api";
 import { Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { organizationActorFrom, resolveRequestPersonAuthorityInTransaction } from "../authority.js";
+import {
+  organizationActorFrom,
+  resolveRequestPersonAuthorityInTransaction,
+  type OrganizationResolutionError,
+} from "../authority.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
   HttpSemanticFailure,
@@ -50,21 +57,30 @@ import {
   authorizePersonNativeOperation,
   genericContext,
   nativeCommandOutcomeResponse,
-  prepareNativeHttpCommand,
 } from "../native-operation.js";
-import type { BackendRun } from "../router.js";
 import type { OrganizationApiConfig } from "./config.js";
 
 export interface OrganizationApiHttpOptions {
   readonly config: OrganizationApiConfig;
   /** Cookie -> Organization projection -> OrganizationAdministrator|Member. */
-  readonly resolveActor: (request: Request) => Promise<OrganizationActor>;
+  readonly resolveActor: (
+    request: Request,
+  ) => Effect.Effect<
+    OrganizationActor,
+    IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
+    Identity | OAuthCredentialAuthority | Organization
+  >;
   /**
    * Cookie -> full 0055 authority projection for leader-scoped admin reads
    * (specs 0059/0060). One captured authorizationInstant per request.
    */
-  readonly resolveAuthority: (request: Request) => Promise<OrganizationPersonAuthority>;
-  readonly run: BackendRun;
+  readonly resolveAuthority: (
+    request: Request,
+  ) => Effect.Effect<
+    OrganizationPersonAuthority,
+    IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
+    Identity | OAuthCredentialAuthority | Organization
+  >;
 }
 
 type TaggedHttpError = Error & { readonly _tag: string };
@@ -140,100 +156,97 @@ const errorResponse = (cause: unknown): Response => {
   return nativeProblemResponse("organization.unavailable", 503);
 };
 
-const assertNoQuery = (request: Request): void => {
-  if (new URL(request.url).search.length !== 0) {
-    throw taggedError("OrganizationDecodeError");
-  }
-};
+const assertNoQuery = (request: Request) =>
+  new URL(request.url).search.length === 0
+    ? Effect.void
+    : Effect.fail(taggedError("OrganizationDecodeError"));
 
-const transactionOrganizationAuthorityFor = async (request: Request, run: BackendRun) => {
-  try {
-    return await resolveRequestPersonAuthorityInTransaction(request, { run });
-  } catch (cause) {
-    if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
-    throw taggedError("UnauthenticatedActor");
-  }
-};
+const transactionOrganizationAuthorityFor = (request: Request) =>
+  resolveRequestPersonAuthorityInTransaction(request, {}).pipe(
+    Effect.catch((cause) =>
+      Effect.fail(
+        cause !== null && typeof cause === "object" && "_tag" in cause
+          ? (cause as TaggedHttpError)
+          : taggedError("UnauthenticatedActor"),
+      ),
+    ),
+  );
 
-const readBoundedBody = async (request: Request, maxBytes: number): Promise<string> => {
-  const contentLength = request.headers.get("content-length");
-  if (contentLength !== null) {
-    if (!/^\d+$/u.test(contentLength)) throw taggedError("OrganizationDecodeError");
-    const declaredLength = Number(contentLength);
-    if (!Number.isSafeInteger(declaredLength)) throw taggedError("OrganizationDecodeError");
-    if (declaredLength > maxBytes) throw taggedError("RequestBodyTooLarge");
-  }
-  if (request.body === null) return "";
-
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
-  try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      totalBytes += next.value.byteLength;
-      if (totalBytes > maxBytes) {
-        await reader.cancel();
-        throw taggedError("RequestBodyTooLarge");
+const readBoundedBody = (request: Request, maxBytes: number) =>
+  Effect.tryPromise({
+    try: async () => {
+      const contentLength = request.headers.get("content-length");
+      if (contentLength !== null) {
+        if (!/^\d+$/u.test(contentLength)) throw taggedError("OrganizationDecodeError");
+        const declaredLength = Number(contentLength);
+        if (!Number.isSafeInteger(declaredLength)) {
+          throw taggedError("OrganizationDecodeError");
+        }
+        if (declaredLength > maxBytes) throw taggedError("RequestBodyTooLarge");
       }
-      chunks.push(next.value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
+      if (request.body === null) return "";
 
-  const body = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(body);
-  } catch {
-    throw taggedError("OrganizationDecodeError");
-  }
-};
+      const reader = request.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let totalBytes = 0;
+      try {
+        while (true) {
+          const next = await reader.read();
+          if (next.done) break;
+          totalBytes += next.value.byteLength;
+          if (totalBytes > maxBytes) {
+            await reader.cancel();
+            throw taggedError("RequestBodyTooLarge");
+          }
+          chunks.push(next.value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
 
-const decodeCommand = async <S extends Schema.ConstraintDecoder<unknown, never>>(
+      const body = new Uint8Array(totalBytes);
+      let offset = 0;
+      for (const chunk of chunks) {
+        body.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return new TextDecoder("utf-8", { fatal: true }).decode(body);
+    },
+    catch: (cause) =>
+      cause !== null && typeof cause === "object" && "_tag" in cause
+        ? (cause as TaggedHttpError)
+        : taggedError("OrganizationDecodeError"),
+  });
+
+const decodeCommand = <S extends Schema.ConstraintDecoder<unknown, never>>(
   request: Request,
   schema: S,
   input: OrganizationApiHttpOptions,
-): Promise<S["Type"]> => {
-  const contentType = request.headers.get("content-type") ?? "";
-  if (!/^application\/json(?:\s*;|$)/iu.test(contentType)) {
-    throw taggedError("OrganizationDecodeError");
-  }
+): Effect.Effect<S["Type"], TaggedHttpError> =>
+  Effect.gen(function* () {
+    const contentType = request.headers.get("content-type") ?? "";
+    if (!/^application\/json(?:\s*;|$)/iu.test(contentType)) {
+      return yield* Effect.fail(taggedError("OrganizationDecodeError"));
+    }
+    const raw = yield* readBoundedBody(request, input.config.maxBodyBytes);
+    const body = yield* Effect.try({
+      try: () => JSON.parse(raw) as unknown,
+      catch: () => taggedError("OrganizationDecodeError"),
+    });
+    return yield* Schema.decodeUnknownEffect(schema)(body, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError(() => taggedError("OrganizationDecodeError")));
+  });
 
-  let body: unknown;
-  try {
-    body = JSON.parse(await readBoundedBody(request, input.config.maxBodyBytes)) as unknown;
-  } catch (cause) {
-    if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
-    throw taggedError("OrganizationDecodeError");
-  }
-
-  return await input.run(
-    Schema.decodeUnknownEffect(schema)(body, { onExcessProperty: "error" }).pipe(
-      Effect.mapError(() => taggedError("OrganizationDecodeError")),
-    ),
-  );
-};
-
-const strictJsonResponse = async <S extends Schema.ConstraintDecoder<unknown, never>>(
+const strictJsonResponse = <S extends Schema.ConstraintDecoder<unknown, never>>(
   value: unknown,
   schema: S,
-  input: OrganizationApiHttpOptions,
   status = 200,
-): Promise<Response> => {
-  const decoded = await input.run(
-    Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
-      Effect.mapError(() => taggedError("OrganizationPersistenceError")),
-    ),
+) =>
+  Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+    Effect.mapError(() => taggedError("OrganizationPersistenceError")),
+    Effect.map((decoded) => jsonResponse(decoded, status)),
   );
-  return jsonResponse(decoded, status);
-};
 const publicListResponse = (
   request: Request,
   body: unknown,
@@ -281,123 +294,109 @@ const publicListResponse = (
   });
 };
 
-const listDepartments = async (
-  request: Request,
-  input: OrganizationApiHttpOptions,
-): Promise<Response> => {
-  await authorizeAnonymousNativeOperation(
-    Option.getOrThrow(reflectAccessSpec(ListDepartmentsEndpoint)),
-    {
-      selection: "AllMatching",
-      contexts: [
-        genericContext({
-          domainId: "organization",
-          authorityVersion: "organization-public-departments",
-        }),
-      ],
-    },
-    new Date().toISOString(),
-    input.run,
-  );
-  assertNoQuery(request);
-  const rows = await input.run(Organization.use(({ listDepartments }) => listDepartments));
-  const decoded = await input.run(
-    Schema.decodeUnknownEffect(Schema.Array(DepartmentJsonSchema))(rows, {
+const listDepartments = (request: Request) =>
+  Effect.gen(function* () {
+    yield* authorizeAnonymousNativeOperation(
+      Option.getOrThrow(reflectAccessSpec(ListDepartmentsEndpoint)),
+      {
+        selection: "AllMatching",
+        contexts: [
+          genericContext({
+            domainId: "organization",
+            authorityVersion: "organization-public-departments",
+          }),
+        ],
+      },
+      new Date().toISOString(),
+    );
+    yield* assertNoQuery(request);
+    const rows = yield* Organization.use(({ listDepartments }) => listDepartments);
+    const decoded = yield* Schema.decodeUnknownEffect(Schema.Array(DepartmentJsonSchema))(rows, {
       onExcessProperty: "error",
-    }).pipe(Effect.mapError(() => taggedError("OrganizationPersistenceError"))),
-  );
-  return publicListResponse(
-    request,
-    decoded,
-    "DepartmentListResponse",
-    decoded.map((row) => [row.departmentId, row.revision] as const),
-  );
-};
+    }).pipe(Effect.mapError(() => taggedError("OrganizationPersistenceError")));
+    return publicListResponse(
+      request,
+      decoded,
+      "DepartmentListResponse",
+      decoded.map((row) => [row.departmentId, row.revision] as const),
+    );
+  });
 
-const listTeams = async (
-  request: Request,
-  input: OrganizationApiHttpOptions,
-): Promise<Response> => {
-  await authorizeAnonymousNativeOperation(
-    Option.getOrThrow(reflectAccessSpec(ListTeamsEndpoint)),
-    {
-      selection: "AllMatching",
-      contexts: [
-        genericContext({
-          domainId: "organization",
-          authorityVersion: "organization-public-teams",
-        }),
-      ],
-    },
-    new Date().toISOString(),
-    input.run,
-  );
-  assertNoQuery(request);
-  const rows = await input.run(Organization.use(({ listTeams }) => listTeams()));
-  const decoded = await input.run(
-    Schema.decodeUnknownEffect(Schema.Array(TeamJsonSchema))(rows, {
+const listTeams = (request: Request) =>
+  Effect.gen(function* () {
+    yield* authorizeAnonymousNativeOperation(
+      Option.getOrThrow(reflectAccessSpec(ListTeamsEndpoint)),
+      {
+        selection: "AllMatching",
+        contexts: [
+          genericContext({
+            domainId: "organization",
+            authorityVersion: "organization-public-teams",
+          }),
+        ],
+      },
+      new Date().toISOString(),
+    );
+    yield* assertNoQuery(request);
+    const rows = yield* Organization.use(({ listTeams }) => listTeams());
+    const decoded = yield* Schema.decodeUnknownEffect(Schema.Array(TeamJsonSchema))(rows, {
       onExcessProperty: "error",
-    }).pipe(Effect.mapError(() => taggedError("OrganizationPersistenceError"))),
-  );
-  return publicListResponse(
-    request,
-    decoded,
-    "TeamListResponse",
-    decoded.map((row) => [row.teamId, row.revision] as const),
-  );
-};
+    }).pipe(Effect.mapError(() => taggedError("OrganizationPersistenceError")));
+    return publicListResponse(
+      request,
+      decoded,
+      "TeamListResponse",
+      decoded.map((row) => [row.teamId, row.revision] as const),
+    );
+  });
 
-const listFieldOfStudies = async (
-  request: Request,
-  input: OrganizationApiHttpOptions,
-): Promise<Response> => {
-  await authorizeAnonymousNativeOperation(
-    Option.getOrThrow(reflectAccessSpec(ListFieldOfStudiesEndpoint)),
-    {
-      selection: "AllMatching",
-      contexts: [
-        genericContext({
-          domainId: "organization",
-          authorityVersion: "organization-public-field-of-studies",
-        }),
-      ],
-    },
-    new Date().toISOString(),
-    input.run,
-  );
-  assertNoQuery(request);
-  const rows = await input.run(Organization.use(({ listFieldOfStudies }) => listFieldOfStudies));
-  const decoded = await input.run(
-    Schema.decodeUnknownEffect(Schema.Array(FieldOfStudyJsonSchema))(rows, {
+const listFieldOfStudies = (request: Request) =>
+  Effect.gen(function* () {
+    yield* authorizeAnonymousNativeOperation(
+      Option.getOrThrow(reflectAccessSpec(ListFieldOfStudiesEndpoint)),
+      {
+        selection: "AllMatching",
+        contexts: [
+          genericContext({
+            domainId: "organization",
+            authorityVersion: "organization-public-field-of-studies",
+          }),
+        ],
+      },
+      new Date().toISOString(),
+    );
+    yield* assertNoQuery(request);
+    const rows = yield* Organization.use(({ listFieldOfStudies }) => listFieldOfStudies);
+    const decoded = yield* Schema.decodeUnknownEffect(Schema.Array(FieldOfStudyJsonSchema))(rows, {
       onExcessProperty: "error",
-    }).pipe(Effect.mapError(() => taggedError("OrganizationPersistenceError"))),
-  );
-  return publicListResponse(
-    request,
-    decoded,
-    "FieldOfStudyListResponse",
-    decoded.map((row) => [row.fieldOfStudyId, row.revision] as const),
-  );
-};
+    }).pipe(Effect.mapError(() => taggedError("OrganizationPersistenceError")));
+    return publicListResponse(
+      request,
+      decoded,
+      "FieldOfStudyListResponse",
+      decoded.map((row) => [row.fieldOfStudyId, row.revision] as const),
+    );
+  });
 
-const createDepartment = async (
-  request: Request,
-  input: OrganizationApiHttpOptions,
-): Promise<Response> => {
-  assertNoQuery(request);
-  const payload = await decodeCommand(request, CreateDepartmentRequest, input);
-  const idempotencyKey = parseIdempotencyKey(
-    request.headers.get("idempotency-key") === null
-      ? []
-      : [request.headers.get("idempotency-key")!],
-  );
-  const operationId = "organization.createDepartment";
-  const result = await input.run(
-    executeNativeHttpCommandPostgres(
-      prepareNativeHttpCommand(input.run, async (txRun) => {
-        const resolved = await transactionOrganizationAuthorityFor(request, txRun);
+const createDepartment = (request: Request, input: OrganizationApiHttpOptions) =>
+  Effect.gen(function* () {
+    yield* assertNoQuery(request);
+    const payload = yield* decodeCommand(request, CreateDepartmentRequest, input);
+    const idempotencyKey = yield* Effect.try({
+      try: () =>
+        parseIdempotencyKey(
+          request.headers.get("idempotency-key") === null
+            ? []
+            : [request.headers.get("idempotency-key")!],
+        ),
+      catch: (cause) => cause,
+    });
+    const operationId = "organization.createDepartment";
+    const result = yield* executeNativeHttpCommandPostgres(
+      Effect.gen(function* () {
+        const resolved = yield* transactionOrganizationAuthorityFor(request);
         const actor = organizationActorFrom(resolved.authority);
-        await authorizePersonNativeOperation({
+        yield* authorizePersonNativeOperation({
           spec: Option.getOrThrow(reflectAccessSpec(CreateDepartmentEndpoint)),
           credential: resolved.credential,
           personId: actor.personId,
@@ -412,13 +411,16 @@ const createDepartment = async (
           },
           grantScopes: actor._tag === "OrganizationAdministrator" ? [{ _tag: "Global" }] : [],
           now: resolved.authorizationInstant,
-          run: txRun,
         });
-        const derived = deriveHttpIdentity({
-          credentialSubject: `Person:${actor.personId}`,
-          qualifiedOperationId: operationId,
-          normalizedTarget: "/api/departments",
-          idempotencyKey,
+        const derived = yield* Effect.try({
+          try: () =>
+            deriveHttpIdentity({
+              credentialSubject: `Person:${actor.personId}`,
+              qualifiedOperationId: operationId,
+              normalizedTarget: "/api/departments",
+              idempotencyKey,
+            }),
+          catch: (cause) => cause,
         });
         return {
           identity: {
@@ -459,29 +461,29 @@ const createDepartment = async (
           ),
         };
       }),
-    ),
-  );
-  return nativeCommandOutcomeResponse(result);
-};
+    );
+    return nativeCommandOutcomeResponse(result);
+  });
 
-const createTeam = async (
-  request: Request,
-  input: OrganizationApiHttpOptions,
-): Promise<Response> => {
-  assertNoQuery(request);
-  const payload = await decodeCommand(request, CreateTeamRequest, input);
-  const idempotencyKey = parseIdempotencyKey(
-    request.headers.get("idempotency-key") === null
-      ? []
-      : [request.headers.get("idempotency-key")!],
-  );
-  const operationId = "organization.createTeam";
-  const result = await input.run(
-    executeNativeHttpCommandPostgres(
-      prepareNativeHttpCommand(input.run, async (txRun) => {
-        const resolved = await transactionOrganizationAuthorityFor(request, txRun);
+const createTeam = (request: Request, input: OrganizationApiHttpOptions) =>
+  Effect.gen(function* () {
+    yield* assertNoQuery(request);
+    const payload = yield* decodeCommand(request, CreateTeamRequest, input);
+    const idempotencyKey = yield* Effect.try({
+      try: () =>
+        parseIdempotencyKey(
+          request.headers.get("idempotency-key") === null
+            ? []
+            : [request.headers.get("idempotency-key")!],
+        ),
+      catch: (cause) => cause,
+    });
+    const operationId = "organization.createTeam";
+    const result = yield* executeNativeHttpCommandPostgres(
+      Effect.gen(function* () {
+        const resolved = yield* transactionOrganizationAuthorityFor(request);
         const actor = organizationActorFrom(resolved.authority);
-        await authorizePersonNativeOperation({
+        yield* authorizePersonNativeOperation({
           spec: Option.getOrThrow(reflectAccessSpec(CreateTeamEndpoint)),
           credential: resolved.credential,
           personId: actor.personId,
@@ -496,13 +498,16 @@ const createTeam = async (
           },
           grantScopes: actor._tag === "OrganizationAdministrator" ? [{ _tag: "Global" }] : [],
           now: resolved.authorizationInstant,
-          run: txRun,
         });
-        const derived = deriveHttpIdentity({
-          credentialSubject: `Person:${actor.personId}`,
-          qualifiedOperationId: operationId,
-          normalizedTarget: "/api/teams",
-          idempotencyKey,
+        const derived = yield* Effect.try({
+          try: () =>
+            deriveHttpIdentity({
+              credentialSubject: `Person:${actor.personId}`,
+              qualifiedOperationId: operationId,
+              normalizedTarget: "/api/teams",
+              idempotencyKey,
+            }),
+          catch: (cause) => cause,
         });
         return {
           identity: {
@@ -543,29 +548,29 @@ const createTeam = async (
           ),
         };
       }),
-    ),
-  );
-  return nativeCommandOutcomeResponse(result);
-};
+    );
+    return nativeCommandOutcomeResponse(result);
+  });
 
-const createFieldOfStudy = async (
-  request: Request,
-  input: OrganizationApiHttpOptions,
-): Promise<Response> => {
-  assertNoQuery(request);
-  const payload = await decodeCommand(request, CreateFieldOfStudyRequest, input);
-  const idempotencyKey = parseIdempotencyKey(
-    request.headers.get("idempotency-key") === null
-      ? []
-      : [request.headers.get("idempotency-key")!],
-  );
-  const operationId = "organization.createFieldOfStudy";
-  const result = await input.run(
-    executeNativeHttpCommandPostgres(
-      prepareNativeHttpCommand(input.run, async (txRun) => {
-        const resolved = await transactionOrganizationAuthorityFor(request, txRun);
+const createFieldOfStudy = (request: Request, input: OrganizationApiHttpOptions) =>
+  Effect.gen(function* () {
+    yield* assertNoQuery(request);
+    const payload = yield* decodeCommand(request, CreateFieldOfStudyRequest, input);
+    const idempotencyKey = yield* Effect.try({
+      try: () =>
+        parseIdempotencyKey(
+          request.headers.get("idempotency-key") === null
+            ? []
+            : [request.headers.get("idempotency-key")!],
+        ),
+      catch: (cause) => cause,
+    });
+    const operationId = "organization.createFieldOfStudy";
+    const result = yield* executeNativeHttpCommandPostgres(
+      Effect.gen(function* () {
+        const resolved = yield* transactionOrganizationAuthorityFor(request);
         const actor = organizationActorFrom(resolved.authority);
-        await authorizePersonNativeOperation({
+        yield* authorizePersonNativeOperation({
           spec: Option.getOrThrow(reflectAccessSpec(CreateFieldOfStudyEndpoint)),
           credential: resolved.credential,
           personId: actor.personId,
@@ -580,13 +585,16 @@ const createFieldOfStudy = async (
           },
           grantScopes: actor._tag === "OrganizationAdministrator" ? [{ _tag: "Global" }] : [],
           now: resolved.authorizationInstant,
-          run: txRun,
         });
-        const derived = deriveHttpIdentity({
-          credentialSubject: `Person:${actor.personId}`,
-          qualifiedOperationId: operationId,
-          normalizedTarget: "/api/field-of-studies",
-          idempotencyKey,
+        const derived = yield* Effect.try({
+          try: () =>
+            deriveHttpIdentity({
+              credentialSubject: `Person:${actor.personId}`,
+              qualifiedOperationId: operationId,
+              normalizedTarget: "/api/field-of-studies",
+              idempotencyKey,
+            }),
+          catch: (cause) => cause,
         });
         return {
           identity: {
@@ -627,82 +635,72 @@ const createFieldOfStudy = async (
           ),
         };
       }),
-    ),
-  );
-  return nativeCommandOutcomeResponse(result);
-};
+    );
+    return nativeCommandOutcomeResponse(result);
+  });
 
 const MailingListTypeSchema = Schema.Literals(["assistants", "team", "all"]);
 
-const optionalDepartmentParam = (request: Request): DepartmentId | undefined => {
+const optionalDepartmentParam = (request: Request) => {
   const value = new URL(request.url).searchParams.get("department");
-  if (value === null) return undefined;
-  if (value.trim().length === 0 || /[^a-zA-Z0-9._-]/u.test(value)) {
-    throw taggedError("OrganizationDecodeError");
-  }
-  return value as DepartmentId;
+  if (value === null) return Effect.succeed<DepartmentId | undefined>(undefined);
+  return value.trim().length === 0 || /[^a-zA-Z0-9._-]/u.test(value)
+    ? Effect.fail(taggedError("OrganizationDecodeError"))
+    : Effect.succeed(value as DepartmentId);
 };
 
-const optionalSemesterParam = (request: Request): SemesterId | undefined => {
+const optionalSemesterParam = (request: Request) => {
   const value = new URL(request.url).searchParams.get("semester");
-  if (value === null) return undefined;
-  if (value.trim().length === 0 || /[^a-zA-Z0-9._-]/u.test(value)) {
-    throw taggedError("OrganizationDecodeError");
-  }
-  return value as SemesterId;
+  if (value === null) return Effect.succeed<SemesterId | undefined>(undefined);
+  return value.trim().length === 0 || /[^a-zA-Z0-9._-]/u.test(value)
+    ? Effect.fail(taggedError("OrganizationDecodeError"))
+    : Effect.succeed(value as SemesterId);
 };
 
 /** Spec 0059/0060 gating: globalAdmin -> all departments, else active-leader union. */
-const authorizedDepartmentScope = async (
-  authority: OrganizationPersonAuthority,
-  input: OrganizationApiHttpOptions,
-): Promise<ReadonlyArray<DepartmentId>> => {
-  if (authority.globalAdministrator === "Active") {
-    const departments = await input.run(Organization.use(({ listDepartments }) => listDepartments));
-    return departments.map((department) => department.departmentId);
-  }
-  const departments = new Set<DepartmentId>();
-  for (const membership of authority.memberships) {
-    if (membership.active && membership.teamLeader) departments.add(membership.departmentId);
-  }
-  return [...departments];
-};
+const authorizedDepartmentScope = (authority: OrganizationPersonAuthority) =>
+  Effect.gen(function* () {
+    if (authority.globalAdministrator === "Active") {
+      const departments = yield* Organization.use(({ listDepartments }) => listDepartments);
+      return departments.map((department) => department.departmentId);
+    }
+    const departments = new Set<DepartmentId>();
+    for (const membership of authority.memberships) {
+      if (membership.active && membership.teamLeader) departments.add(membership.departmentId);
+    }
+    return [...departments];
+  });
 
 /** Narrows the authorized scope; out-of-scope known department denies with 403. */
 const narrowScopeOrThrow = (
   authorized: ReadonlyArray<DepartmentId>,
   departmentId: DepartmentId | undefined,
-): ReadonlyArray<DepartmentId> => {
-  if (departmentId === undefined) {
-    return authorized;
-  }
-  if (!authorized.some((authorizedId) => authorizedId === departmentId)) {
-    throw taggedError("OrganizationRoleDenied");
-  }
-  return [departmentId];
-};
+) =>
+  departmentId === undefined
+    ? Effect.succeed(authorized)
+    : authorized.some((authorizedId) => authorizedId === departmentId)
+      ? Effect.succeed([departmentId])
+      : Effect.fail(taggedError("OrganizationRoleDenied"));
 
 /** Unknown department reference denies with 422 before any data leaves the store. */
-const assertDepartmentsExist = async (
-  input: OrganizationApiHttpOptions,
-  departmentIds: ReadonlyArray<DepartmentId>,
-): Promise<void> => {
-  const known = await input.run(Organization.use(({ listDepartments }) => listDepartments));
-  for (const requested of departmentIds) {
-    if (!known.some((department) => department.departmentId === requested)) {
-      throw taggedError("OrganizationInvalidReference");
-    }
-  }
-};
+const assertDepartmentsExist = (departmentIds: ReadonlyArray<DepartmentId>) =>
+  Organization.use(({ listDepartments }) => listDepartments).pipe(
+    Effect.flatMap((known) => {
+      for (const requested of departmentIds) {
+        if (!known.some((department) => department.departmentId === requested)) {
+          return Effect.fail(taggedError("OrganizationInvalidReference"));
+        }
+      }
+      return Effect.void;
+    }),
+  );
 
-const authorizeOrganizationCollection = async (input: {
+const authorizeOrganizationCollection = (input: {
   readonly request: Request;
-  readonly options: OrganizationApiHttpOptions;
   readonly authority: OrganizationPersonAuthority;
   readonly endpoint: Parameters<typeof reflectAccessSpec>[0];
-  readonly capability: string;
   readonly departmentIds: ReadonlyArray<DepartmentId>;
-}): Promise<void> => {
+}) => {
   const global = input.authority.globalAdministrator === "Active";
   const contexts =
     global && input.departmentIds.length === 0
@@ -728,97 +726,85 @@ const authorizeOrganizationCollection = async (input: {
           _tag: "Department" as const,
           departmentId,
         }));
-  await authorizePersonNativeOperation({
+  return authorizePersonNativeOperation({
     spec: Option.getOrThrow(reflectAccessSpec(input.endpoint)),
     request: input.request,
     personId: input.authority.personId,
     resolution: { selection: "AllMatching", contexts },
     grantScopes: scopes,
     now: input.authority.evaluatedAt,
-    run: input.options.run,
   });
 };
 
-const listTeamInterest = async (
-  request: Request,
-  input: OrganizationApiHttpOptions,
-): Promise<Response> => {
-  const authority = await input.resolveAuthority(request);
-  const requested = optionalDepartmentParam(request);
-  // An authenticated caller with no active leader membership receives a typed
-  // denial, never an empty success (spec 0059 authorization boundary). An
-  // active global administrator is authorized for all departments even when
-  // their membership list is empty.
-  const leaderScope = await authorizedDepartmentScope(authority, input);
-  if (leaderScope.length === 0 && authority.globalAdministrator !== "Active") {
-    throw taggedError("OrganizationRoleDenied");
-  }
-  const authorized = narrowScopeOrThrow(leaderScope, requested);
-  await authorizeOrganizationCollection({
-    request,
-    options: input,
-    authority,
-    endpoint: ListTeamInterestEndpoint,
-    capability: "organization.read-team-interest",
-    departmentIds: authorized,
+const listTeamInterest = (request: Request, input: OrganizationApiHttpOptions) =>
+  Effect.gen(function* () {
+    const authority = yield* input.resolveAuthority(request);
+    const requested = yield* optionalDepartmentParam(request);
+    // An authenticated caller with no active leader membership receives a typed
+    // denial, never an empty success (spec 0059 authorization boundary). An
+    // active global administrator is authorized for all departments even when
+    // their membership list is empty.
+    const leaderScope = yield* authorizedDepartmentScope(authority);
+    if (leaderScope.length === 0 && authority.globalAdministrator !== "Active") {
+      return yield* Effect.fail(taggedError("OrganizationRoleDenied"));
+    }
+    const authorized = yield* narrowScopeOrThrow(leaderScope, requested);
+    yield* authorizeOrganizationCollection({
+      request,
+      authority,
+      endpoint: ListTeamInterestEndpoint,
+      departmentIds: authorized,
+    });
+    // Unknown department reference denies with 422 before any data leaves the store.
+    if (requested !== undefined) yield* assertDepartmentsExist([requested]);
+    const filter: TeamInterestFilter = {
+      authorizedDepartmentIds: authorized,
+      semesterId: yield* optionalSemesterParam(request),
+    };
+    const rows = yield* Organization.use(({ listTeamInterestRegistrations }) =>
+      listTeamInterestRegistrations(filter),
+    );
+    const envelope = {
+      "hydra:member": rows.map((row) => ({
+        id: row.registrationId,
+        userName: row.submitterName,
+        teamName: row.teamName,
+      })),
+      "hydra:totalItems": rows.length,
+    };
+    return yield* strictJsonResponse(envelope, TeamInterestEnvelopeSchema);
   });
-  // Unknown department reference denies with 422 before any data leaves the store.
-  if (requested !== undefined) await assertDepartmentsExist(input, [requested]);
-  const filter: TeamInterestFilter = {
-    authorizedDepartmentIds: authorized,
-    semesterId: optionalSemesterParam(request),
-  };
-  const rows = await input.run(
-    Organization.use(({ listTeamInterestRegistrations }) => listTeamInterestRegistrations(filter)),
-  );
-  const envelope = {
-    "hydra:member": rows.map((row) => ({
-      id: row.registrationId,
-      userName: row.submitterName,
-      teamName: row.teamName,
-    })),
-    "hydra:totalItems": rows.length,
-  };
-  return strictJsonResponse(envelope, TeamInterestEnvelopeSchema, input);
-};
 
-const listMailingLists = async (
-  request: Request,
-  input: OrganizationApiHttpOptions,
-): Promise<Response> => {
-  const rawType = new URL(request.url).searchParams.get("type") ?? "assistants";
-  const decodedType = await input.run(
-    Schema.decodeUnknownEffect(MailingListTypeSchema)(rawType, {
+const listMailingLists = (request: Request, input: OrganizationApiHttpOptions) =>
+  Effect.gen(function* () {
+    const rawType = new URL(request.url).searchParams.get("type") ?? "assistants";
+    const decodedType = yield* Schema.decodeUnknownEffect(MailingListTypeSchema)(rawType, {
       onExcessProperty: "error",
-    }).pipe(Effect.mapError(() => taggedError("OrganizationDecodeError"))),
-  );
-  const authority = await input.resolveAuthority(request);
-  const requested = optionalDepartmentParam(request);
-  const leaderScope = await authorizedDepartmentScope(authority, input);
-  if (leaderScope.length === 0 && authority.globalAdministrator !== "Active") {
-    throw taggedError("OrganizationRoleDenied");
-  }
-  const authorized = narrowScopeOrThrow(leaderScope, requested);
-  if (requested !== undefined) await assertDepartmentsExist(input, [requested]);
-  await authorizeOrganizationCollection({
-    request,
-    options: input,
-    authority,
-    endpoint: ListMailingListsEndpoint,
-    capability: "organization.read-mailing-lists",
-    departmentIds: authorized,
-  });
-  const lists = await input.run(
-    Organization.use(({ projectMailingLists }) =>
+    }).pipe(Effect.mapError(() => taggedError("OrganizationDecodeError")));
+    const authority = yield* input.resolveAuthority(request);
+    const requested = yield* optionalDepartmentParam(request);
+    const leaderScope = yield* authorizedDepartmentScope(authority);
+    if (leaderScope.length === 0 && authority.globalAdministrator !== "Active") {
+      return yield* Effect.fail(taggedError("OrganizationRoleDenied"));
+    }
+    const authorized = yield* narrowScopeOrThrow(leaderScope, requested);
+    if (requested !== undefined) yield* assertDepartmentsExist([requested]);
+    yield* authorizeOrganizationCollection({
+      request,
+      authority,
+      endpoint: ListMailingListsEndpoint,
+      departmentIds: authorized,
+    });
+    const semesterId = yield* optionalSemesterParam(request);
+    const lists = yield* Organization.use(({ projectMailingLists }) =>
       projectMailingLists({
         type: decodedType,
         authorizedDepartmentIds: authorized,
-        semesterId: optionalSemesterParam(request),
+        semesterId,
       }),
-    ),
-  );
-  return jsonResponse(lists);
-};
+    );
+    return jsonResponse(lists);
+  });
 
 /** Native HttpApi implementations for organization endpoints. */
 export const OrganizationApiHandlers = (input: OrganizationApiHttpOptions) =>
@@ -826,52 +812,28 @@ export const OrganizationApiHandlers = (input: OrganizationApiHttpOptions) =>
     Effect.succeed(
       handlers
         .handleRaw("listDepartments", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => listDepartments(webRequest, input),
-            errorResponse,
-          ),
+          toHttpApiResponse(request, listDepartments, errorResponse),
         )
         .handleRaw("listTeams", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => listTeams(webRequest, input), errorResponse),
+          toHttpApiResponse(request, listTeams, errorResponse),
         )
         .handleRaw("listFieldOfStudies", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => listFieldOfStudies(webRequest, input),
-            errorResponse,
-          ),
+          toHttpApiResponse(request, listFieldOfStudies, errorResponse),
         )
         .handleRaw("listTeamInterest", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => listTeamInterest(webRequest, input),
-            errorResponse,
-          ),
+          toHttpApiResponse(request, (webRequest) => listTeamInterest(webRequest, input), errorResponse),
         )
         .handleRaw("listMailingLists", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => listMailingLists(webRequest, input),
-            errorResponse,
-          ),
+          toHttpApiResponse(request, (webRequest) => listMailingLists(webRequest, input), errorResponse),
         )
         .handleRaw("createDepartment", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => createDepartment(webRequest, input),
-            errorResponse,
-          ),
+          toHttpApiResponse(request, (webRequest) => createDepartment(webRequest, input), errorResponse),
         )
         .handleRaw("createTeam", ({ request }) =>
           toHttpApiResponse(request, (webRequest) => createTeam(webRequest, input), errorResponse),
         )
         .handleRaw("createFieldOfStudy", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => createFieldOfStudy(webRequest, input),
-            errorResponse,
-          ),
+          toHttpApiResponse(request, (webRequest) => createFieldOfStudy(webRequest, input), errorResponse),
         ),
     ),
   );

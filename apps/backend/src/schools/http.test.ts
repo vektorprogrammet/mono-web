@@ -1,11 +1,11 @@
-import type { ReceiptAuxiliaryEffects } from "@vektorprogrammet/domain/receipt";
-import type { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
-import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
-import type { Admissions } from "@vektorprogrammet/domain/admissions";
-import type { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
+import { Database, OAuthCredentialAuthority, type DatabaseShape } from "@vektorprogrammet/database";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
-import type { Identity } from "@vektorprogrammet/domain/identity";
-import { Database, type DatabaseShape } from "@vektorprogrammet/database";
+import {
+  Identity,
+  IdentityActor,
+  IdentitySessionNotFound,
+  type IdentityShape,
+} from "@vektorprogrammet/domain/identity";
 import {
   DepartmentId,
   DepartmentNotFound,
@@ -16,9 +16,6 @@ import {
   TeamId,
   type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
-import type { Profile } from "@vektorprogrammet/domain/profile";
-import type { Economy } from "@vektorprogrammet/domain/receipt";
-import type { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import {
   SchoolId,
   Schools,
@@ -27,13 +24,9 @@ import {
   type SchoolDirectory,
   type SchoolDirectoryListInput,
 } from "@vektorprogrammet/domain/schools";
-import { SocialEvents } from "@vektorprogrammet/domain/social-events";
-import { SchoolSurveys } from "@vektorprogrammet/domain";
-import { Effect } from "effect";
+import { DateTime, Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
-import type { BackendRun } from "../router.js";
 import { makeSchoolsTestHttp as makeSchoolsApiHttp } from "../test/native-http.js";
-import { runTestPromise } from "../../test/runtime.js";
 
 const personId = PersonId.make("schools-http-person");
 const sessionRequest = (url: string): Request =>
@@ -71,7 +64,32 @@ const makeDatabase = (): DatabaseShape => {
   return sql;
 };
 
-const makeRun = (
+const oauthCredentialAuthority = OAuthCredentialAuthority.of({
+  resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
+  resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
+} as never);
+const identity = Identity.of({
+  signIn: () => Promise.reject(new Error("unexpected sign-in")),
+  resolveSession: async (cookieHeader: string | undefined) => {
+    if (cookieHeader?.includes("schools-test-session")) {
+      return new IdentityActor({
+        personId,
+        sessionId: "schools-test-session",
+        expiresAt: DateTime.makeUnsafe(new Date("2032-04-02T12:00:00.000Z")),
+      });
+    }
+    throw new IdentitySessionNotFound();
+  },
+  readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
+  listSessions: () => Promise.reject(new Error("unexpected session list")),
+  revokeCurrentSession: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeSession: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeOtherSessions: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
+  recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
+  signOut: async () => ({ setCookies: [] }),
+} satisfies IdentityShape);
+const makeServices = (
   authority: OrganizationPersonAuthority,
   listDirectory: (
     input: SchoolDirectoryListInput,
@@ -79,57 +97,19 @@ const makeRun = (
   readDepartment: (departmentId: DepartmentId) => Effect.Effect<unknown, DepartmentNotFound> = (
     departmentId,
   ) => Effect.succeed({ departmentId }),
-): BackendRun => {
+) => {
   const organization = Organization.of({
     resolvePersonAuthorityForRead: () => Effect.succeed(authority),
     readDepartment,
   } as never);
   const schools = Schools.of({ listDirectory });
-  const database = makeDatabase();
-  const socialEvents = SocialEvents.of({
-    readSnapshotInstant: () => Effect.die("unexpected social-event read"),
-    readScope: () => Effect.die("unexpected social-event read"),
-    readList: () => Effect.die("unexpected social-event read"),
-    validateScope: () => Effect.die("unexpected social-event validation"),
-    create: () => Effect.die("unexpected social-event create"),
-  });
-  const schoolSurveys = SchoolSurveys.of({
-    readForm: () => Effect.die("unexpected school-survey read"),
-    prepareResponse: () => Effect.die("unexpected school-survey preparation"),
-    persistResponse: () => Effect.die("unexpected school-survey persistence"),
-  });
-
-  return <A, E>(
-    effect: Effect.Effect<
-      A,
-      E,
-      | Database
-      | Admissions
-      | Economy
-      | ReceiptAuxiliaryEffects
-      | Organization
-      | Profile
-      | Recruitment
-      | Schools
-      | Identity
-      | IdentitySnapshot
-      | OAuthCredentialAuthority
-      | ServicePrincipalGrantAuthority
-      | ContentManagement
-      | Content
-      | SocialEvents
-      | SchoolSurveys
-    >,
-  ): Promise<A> => {
-    const runnable = effect.pipe(
-      Effect.provideService(Database, database),
-      Effect.provideService(Organization, organization),
-      Effect.provideService(Schools, schools),
-      Effect.provideService(SocialEvents, socialEvents),
-      Effect.provideService(SchoolSurveys, schoolSurveys),
-    ) as Effect.Effect<A, E, never>;
-    return runTestPromise(runnable);
-  };
+  return Layer.mergeAll(
+    Layer.succeed(Database, makeDatabase()),
+    Layer.succeed(Organization, organization),
+    Layer.succeed(Schools, schools),
+    Layer.succeed(Identity, identity),
+    Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
+  );
 };
 
 const responseBody = (response: Response): Promise<unknown> => response.json();
@@ -191,15 +171,14 @@ describe("Schools native HTTP adapter", () => {
       ],
       inactiveSchools: [],
     };
-    const run = makeRun(projection(), (input) => {
+    const services = makeServices(projection(), (input) => {
       listInputs.push(input);
       return Effect.succeed(school);
     });
-    const api = makeSchoolsApiHttp({
-      resolveActor: () => Promise.resolve({ personId, authorizationInstant: instant }),
-
-      run,
-    });
+    const api = makeSchoolsApiHttp(
+      { resolveActor: () => Effect.succeed({ personId, authorizationInstant: instant }) },
+      services,
+    );
 
     const response = await api.fetch(
       sessionRequest(`http://backend.test/api/schools?department=${departmentA}`),
@@ -217,17 +196,20 @@ describe("Schools native HTTP adapter", () => {
   it("rejects unknown, duplicate, and malformed query input before authentication", async () => {
     let actorCalls = 0;
     let listCalls = 0;
-    const run = makeRun(projection(), () => {
+    const services = makeServices(projection(), () => {
       listCalls += 1;
       return Effect.succeed(emptyDirectory);
     });
-    const api = makeSchoolsApiHttp({
-      resolveActor: () => {
-        actorCalls += 1;
-        return Promise.resolve({ personId, authorizationInstant: instant });
+    const api = makeSchoolsApiHttp(
+      {
+        resolveActor: () =>
+          Effect.sync(() => {
+            actorCalls += 1;
+            return { personId, authorizationInstant: instant };
+          }),
       },
-      run,
-    });
+      services,
+    );
 
     for (const [query, expected] of [
       [
@@ -265,10 +247,10 @@ describe("Schools native HTTP adapter", () => {
       readonly expectedTag: string;
       readonly authority?: OrganizationPersonAuthority;
       readonly query?: string;
-      readonly resolveActor?: () => Promise<{
-        personId: PersonId;
-        authorizationInstant: typeof instant;
-      }>;
+      readonly resolveActor?: () => Effect.Effect<
+        { personId: PersonId; authorizationInstant: typeof instant },
+        UnauthenticatedActor
+      >;
       readonly readDepartment?: (
         departmentId: DepartmentId,
       ) => Effect.Effect<unknown, DepartmentNotFound>;
@@ -281,7 +263,7 @@ describe("Schools native HTTP adapter", () => {
         expectedStatus: 401,
         expectedTag: "UnauthenticatedActor",
         resolveActor: () =>
-          Promise.reject(new UnauthenticatedActor({ message: "authentication required" })),
+          Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
       },
       {
         name: "inactive authority",
@@ -335,16 +317,18 @@ describe("Schools native HTTP adapter", () => {
     ];
 
     for (const testCase of cases) {
-      const api = makeSchoolsApiHttp({
-        resolveActor:
-          testCase.resolveActor ??
-          (() => Promise.resolve({ personId, authorizationInstant: instant })),
-        run: makeRun(
+      const api = makeSchoolsApiHttp(
+        {
+          resolveActor:
+            testCase.resolveActor ??
+            (() => Effect.succeed({ personId, authorizationInstant: instant })),
+        },
+        makeServices(
           testCase.authority ?? projection(),
           testCase.listDirectory ?? (() => Effect.succeed(emptyDirectory)),
           testCase.readDepartment,
         ),
-      });
+      );
       const query = testCase.query === undefined ? "" : `?${testCase.query}`;
       const response = await api.fetch(sessionRequest(`http://backend.test/api/schools?${query}`));
       expect(

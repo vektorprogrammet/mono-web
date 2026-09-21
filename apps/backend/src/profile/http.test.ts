@@ -1,8 +1,18 @@
-import { Database, type DatabaseShape } from "@vektorprogrammet/database";
+import {
+  Database,
+  OAuthCredentialAuthority,
+  type DatabaseShape,
+} from "@vektorprogrammet/database";
+import {
+  Identity,
+  IdentityActor,
+  IdentitySessionNotFound,
+  type IdentityShape,
+} from "@vektorprogrammet/domain/identity";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
-import { Effect } from "effect";
-import { describe, expect, it, vi } from "vitest";
+import { DateTime, Effect, Layer } from "effect";
+import { describe, expect, it } from "vitest";
 import { makeProfileTestHttp as makeProfileApiHttp } from "../test/native-http.js";
 
 const tagged = (tag: string): Error & { readonly _tag: string } =>
@@ -24,14 +34,43 @@ const profileUnavailableProblem = {
   code: "profile.unavailable",
 } as const;
 
+const oauthCredentialAuthority = OAuthCredentialAuthority.of({
+  resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
+  resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
+} as never);
+const identity = Identity.of({
+  signIn: () => Promise.reject(new Error("unexpected sign-in")),
+  resolveSession: async (cookieHeader: string | undefined) => {
+    if (cookieHeader?.includes("profile-test-session")) {
+      return new IdentityActor({
+        personId: PersonId.make("profile-test-person"),
+        sessionId: "profile-test-session",
+        expiresAt: DateTime.makeUnsafe(new Date("2032-04-02T12:00:00.000Z")),
+      });
+    }
+    throw new IdentitySessionNotFound();
+  },
+  readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
+  listSessions: () => Promise.reject(new Error("unexpected session list")),
+  revokeCurrentSession: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeSession: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeOtherSessions: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
+  recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
+  signOut: async () => ({ setCookies: [] }),
+} satisfies IdentityShape);
+const securityServices = Layer.mergeAll(
+  Layer.succeed(Identity, identity),
+  Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
+);
 const request = async (cause: unknown): Promise<Response> =>
-  makeProfileApiHttp({
-    config: {} as never,
-    resolveActor: async () => {
-      throw cause;
+  makeProfileApiHttp(
+    {
+      config: {} as never,
+      resolveActor: () => Effect.fail(cause),
     },
-    run: vi.fn() as never,
-  }).fetch(
+    securityServices,
+  ).fetch(
     new Request("http://backend.test/api/profile", {
       headers: { cookie: "better-auth.session_token=profile-test-session" },
     }),
@@ -83,18 +122,18 @@ describe("Profile HTTP ETag", () => {
           representationRevision,
         },
       ])) as unknown as DatabaseShape;
-    const run = ((effect: Effect.Effect<unknown, unknown, Database | Profile>) =>
-      Effect.runPromise(
-        effect.pipe(
-          Effect.provideService(Database, database),
-          Effect.provideService(Profile, profileService),
-        ),
-      )) as never;
-    return makeProfileApiHttp({
-      config: {} as never,
-      resolveActor: async () => ({ personId: profile.personId, role }),
-      run,
-    }).fetch(
+    const services = Layer.mergeAll(
+      Layer.succeed(Database, database),
+      Layer.succeed(Profile, profileService),
+      securityServices,
+    );
+    return makeProfileApiHttp(
+      {
+        config: {} as never,
+        resolveActor: () => Effect.succeed({ personId: profile.personId, role }),
+      },
+      services,
+    ).fetch(
       new Request("http://backend.test/api/profile", {
         headers: { cookie: "better-auth.session_token=profile-test-session" },
       }),

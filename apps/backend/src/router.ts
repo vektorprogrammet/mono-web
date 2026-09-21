@@ -1,23 +1,11 @@
 import { OnboardingApiHandlers } from "./onboarding/http.js";
 import { PlacementsApiHandlers } from "./placements/http.js";
-import type { ReceiptAuxiliaryEffects } from "@vektorprogrammet/domain/receipt";
 import { SubstitutesApiHandlers } from "./substitutes/http.js";
 import { ContactApiHandlers } from "./contact/http.js";
 import { BlockList, isIP } from "node:net";
-import { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
-import { Admissions } from "@vektorprogrammet/domain/admissions";
-import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
 import { InactiveActor, UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
-import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
-import { SchoolSurveys, SocialEvents } from "@vektorprogrammet/domain";
-import { type Database } from "@vektorprogrammet/database";
-import { Identity, type IdentityRequestContext } from "@vektorprogrammet/domain/identity";
-import { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
-import { DepartmentId, type Organization } from "@vektorprogrammet/domain/organization";
-import { Profile } from "@vektorprogrammet/domain/profile";
-import { Recruitment } from "@vektorprogrammet/domain/recruitment";
-import { Economy } from "@vektorprogrammet/domain/receipt";
-import type { Schools } from "@vektorprogrammet/domain/schools";
+import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { type IdentityRequestContext } from "@vektorprogrammet/domain/identity";
 import { ExternalNativeApi, InternalNativeApi } from "@vektorprogrammet/http-api";
 import { Effect, Layer } from "effect";
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
@@ -39,7 +27,7 @@ import {
 import type { BackendConfig } from "./config.js";
 import { ContentApiHandlers } from "./content/http.js";
 import { SystemApiHandlers } from "./http-api/system.js";
-import { NativeHttpApiMiddlewareLive } from "./http-api/transport.js";
+import { makeNativeHttpApiMiddlewareLayer } from "./http-api/transport.js";
 import { methodNotAllowedResponse, nativeProblemResponse } from "./http-semantics.js";
 import { externalNativePreflightMethodsForPath } from "./native-api-preflight.js";
 import { decideNativePreflight } from "./native-preflight.js";
@@ -63,28 +51,7 @@ import {
   type NativeSessionBoundaryPolicy,
 } from "./session-security.js";
 
-export type BackendRun = <A, E>(
-  effect: Effect.Effect<
-    A,
-    E,
-    | Database
-    | Admissions
-    | Economy
-    | ReceiptAuxiliaryEffects
-    | Organization
-    | Profile
-    | Recruitment
-    | Schools
-    | Identity
-    | ServicePrincipalGrantAuthority
-    | IdentitySnapshot
-    | OAuthCredentialAuthority
-    | ContentManagement
-    | Content
-    | SchoolSurveys
-    | SocialEvents
-  >,
-) => Promise<A>;
+
 
 export interface BackendHttp {
   readonly fetch: (request: Request) => Promise<Response>;
@@ -138,151 +105,130 @@ export interface BackendHttpOptions {
  */
 export const makeExternalNativeApiRouterLayer = (
   config: BackendConfig,
-  run: BackendRun,
   options: BackendHttpOptions = {},
 ) => {
-  const resolveAdmissionActor = async (
-    request: Request,
-    departmentScope?: string,
-  ): Promise<AdmissionPeriodActor> => {
-    if (departmentScope === undefined) {
-      const authority = await resolveRequestPersonAuthority(request, { run, now: options.now });
-      if (authority.globalAdministrator !== "Active") {
-        throw authority.globalAdministrator === "Inactive"
-          ? new InactiveActor({ personId: authority.personId })
-          : new UnauthenticatedActor({ message: "no authority for unscoped management route" });
-      }
-      return {
-        _tag: "GlobalAdmin",
-        personId: authority.personId,
-        active: true,
-      };
-    }
-    const authority = await resolveRequestPersonAuthority(request, { run, now: options.now });
-    return admissionActorForDepartment(authority, DepartmentId.make(departmentScope));
-  };
+  const resolveAdmissionActor = (request: Request, departmentScope?: string) =>
+    resolveRequestPersonAuthority(request, { now: options.now }).pipe(
+      Effect.flatMap((authority) => {
+        if (departmentScope === undefined) {
+          if (authority.globalAdministrator !== "Active") {
+            return Effect.fail(
+              authority.globalAdministrator === "Inactive"
+                ? new InactiveActor({ personId: authority.personId })
+                : new UnauthenticatedActor({
+                    message: "no authority for unscoped management route",
+                  }),
+            );
+          }
+          return Effect.succeed({
+            _tag: "GlobalAdmin" as const,
+            personId: authority.personId,
+            active: true,
+          });
+        }
+        return Effect.try({
+          try: () => admissionActorForDepartment(authority, DepartmentId.make(departmentScope)),
+          catch: (cause) => cause,
+        });
+      }),
+    );
 
   const receiptIdentity: ReceiptIdentityResolvers = {
-    resolveAuthorizationPrincipal: async (request) =>
-      resolveRequestPersonAtInstant(request, { run, now: options.now }),
-    resolvePersonId: async (request) => resolveRequestPerson(request, { run, now: options.now }),
+    resolveAuthorizationPrincipal: (request) =>
+      resolveRequestPersonAtInstant(request, { now: options.now }),
+    resolvePersonId: (request) => resolveRequestPerson(request),
     resolveApprovalCredential: (request) =>
-      resolveRequestCredentialAtInstant(request, "Either", { run, now: options.now }),
+      resolveRequestCredentialAtInstant(request, "Either", { now: options.now }),
   };
   const receiptOptions = {
     config: config.receipt,
     identity: receiptIdentity,
-    run,
     now: options.now,
   };
 
+  const middlewareLayer = makeNativeHttpApiMiddlewareLayer(config.contact);
   const handlers = Layer.mergeAll(
-    SubstitutesApiHandlers({ run, now: options.now }),
-    PlacementsApiHandlers({ run, now: options.now }),
-    OnboardingApiHandlers({ run, now: options.now, delivery: config.onboarding }),
-    ContactApiHandlers(run, config.contact),
-    SystemApiHandlers(run, options),
+    SubstitutesApiHandlers({ now: options.now }),
+    PlacementsApiHandlers({ now: options.now }),
+    OnboardingApiHandlers({ now: options.now, delivery: config.onboarding }),
+    ContactApiHandlers(config.contact),
+    SystemApiHandlers(options),
     AdmissionsApiHandlers({
       config: config.admission,
       resolveActor: resolveAdmissionActor,
-      run,
     }),
     ReceiptApiHandlers(receiptOptions),
     RecruitmentApiHandlers({
       config: config.recruitment,
-      resolveConductContext: async (request) => {
-        const authority = await resolveRequestPersonAuthority(request, {
-          run,
-          now: options.now,
-        });
-        return {
-          actor: {
-            _tag: "Member",
-            personId: authority.personId,
-            departmentId: DepartmentId.make(authority.memberships[0]?.departmentId ?? "conduct"),
-            active: true,
-          },
-          authorizationInstant: authority.evaluatedAt,
-        };
-      },
-      resolveActor: async (request) => {
-        const authority = await resolveRequestPersonAuthority(request, {
-          run,
-          now: options.now,
-        });
-        return recruitmentBoardActorFrom(authority);
-      },
-      run,
+      resolveConductContext: (request) =>
+        resolveRequestPersonAuthority(request, { now: options.now }).pipe(
+          Effect.map((authority) => ({
+            actor: {
+              _tag: "Member" as const,
+              personId: authority.personId,
+              departmentId: DepartmentId.make(authority.memberships[0]?.departmentId ?? "conduct"),
+              active: true,
+            },
+            authorizationInstant: authority.evaluatedAt,
+          })),
+        ),
+      resolveActor: (request) =>
+        resolveRequestPersonAuthority(request, { now: options.now }).pipe(
+          Effect.flatMap((authority) =>
+            Effect.try({
+              try: () => recruitmentBoardActorFrom(authority),
+              catch: (cause) => cause,
+            }),
+          ),
+        ),
     }),
     OrganizationApiHandlers({
       config: config.organization,
-      resolveActor: async (request) => {
-        const authority = await resolveRequestPersonAuthority(request, {
-          run,
-          now: options.now,
-        });
-        return organizationActorFrom(authority);
-      },
-      resolveAuthority: (request) =>
-        resolveRequestPersonAuthority(request, {
-          run,
-          now: options.now,
-        }),
-      run,
+      resolveActor: (request) =>
+        resolveRequestPersonAuthority(request, { now: options.now }).pipe(
+          Effect.map(organizationActorFrom),
+        ),
+      resolveAuthority: (request) => resolveRequestPersonAuthority(request, { now: options.now }),
     }),
     DirectoryApiHandlers(
       {
-        resolveAuthority: (request) =>
-          resolveRequestPersonAuthority(request, {
-            run,
-            now: options.now,
-          }),
-        run,
+        resolveAuthority: (request) => resolveRequestPersonAuthority(request, { now: options.now }),
       },
       {
-        resolveActor: (request) =>
-          resolveRequestPersonAtInstant(request, {
-            run,
-            now: options.now,
-          }),
-        run,
+        resolveActor: (request) => resolveRequestPersonAtInstant(request, { now: options.now }),
       },
     ),
-    ContentApiHandlers(
-      (request) =>
-        resolveRequestPersonAtInstant(request, {
-          run,
-          now: options.now,
-        }),
-      run,
+    ContentApiHandlers((request) =>
+      resolveRequestPersonAtInstant(request, { now: options.now }),
     ),
     ProfileApiHandlers({
       config,
-      resolveActor: async (request) => {
-        const authority = await resolveRequestPersonAuthority(request, {
-          run,
-          now: options.now,
-        });
-        const decision = profileRoleFrom(authority);
-        if (decision._tag === "Deny") {
-          if (decision.reason === "Unauthenticated") {
-            throw new UnauthenticatedActor({ message: "profile authority is unauthenticated" });
-          }
-          throw profileAuthorityError(
-            decision.reason === "AuthorityInactive" ? "AuthorityInactive" : "NotInScope",
-          );
-        }
-        return { personId: authority.personId, role: decision.value };
-      },
-      run,
+      resolveActor: (request) =>
+        resolveRequestPersonAuthority(request, { now: options.now }).pipe(
+          Effect.flatMap((authority) => {
+            const decision = profileRoleFrom(authority);
+            if (decision._tag === "Deny") {
+              return Effect.fail(
+                decision.reason === "Unauthenticated"
+                  ? new UnauthenticatedActor({
+                      message: "profile authority is unauthenticated",
+                    })
+                  : profileAuthorityError(
+                      decision.reason === "AuthorityInactive" ? "AuthorityInactive" : "NotInScope",
+                    ),
+              );
+            }
+            return Effect.succeed({ personId: authority.personId, role: decision.value });
+          }),
+        ),
     }),
-    SocialEventsApiHandlers({ run, transactionHook: options.socialEventsTransactionHook }),
-    SchoolSurveysApiHandlers(run),
-  ).pipe(Layer.provide(NativeHttpApiMiddlewareLive));
+    SocialEventsApiHandlers({ transactionHook: options.socialEventsTransactionHook }),
+    SchoolSurveysApiHandlers(),
+  ).pipe(Layer.provide(middlewareLayer));
 
   const nativeRoutes = HttpApiBuilder.layer(ExternalNativeApi).pipe(
     Layer.provide(handlers),
-    Layer.provide(NativeHttpApiMiddlewareLive),
+    Layer.provide(middlewareLayer),
   );
   const notFound = HttpRouter.use((router) =>
     router.add(
@@ -299,32 +245,27 @@ export const makeExternalNativeApiRouterLayer = (
 /** Builds the isolated internal API root for an explicitly selected ingress. */
 export const makeInternalNativeApiRouterLayer = (
   config: BackendConfig,
-  run: BackendRun,
   options: BackendHttpOptions = {},
 ) => {
   const receiptOptions = {
     config: config.receipt,
     identity: {
-      resolveAuthorizationPrincipal: async (request: Request) =>
+      resolveAuthorizationPrincipal: (request: Request) =>
         resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, {
-          run,
           now: options.now,
         }),
-      resolvePersonId: async (request: Request) =>
-        resolveAuthenticatedPerson(request.headers.get("cookie") ?? undefined, {
-          run,
-          now: options.now,
-        }),
+      resolvePersonId: (request: Request) =>
+        resolveAuthenticatedPerson(request.headers.get("cookie") ?? undefined),
     } satisfies ReceiptIdentityResolvers,
-    run,
     now: options.now,
   };
+  const middlewareLayer = makeNativeHttpApiMiddlewareLayer(config.contact);
   const handlers = InternalReceiptApiHandlers(receiptOptions).pipe(
-    Layer.provide(NativeHttpApiMiddlewareLive),
+    Layer.provide(middlewareLayer),
   );
   const internalRoutes = HttpApiBuilder.layer(InternalNativeApi).pipe(
     Layer.provide(handlers),
-    Layer.provide(NativeHttpApiMiddlewareLive),
+    Layer.provide(middlewareLayer),
   );
   const notFound = HttpRouter.use((router) =>
     router.add(

@@ -24,16 +24,14 @@ import {
   type CredentialOutcome,
   type ReceiptAccessFacts,
 } from "@vektorprogrammet/domain/authz";
-import { Database } from "@vektorprogrammet/database";
+import { Database, IdentitySnapshot } from "@vektorprogrammet/database";
 import {
   executeNativeHttpCommandPostgres,
   type NativeHttpResponseCapsule,
 } from "../http-api/receipt-transaction.js";
-import { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { Effect, Option } from "effect";
 import {
   Economy,
-  ReceiptAuxiliaryEffects,
   ReceiptDecodeError,
   ReceiptFileService,
   ReceiptPersistenceError,
@@ -76,7 +74,7 @@ import {
   type NativeIdempotencyIdentity,
 } from "../http-semantics.js";
 import { resolveRequestCredentialInTransaction } from "../authority.js";
-import { nativeCommandOutcomeResponse, prepareNativeHttpCommand } from "../native-operation.js";
+import { nativeCommandOutcomeResponse } from "../native-operation.js";
 import { hasBetterAuthSessionCredential } from "../session-security.js";
 import type { ReceiptApiConfig } from "./config.js";
 import {
@@ -109,33 +107,23 @@ type ReceiptE2ETransactionBarrier = (
   lane: ReceiptE2EConcurrencyLane,
 ) => Promise<boolean>;
 
-export interface ReceiptIdentityResolvers {
+export interface ReceiptIdentityResolvers<E = never, R = never> {
   /** Request credential -> canonical person and one instant; never role or authority facts. */
-  readonly resolveAuthorizationPrincipal: (request: Request) => Promise<ReceiptCommandPrincipal>;
+  readonly resolveAuthorizationPrincipal: (
+    request: Request,
+  ) => Effect.Effect<ReceiptCommandPrincipal, E, R>;
   /** Request credential -> owner person id; no role or authority facts. */
-  readonly resolvePersonId: (request: Request) => Promise<string>;
+  readonly resolvePersonId: (request: Request) => Effect.Effect<string, E, R>;
   /** Exact row 42 credential bridge; no token-carried authorization facts. */
-  readonly resolveApprovalCredential?: (request: Request) => Promise<{
+  readonly resolveApprovalCredential?: (request: Request) => Effect.Effect<{
     readonly credential: AcceptedCredential;
     readonly authorizationInstant: AuthorizationInstant;
-  }>;
+  }, E, R>;
 }
 
-export interface ReceiptApiHttpOptions {
+export interface ReceiptApiHttpOptions<E = never, R = never> {
   readonly config: ReceiptApiConfig;
-  readonly identity: ReceiptIdentityResolvers;
-  readonly run: <A, E>(
-    effect: Effect.Effect<
-      A,
-      E,
-      | Database
-      | Economy
-      | IdentitySnapshot
-      | ReceiptAuxiliaryEffects
-      | OAuthCredentialAuthority
-      | ServicePrincipalGrantAuthority
-    >,
-  ) => Promise<A>;
+  readonly identity: ReceiptIdentityResolvers<E, R>;
   readonly now?: () => string;
   readonly fileStore?: ReceiptFileStore;
   /**
@@ -150,7 +138,7 @@ export interface ReceiptApiHttpOptions {
 const RECEIPT_E2E_CONCURRENCY_REQUEST_HEADER = "x-receipt-e2e-concurrency-probe";
 const RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER = "x-receipt-e2e-concurrency-synchronized";
 
-const makeReceiptE2ETransactionBarrier = (): ReceiptE2ETransactionBarrier => {
+const makeReceiptE2ETransactionBarrier = () => {
   let targetReceiptId: string | undefined;
   const arrived = new Set<ReceiptE2EConcurrencyLane>();
   let pending: Promise<void> | undefined;
@@ -159,37 +147,40 @@ const makeReceiptE2ETransactionBarrier = (): ReceiptE2ETransactionBarrier => {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let synchronized = false;
 
-  return async (request, receiptId, lane) => {
-    const marker = request.headers.get(RECEIPT_E2E_CONCURRENCY_REQUEST_HEADER);
-    if (marker === null) return false;
-    if (marker !== lane) {
-      throw new HttpSemanticFailure("request.malformed", 400);
+  return (request, receiptId, lane) => {
+    try {
+      const marker = request.headers.get(RECEIPT_E2E_CONCURRENCY_REQUEST_HEADER);
+      if (marker === null) return Promise.resolve(false);
+      if (marker !== lane) {
+        throw new HttpSemanticFailure("request.malformed", 400);
+      }
+      if (targetReceiptId === undefined) targetReceiptId = receiptId;
+      if (targetReceiptId !== receiptId) {
+        throw new HttpSemanticFailure("request.malformed", 400);
+      }
+      if (arrived.has(lane)) {
+        if (synchronized) return Promise.resolve(true);
+        throw new HttpSemanticFailure("request.malformed", 400);
+      }
+      if (pending === undefined) {
+        pending = new Promise<void>((resolve, rejectPending) => {
+          release = resolve;
+          reject = rejectPending;
+        });
+        timer = setTimeout(() => {
+          reject?.(new Error("Receipt E2E transaction concurrency barrier timed out"));
+        }, 10_000);
+      }
+      arrived.add(lane);
+      if (arrived.size === 3) {
+        synchronized = true;
+        clearTimeout(timer);
+        release?.();
+      }
+      return pending.then(() => true);
+    } catch (cause) {
+      return Promise.reject(cause);
     }
-    if (targetReceiptId === undefined) targetReceiptId = receiptId;
-    if (targetReceiptId !== receiptId) {
-      throw new HttpSemanticFailure("request.malformed", 400);
-    }
-    if (arrived.has(lane)) {
-      if (synchronized) return true;
-      throw new HttpSemanticFailure("request.malformed", 400);
-    }
-    if (pending === undefined) {
-      pending = new Promise<void>((resolve, rejectPending) => {
-        release = resolve;
-        reject = rejectPending;
-      });
-      timer = setTimeout(() => {
-        reject?.(new Error("Receipt E2E transaction concurrency barrier timed out"));
-      }, 10_000);
-    }
-    arrived.add(lane);
-    if (arrived.size === 3) {
-      synchronized = true;
-      clearTimeout(timer);
-      release?.();
-    }
-    await pending;
-    return true;
   };
 };
 
@@ -302,41 +293,36 @@ const receiptFileName = (contentType: ReceiptFile["contentType"]): string => {
   }
 };
 
-const readPrivateReceiptFile = async (
+const readPrivateReceiptFile = (
   file: ReceiptFile,
   fileStore: ReceiptFileStore,
   maxFileBytes: number,
   extraHeaders: Readonly<Record<string, string>> = {},
-): Promise<HttpServerResponse.HttpServerResponse> => {
-  let bytes: Uint8Array;
-  try {
-    bytes = await fileStore.readCommitted(file, maxFileBytes);
-  } catch {
-    throw new HttpSemanticFailure("receipts.unavailable", 503);
-  }
-  return HttpServerResponse.uint8Array(bytes, {
-    contentType: file.contentType,
-    headers: {
-      ...extraHeaders,
-      "content-disposition": `inline; filename="${receiptFileName(file.contentType)}"`,
-      "x-content-type-options": "nosniff",
-      "cache-control": "private, no-store",
-      vary: "Origin",
-    },
-  });
-};
-
-const toPrivateFileHttpApiResponse = (
-  request: HttpServerRequest.HttpServerRequest,
-  handle: (request: Request) => Promise<HttpServerResponse.HttpServerResponse>,
-): Effect.Effect<HttpServerResponse.HttpServerResponse> =>
-  HttpServerRequest.toWeb(request).pipe(
-    Effect.flatMap((webRequest) =>
-      Effect.tryPromise({
-        try: () => handle(webRequest),
-        catch: (cause) => cause,
+) =>
+  Effect.tryPromise({
+    try: () => fileStore.readCommitted(file, maxFileBytes),
+    catch: () => new HttpSemanticFailure("receipts.unavailable", 503),
+  }).pipe(
+    Effect.map((bytes) =>
+      HttpServerResponse.uint8Array(bytes, {
+        contentType: file.contentType,
+        headers: {
+          ...extraHeaders,
+          "content-disposition": `inline; filename="${receiptFileName(file.contentType)}"`,
+          "x-content-type-options": "nosniff",
+          "cache-control": "private, no-store",
+          vary: "Origin",
+        },
       }),
     ),
+  );
+
+const toPrivateFileHttpApiResponse = <E, R>(
+  request: HttpServerRequest.HttpServerRequest,
+  handle: (request: Request) => Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+) =>
+  HttpServerRequest.toWeb(request).pipe(
+    Effect.flatMap(handle),
     Effect.catch((cause) =>
       Effect.succeed(HttpServerResponse.fromWeb(publicReceiptErrorResponse(cause))),
     ),
@@ -362,37 +348,42 @@ const readSingleField = (
   return values[0];
 };
 
-const decodeMultipartFields = async (
-  request: Request,
-  maxFileBytes: number,
-): Promise<Map<string, Array<string | File>>> => {
-  const contentType = request.headers.get("content-type") ?? "";
-  if (!contentType.toLowerCase().startsWith("multipart/form-data;")) {
-    throw new ReceiptDecodeError({ message: "multipart form required" });
-  }
-  const contentLength = request.headers.get("content-length");
-  if (contentLength === null || !/^\d+$/.test(contentLength)) {
-    throw new ReceiptDecodeError({ message: "valid body length required" });
-  }
-  const bodyLength = Number(contentLength);
-  if (!Number.isSafeInteger(bodyLength) || bodyLength <= 0 || bodyLength > maxFileBytes + 131_072) {
-    throw new ReceiptDecodeError({ message: "multipart body exceeds configured limit" });
-  }
+const decodeMultipartFields = (request: Request, maxFileBytes: number) =>
+  Effect.tryPromise({
+    try: async () => {
+      const contentType = request.headers.get("content-type") ?? "";
+      if (!contentType.toLowerCase().startsWith("multipart/form-data;")) {
+        throw new ReceiptDecodeError({ message: "multipart form required" });
+      }
+      const contentLength = request.headers.get("content-length");
+      if (contentLength === null || !/^\d+$/.test(contentLength)) {
+        throw new ReceiptDecodeError({ message: "valid body length required" });
+      }
+      const bodyLength = Number(contentLength);
+      if (
+        !Number.isSafeInteger(bodyLength) ||
+        bodyLength <= 0 ||
+        bodyLength > maxFileBytes + 131_072
+      ) {
+        throw new ReceiptDecodeError({ message: "multipart body exceeds configured limit" });
+      }
 
-  let form: FormData;
-  try {
-    form = await request.formData();
-  } catch {
-    throw new ReceiptDecodeError({ message: "invalid multipart body" });
-  }
-  const fields = new Map<string, Array<string | File>>();
-  for (const [name, value] of form.entries()) {
-    const values = fields.get(name);
-    if (values === undefined) fields.set(name, [value]);
-    else values.push(value);
-  }
-  return fields;
-};
+      let form: FormData;
+      try {
+        form = await request.formData();
+      } catch {
+        throw new ReceiptDecodeError({ message: "invalid multipart body" });
+      }
+      const fields = new Map<string, Array<string | File>>();
+      for (const [name, value] of form.entries()) {
+        const values = fields.get(name);
+        if (values === undefined) fields.set(name, [value]);
+        else values.push(value);
+      }
+      return fields;
+    },
+    catch: (cause) => cause,
+  });
 
 const requireMultipartFields = (
   fields: ReadonlyMap<string, Array<string | File>>,
@@ -445,41 +436,36 @@ const invalidSessionFailure = (request: Request, cause: unknown): unknown =>
     ? new HttpSemanticFailure("credential.invalid", 401)
     : cause;
 
-const authorizationPrincipalFor = async (
+const authorizationPrincipalFor = <E, R>(
   request: Request,
-  options: ReceiptApiHttpOptions,
-): Promise<ReceiptCommandPrincipal> => {
-  try {
-    return await options.identity.resolveAuthorizationPrincipal(request);
-  } catch (cause) {
-    const classified = invalidSessionFailure(request, cause);
-    if (classified !== cause) throw classified;
-    if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
-    throw new UnauthenticatedActor({ message: "authentication required" });
-  }
-};
-const authorizationPrincipalInTransaction = async (
+  options: ReceiptApiHttpOptions<E, R>,
+) =>
+  options.identity.resolveAuthorizationPrincipal(request).pipe(
+    Effect.catch((cause) => {
+      const classified = invalidSessionFailure(request, cause);
+      return classified !== cause
+        ? Effect.fail(classified)
+        : cause !== null && typeof cause === "object" && "_tag" in cause
+          ? Effect.fail(cause)
+          : Effect.fail(new UnauthenticatedActor({ message: "authentication required" }));
+    }),
+  );
+
+const authorizationPrincipalInTransaction = <E, R>(
   request: Request,
-  options: ReceiptApiHttpOptions,
-  run: ReceiptApiHttpOptions["run"],
-): Promise<ReceiptCommandPrincipal> => {
-  let authenticated;
-  try {
-    authenticated = await resolveRequestCredentialInTransaction(request, "OAuthUserBearer", {
-      run,
-      now: options.now,
-    });
-  } catch (cause) {
-    throw invalidSessionFailure(request, cause);
-  }
-  if (authenticated.credential.principal._tag !== "Person") {
-    throw new UnauthenticatedActor({ message: "authentication required" });
-  }
-  return {
-    personId: authenticated.credential.principal.personId,
-    authorizationInstant: authenticated.authorizationInstant,
-  };
-};
+  options: ReceiptApiHttpOptions<E, R>,
+) =>
+  resolveRequestCredentialInTransaction(request, "OAuthUserBearer", { now: options.now }).pipe(
+    Effect.catch((cause) => Effect.fail(invalidSessionFailure(request, cause))),
+    Effect.flatMap((authenticated) =>
+      authenticated.credential.principal._tag === "Person"
+        ? Effect.succeed({
+            personId: authenticated.credential.principal.personId,
+            authorizationInstant: authenticated.authorizationInstant,
+          })
+        : Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
+    ),
+  );
 
 type ReceiptApprovalRoute = {
   readonly action: "refund" | "reject" | "reopen";
@@ -493,120 +479,112 @@ interface ReceiptAccessRow {
   readonly revision: number;
 }
 
-const receiptLifecycleEvidence = async (
+const receiptLifecycleEvidence = <E, R>(
   request: Request,
   receiptId: string,
-  options: ReceiptApiHttpOptions,
-): Promise<Response> => {
-  const authorizationInstant = AuthorizationInstant.make(
-    options.now?.() ?? new Date().toISOString(),
-  );
-  return runDatabase(
-    Effect.gen(function* () {
-      const sql = yield* Database;
-      return yield* sql.withTransaction(
-        Effect.gen(function* () {
-          yield* sql`
-            SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY
-          `.pipe(Effect.asVoid);
-          const credential = yield* IdentitySnapshot.use(({ resolveSession }) =>
-            resolveSession(request.headers.get("cookie") ?? undefined, authorizationInstant),
-          ).pipe(
-            Effect.match({
-              onFailure: (error) => ({ _tag: "Failure" as const, error }),
-              onSuccess: (actor) => ({ _tag: "Success" as const, actor }),
-            }),
-          );
-          if (credential._tag === "Failure") {
-            if (credential.error._tag !== "IdentitySessionNotFound") {
-              return jsonResponse({ error: { tag: "IdentityEngineError" } }, 503);
-            }
-            const evaluation: AccessEvaluation = {
-              _tag: "CredentialRejected",
-              reason: "Invalid",
-            };
-            return jsonResponse(
-              { error: { tag: "UnauthenticatedActor" } },
-              accessHttpStatus(evaluation, INTERNAL_RECEIPT_EVIDENCE_ACCESS.concealment),
-            );
+  options: ReceiptApiHttpOptions<E, R>,
+) =>
+  Effect.gen(function* () {
+    const authorizationInstant = yield* Effect.sync(() =>
+      AuthorizationInstant.make(options.now?.() ?? new Date().toISOString()),
+    );
+    const sql = yield* Database;
+    return yield* sql.withTransaction(
+      Effect.gen(function* () {
+        yield* sql`
+          SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY
+        `.pipe(Effect.asVoid);
+        const credential = yield* IdentitySnapshot.use(({ resolveSession }) =>
+          resolveSession(request.headers.get("cookie") ?? undefined, authorizationInstant),
+        ).pipe(
+          Effect.match({
+            onFailure: (error) => ({ _tag: "Failure" as const, error }),
+            onSuccess: (actor) => ({ _tag: "Success" as const, actor }),
+          }),
+        );
+        if (credential._tag === "Failure") {
+          if (credential.error._tag !== "IdentitySessionNotFound") {
+            return jsonResponse({ error: { tag: "IdentityEngineError" } }, 503);
           }
-          const personId = credential.actor.personId;
-          const rows = yield* sql<ReceiptAccessRow>`
-            SELECT owner_person_id AS "ownerPersonId", department_id AS "departmentId",
-              status, revision
-            FROM public.economy_receipts
-            WHERE receipt_id = ${receiptId}
-          `;
-          const row = rows[0];
-          if (row === undefined) return yield* new ReceiptNotFound({ receiptId });
-          const principal = { _tag: "Person" as const, personId };
-          const context = {
-            domainId: RECEIPT_DOMAIN_ID,
-            departmentId: DepartmentId.make(row.departmentId),
-            resource: {
-              kind: RECEIPT_RESOURCE_KIND,
-              id: ResourceId.make(receiptId),
-            },
-            facts: {
-              ownerPersonId: PersonId.make(row.ownerPersonId),
-              state: row.status,
-              approverPersonIds: [],
-              approverServicePrincipalIds: [],
-              internalEvidenceEnabled: options.config.e2eTestMode === true,
-            } satisfies ReceiptAccessFacts,
-            authorityVersion: AuthorityVersion.make(`receipt:${row.revision}`),
+          const evaluation: AccessEvaluation = {
+            _tag: "CredentialRejected",
+            reason: "Invalid",
           };
-          const grant = makeGrant({
-            grantId: GrantId.make(`internal-evidence:${receiptId}:${personId}`),
-            subject: principal,
-            capability: { type: READ_INTERNAL_RECEIPT_EVIDENCE_CAPABILITY },
-            scope: {
-              _tag: "And",
-              left: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
-              right: {
-                _tag: "And",
-                left: { _tag: "Department", departmentId: context.departmentId },
-                right: { _tag: "Resource", resource: context.resource },
-              },
-            },
-            startAt: AuthorizationInstant.make("1970-01-01T00:00:00.000Z"),
-            endAt: null,
-            requirements: [],
-            source: AuthorityRef.make("backend.receipt.internal-evidence"),
-            revision: row.revision,
-          });
-          const evaluation = evaluateAccess({
-            spec: INTERNAL_RECEIPT_EVIDENCE_ACCESS,
-            credential: {
-              _tag: "Accepted",
-              mechanism: { _tag: "BetterAuthCookie" },
-              principal,
-              evidenceRef: CredentialEvidenceRef.make("better-auth:resolved-session"),
-            },
-            resolution: { selection: "ExactlyOne", contexts: [context] },
-            grants: [grant],
-            authorizationInstant,
-          });
-          if (evaluation._tag !== "Allow") {
-            return jsonResponse(
-              { error: { tag: "ReceiptAuthorityDenied" } },
-              accessHttpStatus(evaluation, INTERNAL_RECEIPT_EVIDENCE_ACCESS.concealment),
-            );
-          }
-          const evidence = yield* Economy.use(({ readReceiptLifecycleEvidence }) =>
-            readReceiptLifecycleEvidence(receiptId, personId),
+          return jsonResponse(
+            { error: { tag: "UnauthenticatedActor" } },
+            accessHttpStatus(evaluation, INTERNAL_RECEIPT_EVIDENCE_ACCESS.concealment),
           );
-          return jsonResponse(evidence);
-        }),
-      );
-    }),
-    options.run,
-  );
-};
-const runDatabase = <A>(
-  effect: Effect.Effect<A, unknown, Database | Economy | IdentitySnapshot>,
-  run: ReceiptApiHttpOptions["run"],
-): Promise<A> => run(effect);
+        }
+        const personId = credential.actor.personId;
+        const rows = yield* sql<ReceiptAccessRow>`
+          SELECT owner_person_id AS "ownerPersonId", department_id AS "departmentId",
+            status, revision
+          FROM public.economy_receipts
+          WHERE receipt_id = ${receiptId}
+        `;
+        const row = rows[0];
+        if (row === undefined) return yield* new ReceiptNotFound({ receiptId });
+        const principal = { _tag: "Person" as const, personId };
+        const context = {
+          domainId: RECEIPT_DOMAIN_ID,
+          departmentId: DepartmentId.make(row.departmentId),
+          resource: {
+            kind: RECEIPT_RESOURCE_KIND,
+            id: ResourceId.make(receiptId),
+          },
+          facts: {
+            ownerPersonId: PersonId.make(row.ownerPersonId),
+            state: row.status,
+            approverPersonIds: [],
+            approverServicePrincipalIds: [],
+            internalEvidenceEnabled: options.config.e2eTestMode === true,
+          } satisfies ReceiptAccessFacts,
+          authorityVersion: AuthorityVersion.make(`receipt:${row.revision}`),
+        };
+        const grant = makeGrant({
+          grantId: GrantId.make(`internal-evidence:${receiptId}:${personId}`),
+          subject: principal,
+          capability: { type: READ_INTERNAL_RECEIPT_EVIDENCE_CAPABILITY },
+          scope: {
+            _tag: "And",
+            left: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
+            right: {
+              _tag: "And",
+              left: { _tag: "Department", departmentId: context.departmentId },
+              right: { _tag: "Resource", resource: context.resource },
+            },
+          },
+          startAt: AuthorizationInstant.make("1970-01-01T00:00:00.000Z"),
+          endAt: null,
+          requirements: [],
+          source: AuthorityRef.make("backend.receipt.internal-evidence"),
+          revision: row.revision,
+        });
+        const evaluation = evaluateAccess({
+          spec: INTERNAL_RECEIPT_EVIDENCE_ACCESS,
+          credential: {
+            _tag: "Accepted",
+            mechanism: { _tag: "BetterAuthCookie" },
+            principal,
+            evidenceRef: CredentialEvidenceRef.make("better-auth:resolved-session"),
+          },
+          resolution: { selection: "ExactlyOne", contexts: [context] },
+          grants: [grant],
+          authorizationInstant,
+        });
+        if (evaluation._tag !== "Allow") {
+          return jsonResponse(
+            { error: { tag: "ReceiptAuthorityDenied" } },
+            accessHttpStatus(evaluation, INTERNAL_RECEIPT_EVIDENCE_ACCESS.concealment),
+          );
+        }
+        const evidence = yield* Economy.use(({ readReceiptLifecycleEvidence }) =>
+          readReceiptLifecycleEvidence(receiptId, personId),
+        );
+        return jsonResponse(evidence);
+      }),
+    );
+  });
 
 const DEFAULT_OUTBOX_CLAIM_ID = `backend-${process.pid}`;
 const STALE_OUTBOX_CLAIM_AGE_MS = 60_000;
@@ -614,15 +592,12 @@ const STALE_OUTBOX_CLAIM_AGE_MS = 60_000;
 const deliverOutbox = (
   claimId: string,
   claimedAt: string,
-  options: ReceiptApiHttpOptions,
   fileStore: ReceiptFileStore,
   receiptId: string,
-): Promise<ReceiptOutboxDeliveryResult> =>
-  options.run(
-    Economy.use(({ deliverNextOutboxEffect }) =>
-      deliverNextOutboxEffect(claimId, claimedAt, receiptId),
-    ).pipe(Effect.provideService(ReceiptFileService, fileStore.service)),
-  );
+) =>
+  Economy.use(({ deliverNextOutboxEffect }) =>
+    deliverNextOutboxEffect(claimId, claimedAt, receiptId),
+  ).pipe(Effect.provideService(ReceiptFileService, fileStore.service));
 
 const staleOutboxCutoff = (now: string): string => {
   const timestamp = Date.parse(now);
@@ -631,47 +606,45 @@ const staleOutboxCutoff = (now: string): string => {
     : now;
 };
 
-const drainOutbox = async (
-  options: ReceiptApiHttpOptions,
+const drainOutbox = <E, R>(
+  options: ReceiptApiHttpOptions<E, R>,
   fileStore: ReceiptFileStore,
   receiptId: string,
-): Promise<"Idle" | "Failed" | "Limit"> => {
-  const claimBase = options.outboxClaimId ?? DEFAULT_OUTBOX_CLAIM_ID;
-  const claimId = `${claimBase}-${randomUUID()}`;
-  const claimedBefore = staleOutboxCutoff(options.config.now());
-  let staleClaimIds: ReadonlyArray<string> = [];
-  try {
-    staleClaimIds = await runDatabase(
-      Economy.use(({ listStaleOutboxClaims }) => listStaleOutboxClaims(claimedBefore, receiptId)),
-      options.run,
+) =>
+  Effect.gen(function* () {
+    const claimBase = options.outboxClaimId ?? DEFAULT_OUTBOX_CLAIM_ID;
+    const claimId = `${claimBase}-${randomUUID()}`;
+    const claimedBefore = staleOutboxCutoff(options.config.now());
+    const staleClaimIds = yield* Economy.use(({ listStaleOutboxClaims }) =>
+      listStaleOutboxClaims(claimedBefore, receiptId),
+    ).pipe(
+      Effect.catch(() => Effect.succeed([] as ReadonlyArray<string>)),
     );
-  } catch {
-    // Delivery remains best-effort after the authority transaction commits.
-  }
-  for (const staleClaimId of staleClaimIds) {
-    try {
-      await runDatabase(
-        Economy.use(({ recoverStaleOutboxClaim }) =>
-          recoverStaleOutboxClaim(staleClaimId, claimedBefore),
-        ),
-        options.run,
+    for (const staleClaimId of staleClaimIds) {
+      yield* Economy.use(({ recoverStaleOutboxClaim }) =>
+        recoverStaleOutboxClaim(staleClaimId, claimedBefore),
+      ).pipe(
+        Effect.catch(() => Effect.void),
       );
-    } catch {
-      // A concurrent worker may have completed or recovered this exact claim.
     }
-  }
-  for (let attempt = 0; attempt < 256; attempt += 1) {
-    let result: ReceiptOutboxDeliveryResult;
-    try {
-      result = await deliverOutbox(claimId, options.config.now(), options, fileStore, receiptId);
-    } catch {
-      return "Failed";
+    for (let attempt = 0; attempt < 256; attempt += 1) {
+      const delivery = yield* deliverOutbox(
+        claimId,
+        options.config.now(),
+        fileStore,
+        receiptId,
+      ).pipe(
+        Effect.match({
+          onFailure: () => ({ _tag: "TransportFailure" as const }),
+          onSuccess: (result) => ({ _tag: "Delivery" as const, result }),
+        }),
+      );
+      if (delivery._tag === "TransportFailure") return "Failed";
+      if (delivery.result._tag === "Idle") return "Idle";
+      if (delivery.result._tag === "Failed") return "Failed";
     }
-    if (result._tag === "Idle") return "Idle";
-    if (result._tag === "Failed") return "Failed";
-  }
-  return "Limit";
-};
+    return "Limit";
+  });
 
 interface V2SubmitFields {
   readonly description: string;
@@ -747,119 +720,141 @@ const receiptMutationCapsule = (
   };
 };
 
-const decodeV2SubmitMultipart = async (
-  request: Request,
-  maxFileBytes: number,
-): Promise<V2SubmitFields> => {
-  const fields = await decodeMultipartFields(request, maxFileBytes);
-  requireMultipartFields(fields, {
-    description: true,
-    amountOre: true,
-    receiptDate: true,
-    file: true,
+const decodeV2SubmitMultipart = (request: Request, maxFileBytes: number) =>
+  Effect.gen(function* () {
+    const fields = yield* decodeMultipartFields(request, maxFileBytes);
+    return yield* Effect.try({
+      try: () => {
+        requireMultipartFields(fields, {
+          description: true,
+          amountOre: true,
+          receiptDate: true,
+          file: true,
+        });
+        const description = readSingleField(fields, "description");
+        const amountOre = parseSafeAmountOre(readSingleField(fields, "amountOre"));
+        const receiptDate = readSingleField(fields, "receiptDate");
+        if (description.length < 1 || description.length > 5000) {
+          throw new ReceiptDecodeError({ message: "invalid receipt description" });
+        }
+        if (!isIsoDate(receiptDate)) {
+          throw new ReceiptDecodeError({ message: "invalid receipt date" });
+        }
+        const decodedFile = decodeReceiptFile(fields, maxFileBytes, true);
+        if (decodedFile.file === undefined || decodedFile.contentType === undefined) {
+          throw new ReceiptDecodeError({ message: "receipt file is required" });
+        }
+        return {
+          description,
+          amountOre,
+          receiptDate,
+          file: decodedFile.file,
+          contentType: decodedFile.contentType,
+        };
+      },
+      catch: (cause) => cause,
+    });
   });
-  const description = readSingleField(fields, "description");
-  const amountOre = parseSafeAmountOre(readSingleField(fields, "amountOre"));
-  const receiptDate = readSingleField(fields, "receiptDate");
-  if (description.length < 1 || description.length > 5000) {
-    throw new ReceiptDecodeError({ message: "invalid receipt description" });
-  }
-  if (!isIsoDate(receiptDate)) throw new ReceiptDecodeError({ message: "invalid receipt date" });
-  const decodedFile = decodeReceiptFile(fields, maxFileBytes, true);
-  if (decodedFile.file === undefined || decodedFile.contentType === undefined) {
-    throw new ReceiptDecodeError({ message: "receipt file is required" });
-  }
-  return {
-    description,
-    amountOre,
-    receiptDate,
-    file: decodedFile.file,
-    contentType: decodedFile.contentType,
-  };
-};
 
-const decodeV2ReviseMultipart = async (
-  request: Request,
-  maxFileBytes: number,
-): Promise<V2ReviseFields> => {
-  const fields = await decodeMultipartFields(request, maxFileBytes);
-  requireMultipartFields(
-    fields,
-    {},
-    {
-      description: true,
-      amountOre: true,
-      receiptDate: true,
-      file: true,
+const decodeV2ReviseMultipart = (request: Request, maxFileBytes: number) =>
+  Effect.gen(function* () {
+    const fields = yield* decodeMultipartFields(request, maxFileBytes);
+    return yield* Effect.try({
+      try: () => {
+        requireMultipartFields(
+          fields,
+          {},
+          {
+            description: true,
+            amountOre: true,
+            receiptDate: true,
+            file: true,
+          },
+        );
+        if (fields.size === 0) {
+          throw new ReceiptDecodeError({ message: "receipt revision must change at least one field" });
+        }
+        const description = fields.has("description")
+          ? readSingleField(fields, "description")
+          : undefined;
+        if (description !== undefined && (description.length < 1 || description.length > 5000)) {
+          throw new ReceiptDecodeError({ message: "invalid receipt description" });
+        }
+        const amountOre = fields.has("amountOre")
+          ? parseSafeAmountOre(readSingleField(fields, "amountOre"))
+          : undefined;
+        const receiptDate = fields.has("receiptDate")
+          ? readSingleField(fields, "receiptDate")
+          : undefined;
+        if (receiptDate !== undefined && !isIsoDate(receiptDate)) {
+          throw new ReceiptDecodeError({ message: "invalid receipt date" });
+        }
+        const decodedFile = decodeReceiptFile(fields, maxFileBytes, false);
+        return {
+          ...(description === undefined ? {} : { description }),
+          ...(amountOre === undefined ? {} : { amountOre }),
+          ...(receiptDate === undefined ? {} : { receiptDate }),
+          ...decodedFile,
+        };
+      },
+      catch: (cause) => cause,
+    });
+  });
+
+const decodeExactEmptyJson = (request: Request) =>
+  Effect.tryPromise({
+    try: async () => {
+      const mediaType = request.headers
+        .get("content-type")
+        ?.split(";", 1)[0]
+        ?.trim()
+        .toLowerCase();
+      if (mediaType !== "application/json") {
+        throw new HttpSemanticFailure("request.malformed", 400);
+      }
+      const contentLength = request.headers.get("content-length");
+      if (contentLength !== null) {
+        if (!/^\d+$/.test(contentLength) || Number(contentLength) > 65_536) {
+          throw new HttpSemanticFailure("request.too-large", 413);
+        }
+      }
+      const text = await request.text();
+      if (new TextEncoder().encode(text).byteLength > 65_536) {
+        throw new HttpSemanticFailure("request.too-large", 413);
+      }
+      const body = parseJsonWithoutDuplicateMembers(new TextEncoder().encode(text));
+      if (
+        body === null ||
+        typeof body !== "object" ||
+        Array.isArray(body) ||
+        Object.keys(body).length !== 0
+      ) {
+        throw new ReceiptDecodeError({ message: "request body must be the exact empty object" });
+      }
+      return {};
     },
-  );
-  if (fields.size === 0) {
-    throw new ReceiptDecodeError({ message: "receipt revision must change at least one field" });
-  }
-  const description = fields.has("description")
-    ? readSingleField(fields, "description")
-    : undefined;
-  if (description !== undefined && (description.length < 1 || description.length > 5000)) {
-    throw new ReceiptDecodeError({ message: "invalid receipt description" });
-  }
-  const amountOre = fields.has("amountOre")
-    ? parseSafeAmountOre(readSingleField(fields, "amountOre"))
-    : undefined;
-  const receiptDate = fields.has("receiptDate")
-    ? readSingleField(fields, "receiptDate")
-    : undefined;
-  if (receiptDate !== undefined && !isIsoDate(receiptDate)) {
-    throw new ReceiptDecodeError({ message: "invalid receipt date" });
-  }
-  const decodedFile = decodeReceiptFile(fields, maxFileBytes, false);
-  return {
-    ...(description === undefined ? {} : { description }),
-    ...(amountOre === undefined ? {} : { amountOre }),
-    ...(receiptDate === undefined ? {} : { receiptDate }),
-    ...decodedFile,
-  };
-};
+    catch: (cause) => cause,
+  });
 
-const decodeExactEmptyJson = async (request: Request): Promise<Record<string, never>> => {
-  const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-  if (mediaType !== "application/json") {
-    throw new HttpSemanticFailure("request.malformed", 400);
-  }
-  const contentLength = request.headers.get("content-length");
-  if (contentLength !== null) {
-    if (!/^\d+$/.test(contentLength) || Number(contentLength) > 65_536) {
-      throw new HttpSemanticFailure("request.too-large", 413);
-    }
-  }
-  const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > 65_536) {
-    throw new HttpSemanticFailure("request.too-large", 413);
-  }
-  const body = parseJsonWithoutDuplicateMembers(new TextEncoder().encode(text));
-  if (
-    body === null ||
-    typeof body !== "object" ||
-    Array.isArray(body) ||
-    Object.keys(body).length !== 0
-  ) {
-    throw new ReceiptDecodeError({ message: "request body must be the exact empty object" });
-  }
-  return {};
-};
-
-const normalizedSubmitQuery = (request: Request): DepartmentId | undefined => {
-  const entries = [...new URL(request.url).searchParams.entries()];
-  if (
-    entries.some(([name]) => name !== "departmentId") ||
-    entries.filter(([name]) => name === "departmentId").length > 1
-  ) {
-    throw new HttpSemanticFailure("request.malformed", 400);
-  }
-  const value = entries[0]?.[1];
-  if (value === undefined) return undefined;
-  if (value.trim().length === 0) throw new ReceiptDecodeError({ message: "invalid departmentId" });
-  return DepartmentId.make(value);
-};
+const normalizedSubmitQuery = (request: Request) =>
+  Effect.try({
+    try: () => {
+      const entries = [...new URL(request.url).searchParams.entries()];
+      if (
+        entries.some(([name]) => name !== "departmentId") ||
+        entries.filter(([name]) => name === "departmentId").length > 1
+      ) {
+        throw new HttpSemanticFailure("request.malformed", 400);
+      }
+      const value = entries[0]?.[1];
+      if (value === undefined) return undefined;
+      if (value.trim().length === 0) {
+        throw new ReceiptDecodeError({ message: "invalid departmentId" });
+      }
+      return DepartmentId.make(value);
+    },
+    catch: (cause) => cause,
+  });
 
 const mutationIdentity = (
   request: Request,
@@ -897,66 +892,62 @@ type ReceiptMutationAuthorizationFor<Target extends ReceiptMutationAuthorization
     ? Extract<ReceiptMutationAuthorization, { readonly _tag: "SubmitReceipt" }>
     : Exclude<ReceiptMutationAuthorization, { readonly _tag: "SubmitReceipt" }>;
 
-const authorizeReceiptMutationInTransaction = async <
-  Target extends ReceiptMutationAuthorizationTarget,
->(
+const authorizeReceiptMutationInTransaction = <Target extends ReceiptMutationAuthorizationTarget>(
   target: Target,
   principal: ReceiptCommandPrincipal,
-  run: ReceiptApiHttpOptions["run"],
-): Promise<ReceiptMutationAuthorizationFor<Target>> => {
-  const authorization = await runDatabase(
-    Economy.use(({ authorizeReceiptMutation }) => authorizeReceiptMutation(target, principal)),
-    run,
-  );
-  if (authorization._tag !== target._tag) {
-    throw new ReceiptPersistenceError({
-      operation: "authorize Receipt mutation",
-      message: "authorization target mismatch",
-    });
-  }
-  return authorization as ReceiptMutationAuthorizationFor<Target>;
-};
-
-const executeV2ReceiptMutation = (
-  options: ReceiptApiHttpOptions,
-  prepare: (run: ReceiptApiHttpOptions["run"]) => Promise<PreparedV2ReceiptMutation>,
-  execution: { readonly retry?: "serialization-once" } = {},
 ) =>
-  options.run(
-    executeNativeHttpCommandPostgres(
-      prepareNativeHttpCommand(options.run, async (txRun) => {
-        const prepared = await prepare(txRun);
-        return {
-          identity: {
-            identitySha256: prepared.identity.identitySha256,
-            requestSha256: prepared.requestSha256,
-            operationId: prepared.operationId,
-          },
-          execute: Economy.use(({ executeAuthorizedReceipt }) =>
-            Effect.gen(function* () {
-              if (
-                prepared.response.ifMatch !== undefined &&
-                prepared.response.currentEtag !== undefined &&
-                prepared.response.ifMatch !== prepared.response.currentEtag
-              ) {
-                return yield* Effect.fail(new HttpSemanticFailure("precondition.failed", 412));
-              }
-              const result = yield* executeAuthorizedReceipt(
-                prepared.command,
-                prepared.authorization,
-                prepared.allocation,
-              );
-              return receiptMutationCapsule(
-                result.receipt,
-                prepared.response.status,
-                prepared.response.location,
-              );
+  Economy.use(({ authorizeReceiptMutation }) =>
+    authorizeReceiptMutation(target, principal),
+  ).pipe(
+    Effect.flatMap((authorization) =>
+      authorization._tag === target._tag
+        ? Effect.succeed(authorization as ReceiptMutationAuthorizationFor<Target>)
+        : Effect.fail(
+            new ReceiptPersistenceError({
+              operation: "authorize Receipt mutation",
+              message: "authorization target mismatch",
             }),
           ),
-        };
-      }),
-      execution,
     ),
+  );
+
+const executeV2ReceiptMutation = <E, R>(
+  prepare: () => Effect.Effect<PreparedV2ReceiptMutation, E, R>,
+  execution: { readonly retry?: "serialization-once" } = {},
+) =>
+  executeNativeHttpCommandPostgres(
+    Effect.gen(function* () {
+      const prepared = yield* prepare();
+      return {
+        identity: {
+          identitySha256: prepared.identity.identitySha256,
+          requestSha256: prepared.requestSha256,
+          operationId: prepared.operationId,
+        },
+        execute: Economy.use(({ executeAuthorizedReceipt }) =>
+          Effect.gen(function* () {
+            if (
+              prepared.response.ifMatch !== undefined &&
+              prepared.response.currentEtag !== undefined &&
+              prepared.response.ifMatch !== prepared.response.currentEtag
+            ) {
+              return yield* Effect.fail(new HttpSemanticFailure("precondition.failed", 412));
+            }
+            const result = yield* executeAuthorizedReceipt(
+              prepared.command,
+              prepared.authorization,
+              prepared.allocation,
+            );
+            return receiptMutationCapsule(
+              result.receipt,
+              prepared.response.status,
+              prepared.response.location,
+            );
+          }),
+        ),
+      };
+    }),
+    execution,
   );
 
 const ownedReceiptResource = (receipt: OwnedReceiptProjectionItem): typeof ReceiptListItem.Type => {
@@ -982,322 +973,300 @@ const ownedReceiptResource = (receipt: OwnedReceiptProjectionItem): typeof Recei
   };
 };
 
-const listOwnedV2 = async (request: Request, options: ReceiptApiHttpOptions): Promise<Response> => {
-  const entries = [...new URL(request.url).searchParams.entries()];
-  if (
-    entries.some(([name]) => name !== "status") ||
-    entries.filter(([name]) => name === "status").length > 1
-  ) {
-    throw new HttpSemanticFailure("request.malformed", 400);
-  }
-  const selectedStatus = entries[0]?.[1];
-  if (selectedStatus !== undefined && !isReceiptStatus(selectedStatus)) {
-    throw new ReceiptDecodeError({ message: "invalid receipt status" });
-  }
-  const principal = await authorizationPrincipalFor(request, options);
-  const rows = await runDatabase(
-    Economy.use(({ listOwnedReceipts }) => listOwnedReceipts(principal.personId, selectedStatus)),
-    options.run,
-  );
-  const items = rows.map(ownedReceiptResource);
-  return jsonResponse({ items, totalItems: items.length }, 200, "private, no-store");
-};
+const cleanupStagedFile = (fileStore: ReceiptFileStore, staged: StagedReceiptFile) =>
+  Effect.tryPromise({
+    try: () => fileStore.cleanupStage(staged.file),
+    catch: () => undefined,
+  }).pipe(Effect.catch(() => Effect.void));
 
-const submitV2 = async (
+const listOwnedV2 = <E, R>(request: Request, options: ReceiptApiHttpOptions<E, R>) =>
+  Effect.gen(function* () {
+    const selectedStatus = yield* Effect.try({
+      try: () => {
+        const entries = [...new URL(request.url).searchParams.entries()];
+        if (
+          entries.some(([name]) => name !== "status") ||
+          entries.filter(([name]) => name === "status").length > 1
+        ) {
+          throw new HttpSemanticFailure("request.malformed", 400);
+        }
+        const status = entries[0]?.[1];
+        if (status !== undefined && !isReceiptStatus(status)) {
+          throw new ReceiptDecodeError({ message: "invalid receipt status" });
+        }
+        return status;
+      },
+      catch: (cause) => cause,
+    });
+    const principal = yield* authorizationPrincipalFor(request, options);
+    const rows = yield* Economy.use(({ listOwnedReceipts }) =>
+      listOwnedReceipts(principal.personId, selectedStatus),
+    );
+    const items = yield* Effect.try({
+      try: () => rows.map(ownedReceiptResource),
+      catch: (cause) => cause,
+    });
+    return jsonResponse({ items, totalItems: items.length }, 200, "private, no-store");
+  });
+
+const submitV2 = <E, R>(
   request: Request,
-  options: ReceiptApiHttpOptions,
+  options: ReceiptApiHttpOptions<E, R>,
   fileStore: ReceiptFileStore,
-): Promise<Response> => {
-  const departmentId = normalizedSubmitQuery(request);
-  const fields = await decodeV2SubmitMultipart(request, options.config.maxFileBytes);
-
+) => {
   let staged: StagedReceiptFile | undefined;
   let allocation: ReceiptSubmissionAllocation | undefined;
   let committed = false;
-  try {
-    const outcome = await executeV2ReceiptMutation(options, async (txRun) => {
-      const principal = await authorizationPrincipalInTransaction(request, options, txRun);
-      const authorization = await authorizeReceiptMutationInTransaction(
-        {
-          _tag: "SubmitReceipt",
-          ...(departmentId === undefined ? {} : { departmentId }),
-        },
-        principal,
-        txRun,
-      );
-      const identity = mutationIdentity(
-        request,
-        principal,
-        "receipts.submitReceipt",
-        "/api/receipts",
-      );
-      staged = await fileStore.stageBytes(
-        fields.file,
-        identity.commandId,
-        fields.contentType,
-        options.config.maxFileBytes,
-      );
-      await txRun(fileStore.service.stage(staged.file));
-      const semanticBody = {
-        ...(departmentId === undefined ? {} : { departmentId }),
-        description: fields.description,
-        amountOre: fields.amountOre,
-        receiptDate: fields.receiptDate,
-        file: {
-          contentType: staged.file.contentType,
-          byteLength: staged.file.byteLength,
-          sha256: staged.file.sha256,
-        },
-      };
-      const command = {
-        _tag: "SubmitReceipt" as const,
-        commandId: identity.commandId,
-        ...(departmentId === undefined ? {} : { departmentId }),
-        description: fields.description,
-        amountOre: fields.amountOre,
-        receiptDate: fields.receiptDate,
-        file: staged.file,
-      };
-      allocation = {
-        receiptId: ReceiptId.make(options.config.nextReceiptId()),
-        visualId: ReceiptVisualId.make(options.config.nextVisualId()),
-      };
-      return {
-        identity,
-        operationId: "receipts.submitReceipt",
-        requestSha256: semanticRequestDigest({ body: semanticBody }),
-        command,
-        principal,
-        authorization,
-        response: {
-          status: 201,
-          location: `/api/receipts/${encodeURIComponent(allocation.receiptId)}`,
-        },
-        allocation,
-      };
-    });
-    if (outcome._tag === "Committed") {
-      if (allocation === undefined) {
-        throw new ReceiptPersistenceError({
-          operation: "submit receipt allocation",
-          message: "transaction preparation produced no allocation",
-        });
-      }
-      committed = true;
-      await drainOutbox(options, fileStore, allocation.receiptId);
-    } else if (staged?.created === true) {
-      await fileStore.cleanupStage(staged.file).catch(() => undefined);
-    }
-    return nativeCommandOutcomeResponse(outcome);
-  } finally {
-    if (!committed && staged?.created === true) {
-      await fileStore.cleanupStage(staged.file).catch(() => undefined);
-    }
-  }
-};
-
-const reviseV2 = async (
-  request: Request,
-  receiptId: string,
-  options: ReceiptApiHttpOptions,
-  fileStore: ReceiptFileStore,
-): Promise<Response> => {
-  const ifMatch = parseRequiredIfMatch(headerValues(request, "if-match"));
-  const fields = await decodeV2ReviseMultipart(request, options.config.maxFileBytes);
-  let staged: StagedReceiptFile | undefined;
-  let committed = false;
-  try {
-    const outcome = await executeV2ReceiptMutation(options, async (txRun) => {
-      const principal = await authorizationPrincipalInTransaction(request, options, txRun);
-      const authorization = await authorizeReceiptMutationInTransaction(
-        { _tag: "RevisePendingReceipt", receiptId },
-        principal,
-        txRun,
-      );
-      const current = authorization.current;
-      const identity = mutationIdentity(
-        request,
-        principal,
-        "receipts.reviseReceipt",
-        `/api/receipts/${encodeURIComponent(receiptId)}`,
-      );
-      if (fields.file !== undefined) {
-        if (fields.contentType === undefined) {
-          throw new ReceiptDecodeError({ message: "invalid receipt file" });
-        }
-        staged = await fileStore.stageBytes(
-          fields.file,
-          identity.commandId,
-          fields.contentType,
-          options.config.maxFileBytes,
-        );
-        await txRun(fileStore.service.stage(staged.file));
-      }
-      const semanticBody = {
-        ...(fields.description === undefined ? {} : { description: fields.description }),
-        ...(fields.amountOre === undefined ? {} : { amountOre: fields.amountOre }),
-        ...(fields.receiptDate === undefined ? {} : { receiptDate: fields.receiptDate }),
-        ...(staged === undefined
-          ? {}
-          : {
-              file: {
-                contentType: staged.file.contentType,
-                byteLength: staged.file.byteLength,
-                sha256: staged.file.sha256,
-              },
-            }),
-      };
-      const command = {
-        _tag: "RevisePendingReceipt" as const,
-        commandId: identity.commandId,
-        receiptId,
-        expectedRevision: current.revision,
-        description: fields.description ?? current.description,
-        amountOre:
-          fields.amountOre ??
-          (() => {
-            const value = Number(current.amountOre);
-            if (!Number.isSafeInteger(value) || value <= 0) {
-              throw new ReceiptPersistenceError({
-                operation: "decode current receipt amount",
-                message: "invalid amount",
-              });
-            }
-            return value;
-          })(),
-        receiptDate: fields.receiptDate ?? current.receiptDate,
-        file: staged?.file ?? { _tag: "KeepCurrentFile" as const },
-      };
-      return {
-        identity,
-        operationId: "receipts.reviseReceipt",
-        requestSha256: semanticRequestDigest(semanticMutationRequest(semanticBody, ifMatch)),
-        command,
-        principal,
-        authorization,
-        response: {
-          status: 200,
-          ifMatch,
-          currentEtag: receiptEtag(receiptId, current.revision),
-        },
-      };
-    });
-    if (outcome._tag === "Committed") {
-      committed = true;
-      await drainOutbox(options, fileStore, receiptId);
-    } else if (staged?.created === true) {
-      await fileStore.cleanupStage(staged.file).catch(() => undefined);
-    }
-    return nativeCommandOutcomeResponse(outcome);
-  } finally {
-    if (!committed && staged?.created === true) {
-      await fileStore.cleanupStage(staged.file).catch(() => undefined);
-    }
-  }
-};
-
-const withdrawV2 = async (
-  request: Request,
-  receiptId: string,
-  options: ReceiptApiHttpOptions,
-  fileStore: ReceiptFileStore,
-): Promise<Response> => {
-  const ifMatch = parseRequiredIfMatch(headerValues(request, "if-match"));
-  const body = await decodeExactEmptyJson(request);
-  const outcome = await executeV2ReceiptMutation(options, async (txRun) => {
-    const principal = await authorizationPrincipalInTransaction(request, options, txRun);
-    const authorization = await authorizeReceiptMutationInTransaction(
-      { _tag: "WithdrawPendingReceipt", receiptId },
-      principal,
-      txRun,
-    );
-    const current = authorization.current;
-    const identity = mutationIdentity(
-      request,
-      principal,
-      "receipts.withdrawReceipt",
-      `/api/receipts/${encodeURIComponent(receiptId)}/withdraw`,
-    );
-    return {
-      identity,
-      operationId: "receipts.withdrawReceipt",
-      requestSha256: semanticRequestDigest(semanticMutationRequest(body, ifMatch)),
-      command: {
-        _tag: "WithdrawPendingReceipt" as const,
-        commandId: identity.commandId,
-        receiptId,
-        expectedRevision: current.revision,
-      },
-      principal,
-      authorization,
-      response: {
-        status: 200,
-        ifMatch,
-        currentEtag: receiptEtag(receiptId, current.revision),
-      },
-    };
-  });
-  if (outcome._tag === "Committed") await drainOutbox(options, fileStore, receiptId);
-  return nativeCommandOutcomeResponse(outcome);
-};
-
-const approvalCommandV2 = async (
-  request: Request,
-  route: ReceiptApprovalRoute,
-  options: ReceiptApiHttpOptions,
-  fileStore: ReceiptFileStore,
-): Promise<Response> => {
-  if (new URL(request.url).search.length > 0) {
-    throw new HttpSemanticFailure("request.malformed", 400);
-  }
-  const ifMatch = parseRequiredIfMatch(headerValues(request, "if-match"));
-  const body = await decodeExactEmptyJson(request);
-  const operationId =
-    route.action === "refund"
-      ? "receipts.refundReceipt"
-      : route.action === "reopen"
-        ? "receipts.reopenReceipt"
-        : "receipts.rejectReceipt";
-  const normalizedTarget = `/api/receipts/${encodeURIComponent(route.receiptId)}/${route.action}`;
-  let synchronized = false;
-  const executeApprovalCommand = () =>
-    executeV2ReceiptMutation(
-      options,
-      async (txRun) => {
-        const principal = await authorizationPrincipalInTransaction(request, options, txRun);
-        if (route.action !== "reopen") {
-          synchronized =
-            (await options.e2eTransactionBarrier?.(request, route.receiptId, route.action)) ??
-            false;
-        }
-        const authorization = await authorizeReceiptMutationInTransaction(
+  return Effect.gen(function* () {
+    const departmentId = yield* normalizedSubmitQuery(request);
+    const fields = yield* decodeV2SubmitMultipart(request, options.config.maxFileBytes);
+    const outcome = yield* executeV2ReceiptMutation(() =>
+      Effect.gen(function* () {
+        const principal = yield* authorizationPrincipalInTransaction(request, options);
+        const authorization = yield* authorizeReceiptMutationInTransaction(
           {
-            _tag:
-              route.action === "refund"
-                ? ("RefundReceipt" as const)
-                : route.action === "reopen"
-                  ? ("ReopenRejectedReceipt" as const)
-                  : ("RejectReceipt" as const),
-            receiptId: route.receiptId,
+            _tag: "SubmitReceipt",
+            ...(departmentId === undefined ? {} : { departmentId }),
           },
           principal,
-          txRun,
         );
-        const current = authorization.current;
-        const identity = mutationIdentity(request, principal, operationId, normalizedTarget);
+        const identity = yield* Effect.try({
+          try: () => mutationIdentity(request, principal, "receipts.submitReceipt", "/api/receipts"),
+          catch: (cause) => cause,
+        });
+        const nextStaged = yield* Effect.tryPromise({
+          try: () =>
+            fileStore.stageBytes(
+              fields.file,
+              identity.commandId,
+              fields.contentType,
+              options.config.maxFileBytes,
+            ),
+          catch: (cause) => cause,
+        });
+        staged = nextStaged;
+        yield* fileStore.service.stage(nextStaged.file);
+        const semanticBody = {
+          ...(departmentId === undefined ? {} : { departmentId }),
+          description: fields.description,
+          amountOre: fields.amountOre,
+          receiptDate: fields.receiptDate,
+          file: {
+            contentType: nextStaged.file.contentType,
+            byteLength: nextStaged.file.byteLength,
+            sha256: nextStaged.file.sha256,
+          },
+        };
+        const command = {
+          _tag: "SubmitReceipt" as const,
+          commandId: identity.commandId,
+          ...(departmentId === undefined ? {} : { departmentId }),
+          description: fields.description,
+          amountOre: fields.amountOre,
+          receiptDate: fields.receiptDate,
+          file: nextStaged.file,
+        };
+        const nextAllocation = {
+          receiptId: ReceiptId.make(options.config.nextReceiptId()),
+          visualId: ReceiptVisualId.make(options.config.nextVisualId()),
+        };
+        allocation = nextAllocation;
         return {
           identity,
-          operationId,
+          operationId: "receipts.submitReceipt",
+          requestSha256: semanticRequestDigest({ body: semanticBody }),
+          command,
+          principal,
+          authorization,
+          response: {
+            status: 201,
+            location: `/api/receipts/${encodeURIComponent(nextAllocation.receiptId)}`,
+          },
+          allocation: nextAllocation,
+        };
+      }),
+    );
+    if (outcome._tag === "Committed") {
+      if (allocation === undefined) {
+        return yield* Effect.fail(
+          new ReceiptPersistenceError({
+            operation: "submit receipt allocation",
+            message: "transaction preparation produced no allocation",
+          }),
+        );
+      }
+      committed = true;
+      yield* drainOutbox(options, fileStore, allocation.receiptId);
+    } else if (staged?.created === true) {
+      yield* cleanupStagedFile(fileStore, staged);
+    }
+    return nativeCommandOutcomeResponse(outcome);
+  }).pipe(
+    Effect.ensuring(
+      Effect.suspend(() =>
+        !committed && staged?.created === true ? cleanupStagedFile(fileStore, staged) : Effect.void,
+      ),
+    ),
+  );
+};
+
+const reviseV2 = <E, R>(
+  request: Request,
+  receiptId: string,
+  options: ReceiptApiHttpOptions<E, R>,
+  fileStore: ReceiptFileStore,
+) => {
+  let staged: StagedReceiptFile | undefined;
+  let committed = false;
+  return Effect.gen(function* () {
+    const ifMatch = yield* Effect.try({
+      try: () => parseRequiredIfMatch(headerValues(request, "if-match")),
+      catch: (cause) => cause,
+    });
+    const fields = yield* decodeV2ReviseMultipart(request, options.config.maxFileBytes);
+    const outcome = yield* executeV2ReceiptMutation(() =>
+      Effect.gen(function* () {
+        const principal = yield* authorizationPrincipalInTransaction(request, options);
+        const authorization = yield* authorizeReceiptMutationInTransaction(
+          { _tag: "RevisePendingReceipt", receiptId },
+          principal,
+        );
+        const current = authorization.current;
+        const identity = yield* Effect.try({
+          try: () =>
+            mutationIdentity(
+              request,
+              principal,
+              "receipts.reviseReceipt",
+              `/api/receipts/${encodeURIComponent(receiptId)}`,
+            ),
+          catch: (cause) => cause,
+        });
+        if (fields.file !== undefined) {
+          if (fields.contentType === undefined) {
+            return yield* Effect.fail(new ReceiptDecodeError({ message: "invalid receipt file" }));
+          }
+          const nextStaged = yield* Effect.tryPromise({
+            try: () =>
+              fileStore.stageBytes(
+                fields.file!,
+                identity.commandId,
+                fields.contentType,
+                options.config.maxFileBytes,
+              ),
+            catch: (cause) => cause,
+          });
+          staged = nextStaged;
+          yield* fileStore.service.stage(nextStaged.file);
+        }
+        const amountOre =
+          fields.amountOre ??
+          (yield* Effect.try({
+            try: () => {
+              const value = Number(current.amountOre);
+              if (!Number.isSafeInteger(value) || value <= 0) {
+                throw new ReceiptPersistenceError({
+                  operation: "decode current receipt amount",
+                  message: "invalid amount",
+                });
+              }
+              return value;
+            },
+            catch: (cause) => cause,
+          }));
+        const semanticBody = {
+          ...(fields.description === undefined ? {} : { description: fields.description }),
+          ...(fields.amountOre === undefined ? {} : { amountOre: fields.amountOre }),
+          ...(fields.receiptDate === undefined ? {} : { receiptDate: fields.receiptDate }),
+          ...(staged === undefined
+            ? {}
+            : {
+                file: {
+                  contentType: staged.file.contentType,
+                  byteLength: staged.file.byteLength,
+                  sha256: staged.file.sha256,
+                },
+              }),
+        };
+        const command = {
+          _tag: "RevisePendingReceipt" as const,
+          commandId: identity.commandId,
+          receiptId,
+          expectedRevision: current.revision,
+          description: fields.description ?? current.description,
+          amountOre,
+          receiptDate: fields.receiptDate ?? current.receiptDate,
+          file: staged?.file ?? { _tag: "KeepCurrentFile" as const },
+        };
+        return {
+          identity,
+          operationId: "receipts.reviseReceipt",
+          requestSha256: semanticRequestDigest(semanticMutationRequest(semanticBody, ifMatch)),
+          command,
+          principal,
+          authorization,
+          response: {
+            status: 200,
+            ifMatch,
+            currentEtag: receiptEtag(receiptId, current.revision),
+          },
+        };
+      }),
+    );
+    if (outcome._tag === "Committed") {
+      committed = true;
+      yield* drainOutbox(options, fileStore, receiptId);
+    } else if (staged?.created === true) {
+      yield* cleanupStagedFile(fileStore, staged);
+    }
+    return nativeCommandOutcomeResponse(outcome);
+  }).pipe(
+    Effect.ensuring(
+      Effect.suspend(() =>
+        !committed && staged?.created === true ? cleanupStagedFile(fileStore, staged) : Effect.void,
+      ),
+    ),
+  );
+};
+
+const withdrawV2 = <E, R>(
+  request: Request,
+  receiptId: string,
+  options: ReceiptApiHttpOptions<E, R>,
+  fileStore: ReceiptFileStore,
+) =>
+  Effect.gen(function* () {
+    const ifMatch = yield* Effect.try({
+      try: () => parseRequiredIfMatch(headerValues(request, "if-match")),
+      catch: (cause) => cause,
+    });
+    const body = yield* decodeExactEmptyJson(request);
+    const outcome = yield* executeV2ReceiptMutation(() =>
+      Effect.gen(function* () {
+        const principal = yield* authorizationPrincipalInTransaction(request, options);
+        const authorization = yield* authorizeReceiptMutationInTransaction(
+          { _tag: "WithdrawPendingReceipt", receiptId },
+          principal,
+        );
+        const current = authorization.current;
+        const identity = yield* Effect.try({
+          try: () =>
+            mutationIdentity(
+              request,
+              principal,
+              "receipts.withdrawReceipt",
+              `/api/receipts/${encodeURIComponent(receiptId)}/withdraw`,
+            ),
+          catch: (cause) => cause,
+        });
+        return {
+          identity,
+          operationId: "receipts.withdrawReceipt",
           requestSha256: semanticRequestDigest(semanticMutationRequest(body, ifMatch)),
           command: {
-            _tag:
-              route.action === "refund"
-                ? ("RefundReceipt" as const)
-                : route.action === "reopen"
-                  ? ("ReopenRejectedReceipt" as const)
-                  : ("RejectReceipt" as const),
+            _tag: "WithdrawPendingReceipt" as const,
             commandId: identity.commandId,
-            receiptId: route.receiptId,
+            receiptId,
             expectedRevision: current.revision,
           },
           principal,
@@ -1305,226 +1274,314 @@ const approvalCommandV2 = async (
           response: {
             status: 200,
             ifMatch,
-            currentEtag: receiptEtag(route.receiptId, current.revision),
+            currentEtag: receiptEtag(receiptId, current.revision),
           },
         };
-      },
-      route.action === "reopen" ? {} : { retry: "serialization-once" },
+      }),
     );
-  let outcome: Awaited<ReturnType<typeof executeApprovalCommand>>;
-  try {
-    outcome = await executeApprovalCommand();
-  } catch (cause) {
-    if (!synchronized) throw cause;
-    const response = publicReceiptErrorResponse(cause);
-    response.headers.set(RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER, "1");
-    return response;
-  }
-  if (outcome._tag === "Committed" && route.action !== "reopen")
-    await drainOutbox(options, fileStore, route.receiptId);
-  const response = nativeCommandOutcomeResponse(outcome);
-  if (synchronized) response.headers.set(RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER, "1");
-  return response;
-};
+    if (outcome._tag === "Committed") yield* drainOutbox(options, fileStore, receiptId);
+    return nativeCommandOutcomeResponse(outcome);
+  });
 
-const decodeApprovalStatusFilter = (request: Request): ReceiptStatus | undefined => {
-  const entries = [...new URL(request.url).searchParams.entries()];
-  const statusEntries = entries.filter(([name]) => name === "status");
-  if (entries.some(([name]) => name !== "status") || statusEntries.length > 1) {
-    throw new HttpSemanticFailure("request.malformed", 400);
-  }
-  const status = statusEntries[0]?.[1];
-  if (status === undefined) return undefined;
-  if (!isReceiptStatus(status)) {
-    throw new HttpSemanticFailure("request.malformed", 400);
-  }
-  return status;
-};
-
-const approvalList = async (
+const approvalCommandV2 = <E, R>(
   request: Request,
-  options: ReceiptApiHttpOptions,
-): Promise<Response> => {
-  const status = decodeApprovalStatusFilter(request);
-  let resolved:
-    | {
-        readonly credential: AcceptedCredential;
-        readonly authorizationInstant: AuthorizationInstant;
-      }
-    | undefined;
-  try {
-    resolved = await options.identity.resolveApprovalCredential?.(request);
-  } catch (cause) {
-    throw invalidSessionFailure(request, cause);
-  }
-  if (
-    resolved !== undefined &&
-    resolved.credential.mechanism._tag === "OAuthServiceBearer" &&
-    resolved.credential.principal._tag === "ServicePrincipal"
-  ) {
-    const credential = resolved.credential as AcceptedOAuthServiceCredential;
-    const authority = await options
-      .run(
-        ServicePrincipalGrantAuthority.use(({ readReceiptApprovalCandidates }) =>
-          readReceiptApprovalCandidates(credential, resolved.authorizationInstant),
-        ),
-      )
-      .catch(() => {
-        throw new ReceiptPersistenceError({
-          operation: "read service receipt approval authority",
-          message: "service receipt approval authority is unavailable",
-        });
-      });
-    const evaluation = evaluateServicePrincipalReceiptApprovalAccess(
-      credential,
-      authority,
-      resolved.authorizationInstant,
+  route: ReceiptApprovalRoute,
+  options: ReceiptApiHttpOptions<E, R>,
+  fileStore: ReceiptFileStore,
+) => {
+  let synchronized = false;
+  return Effect.gen(function* () {
+    yield* Effect.try({
+      try: () => {
+        if (new URL(request.url).search.length > 0) {
+          throw new HttpSemanticFailure("request.malformed", 400);
+        }
+      },
+      catch: (cause) => cause,
+    });
+    const ifMatch = yield* Effect.try({
+      try: () => parseRequiredIfMatch(headerValues(request, "if-match")),
+      catch: (cause) => cause,
+    });
+    const body = yield* decodeExactEmptyJson(request);
+    const operationId =
+      route.action === "refund"
+        ? "receipts.refundReceipt"
+        : route.action === "reopen"
+          ? "receipts.reopenReceipt"
+          : "receipts.rejectReceipt";
+    const normalizedTarget = `/api/receipts/${encodeURIComponent(route.receiptId)}/${route.action}`;
+    const execution = yield* executeV2ReceiptMutation(
+      () =>
+        Effect.gen(function* () {
+          const principal = yield* authorizationPrincipalInTransaction(request, options);
+          if (route.action !== "reopen") {
+            const barrier = options.e2eTransactionBarrier;
+            synchronized =
+              barrier === undefined
+                ? false
+                : yield* Effect.tryPromise({
+                    try: () => barrier(request, route.receiptId, route.action),
+                    catch: (cause) => cause,
+                  });
+          }
+          const authorization = yield* authorizeReceiptMutationInTransaction(
+            {
+              _tag:
+                route.action === "refund"
+                  ? ("RefundReceipt" as const)
+                  : route.action === "reopen"
+                    ? ("ReopenRejectedReceipt" as const)
+                    : ("RejectReceipt" as const),
+              receiptId: route.receiptId,
+            },
+            principal,
+          );
+          const current = authorization.current;
+          const identity = yield* Effect.try({
+            try: () => mutationIdentity(request, principal, operationId, normalizedTarget),
+            catch: (cause) => cause,
+          });
+          return {
+            identity,
+            operationId,
+            requestSha256: semanticRequestDigest(semanticMutationRequest(body, ifMatch)),
+            command: {
+              _tag:
+                route.action === "refund"
+                  ? ("RefundReceipt" as const)
+                  : route.action === "reopen"
+                    ? ("ReopenRejectedReceipt" as const)
+                    : ("RejectReceipt" as const),
+              commandId: identity.commandId,
+              receiptId: route.receiptId,
+              expectedRevision: current.revision,
+            },
+            principal,
+            authorization,
+            response: {
+              status: 200,
+              ifMatch,
+              currentEtag: receiptEtag(route.receiptId, current.revision),
+            },
+          };
+        }),
+      route.action === "reopen" ? {} : { retry: "serialization-once" },
+    ).pipe(
+      Effect.match({
+        onFailure: (cause) => ({ _tag: "Failure" as const, cause }),
+        onSuccess: (outcome) => ({ _tag: "Success" as const, outcome }),
+      }),
     );
-    if (evaluation._tag !== "Allow") {
-      return jsonResponse({ error: { tag: "ReceiptScopeDenied" } }, 403);
+    if (execution._tag === "Failure") {
+      if (!synchronized) return yield* Effect.fail(execution.cause);
+      const response = publicReceiptErrorResponse(execution.cause);
+      response.headers.set(RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER, "1");
+      return response;
     }
-    const allowed = new Set<string>(
-      evaluation.resolution.contexts.flatMap((context) =>
-        context.resource === null ? [] : [context.resource.id],
-      ),
-    );
-    const seen = new Set<string>();
-    const items = authority.candidates.flatMap(({ receipt }) => {
-      if (seen.has(receipt.receiptId) || !allowed.has(receipt.receiptId)) return [];
-      seen.add(receipt.receiptId);
-      if (status !== undefined && receipt.status !== status) return [];
-      const amountOre = Number(receipt.amountOre);
-      if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
-        throw new ReceiptPersistenceError({
-          operation: "decode service approver projection",
-          message: "invalid amount",
-        });
+    const outcome = execution.outcome;
+    if (outcome._tag === "Committed" && route.action !== "reopen") {
+      yield* drainOutbox(options, fileStore, route.receiptId);
+    }
+    const response = nativeCommandOutcomeResponse(outcome);
+    if (synchronized) response.headers.set(RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER, "1");
+    return response;
+  });
+};
+
+const decodeApprovalStatusFilter = (request: Request) =>
+  Effect.try({
+    try: () => {
+      const entries = [...new URL(request.url).searchParams.entries()];
+      const statusEntries = entries.filter(([name]) => name === "status");
+      if (entries.some(([name]) => name !== "status") || statusEntries.length > 1) {
+        throw new HttpSemanticFailure("request.malformed", 400);
       }
-      return [
-        {
-          receiptId: receipt.receiptId,
-          visualId: receipt.visualId,
-          ownerPersonId: receipt.ownerPersonId,
-          departmentId: receipt.departmentId,
-          amountOre,
-          currency: receipt.currency,
-          description: receipt.description,
-          receiptDate: receipt.receiptDate,
-          status: receipt.status,
-          revision: receipt.revision,
-          etag: receiptEtag(receipt.receiptId, receipt.revision),
+      const status = statusEntries[0]?.[1];
+      if (status === undefined) return undefined;
+      if (!isReceiptStatus(status)) {
+        throw new HttpSemanticFailure("request.malformed", 400);
+      }
+      return status;
+    },
+    catch: (cause) => cause,
+  });
+
+const approvalList = <E, R>(request: Request, options: ReceiptApiHttpOptions<E, R>) =>
+  Effect.gen(function* () {
+    const status = yield* decodeApprovalStatusFilter(request);
+    const resolved =
+      options.identity.resolveApprovalCredential === undefined
+        ? undefined
+        : yield* options.identity.resolveApprovalCredential(request).pipe(
+            Effect.catch((cause) => Effect.fail(invalidSessionFailure(request, cause))),
+          );
+    if (
+      resolved !== undefined &&
+      resolved.credential.mechanism._tag === "OAuthServiceBearer" &&
+      resolved.credential.principal._tag === "ServicePrincipal"
+    ) {
+      const credential = resolved.credential as AcceptedOAuthServiceCredential;
+      const authority = yield* ServicePrincipalGrantAuthority.use(
+        ({ readReceiptApprovalCandidates }) =>
+          readReceiptApprovalCandidates(credential, resolved.authorizationInstant),
+      ).pipe(
+        Effect.catch(() =>
+          Effect.fail(
+            new ReceiptPersistenceError({
+              operation: "read service receipt approval authority",
+              message: "service receipt approval authority is unavailable",
+            }),
+          ),
+        ),
+      );
+      const evaluation = evaluateServicePrincipalReceiptApprovalAccess(
+        credential,
+        authority,
+        resolved.authorizationInstant,
+      );
+      if (evaluation._tag !== "Allow") {
+        return jsonResponse({ error: { tag: "ReceiptScopeDenied" } }, 403);
+      }
+      const items = yield* Effect.try({
+        try: () => {
+          const allowed = new Set<string>(
+            evaluation.resolution.contexts.flatMap((context) =>
+              context.resource === null ? [] : [context.resource.id],
+            ),
+          );
+          const seen = new Set<string>();
+          return authority.candidates.flatMap(({ receipt }) => {
+            if (seen.has(receipt.receiptId) || !allowed.has(receipt.receiptId)) return [];
+            seen.add(receipt.receiptId);
+            if (status !== undefined && receipt.status !== status) return [];
+            const amountOre = Number(receipt.amountOre);
+            if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
+              throw new ReceiptPersistenceError({
+                operation: "decode service approver projection",
+                message: "invalid amount",
+              });
+            }
+            return [
+              {
+                receiptId: receipt.receiptId,
+                visualId: receipt.visualId,
+                ownerPersonId: receipt.ownerPersonId,
+                departmentId: receipt.departmentId,
+                amountOre,
+                currency: receipt.currency,
+                description: receipt.description,
+                receiptDate: receipt.receiptDate,
+                status: receipt.status,
+                revision: receipt.revision,
+                etag: receiptEtag(receipt.receiptId, receipt.revision),
+              },
+            ];
+          });
         },
-      ];
+        catch: (cause) => cause,
+      });
+      return jsonResponse({ items, totalItems: items.length }, 200, "private, no-store");
+    }
+
+    const principal =
+      resolved !== undefined && resolved.credential.principal._tag === "Person"
+        ? {
+            personId: resolved.credential.principal.personId,
+            authorizationInstant: resolved.authorizationInstant,
+          }
+        : yield* authorizationPrincipalFor(request, options);
+    const rows = yield* Economy.use(({ listReceiptsForApproval }) =>
+      listReceiptsForApproval(principal.personId, principal.authorizationInstant, status),
+    );
+    const items = yield* Effect.try({
+      try: () =>
+        rows.map((row) => {
+          const amountOre = Number(row.amountOre);
+          if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
+            throw new ReceiptPersistenceError({
+              operation: "decode approver projection",
+              message: "invalid amount",
+            });
+          }
+          return {
+            receiptId: row.receiptId,
+            visualId: row.visualId,
+            ownerPersonId: row.ownerPersonId,
+            departmentId: row.departmentId,
+            amountOre,
+            currency: row.currency,
+            description: row.description,
+            receiptDate: row.receiptDate,
+            status: row.status,
+            revision: row.revision,
+            etag: receiptEtag(row.receiptId, row.revision),
+          };
+        }),
+      catch: (cause) => cause,
     });
     return jsonResponse({ items, totalItems: items.length }, 200, "private, no-store");
-  }
-
-  const principal =
-    resolved !== undefined && resolved.credential.principal._tag === "Person"
-      ? {
-          personId: resolved.credential.principal.personId,
-          authorizationInstant: resolved.authorizationInstant,
-        }
-      : await authorizationPrincipalFor(request, options);
-  const rows = await runDatabase(
-    Economy.use(({ listReceiptsForApproval }) =>
-      listReceiptsForApproval(principal.personId, principal.authorizationInstant, status),
-    ),
-    options.run,
-  );
-  const items = rows.map((row) => {
-    const amountOre = Number(row.amountOre);
-    if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
-      throw new ReceiptPersistenceError({
-        operation: "decode approver projection",
-        message: "invalid amount",
-      });
-    }
-    return {
-      receiptId: row.receiptId,
-      visualId: row.visualId,
-      ownerPersonId: row.ownerPersonId,
-      departmentId: row.departmentId,
-      amountOre,
-      currency: row.currency,
-      description: row.description,
-      receiptDate: row.receiptDate,
-      status: row.status,
-      revision: row.revision,
-      etag: receiptEtag(row.receiptId, row.revision),
-    };
   });
-  return jsonResponse({ items, totalItems: items.length }, 200, "private, no-store");
-};
 
 /**
  * Reads one approver-visible receipt file without granting owner access.
  * Credential resolution and rule-aware metadata selection share one snapshot.
  */
-const approvalReceiptFile = async (
+const approvalReceiptFile = <E, R>(
   request: Request,
   receiptId: string,
-  options: ReceiptApiHttpOptions,
+  options: ReceiptApiHttpOptions<E, R>,
   fileStore: ReceiptFileStore,
-): Promise<HttpServerResponse.HttpServerResponse> => {
+) => {
   let synchronized = false;
-  const file = await options.run(
-    Effect.gen(function* () {
-      const sql = yield* Database;
-      return yield* sql.withTransaction(
-        Effect.gen(function* () {
-          yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`;
-          const context = yield* Effect.context<
-            Database | Economy | IdentitySnapshot | OAuthCredentialAuthority
-          >();
-          const authenticated = yield* Effect.tryPromise({
-            try: () =>
-              resolveRequestCredentialInTransaction(request, "OAuthUserBearer", {
-                // oxlint-disable-next-line effect/no-premature-execution -- promise-shaped identity adapter stays inside this request snapshot
-                run: Effect.runPromiseWith(context),
-                now: options.now,
-              }),
-            catch: (cause) => invalidSessionFailure(request, cause),
+  return Effect.gen(function* () {
+    const sql = yield* Database;
+    const file = yield* sql.withTransaction(
+      Effect.gen(function* () {
+        yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`;
+        const authenticated = yield* resolveRequestCredentialInTransaction(
+          request,
+          "OAuthUserBearer",
+          { now: options.now },
+        ).pipe(Effect.mapError((cause) => invalidSessionFailure(request, cause)));
+        const principal = authenticated.credential.principal;
+        if (principal._tag !== "Person") {
+          return yield* Effect.fail(new HttpSemanticFailure("credential.invalid", 401));
+        }
+        const barrier = options.e2eTransactionBarrier;
+        if (barrier !== undefined) {
+          synchronized = yield* Effect.tryPromise({
+            try: () => barrier(request, receiptId, "file-read"),
+            catch: (cause) => cause,
           });
-          const principal = authenticated.credential.principal;
-          if (principal._tag !== "Person") {
-            return yield* Effect.fail(new HttpSemanticFailure("credential.invalid", 401));
-          }
-          const barrier = options.e2eTransactionBarrier;
-          if (barrier !== undefined) {
-            synchronized = yield* Effect.tryPromise({
-              try: () => barrier(request, receiptId, "file-read"),
-              catch: (cause) => cause,
-            });
-          }
-          return yield* Economy.use(({ readReceiptFileForApproval }) =>
-            readReceiptFileForApproval(
-              receiptId,
-              principal.personId,
-              authenticated.authorizationInstant,
-            ).pipe(
-              Effect.catchTag("ReceiptNotFound", () =>
-                Effect.fail(new HttpSemanticFailure("resource.not-found", 404)),
-              ),
-              Effect.catchTag("ReceiptDecodeError", () =>
-                Effect.fail(new HttpSemanticFailure("receipts.unavailable", 503)),
-              ),
+        }
+        return yield* Economy.use(({ readReceiptFileForApproval }) =>
+          readReceiptFileForApproval(
+            receiptId,
+            principal.personId,
+            authenticated.authorizationInstant,
+          ).pipe(
+            Effect.catchTag("ReceiptNotFound", () =>
+              Effect.fail(new HttpSemanticFailure("resource.not-found", 404)),
             ),
-          );
-        }),
-      );
-    }),
-  );
-  return readPrivateReceiptFile(
-    file,
-    fileStore,
-    options.config.maxFileBytes,
-    synchronized ? { [RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER]: "1" } : {},
-  );
+            Effect.catchTag("ReceiptDecodeError", () =>
+              Effect.fail(new HttpSemanticFailure("receipts.unavailable", 503)),
+            ),
+          ),
+        );
+      }),
+    );
+    return yield* readPrivateReceiptFile(
+      file,
+      fileStore,
+      options.config.maxFileBytes,
+      synchronized ? { [RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER]: "1" } : {},
+    );
+  });
 };
 
 /** Native HttpApi implementations for receipt lifecycle endpoints. */
-export const ReceiptApiHandlers = (input: ReceiptApiHttpOptions) => {
+export const ReceiptApiHandlers = <E, R>(input: ReceiptApiHttpOptions<E, R>) => {
   const fileStore =
     input.fileStore ??
     makeReceiptFileStore({
@@ -1542,80 +1599,74 @@ export const ReceiptApiHandlers = (input: ReceiptApiHttpOptions) => {
     Effect.succeed(
       handlers
         .handleRaw("readReceiptFile", ({ request, params }) =>
-          toPrivateFileHttpApiResponse(request, async (webRequest) => {
-            const file = await input.run(
-              Effect.gen(function* () {
-                const sql = yield* Database;
-                return yield* sql.withTransaction(
-                  Effect.gen(function* () {
-                    yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`;
-                    const context = yield* Effect.context<
-                      Database | IdentitySnapshot | OAuthCredentialAuthority
-                    >();
-                    const authenticated = yield* Effect.tryPromise({
-                      try: () =>
-                        resolveRequestCredentialInTransaction(webRequest, "OAuthUserBearer", {
-                          // oxlint-disable-next-line effect/no-premature-execution -- promise-shaped identity adapter stays inside this request snapshot
-                          run: Effect.runPromiseWith(context),
-                          now: input.now,
-                        }),
-                      catch: (cause) => cause,
-                    });
-                    const principal = authenticated.credential.principal;
-                    if (principal._tag !== "Person")
-                      return yield* Effect.fail(new HttpSemanticFailure("credential.invalid", 401));
-                    const owned = yield* readOwnedReceiptFile(params.receiptId, principal.personId);
-                    if (owned === undefined)
-                      return yield* Effect.fail(new HttpSemanticFailure("resource.not-found", 404));
-                    const resource = {
-                      kind: RECEIPT_RESOURCE_KIND,
-                      id: ResourceId.make(params.receiptId),
-                    };
-                    const evaluation = evaluateAccess({
-                      spec: Option.getOrThrow(reflectAccessSpec(ReadReceiptFileEndpoint)),
-                      credential: authenticated.credential,
-                      resolution: {
-                        selection: "ExactlyOne",
-                        contexts: [
-                          {
-                            domainId: RECEIPT_DOMAIN_ID,
-                            departmentId: DepartmentId.make(owned.departmentId),
-                            resource,
-                            facts: {
-                              ownerPersonId: principal.personId,
-                              state: owned.status,
-                              approverPersonIds: [],
-                              approverServicePrincipalIds: [],
-                              internalEvidenceEnabled: false,
-                            } satisfies ReceiptAccessFacts,
-                            authorityVersion: AuthorityVersion.make(`receipt:${owned.revision}`),
-                          },
-                        ],
-                      },
-                      grants: [
-                        makeGrant({
-                          grantId: GrantId.make(`receipt-owner:${params.receiptId}`),
-                          subject: principal,
-                          capability: { type: CapabilityTypeId.make("receipts.read-owned") },
-                          scope: { _tag: "Resource", resource },
-                          startAt: AuthorizationInstant.make("1970-01-01T00:00:00.000Z"),
-                          endAt: null,
-                          requirements: [],
-                          source: AuthorityRef.make("economy_receipts.owner_person_id"),
-                          revision: owned.revision,
-                        }),
+          toPrivateFileHttpApiResponse(request, (webRequest) =>
+            Effect.gen(function* () {
+              const sql = yield* Database;
+              const file = yield* sql.withTransaction(
+                Effect.gen(function* () {
+                  yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`;
+                  const authenticated = yield* resolveRequestCredentialInTransaction(
+                    webRequest,
+                    "OAuthUserBearer",
+                    { now: input.now },
+                  );
+                  const principal = authenticated.credential.principal;
+                  if (principal._tag !== "Person") {
+                    return yield* Effect.fail(new HttpSemanticFailure("credential.invalid", 401));
+                  }
+                  const owned = yield* readOwnedReceiptFile(params.receiptId, principal.personId);
+                  if (owned === undefined) {
+                    return yield* Effect.fail(new HttpSemanticFailure("resource.not-found", 404));
+                  }
+                  const resource = {
+                    kind: RECEIPT_RESOURCE_KIND,
+                    id: ResourceId.make(params.receiptId),
+                  };
+                  const evaluation = evaluateAccess({
+                    spec: Option.getOrThrow(reflectAccessSpec(ReadReceiptFileEndpoint)),
+                    credential: authenticated.credential,
+                    resolution: {
+                      selection: "ExactlyOne",
+                      contexts: [
+                        {
+                          domainId: RECEIPT_DOMAIN_ID,
+                          departmentId: DepartmentId.make(owned.departmentId),
+                          resource,
+                          facts: {
+                            ownerPersonId: principal.personId,
+                            state: owned.status,
+                            approverPersonIds: [],
+                            approverServicePrincipalIds: [],
+                            internalEvidenceEnabled: false,
+                          } satisfies ReceiptAccessFacts,
+                          authorityVersion: AuthorityVersion.make(`receipt:${owned.revision}`),
+                        },
                       ],
-                      authorizationInstant: authenticated.authorizationInstant,
-                    });
-                    if (evaluation._tag !== "Allow")
-                      return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
-                    return owned.file;
-                  }),
-                );
-              }),
-            );
-            return readPrivateReceiptFile(file, fileStore, input.config.maxFileBytes);
-          }),
+                    },
+                    grants: [
+                      makeGrant({
+                        grantId: GrantId.make(`receipt-owner:${params.receiptId}`),
+                        subject: principal,
+                        capability: { type: CapabilityTypeId.make("receipts.read-owned") },
+                        scope: { _tag: "Resource", resource },
+                        startAt: AuthorizationInstant.make("1970-01-01T00:00:00.000Z"),
+                        endAt: null,
+                        requirements: [],
+                        source: AuthorityRef.make("economy_receipts.owner_person_id"),
+                        revision: owned.revision,
+                      }),
+                    ],
+                    authorizationInstant: authenticated.authorizationInstant,
+                  });
+                  if (evaluation._tag !== "Allow") {
+                    return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
+                  }
+                  return owned.file;
+                }),
+              );
+              return yield* readPrivateReceiptFile(file, fileStore, input.config.maxFileBytes);
+            }),
+          ),
         )
         .handleRaw("readReceiptFileForApproval", ({ request, params }) =>
           toPrivateFileHttpApiResponse(request, (webRequest) =>
@@ -1701,7 +1752,7 @@ export const ReceiptApiHandlers = (input: ReceiptApiHttpOptions) => {
 };
 
 /** Native HttpApi implementation for the internal receipt evidence endpoint. */
-export const InternalReceiptApiHandlers = (input: ReceiptApiHttpOptions) =>
+export const InternalReceiptApiHandlers = <E, R>(input: ReceiptApiHttpOptions<E, R>) =>
   HttpApiBuilder.group(InternalNativeApi, "internal", (handlers) =>
     Effect.succeed(
       handlers.handleRaw("readReceiptEvidence", ({ request, params }) =>

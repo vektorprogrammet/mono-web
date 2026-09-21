@@ -1,11 +1,13 @@
-import { SchoolDirectoryQuerySchema, SchoolDirectorySchema, SchoolsDecodeError, type SchoolDirectoryQuery } from "@vektorprogrammet/domain/schools";
+import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { readSchoolsDirectory } from "@vektorprogrammet/database/schools";
+import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
+import type { Identity, IdentityEngineError } from "@vektorprogrammet/domain/identity";
+import { SchoolDirectoryQuerySchema, SchoolDirectorySchema, SchoolsDecodeError, type SchoolDirectoryQuery } from "@vektorprogrammet/domain/schools";
 import type { OrganizationAuthorityInstant, PersonId } from "@vektorprogrammet/domain/organization";
 import { ListSchoolsEndpoint, reflectAccessSpec } from "@vektorprogrammet/http-api";
 import { Effect, Option, Schema } from "effect";
 import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js";
 import { authorizePersonNativeOperation, genericContext } from "../native-operation.js";
-import type { BackendRun } from "../router.js";
 
 export interface SchoolsRequestActor {
   readonly personId: PersonId;
@@ -14,8 +16,13 @@ export interface SchoolsRequestActor {
 
 export interface SchoolsApiHttpOptions {
   /** Cookie -> PersonId and the request's single authorization instant. */
-  readonly resolveActor: (request: Request) => Promise<SchoolsRequestActor>;
-  readonly run: BackendRun;
+  readonly resolveActor: (
+    request: Request,
+  ) => Effect.Effect<
+    SchoolsRequestActor,
+    IdentityEngineError | UnauthenticatedActor,
+    Identity | OAuthCredentialAuthority
+  >;
 }
 
 class SchoolsHttpQueryDecodeError extends Error {
@@ -57,7 +64,7 @@ export const schoolsErrorResponse = (cause: unknown): Response => {
   }
 };
 
-const decodeQuery = (request: Request, run: BackendRun): Promise<SchoolDirectoryQuery> => {
+const decodeQuery = (request: Request): Effect.Effect<SchoolDirectoryQuery, SchoolsHttpQueryDecodeError> => {
   const parameters = [...new URL(request.url).searchParams];
   const encoded =
     parameters.length === 0
@@ -65,45 +72,40 @@ const decodeQuery = (request: Request, run: BackendRun): Promise<SchoolDirectory
       : parameters.length === 1 && parameters[0]![0] === "department"
         ? { departmentId: parameters[0]![1] }
         : undefined;
-  if (encoded === undefined) return Promise.reject(new SchoolsHttpQueryDecodeError());
+  if (encoded === undefined) return Effect.fail(new SchoolsHttpQueryDecodeError());
 
-  return run(
-    Schema.decodeUnknownEffect(SchoolDirectoryQuerySchema)(encoded, {
-      onExcessProperty: "error",
-    }).pipe(Effect.mapError(() => new SchoolsHttpQueryDecodeError())),
-  );
+  return Schema.decodeUnknownEffect(SchoolDirectoryQuerySchema)(encoded, {
+    onExcessProperty: "error",
+  }).pipe(Effect.mapError(() => new SchoolsHttpQueryDecodeError()));
 };
 
 /** Native Schools directory adapter. It owns transport only, never SQL or authority policy. */
-export const listSchools = async (
+export const listSchools = (
   request: Request,
   options: SchoolsApiHttpOptions,
-): Promise<Response> => {
-  const query = await decodeQuery(request, options.run);
-  const actor = await options.resolveActor(request);
-  await authorizePersonNativeOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(ListSchoolsEndpoint)),
-    request,
-    personId: actor.personId,
-    resolution: {
-      selection: "AllMatching",
-      contexts: [
-        genericContext({
-          domainId: "schools",
-          departmentId: query.departmentId ?? null,
-          authorityVersion: `schools:${actor.authorizationInstant}`,
-        }),
-      ],
-    },
-    grantScopes: [{ _tag: "Global" }],
-    now: actor.authorizationInstant,
-    run: options.run,
-  });
-  const directory = await options.run(
-    readSchoolsDirectory(actor.personId, actor.authorizationInstant, query),
-  );
-  const response = await options.run(
-    Schema.decodeUnknownEffect(SchoolDirectorySchema)(directory, {
+) =>
+  Effect.gen(function* () {
+    const query = yield* decodeQuery(request);
+    const actor = yield* options.resolveActor(request);
+    yield* authorizePersonNativeOperation({
+      spec: Option.getOrThrow(reflectAccessSpec(ListSchoolsEndpoint)),
+      request,
+      personId: actor.personId,
+      resolution: {
+        selection: "AllMatching",
+        contexts: [
+          genericContext({
+            domainId: "schools",
+            departmentId: query.departmentId ?? null,
+            authorityVersion: `schools:${actor.authorizationInstant}`,
+          }),
+        ],
+      },
+      grantScopes: [{ _tag: "Global" }],
+      now: actor.authorizationInstant,
+    });
+    const directory = yield* readSchoolsDirectory(actor.personId, actor.authorizationInstant, query);
+    const response = yield* Schema.decodeUnknownEffect(SchoolDirectorySchema)(directory, {
       onExcessProperty: "error",
     }).pipe(
       Effect.mapError(
@@ -113,7 +115,6 @@ export const listSchools = async (
             message: String(cause),
           }),
       ),
-    ),
-  );
-  return privateJsonResponse(response);
-};
+    );
+    return privateJsonResponse(response);
+  });

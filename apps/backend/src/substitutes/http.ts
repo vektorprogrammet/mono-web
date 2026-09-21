@@ -17,7 +17,10 @@ import {
 } from "@vektorprogrammet/http-api";
 import { Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { resolveRequestPersonAuthorityInTransaction } from "../authority.js";
+import {
+  resolveRequestPersonAuthorityInTransaction,
+  type TransactionPersonAuthority,
+} from "../authority.js";
 import { readBoundedJson } from "../http-api/read-json.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
@@ -36,15 +39,17 @@ import {
 import {
   authorizePersonNativeOperation,
   genericContext,
-  withNativeHttpRuntime,
-  prepareNativeHttpCommand,
   nativeCommandOutcomeResponse,
 } from "../native-operation.js";
 import { conditionalJsonResponse } from "../recruitment/http.js";
-import type { BackendRun } from "../router.js";
-
-type BackendRequirements =
-  Parameters<BackendRun>[0] extends Effect.Effect<unknown, unknown, infer R> ? R : never;
+const semantic = <A>(operation: () => A) =>
+  Effect.try({
+    try: operation,
+    catch: (cause) =>
+      cause instanceof HttpSemanticFailure
+        ? cause
+        : new HttpSemanticFailure("internal.error", 500),
+  });
 const header = (request: Request, key: string) =>
   request.headers.has(key) ? [request.headers.get(key)!] : [];
 export const substituteResource = <A extends SubstituteEntry>(
@@ -67,29 +72,21 @@ const json = (body: unknown, etag?: string) =>
       ...(etag ? { etag } : {}),
     },
   });
-const decode = <S extends Schema.ConstraintDecoder<unknown, never>>(
-  schema: S,
-  value: unknown,
-  run: BackendRun,
-): Promise<S["Type"]> =>
-  run(
-    Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
-      Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)),
-    ),
+const decode = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S, value: unknown) =>
+  Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+    Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)),
   );
 const output = <S extends Schema.ConstraintDecoder<unknown, never>>(
   schema: S,
   value: S["Type"],
-  run: BackendRun,
-): Promise<S["Type"]> =>
-  run(
-    Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
-      Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)),
-    ),
+) =>
+  Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+    Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)),
   );
-const noQuery = (request: Request) => {
-  if (new URL(request.url).search) throw new HttpSemanticFailure("request.malformed", 400);
-};
+const noQuery = (request: Request) =>
+  semantic(() => {
+    if (new URL(request.url).search) throw new HttpSemanticFailure("request.malformed", 400);
+  });
 type Endpoint =
   | typeof ActivateSubstituteEndpoint
   | typeof EditSubstituteEndpoint
@@ -97,40 +94,39 @@ type Endpoint =
   | typeof ReadSubstituteEndpoint
   | typeof ReadSubstitutePoolEndpoint
   | typeof ListSubstituteScopesEndpoint;
-const authorize = async (
+const authorize = (
   request: Request,
-  run: BackendRun,
   endpoint: Endpoint,
   departmentId: SubstituteEntry["departmentId"],
   manage: boolean,
   now?: () => string,
-  captured?: Awaited<ReturnType<typeof resolveRequestPersonAuthorityInTransaction>>,
-) => {
-  const auth =
-    captured ?? (await resolveRequestPersonAuthorityInTransaction(request, { run, now }));
-  const permission = substitutePermission(auth.authority, departmentId);
-  if (permission === "Denied" || (manage && permission !== "Manage"))
-    throw new HttpSemanticFailure("authority.denied", 403);
-  await authorizePersonNativeOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
-    credential: auth.credential,
-    personId: auth.authority.personId,
-    resolution: {
-      selection: "ExactlyOne",
-      contexts: [
-        genericContext({
-          domainId: "admissions",
-          departmentId,
-          authorityVersion: auth.authorizationInstant,
-        }),
-      ],
-    },
-    grantScopes: [{ _tag: "Department", departmentId }],
-    now: auth.authorizationInstant,
-    run,
+  captured?: TransactionPersonAuthority,
+) =>
+  Effect.gen(function* () {
+    const auth =
+      captured ?? (yield* resolveRequestPersonAuthorityInTransaction(request, { now }));
+    const permission = substitutePermission(auth.authority, departmentId);
+    if (permission === "Denied" || (manage && permission !== "Manage"))
+      return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
+    yield* authorizePersonNativeOperation({
+      spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
+      credential: auth.credential,
+      personId: auth.authority.personId,
+      resolution: {
+        selection: "ExactlyOne",
+        contexts: [
+          genericContext({
+            domainId: "admissions",
+            departmentId,
+            authorityVersion: auth.authorizationInstant,
+          }),
+        ],
+      },
+      grantScopes: [{ _tag: "Department", departmentId }],
+      now: auth.authorizationInstant,
+    });
+    return { ...auth, permission };
   });
-  return { ...auth, permission };
-};
 const errorResponse = (cause: unknown) => {
   if (cause instanceof HttpSemanticFailure || cause instanceof SubstituteFailure)
     return nativeProblemResponse(cause.code, cause.status);
@@ -146,34 +142,34 @@ const errorResponse = (cause: unknown) => {
   if (serialization(cause)) return nativeProblemResponse("transaction.conflict", 409);
   return nativeProblemResponse("internal.error", 500);
 };
-export const SubstitutesApiHandlers = (input: { run: BackendRun; now?: () => string }) => {
+export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
   const read = (request: Request, mode: "scopes" | "pool" | "entry", applicationId?: string) =>
-    input.run(
-      Database.use((sql) =>
-        sql.withTransaction(
-          withNativeHttpRuntime(input.run, async (run) => {
-            await run(Database.use((sql) => sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`));
-            // Snapshot reads use the same canonical credential snapshot and SQL connection.
-            if (mode === "scopes") {
-              noQuery(request);
-              const auth = await resolveRequestPersonAuthorityInTransaction(request, {
-                run,
-                now: input.now,
-              });
-              const scopes = await run(readSubstituteScopes(auth.authority));
-              for (const department of scopes.departments)
-                await authorize(
-                  request,
-                  run,
-                  ListSubstituteScopesEndpoint,
-                  department.departmentId,
-                  false,
-                  input.now,
-                  auth,
-                );
-              return json(await output(SubstituteScopes, scopes, run));
-            }
-            if (mode === "pool") {
+    Database.use((sql) =>
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* Database.use(
+            (transaction) => transaction`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`,
+          );
+          // Snapshot reads use the same canonical credential snapshot and SQL connection.
+          if (mode === "scopes") {
+            yield* noQuery(request);
+            const auth = yield* resolveRequestPersonAuthorityInTransaction(request, {
+              now: input.now,
+            });
+            const scopes = yield* readSubstituteScopes(auth.authority);
+            for (const department of scopes.departments)
+              yield* authorize(
+                request,
+                ListSubstituteScopesEndpoint,
+                department.departmentId,
+                false,
+                input.now,
+                auth,
+              );
+            return json(yield* output(SubstituteScopes, scopes));
+          }
+          if (mode === "pool") {
+            const values = yield* semantic(() => {
               const url = new URL(request.url);
               if (
                 [...url.searchParams.keys()].some(
@@ -184,99 +180,95 @@ export const SubstitutesApiHandlers = (input: { run: BackendRun; now?: () => str
                 )
               )
                 throw new HttpSemanticFailure("request.malformed", 400);
-              const scope = await decode(
-                SubstituteScope,
-                Object.fromEntries(url.searchParams),
-                run,
-              );
-              const auth = await authorize(
-                request,
-                run,
-                ReadSubstitutePoolEndpoint,
-                scope.departmentId,
-                false,
-                input.now,
-              );
-              const admissionPeriodId = await run(readSubstitutePeriod(scope));
-              const rows =
-                admissionPeriodId === null ? [] : await run(readSubstituteEntries(scope));
-              const entries = rows.filter((row) => row.active).map(substituteResource);
-              return json(
-                await output(
-                  SubstituteBoard,
-                  auth.permission === "Manage"
-                    ? {
-                        _tag: "Manage",
-                        ...scope,
-                        admissionPeriodId,
-                        entries,
-                        candidates: rows.filter((row) => !row.active).map(substituteResource),
-                      }
-                    : { _tag: "ReadOnly", ...scope, admissionPeriodId, entries },
-                  run,
-                ),
-              );
-            }
-            noQuery(request);
-            const entry = await run(readSubstituteEntry(applicationId!));
-            const auth = await authorize(
+              return Object.fromEntries(url.searchParams);
+            });
+            const scope = yield* decode(SubstituteScope, values);
+            const auth = yield* authorize(
               request,
-              run,
-              ReadSubstituteEndpoint,
-              entry.departmentId,
+              ReadSubstitutePoolEndpoint,
+              scope.departmentId,
               false,
               input.now,
             );
-            if (!entry.active && auth.permission !== "Manage")
-              throw new HttpSemanticFailure("authority.denied", 403);
-            const resource = await output(SubstituteResource, substituteResource(entry), run);
-            return conditionalJsonResponse(request, resource, resource.etag);
-          }),
-        ),
+            const admissionPeriodId = yield* readSubstitutePeriod(scope);
+            const rows =
+              admissionPeriodId === null ? [] : yield* readSubstituteEntries(scope);
+            const entries = rows.filter((row) => row.active).map(substituteResource);
+            return json(
+              yield* output(
+                SubstituteBoard,
+                auth.permission === "Manage"
+                  ? {
+                      _tag: "Manage",
+                      ...scope,
+                      admissionPeriodId,
+                      entries,
+                      candidates: rows.filter((row) => !row.active).map(substituteResource),
+                    }
+                  : { _tag: "ReadOnly", ...scope, admissionPeriodId, entries },
+              ),
+            );
+          }
+          yield* noQuery(request);
+          const entry = yield* readSubstituteEntry(applicationId!);
+          const auth = yield* authorize(
+            request,
+            ReadSubstituteEndpoint,
+            entry.departmentId,
+            false,
+            input.now,
+          );
+          if (!entry.active && auth.permission !== "Manage")
+            return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
+          const resource = yield* output(SubstituteResource, substituteResource(entry));
+          return yield* semantic(() => conditionalJsonResponse(request, resource, resource.etag));
+        }),
       ),
     );
-  const mutation = async (
+  const mutation = (
     request: Request,
     applicationId: string,
     action: "activate" | "edit" | "deactivate",
-  ) => {
-    noQuery(request);
-    if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json")
-      throw new HttpSemanticFailure("media-type.unsupported", 415);
-    const body = await readBoundedJson(request, 8192);
-    const command =
-      action === "deactivate"
-        ? (await decode(Schema.Struct({}), body, input.run), { action } as const)
-        : { action, input: await decode(SubstituteMutation, body, input.run) };
-    const ifMatch = parseRequiredIfMatch(header(request, "if-match"));
-    const key = parseIdempotencyKey(header(request, "idempotency-key"));
-    const endpoint =
-      action === "activate"
-        ? ActivateSubstituteEndpoint
-        : action === "edit"
-          ? EditSubstituteEndpoint
-          : DeactivateSubstituteEndpoint;
-    const operationId = `substitutes.${action}`;
-    const outcome = await input.run(
-      executeNativeHttpCommandPostgres<unknown, BackendRequirements>(
-        prepareNativeHttpCommand(input.run, async (run) => {
-          const selected = await run(readSubstituteEntry(applicationId));
-          const auth = await authorize(
+  ) =>
+    Effect.gen(function* () {
+      yield* noQuery(request);
+      if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json")
+        return yield* Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
+      const body = yield* readBoundedJson(request, 8192);
+      if (action === "deactivate") yield* decode(Schema.Struct({}), body);
+      const command =
+        action === "deactivate"
+          ? ({ action } as const)
+          : { action, input: yield* decode(SubstituteMutation, body) };
+      const ifMatch = yield* semantic(() => parseRequiredIfMatch(header(request, "if-match")));
+      const key = yield* semantic(() => parseIdempotencyKey(header(request, "idempotency-key")));
+      const endpoint =
+        action === "activate"
+          ? ActivateSubstituteEndpoint
+          : action === "edit"
+            ? EditSubstituteEndpoint
+            : DeactivateSubstituteEndpoint;
+      const operationId = `substitutes.${action}`;
+      const outcome = yield* executeNativeHttpCommandPostgres(
+        Effect.gen(function* () {
+          const selected = yield* readSubstituteEntry(applicationId);
+          const auth = yield* authorize(
             request,
-            run,
             endpoint,
             selected.departmentId,
             true,
             input.now,
           );
-          const identity = deriveHttpIdentity({
-            credentialSubject: `Person:${auth.authority.personId}`,
-            qualifiedOperationId: operationId,
-            normalizedTarget: normalizeTarget(`/api/substitutes/{applicationId}:${action}`, {
-              applicationId,
+          const identity = yield* semantic(() =>
+            deriveHttpIdentity({
+              credentialSubject: `Person:${auth.authority.personId}`,
+              qualifiedOperationId: operationId,
+              normalizedTarget: normalizeTarget(`/api/substitutes/{applicationId}:${action}`, {
+                applicationId,
+              }),
+              idempotencyKey: key,
             }),
-            idempotencyKey: key,
-          });
+          );
           return {
             identity: {
               identitySha256: identity.identitySha256,
@@ -299,44 +291,53 @@ export const SubstitutesApiHandlers = (input: { run: BackendRun; now?: () => str
                 substituteResource(changed),
                 { onExcessProperty: "error" },
               ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
-              return yield* Effect.promise(() => responseCapsule(json(resource, resource.etag)));
+              return yield* Effect.tryPromise({
+                try: () => responseCapsule(json(resource, resource.etag)),
+                catch: (cause) =>
+                  cause instanceof HttpSemanticFailure
+                    ? cause
+                    : new HttpSemanticFailure("internal.error", 500),
+              });
             }),
           };
         }),
-      ),
-    );
-    return nativeCommandOutcomeResponse(outcome);
-  };
+      );
+      return nativeCommandOutcomeResponse(outcome);
+    });
   return HttpApiBuilder.group(ExternalNativeApi, "substitutes", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("listScopes", ({ request }) =>
-          toHttpApiResponse(request, (r) => read(r, "scopes"), errorResponse),
+          toHttpApiResponse(request, (webRequest) => read(webRequest, "scopes"), errorResponse),
         )
         .handleRaw("readPool", ({ request }) =>
-          toHttpApiResponse(request, (r) => read(r, "pool"), errorResponse),
+          toHttpApiResponse(request, (webRequest) => read(webRequest, "pool"), errorResponse),
         )
         .handleRaw("readEntry", ({ request, params }) =>
-          toHttpApiResponse(request, (r) => read(r, "entry", params.applicationId), errorResponse),
+          toHttpApiResponse(
+            request,
+            (webRequest) => read(webRequest, "entry", params.applicationId),
+            errorResponse,
+          ),
         )
         .handleRaw("activate", ({ request, params }) =>
           toHttpApiResponse(
             request,
-            (r) => mutation(r, params.applicationId, "activate"),
+            (webRequest) => mutation(webRequest, params.applicationId, "activate"),
             errorResponse,
           ),
         )
         .handleRaw("edit", ({ request, params }) =>
           toHttpApiResponse(
             request,
-            (r) => mutation(r, params.applicationId, "edit"),
+            (webRequest) => mutation(webRequest, params.applicationId, "edit"),
             errorResponse,
           ),
         )
         .handleRaw("deactivate", ({ request, params }) =>
           toHttpApiResponse(
             request,
-            (r) => mutation(r, params.applicationId, "deactivate"),
+            (webRequest) => mutation(webRequest, params.applicationId, "deactivate"),
             errorResponse,
           ),
         ),
