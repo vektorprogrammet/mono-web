@@ -929,16 +929,20 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
     api("POST", submitPath, { body: concurrentBody, key: concurrentKey }),
     api("POST", submitPath, { body: concurrentBody, key: concurrentKey }),
   ]);
-  assert.equal(
-    concurrent.some((result) => result.status === 201),
-    true,
-  );
-  assert.equal(
-    concurrent.every(
-      (result) => result.status === 201 || result.body?.code === "idempotency.in-flight",
-    ),
-    true,
-  );
+  const acceptedConcurrent = concurrent.find((result) => result.status === 201);
+  assert.notEqual(acceptedConcurrent, undefined);
+  for (const result of concurrent) {
+    if (result.status === 201 || result.body?.code === "idempotency.in-flight") continue;
+    assert.equal(result.status, 503);
+    assert.equal(result.body?.code, "dependency.unavailable");
+    assert.equal(result.headers["retry-after"], "5");
+  }
+  const recoveredConcurrent = await api("POST", submitPath, {
+    body: concurrentBody,
+    key: concurrentKey,
+  });
+  assert.equal(recoveredConcurrent.status, 201);
+  assert.deepEqual(recoveredConcurrent.body, acceptedConcurrent.body);
   const afterConcurrent = await counts();
   assert.deepEqual(afterConcurrent, { responses: 2, answers: 9, receipts: 2 });
 
