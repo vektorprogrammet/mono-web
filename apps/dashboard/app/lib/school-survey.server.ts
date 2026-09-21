@@ -72,7 +72,7 @@ export interface ParsedSchoolSurveySubmission {
 }
 
 export const schoolSurveyDraftFromForm = (form: FormData): SchoolSurveyDraft => {
-  const answers: Record<string, Array<string>> = {};
+  const answers = Object.create(null) as Record<string, Array<string>>;
   for (const [field, value] of form.entries()) {
     if (!field.startsWith("question:")) continue;
     const questionId = field.slice("question:".length);
@@ -95,7 +95,7 @@ export const parseSchoolSurveySubmission = (
 ): ParsedSchoolSurveySubmission => {
   const draft = schoolSurveyDraftFromForm(form);
   const { schoolId, commandId, answers } = draft;
-  const fieldErrors: Record<string, string> = {};
+  const fieldErrors = Object.create(null) as Record<string, string>;
   const parsedSchoolId = Schema.decodeUnknownOption(SchoolId)(Number(schoolId));
   if (parsedSchoolId._tag === "None") {
     fieldErrors.schoolId = "Velg en skole.";

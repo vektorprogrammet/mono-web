@@ -8,12 +8,14 @@ import {
   schoolSurveyDraftFromForm,
   submitSchoolSurveyResponse,
 } from "../lib/school-survey.server";
+import { schoolSurveyIdFromPathSegment } from "../lib/school-survey-path";
 import type { Route } from "./+types/undersokelse.$surveyId";
 
 const invalidSurveyResponse = () => new Response(null, { status: 404 });
 
 const surveyIdFrom = (value: string | undefined) => {
-  const decoded = Schema.decodeUnknownOption(SurveyId)(value);
+  const routeValue = value === undefined ? undefined : schoolSurveyIdFromPathSegment(value);
+  const decoded = Schema.decodeUnknownOption(SurveyId)(routeValue);
   if (decoded._tag === "None") throw invalidSurveyResponse();
   return decoded.value;
 };
@@ -99,6 +101,11 @@ const questionControlId = (questionId: string) =>
 const questionErrorId = (questionId: string) => `${questionControlId(questionId)}-error`;
 const questionHelpId = (questionId: string) => `${questionControlId(questionId)}-help`;
 const questionField = (questionId: string) => `question:${questionId}`;
+const fieldErrorFor = (
+  fieldErrors: Readonly<Record<string, string>> | undefined,
+  field: string,
+): string | undefined =>
+  fieldErrors !== undefined && Object.hasOwn(fieldErrors, field) ? fieldErrors[field] : undefined;
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export
 export default function SchoolSurveyRoute() {
@@ -160,7 +167,7 @@ export default function SchoolSurveyRoute() {
         </section>
       )}
 
-      <Form method="post" className="mt-8 flex min-w-0 flex-col gap-8" noValidate>
+      <Form method="post" reloadDocument className="mt-8 flex min-w-0 flex-col gap-8" noValidate>
         <input type="hidden" name="commandId" value={failed?.draft.commandId ?? commandId} />
         <section className="min-w-0">
           <label className="block font-medium" htmlFor="survey-school">
@@ -193,7 +200,7 @@ export default function SchoolSurveyRoute() {
           const controlId = questionControlId(questionId);
           const errorId = questionErrorId(questionId);
           const helpId = questionHelpId(questionId);
-          const error = failed?.fieldErrors[questionId];
+          const error = fieldErrorFor(failed?.fieldErrors, questionId);
           const values = failed?.draft.answers[questionId] ?? [];
           const describedBy = [
             question.help === null ? undefined : helpId,

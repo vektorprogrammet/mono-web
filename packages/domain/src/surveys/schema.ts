@@ -28,7 +28,7 @@ const utf8ByteLength = (value: string): number => {
 
 const databaseTrim = (value: string): string => value.replace(/^ +| +$/gu, "");
 
-const boundedText = (maximumBytes: number, message: string) =>
+const boundedDatabaseText = (maximumBytes: number, message: string) =>
   Schema.String.pipe(
     Schema.check(
       Schema.makeFilter((value) => utf8ByteLength(databaseTrim(value)) <= maximumBytes, {
@@ -36,8 +36,14 @@ const boundedText = (maximumBytes: number, message: string) =>
       }),
     ),
   );
+const boundedTrimmedText = (maximumBytes: number, message: string) =>
+  Schema.String.pipe(
+    Schema.check(
+      Schema.makeFilter((value) => utf8ByteLength(value.trim()) <= maximumBytes, { message }),
+    ),
+  );
 const boundedIdentifier = (maximumBytes: number, message: string) =>
-  boundedText(maximumBytes, message).pipe(
+  boundedDatabaseText(maximumBytes, message).pipe(
     Schema.check(
       Schema.makeFilter((value) => value.length > 0 && databaseTrim(value) === value, {
         message: "a database-trimmed non-empty identifier",
@@ -45,7 +51,7 @@ const boundedIdentifier = (maximumBytes: number, message: string) =>
     ),
   );
 const boundedImportedText = (maximumBytes: number, message: string) =>
-  boundedText(maximumBytes, message).pipe(
+  boundedDatabaseText(maximumBytes, message).pipe(
     Schema.check(
       Schema.makeFilter(
         (value) => databaseTrim(value).length > 0 && databaseTrim(value) === value,
@@ -79,7 +85,7 @@ export const SurveyResponseId = boundedIdentifier(
 export type SurveyResponseId = typeof SurveyResponseId.Type;
 
 export const SchoolSurveyQuestionKind = Schema.Literals(["Text", "List", "Radio", "Check"]);
-const AnswerAlternative = boundedText(500, "an alternative at most 500 UTF-8 bytes");
+const AnswerAlternative = boundedTrimmedText(500, "an alternative at most 500 UTF-8 bytes");
 export type SchoolSurveyQuestionKind = typeof SchoolSurveyQuestionKind.Type;
 
 const QuestionLabel = boundedImportedText(1_000, "a question label at most 1000 UTF-8 bytes");
@@ -87,8 +93,8 @@ const HelpText = boundedImportedText(1_000, "help text at most 1000 UTF-8 bytes"
 const Alternative = boundedImportedText(500, "an alternative at most 500 UTF-8 bytes");
 const SemesterLabel = boundedImportedText(100, "a semester label at most 100 UTF-8 bytes");
 const SurveyTitle = boundedImportedText(255, "a title at most 255 UTF-8 bytes");
-const CompletionText = boundedText(4_096, "completion text at most 4096 UTF-8 bytes");
-const AnswerText = boundedText(4_096, "an answer at most 4096 UTF-8 bytes");
+const CompletionText = boundedDatabaseText(4_096, "completion text at most 4096 UTF-8 bytes");
+const AnswerText = boundedTrimmedText(4_096, "an answer at most 4096 UTF-8 bytes");
 const Alternatives = boundedArray(Alternative, 100, "at most 100 alternatives");
 
 const QuestionBase = {

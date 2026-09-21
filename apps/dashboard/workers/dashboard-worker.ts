@@ -1,0 +1,66 @@
+import { dashboardApplicationRequest, dashboardAssetResponse } from "./asset-dispatch";
+import { validateDashboardPreviewStage } from "./preview-stage";
+
+export interface DashboardWorkerEnv {
+  readonly ASSETS: {
+    fetch(request: Request): Promise<Response>;
+  };
+  readonly PREVIEW_HOST: string;
+  readonly PREVIEW_STAGE: string;
+}
+
+export type DashboardApplicationHandler = (request: Request) => Promise<Response>;
+
+const withPreviewHeaders = (response: Response, host: string, stage: string): Response => {
+  const headers = new Headers(response.headers);
+  headers.set("X-Mono-Web-Stage", stage);
+  headers.set("X-Mono-Web-Host", host);
+  headers.set("X-Robots-Tag", "noindex");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+};
+
+export const handleDashboardWorkerRequest = async (
+  request: Request,
+  env: DashboardWorkerEnv,
+  applicationHandler: DashboardApplicationHandler,
+): Promise<Response> => {
+  let stage: string;
+  try {
+    stage = validateDashboardPreviewStage(env.PREVIEW_STAGE, env.PREVIEW_HOST);
+  } catch {
+    return new Response("Invalid dashboard preview stage", {
+      status: 503,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+
+  const host = request.headers.get("host")?.toLowerCase() ?? "";
+  if (host !== env.PREVIEW_HOST) {
+    return new Response("Unsupported dashboard host", {
+      status: 421,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+  const applicationRequest = dashboardApplicationRequest(request);
+  if (applicationRequest !== request) {
+    const url = new URL(applicationRequest.url);
+    const redirect = new Response(null, {
+      status: 307,
+      headers: {
+        "Cache-Control": "no-store",
+        Location: `${url.pathname}${url.search}`,
+      },
+    });
+    return withPreviewHeaders(redirect, host, stage);
+  }
+  const assetResponse = await dashboardAssetResponse(applicationRequest, env.ASSETS);
+  if (assetResponse !== undefined) {
+    return withPreviewHeaders(assetResponse, host, stage);
+  }
+
+  return withPreviewHeaders(await applicationHandler(applicationRequest), host, stage);
+};

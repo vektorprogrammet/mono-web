@@ -12,6 +12,8 @@ import { chromium } from "@playwright/test";
 import pg from "pg";
 import apexWorker from "../../../infra/alchemy/preview/apex-worker.ts";
 import { APEX_IDENTITY } from "../../../infra/alchemy/preview/identity.ts";
+import { schoolSurveyIdFromPathSegment, schoolSurveyPath } from "../app/lib/school-survey-path.ts";
+import { handleDashboardWorkerRequest } from "../workers/dashboard-worker.ts";
 
 const { Client } = pg;
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -40,10 +42,10 @@ const ids = {
   department: "department-school-survey-0111",
   foreignDepartment: "department-school-survey-foreign-0111",
   semester: "semester-school-survey-0111",
-  survey: "survey.school.0111",
+  survey: "survey.0111.data",
   teamSurvey: "survey-team-counterexample-0111",
   text: "question-school-survey-text-0111",
-  list: "question-school-survey-list-0111",
+  list: "__proto__",
   radio: "question-school-survey-radio-0111",
   check: "question-school-survey-check-0111",
   optional: "question-school-survey-optional-0111",
@@ -56,6 +58,7 @@ const ids = {
   noPlacement: 811105,
   stale: 811106,
 };
+const surveyDocumentPath = schoolSurveyPath(ids.survey);
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const withTimeout = (promise, milliseconds, label) =>
@@ -145,12 +148,12 @@ const waitForPort = (port, label) =>
     label,
   );
 
-const waitForHttp = (url, label) =>
+const waitForHttp = (url, label, init) =>
   withTimeout(
     (async () => {
       while (true) {
         try {
-          const response = await fetch(url);
+          const response = await fetch(url, init);
           if (response.ok) return;
         } catch {
           // The owned process is still starting.
@@ -318,7 +321,33 @@ const startApexDispatcher = async (ledger) => {
   const dashboard = {
     fetch: async (request) => {
       const url = new URL(request.url);
-      const forwarded = await forwardApexDashboardRequest(request);
+      let assetMiss = false;
+      let applicationPath = null;
+      const forwarded = await handleDashboardWorkerRequest(
+        request,
+        {
+          PREVIEW_HOST: APEX_IDENTITY.hostname,
+          PREVIEW_STAGE: APEX_IDENTITY.stage,
+          ASSETS: {
+            fetch: async (assetRequest) => {
+              const pathname = new URL(assetRequest.url).pathname;
+              if (
+                pathname.startsWith("/assets/") ||
+                pathname.startsWith("/images/") ||
+                ["/logo-dark.png", "/logo-light.png", "/vektor-logo-circle.svg"].includes(pathname)
+              ) {
+                return forwardApexDashboardRequest(assetRequest);
+              }
+              assetMiss = true;
+              return new Response(null, { status: 404 });
+            },
+          },
+        },
+        async (applicationRequest) => {
+          applicationPath = new URL(applicationRequest.url).pathname;
+          return forwardApexDashboardRequest(applicationRequest);
+        },
+      );
       ledger.push({
         method: request.method,
         path: url.pathname,
@@ -327,6 +356,10 @@ const startApexDispatcher = async (ledger) => {
         origin: request.headers.get("origin"),
         contentType: request.headers.get("content-type"),
         status: forwarded.status,
+        assetFallback: assetMiss && applicationPath !== null,
+        applicationPath,
+        previewStage: forwarded.headers.get("x-mono-web-stage"),
+        previewHost: forwarded.headers.get("x-mono-web-host"),
       });
       return forwarded;
     },
@@ -572,6 +605,14 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   const initialForm = await api("GET", `/api/surveys/${ids.survey}`);
   assert.equal(initialForm.status, 200);
   assert.equal(initialForm.headers["cache-control"], "no-store");
+  for (const opaqueId of [".", "..", "survey.data", "survey/%/æ"]) {
+    const path = schoolSurveyPath(opaqueId);
+    const segment = path.slice("/undersokelse/".length);
+    assert.equal(schoolSurveyIdFromPathSegment(segment), opaqueId);
+    assert.notEqual(segment, ".");
+    assert.notEqual(segment, "..");
+    assert.equal(segment.endsWith(".data"), false);
+  }
   assert.equal(initialForm.headers.vary, "Origin");
   assert.deepEqual(
     initialForm.body.schools.map((school) => school.schoolId),
@@ -585,6 +626,7 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
 
   const pageErrors = [];
   const browserApiOrigins = [];
+  const browserApiPaths = [];
   const desktopContext = await browser.newContext({
     baseURL: apexOrigin,
     viewport: { width: 1280, height: 900 },
@@ -592,8 +634,11 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   const desktopPage = await desktopContext.newPage();
   desktopPage.on("pageerror", (error) => pageErrors.push(error.message));
   desktopPage.on("request", (request) => {
-    const origin = new URL(request.url()).origin;
-    if (origin === apiOrigin || origin === backendOrigin) browserApiOrigins.push(origin);
+    const url = new URL(request.url());
+    if (url.pathname.startsWith("/api/")) browserApiPaths.push(url.pathname);
+    if (url.origin === apiOrigin || url.origin === backendOrigin) {
+      browserApiOrigins.push(url.origin);
+    }
   });
   await desktopPage.goto(`/undersokelse/${ids.survey}`);
   await desktopPage.getByRole("heading", { name: "Tilbakemelding for skoler" }).waitFor();
@@ -625,6 +670,7 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   await desktopPage.getByLabel("Skole").selectOption(String(ids.eligible));
   await desktopPage.getByLabel("Tekstsvar").fill("Et anonymt tekstsvar");
   await desktopPage.getByLabel("Valgfri kommentar").fill("Valgfritt svar");
+  await desktopPage.getByLabel("Velg fra liste").selectOption("Ja");
   await desktopPage.getByRole("radio", { name: "Første" }).check();
   await desktopPage.getByRole("checkbox", { name: "Første" }).check();
   await desktopPage.getByRole("checkbox", { name: "Andre" }).check();
@@ -632,11 +678,24 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   const unavailableResponsePromise = desktopPage.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
-      new URL(response.url()).pathname.startsWith(`/undersokelse/${ids.survey}`),
+      new URL(response.url()).pathname.startsWith(surveyDocumentPath),
   );
   await desktopPage.getByRole("button", { name: "Send inn" }).click();
   assert.equal((await unavailableResponsePromise).status(), 200);
   await desktopPage.getByRole("heading", { name: "Skjemaet har feil" }).waitFor();
+  assert.equal(
+    await desktopPage.getByText("Skjemaet kunne ikke sendes nå. Prøv igjen senere.").count(),
+    1,
+  );
+  assert.equal(
+    ledger.some(
+      (entry) =>
+        entry.method === "GET" &&
+        entry.path === `/api/surveys/${ids.survey}` &&
+        entry.status === 503,
+    ),
+    true,
+  );
   await desktopPage.waitForFunction(
     () => document.activeElement?.getAttribute("aria-labelledby") === "survey-error-summary",
   );
@@ -644,13 +703,15 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   assert.equal(await desktopPage.getByLabel("Skole").inputValue(), String(ids.eligible));
   assert.equal(await desktopPage.getByLabel("Tekstsvar").inputValue(), "Et anonymt tekstsvar");
   assert.equal(await desktopPage.getByLabel("Valgfri kommentar").inputValue(), "Valgfritt svar");
+  assert.equal(await desktopPage.getByLabel("Velg fra liste").inputValue(), "Ja");
   assert.equal(await desktopPage.getByRole("checkbox", { name: "Første" }).isChecked(), true);
   assert.equal(await desktopPage.getByRole("checkbox", { name: "Andre" }).isChecked(), true);
   assert.deepEqual(await counts(), { responses: 0, answers: 0, receipts: 0 });
+  await desktopPage.getByLabel("Velg fra liste").selectOption("");
   const rejectedResponsePromise = desktopPage.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
-      new URL(response.url()).pathname.startsWith(`/undersokelse/${ids.survey}`),
+      new URL(response.url()).pathname.startsWith(surveyDocumentPath),
   );
   await desktopPage.getByRole("button", { name: "Send inn" }).click();
   const rejectedResponse = await rejectedResponsePromise;
@@ -697,16 +758,33 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   await desktopContext.close();
   assert.deepEqual(pageErrors, []);
   assert.deepEqual(browserApiOrigins, []);
+  assert.deepEqual(browserApiPaths, []);
   assert.equal(
     apexLedger.some(
-      (entry) => entry.method === "GET" && entry.path === `/undersokelse/${ids.survey}`,
+      (entry) =>
+        entry.method === "GET" &&
+        entry.path === `/undersokelse/${ids.survey}` &&
+        entry.status === 307 &&
+        entry.previewStage === APEX_IDENTITY.stage &&
+        entry.previewHost === APEX_IDENTITY.hostname,
     ),
     true,
   );
   assert.equal(
     apexLedger.some(
-      (entry) => entry.method === "POST" && entry.path === `/undersokelse/${ids.survey}.data`,
+      (entry) =>
+        entry.method === "GET" &&
+        entry.path === surveyDocumentPath &&
+        entry.assetFallback === true &&
+        entry.applicationPath === surveyDocumentPath &&
+        entry.status === 200 &&
+        entry.previewStage === APEX_IDENTITY.stage &&
+        entry.previewHost === APEX_IDENTITY.hostname,
     ),
+    true,
+  );
+  assert.equal(
+    apexLedger.some((entry) => entry.method === "POST" && entry.path === surveyDocumentPath),
     true,
   );
   assert.equal(
@@ -990,10 +1068,33 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
     key: staleKey,
   });
   assert.equal(acceptedBeforeEligibilityLoss.status, 201);
+  const staleReceipt = await query(
+    `SELECT identity_sha256 AS "identitySha256"
+       FROM public.native_http_idempotency_receipts
+      WHERE operation_id = 'surveys.submitSchoolSurveyResponse'
+      ORDER BY committed_at DESC
+      LIMIT 1`,
+  );
+  const staleReceiptIdentity = staleReceipt.rows[0]?.identitySha256;
+  assert.equal(typeof staleReceiptIdentity, "string");
   const afterStaleCommit = await counts();
   await query("UPDATE public.schools_directory_schools SET active = FALSE WHERE school_id = $1", [
     ids.stale,
   ]);
+  assertProblem(
+    await api("POST", submitPath, { body: staleBody, key: staleKey }),
+    422,
+    "validation.failed",
+  );
+  assert.deepEqual(await counts(), afterStaleCommit);
+  const expiredStaleReceipt = await query(
+    `UPDATE public.native_http_idempotency_receipts
+        SET committed_at = transaction_timestamp() - interval '25 hours',
+            full_expires_at = transaction_timestamp() - interval '1 hour'
+      WHERE identity_sha256 = $1`,
+    [staleReceiptIdentity],
+  );
+  assert.equal(expiredStaleReceipt.rowCount, 1);
   assertProblem(
     await api("POST", submitPath, { body: staleBody, key: staleKey }),
     422,
@@ -1009,6 +1110,22 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
     "validation.failed",
   );
   assert.deepEqual(await counts(), afterStaleCommit);
+
+  const trimmedBoundaryValue = "x".repeat(4_096);
+  const trimmedBoundaryBody = validBody(ids.eligible, "");
+  trimmedBoundaryBody.answers = trimmedBoundaryBody.answers.map((answer) =>
+    answer.questionId === ids.text ? { ...answer, value: `\t${trimmedBoundaryValue}\t` } : answer,
+  );
+  const trimmedBoundaryResponse = await api("POST", submitPath, {
+    body: trimmedBoundaryBody,
+    key: "school-survey-trimmed-boundary-0111",
+  });
+  assert.equal(trimmedBoundaryResponse.status, 201);
+  const trimmedBoundaryAnswers = await responseAnswers(trimmedBoundaryResponse.body.responseId);
+  assert.equal(
+    trimmedBoundaryAnswers.find((answer) => answer.questionId === ids.text)?.answerValue,
+    trimmedBoundaryValue,
+  );
 
   assertProblem(await api("GET", "/api/surveys/unknown-survey-0111"), 404, "resource.not-found");
   assertProblem(await api("GET", `/api/surveys/${ids.teamSurvey}`), 404, "resource.not-found");
@@ -1085,15 +1202,20 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   return {
     anonymousOpen: true,
     sourceOrder: true,
+    prototypeNamedQuestionId: true,
     fourQuestionTypes: true,
     browserServerGeneratedSdkBridge: true,
     dottedSurveyId: true,
+    canonicalDocumentRedirect: true,
+    opaqueSurveyIdPathCodec: true,
+    dashboardWorkerAssetFallback: true,
     readFailureDraftPreserved: true,
     rejectedDraftPreserved: true,
     committedCompletion: true,
     normalizedPostgresAnswers: true,
     createdResponseHeaders: true,
     exactReplay: true,
+    trimmedAnswerBoundary: true,
     reorderedReplay: true,
     digestConflict: true,
     inFlightReceipt: true,
@@ -1214,11 +1336,12 @@ try {
     ["node_modules/@react-router/serve/dist/cli.js", "build/server/index.js"],
     { cwd: dashboardRoot, env: dashboardEnvironment, label: "0111 dashboard" },
   );
-  await waitForHttp(`${dashboardOrigin}/undersokelse/${ids.survey}`, "0111 dashboard startup");
+  await waitForHttp(`${dashboardOrigin}${surveyDocumentPath}`, "0111 dashboard startup");
   apex = await startApexDispatcher(apexLedger);
   await waitForHttp(
     `${apexOrigin}/undersokelse/${ids.survey}`,
     "0111 apex dashboard route startup",
+    { headers: { Accept: "text/html" } },
   );
   browser = await chromium.launch({
     headless: true,
@@ -1280,7 +1403,7 @@ const manifest = {
     database: version,
     backend: "native Effect HTTP API",
     sdk: "generated @vektorprogrammet/sdk",
-    dashboard: "production React Router server bridge",
+    dashboard: "dashboard worker asset dispatcher and production React Router server bridge",
     apex: "local execution of the apex edge dispatcher",
     browser: "real headless Chromium",
   },

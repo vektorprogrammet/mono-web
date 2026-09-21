@@ -6,6 +6,8 @@ Baseline: `0179948921c48fb376d48b962923c0abaf7c0807` (`migration/assistant-opera
 
 Revision 1, 2026-09-21: the contract now fixes ingress routing, wire schemas, database relations, canonical digests, and replay precedence. This revision follows pre-implementation review.
 
+Revision 2, 2026-09-21: post-implementation review defines one reversible, route-safe representation for every opaque survey ID and requires safe own-key handling for opaque question IDs.
+
 ## Goal and product boundary
 
 An anonymous school participant opens one imported survey, selects an eligible school, answers its questions, and sends one response.
@@ -130,19 +132,19 @@ The native service applies these rules in the submit transaction:
 
 The service trims text before validation and storage. Limits count UTF-8 bytes after trimming:
 
-| Value | Maximum |
-| --- | ---: |
-| Survey ID, question ID, response ID | 128 bytes |
-| Semester label | 100 bytes |
-| Survey title | 255 bytes |
-| Completion text | 4,096 bytes |
-| Question label or help text | 1,000 bytes |
-| Alternative | 500 bytes |
-| Text answer | 4,096 bytes |
-| Questions per survey | 100 |
-| Alternatives per question | 100 |
-| Selected check values | 100 |
-| Complete submit body | 65,536 bytes |
+| Value                               |      Maximum |
+| ----------------------------------- | -----------: |
+| Survey ID, question ID, response ID |    128 bytes |
+| Semester label                      |    100 bytes |
+| Survey title                        |    255 bytes |
+| Completion text                     |  4,096 bytes |
+| Question label or help text         |  1,000 bytes |
+| Alternative                         |    500 bytes |
+| Text answer                         |  4,096 bytes |
+| Questions per survey                |          100 |
+| Alternatives per question           |          100 |
+| Selected check values               |          100 |
+| Complete submit body                | 65,536 bytes |
 
 An imported definition that exceeds a field or collection limit cannot enter the native tables.
 
