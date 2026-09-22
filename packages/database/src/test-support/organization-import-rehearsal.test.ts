@@ -591,7 +591,7 @@ describe("spec 0067 artifact boundary", () => {
   } as const;
   const dashboardRuntime = {
     build: "ReactRouterProductionBuild",
-    server: "ReactRouterServe",
+    server: "BunDashboardServer",
     viteDependencyOptimizer: "NotUsed",
   } as const;
   const failedBrowserEvidence = {

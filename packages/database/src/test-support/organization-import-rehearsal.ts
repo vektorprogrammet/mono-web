@@ -753,7 +753,7 @@ const BrowserPageSchema = Schema.Union([
 ]);
 const OrganizationImportDashboardRuntimeSchema = Schema.Struct({
   build: Schema.Literal("ReactRouterProductionBuild"),
-  server: Schema.Literal("ReactRouterServe"),
+  server: Schema.Literal("BunDashboardServer"),
   viteDependencyOptimizer: Schema.Literal("NotUsed"),
 });
 
