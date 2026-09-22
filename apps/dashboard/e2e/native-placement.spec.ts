@@ -450,7 +450,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       )
       .toBe("Delivered");
     await candidatePage.reload();
-    await expect(candidateOffer).toContainText("Levering: Levert");
+    await expect(candidateOffer.locator("xpath=..")).toContainText("Levering: Levert");
     await candidateOffer.getByRole("button", { name: "Aksepter tilbud", exact: true }).click();
     await submittedAndRemoved(candidateOffer);
     await candidatePage.reload();
