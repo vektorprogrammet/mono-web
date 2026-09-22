@@ -263,37 +263,40 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
                 return yield* Effect.fail(
                   new HttpSemanticFailure(precondition.code, precondition.status),
                 );
-              const changed = selected.own
-                ? resource(
-                    yield* mutateAffiliation(
-                      yield* readOwnAffiliation(
-                        auth.authority.personId,
-                        selected.scope.departmentId,
-                      ),
-                      selected.command.action,
+              const changedBody = selected.own
+                ? yield* mutateAffiliation(
+                    yield* readOwnAffiliation(
                       auth.authority.personId,
-                      auth.authorizationInstant,
+                      selected.scope.departmentId,
                     ),
+                    selected.command.action,
+                    auth.authority.personId,
+                    auth.authorizationInstant,
                   )
-                : resource(
-                    yield* mutatePlacementBoard(
-                      selected.scope,
-                      selected.command,
-                      auth.authority.personId,
-                      auth.authorizationInstant,
-                      selected.command.action === "GenerateProposal"
-                        ? `school-service-proposal-${identity.identitySha256}`
-                        : selected.command.action === "RecordOccurrence"
-                          ? `school-service-occurrence-${identity.identitySha256}`
-                          : `placement-${identity.identitySha256}`,
-                    ).pipe(
-                      Effect.tapError((cause) =>
-                        Effect.sync(() => {
-                          console.error(cause);
-                        }),
-                      ),
+                : yield* mutatePlacementBoard(
+                    selected.scope,
+                    selected.command,
+                    auth.authority.personId,
+                    auth.authorizationInstant,
+                    selected.command.action === "GenerateProposal"
+                      ? `school-service-proposal-${identity.identitySha256}`
+                      : selected.command.action === "RecordOccurrence"
+                        ? `school-service-occurrence-${identity.identitySha256}`
+                        : `placement-${identity.identitySha256}`,
+                  ).pipe(
+                    Effect.tapError((cause) =>
+                      Effect.sync(() => {
+                        console.error(cause);
+                      }),
                     ),
                   );
+              let changed;
+              try {
+                changed = resource(changedBody);
+              } catch (cause) {
+                console.error(cause);
+                throw cause;
+              }
               return yield* Effect.tryPromise({
                 try: () => responseCapsule(json(changed, changed.etag)),
                 catch: (cause) => {
