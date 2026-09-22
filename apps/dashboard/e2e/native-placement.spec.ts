@@ -327,7 +327,8 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     const serviceProposalId = await proposalArticle.getAttribute("data-proposal-id");
     expect(serviceProposalId).toMatch(/^school-service-proposal-/);
     if (serviceProposalId === null) throw new Error("confirmed proposal id is missing");
-    const absenceFormName = `Fravær: Skole Beta, Monday, bolk 2, tjenesteplan ${serviceProposalId.slice(-8)}`;
+    const ownAbsenceFormName = `Fravær: Skole Beta, Monday, bolk 2, tjenesteplan ${serviceProposalId.slice(-8)}, mitt fravær`;
+    const coordinatorAbsenceFormName = `Fravær: Skole Beta, Monday, bolk 2, tjenesteplan ${serviceProposalId.slice(-8)}, koordinator`;
     await expect(proposalArticle).toContainText("2 av 4 frivillige");
     const confirm = page.getByRole("form", { name: "Bekreft tjenesteforslag", exact: true });
     await confirm.getByRole("button", { name: "Bekreft og send tjenesteplan" }).click();
@@ -354,7 +355,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       .toContain("Delivered");
     await self.reload();
     const ownAbsence = self.getByRole("form", {
-      name: absenceFormName,
+      name: ownAbsenceFormName,
       exact: true,
     });
     await ownAbsence.getByLabel("Dato").focus();
@@ -383,7 +384,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await self.reload();
     await expect(
       self.getByRole("form", {
-        name: absenceFormName,
+        name: ownAbsenceFormName,
         exact: true,
       }),
     ).toBeVisible();
@@ -491,7 +492,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await page.reload();
     await expect(page.getByText("Utfallet: Dekket", { exact: true })).toBeVisible();
     const leaderAbsence = page.getByRole("form", {
-      name: absenceFormName,
+      name: coordinatorAbsenceFormName,
       exact: true,
     });
     await leaderAbsence.getByLabel("Dato").fill(manifest.coverage.secondServiceDate);

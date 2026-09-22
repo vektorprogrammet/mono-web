@@ -957,7 +957,7 @@ function OwnCoveragePanel({
                   day: slot.day,
                   block: slot.block,
                 }}
-                label={`Fravær: ${slot.schoolName}, ${slot.day}, bolk ${slot.block}, tjenesteplan ${slot.proposalId.slice(-8)}`}
+                label={`Fravær: ${slot.schoolName}, ${slot.day}, bolk ${slot.block}, tjenesteplan ${slot.proposalId.slice(-8)}, mitt fravær`}
               >
                 <div className="grid min-w-0 gap-3 sm:grid-cols-2">
                   <label htmlFor={`own-absence-date-${slotId}`} className="min-w-0">
@@ -1246,7 +1246,7 @@ function CoordinatorCoveragePanel({
                     day: slot.day,
                     block: slot.block,
                   }}
-                  label={`Fravær: ${slot.schoolName}, ${slot.day}, bolk ${slot.block}, tjenesteplan ${slot.proposalId.slice(-8)}`}
+                  label={`Fravær: ${slot.schoolName}, ${slot.day}, bolk ${slot.block}, tjenesteplan ${slot.proposalId.slice(-8)}, koordinator`}
                 >
                   <div className="grid min-w-0 gap-3 sm:grid-cols-2">
                     <label htmlFor={`coordinator-absence-person-${slotId}`} className="min-w-0">
