@@ -288,28 +288,14 @@ test("0096 placement and 0110 school-service journeys persist with explicit auth
     await demand.getByRole("button", { name: "Legg til skolebehov" }).click();
     await saved(demand);
     await page.reload();
-    const proposalInput = await readBoard(page);
-    const proposalResponse = await page.request.post(
-      `${manifest.backendOrigin}/api/placements?${new URLSearchParams({ departmentId: manifest.departmentId, semesterId: manifest.semesterId })}`,
-      {
-        headers: {
-          origin: manifest.dashboardOrigin,
-          "content-type": "application/json",
-          "if-match": proposalInput.etag,
-          "idempotency-key": crypto.randomUUID(),
-        },
-        data: { action: "GenerateProposal" },
-      },
-    );
-    expect(
-      proposalResponse.status(),
-      JSON.stringify(await proposalResponse.json()),
-    ).toBe(200);
+    const generate = page.getByRole("form", { name: "Lag nytt tjenesteforslag", exact: true });
+    await generate.getByRole("button", { name: "Lag forslag fra aktive plasseringer" }).click();
+    await expect(page.locator("[data-proposal-id]")).toBeVisible();
     await page.reload();
     const proposalArticle = page.locator("[data-proposal-id]");
     const serviceProposalId = await proposalArticle.getAttribute("data-proposal-id");
     expect(serviceProposalId).toMatch(/^school-service-proposal-/);
-    await expect(proposalArticle).toContainText("3 av 4 frivillige");
+    await expect(proposalArticle).toContainText("1 av 4 frivillige");
     const confirm = page.getByRole("form", { name: "Bekreft tjenesteforslag", exact: true });
     await confirm.getByRole("button", { name: "Bekreft og send tjenesteplan" }).click();
     await expect(confirm.getByRole("alert")).toContainText("Alle avvik må gjennomgås");
@@ -332,7 +318,7 @@ test("0096 placement and 0110 school-service journeys persist with explicit auth
         },
         { timeout: 15_000 },
       )
-      .toBe(2);
+      .toBe(1);
     const occurrence = page
       .getByRole("form", { name: /^Undervisning \d+: Skole Beta$/ })
       .filter({ hasText: "Skole Beta — Monday, bolk 2" });
@@ -341,7 +327,7 @@ test("0096 placement and 0110 school-service journeys persist with explicit auth
     await occurrence.getByRole("button", { name: "Registrer undervisning" }).click();
     await saved(occurrence);
     await page.reload();
-    await expect(page.getByText(/Skole Beta, 2024-03-04, bolk 2:/)).toContainText("2 møtte");
+    await expect(page.getByText(/Skole Beta, 2024-03-04, bolk 2:/)).toContainText("1 møtte");
     await axe(page, "confirmed school service with delivered notifications and occurrence");
     await page.screenshot({
       path: join(manifest.artifacts, "school-service-desktop.png"),

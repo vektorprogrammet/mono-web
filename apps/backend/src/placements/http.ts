@@ -205,7 +205,6 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
     );
   const mutate = (request: Request, own: boolean) =>
     Effect.gen(function* () {
-      console.error("placement mutate entered", request.url);
       if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json")
         return yield* Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
       const body = yield* readBoundedJson(request, 8192);
@@ -264,62 +263,44 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
                 return yield* Effect.fail(
                   new HttpSemanticFailure(precondition.code, precondition.status),
                 );
-              const changedBody = selected.own
-                ? yield* mutateAffiliation(
-                    yield* readOwnAffiliation(
+              const changed = selected.own
+                ? resource(
+                    yield* mutateAffiliation(
+                      yield* readOwnAffiliation(
+                        auth.authority.personId,
+                        selected.scope.departmentId,
+                      ),
+                      selected.command.action,
                       auth.authority.personId,
-                      selected.scope.departmentId,
+                      auth.authorizationInstant,
                     ),
-                    selected.command.action,
-                    auth.authority.personId,
-                    auth.authorizationInstant,
                   )
-                : yield* mutatePlacementBoard(
-                    selected.scope,
-                    selected.command,
-                    auth.authority.personId,
-                    auth.authorizationInstant,
-                    selected.command.action === "GenerateProposal"
-                      ? `school-service-proposal-${identity.identitySha256}`
-                      : selected.command.action === "RecordOccurrence"
-                        ? `school-service-occurrence-${identity.identitySha256}`
-                        : `placement-${identity.identitySha256}`,
-                  ).pipe(
-                    Effect.tapError((cause) =>
-                      Effect.sync(() => {
-                        console.error(cause);
-                      }),
+                : resource(
+                    yield* mutatePlacementBoard(
+                      selected.scope,
+                      selected.command,
+                      auth.authority.personId,
+                      auth.authorizationInstant,
+                      selected.command.action === "GenerateProposal"
+                        ? `school-service-proposal-${identity.identitySha256}`
+                        : selected.command.action === "RecordOccurrence"
+                          ? `school-service-occurrence-${identity.identitySha256}`
+                          : `placement-${identity.identitySha256}`,
                     ),
                   );
-              let changed;
-              try {
-                changed = resource(changedBody);
-              } catch (cause) {
-                console.error(cause);
-                throw cause;
-              }
               return yield* Effect.tryPromise({
                 try: () => responseCapsule(json(changed, changed.etag)),
-                catch: (cause) => {
-                  console.error(cause);
-                  return cause instanceof HttpSemanticFailure
+                catch: (cause) =>
+                  cause instanceof HttpSemanticFailure
                     ? cause
-                    : new HttpSemanticFailure("internal.error", 500);
-                },
+                    : new HttpSemanticFailure("internal.error", 500),
               });
             }),
           };
         }),
       );
-      console.error("placement mutate outcome", outcome);
       return nativeCommandOutcomeResponse(outcome);
-    }).pipe(
-      Effect.tapError((cause) =>
-        Effect.sync(() => {
-          console.error("placement mutate failed", cause);
-        }),
-      ),
-    );
+    });
   return HttpApiBuilder.group(ExternalNativeApi, "placements", (handlers) =>
     Effect.succeed(
       handlers

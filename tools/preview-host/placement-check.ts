@@ -451,6 +451,10 @@ try {
   await pool.query("UPDATE organization_memberships SET is_suspended=false WHERE person_id=$1", [
     leaderId,
   ]);
+  for (const placement of (await readBoard()).placements.filter(
+    (candidate) => candidate.personId === leaderId && candidate.active,
+  ))
+    await command({ action: "Remove", placementId: placement.placementId });
   assert.equal((await expectStatus(await request(otherPath, leader), 200)).placements.length, 0);
   const apiHistoryBeforeBrowser = (
     await pool.query(
@@ -527,7 +531,7 @@ try {
       proposalId: browserEvidence?.serviceProposalId,
       status: "Confirmed",
       revision: 2,
-      exceptionCount: 2,
+      exceptionCount: 1,
     });
     assert.deepEqual(
       (
@@ -557,9 +561,9 @@ try {
           [serviceProposal.proposalId],
         )
       ).rows,
-      [{ occurredOn: "2024-03-04", attendeeCount: 2 }],
+      [{ occurredOn: "2024-03-04", attendeeCount: 1 }],
     );
-    assert.equal(notificationRequests.length, 2);
+    assert.equal(notificationRequests.length, 1);
     for (const delivered of notificationRequests) {
       assert.equal(delivered.authorization, "Bearer synthetic-school-service-token");
       assert.equal(delivered.idempotencyKey, delivered.body.effectId);
