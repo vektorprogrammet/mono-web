@@ -302,7 +302,7 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
       );
       return nativeCommandOutcomeResponse(outcome);
     }).pipe(
-      Effect.tapError((cause) =>
+      Effect.tapCause((cause) =>
         Effect.sync(() => {
           console.error("placement-command-failure", cause);
         }),
