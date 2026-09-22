@@ -1266,8 +1266,10 @@ try {
           `SELECT notification.effect_id AS "effectId",notification.offer_id AS "offerId",
              notification.person_id AS "personId",notification.status,notification.attempts
            FROM school_service_dispatch_notification_outbox AS notification
-           JOIN school_service_substitute_offers AS offer USING(offer_id)
-           JOIN school_service_absences AS absence USING(absence_id)
+           JOIN school_service_substitute_offers AS offer
+             ON offer.offer_id=notification.offer_id
+             AND offer.absence_id=notification.absence_id
+           JOIN school_service_absences AS absence ON absence.absence_id=offer.absence_id
            WHERE absence.proposal_id=$1 ORDER BY absence.service_date,notification.effect_id`,
           [browserCoverageExpected.proposalId],
         )
