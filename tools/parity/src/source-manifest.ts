@@ -664,6 +664,10 @@ const approvedSqlSourceDigests = new Map<string, string>([
     "packages/database/migrations/0007-public-applicant-activation-snapshot.sql",
     "sha256:427d104599900ac5e6d01ed18121e2b32b9dfc5187c82c0159f9be757db11062",
   ],
+  [
+    "packages/database/migrations/0048-expense-settlement-evidence.sql",
+    "sha256:2d2ec64a021058f98018f79a144577209fdc6afc47b4a2caacd8ed1f67d5a1ef",
+  ],
 ]);
 const envSourcePathPattern = /(?:^|\/)\.env(?:$|[.-])/i;
 const sqlSourcePathPattern = /\.sql$/i;
