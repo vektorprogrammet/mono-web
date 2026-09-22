@@ -290,10 +290,12 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
                   );
               return yield* Effect.tryPromise({
                 try: () => responseCapsule(json(changed, changed.etag)),
-                catch: (cause) =>
-                  cause instanceof HttpSemanticFailure
+                catch: (cause) => {
+                  console.error("placement-response-capsule-failure", cause);
+                  return cause instanceof HttpSemanticFailure
                     ? cause
-                    : new HttpSemanticFailure("internal.error", 500),
+                    : new HttpSemanticFailure("internal.error", 500);
+                },
               });
             }),
           };
