@@ -243,7 +243,7 @@ describe("spec 0067 runtime capability contracts", () => {
         path: "/api/people",
         status: 200,
         sessionCookieAuth: true,
-        requestSource: "BrowserCrossOrigin",
+        requestSource: "BrowserSameOrigin",
       }),
     ).toBe(false);
     expect(
@@ -252,7 +252,7 @@ describe("spec 0067 runtime capability contracts", () => {
         path: "/api/profile",
         status: 200,
         sessionCookieAuth: false,
-        requestSource: "BrowserCrossOrigin",
+        requestSource: "BrowserSameOrigin",
       }),
     ).toBe(false);
     expect(isNativeBrowserJourneyRequestAllowed("GET", "/api/teams")).toBe(true);

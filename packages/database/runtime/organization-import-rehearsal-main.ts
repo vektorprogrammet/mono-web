@@ -125,11 +125,7 @@ interface ProxyRequestObservation {
   readonly path: string;
   readonly status: number;
   readonly sessionCookieAuth: boolean;
-  readonly requestSource:
-    | "BrowserSameOrigin"
-    | "BrowserCrossOrigin"
-    | "DashboardSsr"
-    | "UnexpectedOrigin";
+  readonly requestSource: "BrowserSameOrigin" | "DashboardSsr" | "UnexpectedOrigin";
 }
 
 interface RehearsalProxy {
@@ -261,11 +257,7 @@ export const isExpectedNativeBrowserJourneyObservation = (input: {
   readonly path: string;
   readonly status: number;
   readonly sessionCookieAuth: boolean;
-  readonly requestSource:
-    | "BrowserSameOrigin"
-    | "BrowserCrossOrigin"
-    | "DashboardSsr"
-    | "UnexpectedOrigin";
+  readonly requestSource: "BrowserSameOrigin" | "DashboardSsr" | "UnexpectedOrigin";
 }): boolean => {
   const requirement = NATIVE_BROWSER_JOURNEY_REQUIREMENTS.find(({ path }) => path === input.path);
   return (
@@ -871,11 +863,9 @@ const startRecordingProxy = async (
     const requestSource =
       request.headers["sec-fetch-site"] === "same-origin"
         ? ("BrowserSameOrigin" as const)
-        : request.headers.origin === undefined
+        : request.headers.origin === undefined || request.headers.origin === dashboardAllowedOrigin
           ? ("DashboardSsr" as const)
-          : request.headers.origin === dashboardAllowedOrigin
-            ? ("BrowserCrossOrigin" as const)
-            : ("UnexpectedOrigin" as const);
+          : ("UnexpectedOrigin" as const);
     const allowedPath = NATIVE_BROWSER_JOURNEY_PATHS.some(
       (allowedJourneyPath) => allowedJourneyPath === path,
     );

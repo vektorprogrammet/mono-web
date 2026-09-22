@@ -690,7 +690,6 @@ const ProxyRequestSchema = Schema.Struct({
   sessionCookieAuth: Schema.Boolean,
   requestSource: Schema.Union([
     Schema.Literal("BrowserSameOrigin"),
-    Schema.Literal("BrowserCrossOrigin"),
     Schema.Literal("DashboardSsr"),
     Schema.Literal("UnexpectedOrigin"),
   ]),
