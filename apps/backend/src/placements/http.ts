@@ -313,7 +313,13 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
       );
       console.error("placement mutate outcome", outcome);
       return nativeCommandOutcomeResponse(outcome);
-    });
+    }).pipe(
+      Effect.tapError((cause) =>
+        Effect.sync(() => {
+          console.error("placement mutate failed", cause);
+        }),
+      ),
+    );
   return HttpApiBuilder.group(ExternalNativeApi, "placements", (handlers) =>
     Effect.succeed(
       handlers
