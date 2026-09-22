@@ -205,6 +205,7 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
     );
   const mutate = (request: Request, own: boolean) =>
     Effect.gen(function* () {
+      console.error("placement mutate entered", request.url);
       if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json")
         return yield* Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
       const body = yield* readBoundedJson(request, 8192);
@@ -310,6 +311,7 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
           };
         }),
       );
+      console.error("placement mutate outcome", outcome);
       return nativeCommandOutcomeResponse(outcome);
     });
   return HttpApiBuilder.group(ExternalNativeApi, "placements", (handlers) =>
