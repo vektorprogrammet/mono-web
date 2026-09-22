@@ -2,40 +2,79 @@
 
 Lifecycle: build
 
-Now:
+## Current
 
-- Native migration continues from the completed local consolidation at `694cc34f`.
-- Implemented and observed with synthetic local resources: [0094 — substitute pool](design-specs/0094-native-substitute-pool.md), including the real dashboard/API/PostgreSQL journey.
-- Implemented and observed: [0095 — synthetic receipt import rehearsal](design-specs/0095-synthetic-receipt-import-rehearsal.md), including private owner-file reads, replay, quarantine and nonempty backup/restore.
-- Implemented and runtime-observed with synthetic local resources: [0096 — existing-volunteer placement](design-specs/0096-existing-volunteer-placement.md), including self-request, scoped establishment, historical placement, edits/removal and preserved audit history.
-- Implemented and runtime-observed: [0097 — acknowledged receipt delivery](design-specs/0097-receipt-notification-delivery.md), including immutable first-attempt envelopes, bounded retry, failure/restart and historical-import suppression.
-- [0098 — parity diagnostics](design-specs/0098-safe-parity-diagnostics.md) identifies rejected source safely and corrects fetch destination extraction. Generated catalog freshness is not semantic parity.
-- Runtime behavior and generated API contracts are authoritative; historical migration prose in the agent instructions is background, not current completion evidence.
-- Clean local acceptance at `885d6222591839f3e1376c4a611c512c444f0cfb` refreshed [0050](design-specs/0050-native-recruitment-interview-scheduling.md). Real Chromium used the native API and disposable PostgreSQL. The [0050 acceptance manifest](evidence/functional-parity/0050/acceptance-manifest.json) records the scheduling proof.
-- Clean local acceptance for [0051](design-specs/0051-native-recruitment-invitation-response.md) is re-sealed at runtime revision `c0968c587a87ffb107c98e30b7d114ecf94d9698`. The exact browser/API/PostgreSQL evidence proves capability exchange, all response outcomes, fresh applicant and staff reads, trailing-slash routing, identifier-bound outbox payloads and local delivery. Five exact-head receipts are linked through the accepted intent and runtime authorities. PGlite and disposable PostgreSQL proofs, resource-bounded workspace validation and checksums are recorded in the [0051 acceptance manifest](evidence/functional-parity/0051/acceptance-manifest.json).
+The native replacement has substantial local functionality. Production still
+runs the legacy PHP application.
 
-- Implemented and observed in synthetic isolated rehearsals: [0054.2 — native recovery](design-specs/0054.2-native-password-recovery.md), [0099 — applicant account onboarding](design-specs/0099-applicant-account-onboarding.md), and [0100 — synthetic password cohort](design-specs/0100-synthetic-password-cohort.md). Exact combined-commit acceptance is recorded separately from lane evidence.
-- Implemented and observed in isolated synthetic rehearsals: [0101 — interviewer recommendation](design-specs/0101-native-interviewer-recommendation.md), including explicit Ja/Kanskje/Nei, immutable historical absence, current membership and proven self-interview denial before reads/replay. Source review found no separate legacy assistant admission decision; school placement determines that legacy status. Combined-commit acceptance is recorded separately from lane evidence.
-- Implemented and observed in an isolated synthetic rehearsal: [0102 — rejected receipt correction](design-specs/0102-reopen-rejected-receipt.md), including scoped reopening, correction of the same claim, subsequent decision and acknowledged local transport. This explicitly amends the prior Rejected-is-terminal rule; Refunded and Withdrawn remain terminal.
-- Implemented and observed in an isolated synthetic rehearsal at `58391ed6`: [0103 — coordinator interview report](design-specs/0103-coordinator-interview-report.md): scoped, read-only reporting of completed native interviews for an explicit admission period, with exact recommendations, scores, historical absence and self-privacy. This does not claim legacy's first-time-only population. Independent combined-commit acceptance is recorded separately from this lane observation.
-- Implemented and observed in the final local integration at runtime revision `5cb4401610d3799a8fe931471fee265676824b9c`: [0104 — returning-assistant registration](design-specs/0104-returning-assistant-registration.md), including authenticated returning identity, eligibility and authority checks, idempotent 201/412 registration semantics, retry-safe persistence, immutable provenance and audit/outbox custody, later-period finalization and acknowledged effects. The real dashboard/API/PostgreSQL journey and package checks are recorded in [the acceptance manifest](evidence/functional-parity/0104/acceptance-manifest.json); the integrated evidence commit is `239be812`.
+The latest observed native runtime architecture is revision
+`9b923ed42c40e2b7c62f938af217e89aacd80c47`.
 
-- Implemented and observed in the final clean canonical integration at runtime revision `4b17590d1ba605f1153588b375bebd6ff93b5427`: [0105 — authorized corrections to completed interview assessments](design-specs/0105-authorized-completed-interview-corrections.md). The journey preserves original completion metadata and historical-null assessments, appends immutable correction history, and exposes the ordered read-only history in the Foldkit detail. Domain, database, SDK and strict changed-harness checks passed; the complete browser/API/PostgreSQL evidence and checksums are recorded in [the acceptance manifest](evidence/functional-parity/0105/acceptance-manifest.json).
+Implemented native journeys include:
 
-- Implemented and observed with synthetic local resources at runtime revision `d680359312340732e98d5d3bef162877dc44ba08`: [0106 — co-interviewer authority for completed assessment correction](design-specs/0106-co-interviewer-completed-assessment-correction.md). A current designated co-interviewer can find, read, correct and reload the same shared completed assessment as the primary interviewer without receiving contact data or broader recruitment authority. Exact replay, stale/concurrent writes, source-fact ETags, revocation, rollback, native receipts, mobile/desktop rendering and accessibility are recorded in [the acceptance manifest](evidence/functional-parity/0106/acceptance-manifest.json).
-- Implemented and observed with synthetic local resources at runtime revision `f5a98af9e2f2b887f9a79c54dea9ed4bdad36405`: [0107 — authenticated applicant progress](design-specs/0107-authenticated-applicant-progress.md). The read model derives seven current-semester states from canonical application, interview, registration and placement facts. The generated SDK and dashboard expose all explicitly linked applications without assessment, contact or capability data. Authentication boundaries, deterministic ordering, source reload, desktop/mobile rendering and accessibility are recorded in [the acceptance manifest](evidence/functional-parity/0107/acceptance-manifest.json).
-- Implemented and observed with synthetic local resources at runtime revision `64d49ec36373b9004890f68ff39faad9e76b1f14`: [0108 — interview completion receipt](design-specs/0108-interview-completion-receipt.md). First completion creates one atomic outbox effect. The acknowledged worker uses one immutable envelope and a stable idempotency key. Failure stays retryable. A second claim gets no work. Invalid source data enters quarantine before network access. The applicant reloads the canonical completed state without assessment data. Browser, native API, PostgreSQL, desktop, mobile, accessibility and delivery evidence is in [the acceptance manifest](evidence/functional-parity/0108/acceptance-manifest.json).
-- Implemented and observed with synthetic local resources at runtime revision `67648d8a8877927b93f93a80b80f0b2fc207ef15`: [0109 — scoped approver receipt-file review](design-specs/0109-scoped-approver-receipt-file-review.md). Current department-scoped and global approvers can open exact private receipt bytes through the native dashboard while owner, foreign-scope, inactive, no-grant, absent-resource and unavailable-storage boundaries stay closed. The same journey proved refund/reject replay, stale and synchronized concurrent decisions, ordered durable effects and acknowledged local delivery. Browser, API, PostgreSQL, private-file and delivery evidence is in [the acceptance manifest](evidence/functional-parity/0109/acceptance-manifest.json).
-- Implemented and observed with synthetic local resources at runtime revision `9c59cb29f4766be5bf9b9e2fcc6235b415e63f9c`: [0110 — native social-event creation](design-specs/0110-native-social-event-creation.md). Active team members create and reload department-and-semester-scoped events through the generated SDK and Foldkit dashboard; active global administrators retain all-department scope. Exact HTTP replay, digest conflicts, expiry tombstones, advisory-lock contention, transaction-snapshot revocation, immutable provenance, half-open time labels, deterministic ordering, mobile/desktop rendering and keyboard access are recorded in [the acceptance manifest](evidence/functional-parity/0110/acceptance-manifest.json).
+- identity, sessions, OAuth, password recovery, and profile self-service;
+- scoped organization, directory, team-interest, and mailing-list operations;
+- admission periods, public applications, applicant progress, returning
+  registration, interview assignment, scheduling, response, conduct,
+  recommendation, reporting, and immutable completed-assessment corrections;
+- onboarding invitation, account claim or link, volunteer-affiliation request
+  and establishment, manual school placement, and coordinator-confirmed school
+  service from demand through acknowledged notification and recorded attendance;
+- substitute preferences and scoped pool administration;
+- expense submission, private-file custody, scoped approval, rejection,
+  reopening, refund, and acknowledged notification delivery;
+- content publication, contact messages, social-event creation, and anonymous
+  school-survey participation.
 
-- Implemented and observed with synthetic local resources at runtime revision `8574848ab07fa273953039708f1d2cc248b250c6`: [0111 — native school survey participation](design-specs/0111-native-school-survey-participation.md). Anonymous school participants open an imported school-targeted survey, select a currently eligible school, submit all four legacy question types and see completion only after the atomic commit. Exact and reordered replay, conflicts, receipt expiry and contention, eligibility revocation, atomic validation failures, response boundaries, prototype-named questions, framed opaque survey IDs with API dot-segment rejection, generated SDK server transport, dashboard worker and apex document/asset/manifest routing, responsive rendering, keyboard use and accessibility are recorded in [the acceptance manifest](evidence/functional-parity/0111/acceptance-manifest.json).
-- Native runtime architecture was simplified through `cf3c4c46c694ef5f44639c817f208fef6cdf85f4`: persistence now lives in `packages/database`, migration-only tools are outside product packages, backend HTTP execution stays in Effect through one process-owned runtime, redundant forwarding Layers are removed, the Foldkit social-event client uses the typed bridge operation contract, and organization catalogs use kind-specific custom elements behind the production Bun dashboard's same-origin API boundary. At that exact revision, both the clean 0105 correction journey and the 0067 organization-import rehearsal passed against the real dashboard, native API, Chromium and disposable PostgreSQL. The organization rehearsal observed the production Bun server, authenticated same-origin browser requests and server-side bounded-session requests separately. This is local architecture/runtime evidence, not a new parity or production-cutover claim.
-- Continue the accepted [continuation plan](docs/migration/continuation-plan.md): remaining recruitment outcomes, finance outcomes and semester workflows, including survey administration/results and other audiences, certificates, statistics and exports. A coordinator admission decision and co-interviewer designation remain separate product choices.
-- Keep exact-commit runtime evidence separate from implementation and production cutover claims.
-- Rehearse receipt, private-file and identity reconciliation before any production cutover.
+These journeys were observed with synthetic local resources. This is not
+production cutover evidence.
 
-Blocked:
+The native architecture now uses one Effect backend runtime, one PostgreSQL
+ownership layer, generated HTTP and SDK contracts, transaction-bound authority,
+atomic audit/outbox/receipt writes, and Foldkit dashboard workflows.
 
-- No blocker to the substitute-pool contract.
-- Real cohort mapping, unsupported credential/alias disposition and production mail/cutover authority remain outstanding. Team membership must not stand in for volunteer affiliation.
-- Production changes require a separately authorized cutover; this phase uses synthetic local data only.
+## Next
+
+Close complete operating outcomes in this order:
+
+1. Add absence reporting, substitute dispatch, acceptance, acknowledgement, and
+   service-history closure.
+2. Close remaining recruitment outcomes. Add a coordinator admission decision
+   only if the organization defines it as a separate fact and authority.
+3. Complete survey administration, audience rules, results, and exports.
+4. Define the wider finance workflow, payment authority, and settlement evidence.
+5. Reconcile real identity, credentials, files, affiliation, and placement data.
+6. Rehearse production writer transfer, recovery, and rollback.
+
+Create one active file under `docs/specs/` for the next journey. Remove it when
+the accepted behavior is represented by [docs/system.md](docs/system.md), code,
+and observable checks.
+
+## Production gates
+
+Production replacement is not authorized or rehearsed.
+
+Before cutover:
+
+- reconcile Account, Person, profile, legacy aliases, and unsupported
+  credentials;
+- reconcile historical affiliations, placements, receipts, and private files;
+- configure and prove real mail, SMS, storage, and payment authority;
+- run the final data import against an authorized production snapshot;
+- fence legacy writers before native ownership starts;
+- prove backup, restore, rollback, delivery recovery, and reconciliation;
+- obtain explicit operator authority for each external or destructive action.
+
+Team membership must never stand in for volunteer affiliation. A recommendation
+must never stand in for an explicit coordinator outcome.
+
+## Evidence boundary
+
+Code and generated contracts describe the implemented surface. Focused checks
+and real local journeys prove only the exact behavior that they exercise.
+Neither local evidence nor this file proves production readiness.
+
+Historical specifications, screenshots, logs, reports, and runtime bundles were
+removed from the working tree. Git history retains tracked material. Unique
+umbrella documentation was preserved in the local checksummed history archive
+before deletion.

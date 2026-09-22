@@ -4,15 +4,11 @@ import { Option } from "effect";
 /**
  * Client-side role override for preview/devtools ONLY.
  *
- * SECURITY CONTRACT (design spec 0074):
- * - This module is imported ONLY by the preview devtools panel and the
- *   client-side render paths it patches (routes/dashboard.tsx,
- *   foldkit/dashboard/main.ts).
- * - NO `.server` module, loader, or action may import anything from this
- *   file. Server authorization is always derived from the real session
- *   (see shell.server.ts); this override changes presentation only.
- * - Falsifier F4 in design-specs/0074 asserts no `.server` file references
- *   PREVIEW_ROLE_STORAGE_KEY.
+ * SECURITY CONTRACT:
+ * - Only preview devtools and patched client render paths may import this module.
+ * - No server module, loader, or action may import it.
+ * - Server authorization comes from the real session in shell.server.ts.
+ * - The override changes presentation only.
  */
 
 export const PREVIEW_ROLE_STORAGE_KEY = "vektor-preview-role-override";

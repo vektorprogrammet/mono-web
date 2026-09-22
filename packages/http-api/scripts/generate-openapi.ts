@@ -234,11 +234,6 @@ const releaseManifestBytes = encode({
     contract: "@vektorprogrammet/http-api/ExternalNativeApi",
     effect: "4.0.0-rc.109",
     generator: "packages/http-api/scripts/generate-openapi.ts",
-    specifications: [
-      "design-specs/0079-generated-api-and-code-reference.md",
-      "design-specs/0079.1-docgen-toolchain-amendment.md",
-      "design-specs/0079.2-generated-v0.2-release-projection.md",
-    ],
   },
   counts: {
     externalOperations: externalOperations.length,

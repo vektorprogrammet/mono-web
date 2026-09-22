@@ -1,5 +1,4 @@
--- Forward correction for the complete post-0015 native inventory checked in
--- design-specs/0066.1-native-domain-schema-boundary-amendment.md.
+-- Forward correction for the complete post-0015 native table inventory.
 -- The migration runner supplies the transaction boundary for this migration.
 
 DO $migration$

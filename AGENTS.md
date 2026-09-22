@@ -1,108 +1,102 @@
 # Mono-web
 
-Turborepo monorepo for Vektorprogrammet — Norwegian university tutoring program.
+Turborepo monorepo for the Vektorprogrammet native replacement.
 
-## Migration authority
+## Authority
 
-Read [STATE.md](STATE.md) for active work and the accepted
-[continuation plan](docs/migration/continuation-plan.md) for sequencing and
-acceptance boundaries. Bind implementation to its file in `design-specs/`.
-The migration targets the native application; Symfony source establishes
-legacy behavior to assess, not a requirement to add another Symfony API layer.
-Current executable contracts, package manifests and exact-revision runtime
-evidence take precedence over historical stack examples below.
+Read [STATE.md](STATE.md) for current work.
+Read [docs/system.md](docs/system.md) for intended product behavior.
+Read [docs/architecture.md](docs/architecture.md) for technical boundaries.
 
-## Quick Reference
+The migration targets the native application. Symfony source establishes legacy
+behavior to assess. It is not the target architecture.
 
-| Command | Purpose |
-|---------|---------|
-| `bun install` | Install all dependencies |
-| `turbo build` | Build all packages |
-| `turbo lint` | Lint all packages (oxlint) |
-| `turbo test` | Run all test suites |
-| `cd packages/sdk && bun run build` | Build SDK |
-| `cd packages/sdk && bun run test` | Run SDK tests (60 tests) |
-| `turbo -F @monoweb/homepage dev` | Dev server for homepage |
-| `turbo -F @monoweb/dashboard dev` | Dev server for dashboard |
+For a non-trivial journey, create one active contract under `docs/specs/`.
+Remove it after the accepted intent is represented by the system document, code,
+and observable checks. Do not retain completed specifications, screenshots,
+logs, generated references, or runtime evidence in the repository.
 
-## Apps & Packages
+Current executable contracts, package manifests, and source code define the
+implemented surface. Local observations do not authorize production action.
 
-| Package | Stack | Source | Description |
-|---------|-------|--------|-------------|
-| `@monoweb/homepage` | React Router, Tailwind, daisyUI | `apps/homepage/src/` | Public website |
-| `@monoweb/dashboard` | React Router, Tailwind, shadcn | `apps/dashboard/app/` | Admin dashboard |
-| `@monoweb/server` | Symfony 6.4, API Platform 3.4 | `apps/server/src/` | PHP backend (current production) |
-| `@vektorprogrammet/sdk` | Effect-TS, @effect/platform | `packages/sdk/src/` | Domain-first API client |
+## Commands
 
-## Conventions
+| Command                           | Purpose                           |
+| --------------------------------- | --------------------------------- |
+| `bun install`                     | Install workspace dependencies    |
+| `bun run build`                   | Build all product packages        |
+| `bun run check-types`             | Check TypeScript packages         |
+| `bun run test`                    | Run package test suites           |
+| `bun run lint`                    | Run Oxlint                        |
+| `bun run format:check`            | Check Oxfmt output                |
+| `turbo -F @monoweb/homepage dev`  | Start the public frontend         |
+| `turbo -F @monoweb/dashboard dev` | Start the staff frontend          |
+| `bun run dev:server`              | Start the retained Symfony server |
 
-- **Package manager:** Bun (not pnpm/npm)
-- **Linter/formatter:** oxlint + oxfmt (not Biome/ESLint)
-- **Path aliases:** `@/*` → source root for new code
-- **Commits:** [Conventional Commits](https://www.conventionalcommits.org/)
-- **Tests:** Each app owns its test runner. `turbo test` as unified interface.
-- **CI:** Single GitHub Actions workflow — TS job (turbo) + PHP job (composer)
+Package manifests are authoritative for exact scripts.
 
-## SDK
+## Packages
 
-`@vektorprogrammet/sdk` — domain-first typed client. Effect-TS internals, plain promise surface.
+| Path                | Responsibility                                           |
+| ------------------- | -------------------------------------------------------- |
+| `apps/backend`      | Native Effect HTTP process and workers                   |
+| `apps/homepage`     | Public React application                                 |
+| `apps/dashboard`    | Authenticated React Router and Foldkit application       |
+| `apps/server`       | Retained Symfony source and current production backend   |
+| `packages/domain`   | Business values, transitions, failures, and authority    |
+| `packages/database` | PostgreSQL schema, persistence, locks, audit, and outbox |
+| `packages/http-api` | HTTP contracts, middleware declarations, and OpenAPI     |
+| `packages/sdk`      | Generated native API client                              |
+| `tools/e2e`         | Disposable local journey drivers                         |
+| `tools/parity`      | Temporary migration analysis and safe runtime helpers    |
 
-```typescript
-import { createClient } from "@vektorprogrammet/sdk"
+Keep the dependency graph in [docs/architecture.md](docs/architecture.md).
+Product packages must not import migration tools or application source.
 
-// Authenticated (dashboard loaders/actions)
-const client = createClient("http://localhost:8000", { auth: token })
-const page = await client.admin.receipts.list({ status: "pending" })
-// page: { items: AdminReceipt[], totalItems: number, page: number, pageSize: number }
+## TypeScript conventions
 
-await client.admin.receipts.approve(id)  // domain operation, not PUT /status
+- Use Bun as package manager and runtime unless a target requires Node.
+- Use Effect v4 as the application language for effectful code.
+- Push concrete runtimes and vendors into Layer implementations.
+- Use direct functions for total local calculations.
+- Use Schema at external, persistence, and transport boundaries.
+- Infer types from schemas. Do not duplicate interfaces.
+- Use Oxfmt and Oxlint. Do not add another formatter or linter.
+- Use generated SDK operations for frontend-to-backend communication.
+- Model stateful dashboard workflows with one Foldkit Model.
+- Treat UI roles and navigation as projections, not authority.
 
-// Unauthenticated (public pages)
-const client = createClient("http://localhost:8000")
-const sponsors = await client.public.sponsors()
+## Change rule
 
-// Effect-native (for Effect consumers)
-import { createEffectClient } from "@vektorprogrammet/sdk/effect"
-const page = yield* client.receipts.list()  // Effect<Page<Receipt>, SdkError>
-```
+Implement one complete operational journey at a time. A route, schema, unit
+test, or generated SDK method is not migration completion.
 
-**Key conventions:**
-- Domain methods speak the ubiquitous language: `approve()` not `updateStatus("refunded")`
-- Application status is `"received" | "invited" | ...` — never PHP integers
-- Dates are `Date` objects, not ISO strings
-- All methods throw `SdkError` subclasses on failure
-- `client.context` exposes JWT-decoded role/department/teams for UI rendering
-- Types inferred from Schema.Class — no hand-written interfaces
-- See `docs/superpowers/specs/2026-03-21-sdk-redesign-design.md` for full spec
-- See `docs/sdk-architecture.html` for architecture vision
+For a permanent behavior change:
 
-## Docs
+1. Define the observable outcome and authority boundary.
+2. Update domain, persistence, HTTP, SDK, and UI callers as one cutover.
+3. Exercise the real UI, API, and PostgreSQL path.
+4. Observe denial, concurrency, replay, and recovery where applicable.
+5. Remove temporary scripts and the completed specification.
+6. Update STATE.md and the intended system document when their facts change.
 
-| Topic | Location |
-|-------|----------|
-| Architecture decisions | [`docs/adr/`](docs/adr/) |
-| Migration roadmap | [`docs/migration/`](docs/migration/) |
-| DDD/FCIS restructure spec | [`docs/superpowers/specs/2026-03-20-ddd-fcis-analysis-design.md`](docs/superpowers/specs/2026-03-20-ddd-fcis-analysis-design.md) |
-| DDD restructure plan | [`docs/superpowers/plans/2026-03-20-ddd-restructure.md`](docs/superpowers/plans/2026-03-20-ddd-restructure.md) |
-| SDK architecture vision | [`docs/sdk-architecture.html`](docs/sdk-architecture.html) |
-| SDK redesign spec | [`docs/superpowers/specs/2026-03-21-sdk-redesign-design.md`](docs/superpowers/specs/2026-03-21-sdk-redesign-design.md) |
-| Interface design principles | [`docs/interface-design.html`](docs/interface-design.html) |
-| Server (PHP) | [`apps/server/CLAUDE.md`](apps/server/CLAUDE.md) |
+Production data, credentials, providers, deployments, writer transfer, and
+legacy shutdown require explicit operator authority.
 
-## Server (PHP)
+## Symfony source
 
-See `apps/server/CLAUDE.md` for Symfony-specific rules, testing, and architecture.
+Use `apps/server/CLAUDE.md` for Symfony-specific commands and constraints.
+Server commands run through Composer:
 
-Server commands run via composer, not turbo:
 ```bash
 cd apps/server
-composer test          # PHPUnit (1087+ tests)
-composer lint          # PHP-CS-Fixer
-composer analyse       # PHPStan
+composer test
+composer lint
+composer analyse
 ```
 
-**After adding DB constraints/validation:** Always verify fixtures still load:
+After a database constraint or validation change, verify that fixtures load:
+
 ```bash
 APP_ENV=test php bin/console doctrine:fixtures:load --no-interaction
 ```
-Broken fixtures cascade into 600+ silent test failures.
