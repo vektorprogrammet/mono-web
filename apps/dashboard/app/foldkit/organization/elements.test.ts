@@ -32,16 +32,12 @@ class FakeElement {
   }
 
   setAttribute(name: string, value: string): void {
-    const previous = this.getAttribute(name);
     this.attributes.set(name, value);
-    const lifecycle = this as unknown as Partial<OrganizationElementLifecycle>;
-    lifecycle.attributeChangedCallback?.(name, previous, value);
   }
 }
 
 interface OrganizationElementLifecycle {
   connectedCallback(): void;
-  attributeChangedCallback(name: string, previous: string | null, next: string | null): void;
   disconnectedCallback(): void;
 }
 
@@ -67,11 +63,11 @@ describe("Organization catalog custom element", () => {
     });
   });
 
-  it("waits for the hydration owner, then owns one Team runtime while connected", async () => {
-    // The dynamic import intentionally proves module evaluation does not claim DOM ownership before hydration.
+  it("registers kind-specific elements and owns one runtime per connection", async () => {
+    // The dynamic import intentionally proves module evaluation does not claim DOM ownership.
     const {
-      ORGANIZATION_CATALOG_ELEMENT,
-      ORGANIZATION_CATALOG_KIND_ATTRIBUTE,
+      FIELD_OF_STUDY_CATALOG_ELEMENT,
+      TEAM_CATALOG_ELEMENT,
       registerOrganizationCatalogElement,
     } = await import("./elements");
 
@@ -79,58 +75,38 @@ describe("Organization catalog custom element", () => {
     expect(mocks.embed).not.toHaveBeenCalled();
     registerOrganizationCatalogElement();
     registerOrganizationCatalogElement();
-    expect(define).toHaveBeenCalledTimes(1);
+    expect(define).toHaveBeenCalledTimes(2);
 
-    const ElementConstructor = registry.get(ORGANIZATION_CATALOG_ELEMENT);
-    if (ElementConstructor === undefined)
-      throw new Error("organization element was not registered");
-    const element = new ElementConstructor() as HTMLElement & OrganizationElementLifecycle;
-    element.setAttribute(ORGANIZATION_CATALOG_KIND_ATTRIBUTE, "Team");
+    const TeamElementConstructor = registry.get(TEAM_CATALOG_ELEMENT);
+    const FieldOfStudyElementConstructor = registry.get(FIELD_OF_STUDY_CATALOG_ELEMENT);
+    if (TeamElementConstructor === undefined || FieldOfStudyElementConstructor === undefined) {
+      throw new Error("organization elements were not registered");
+    }
+    const teamElement = new TeamElementConstructor() as HTMLElement & OrganizationElementLifecycle;
+    const fieldOfStudyElement = new FieldOfStudyElementConstructor() as HTMLElement &
+      OrganizationElementLifecycle;
 
-    element.connectedCallback();
-    element.connectedCallback();
-    expect(mocks.createClient).toHaveBeenCalledTimes(1);
-    expect(mocks.embed).toHaveBeenCalledTimes(1);
-    expect(element.children).toHaveLength(1);
-    expect(element.children[0]).toEqual(
-      expect.objectContaining({ id: "foldkit-organization-catalog" }),
-    );
-    expect(mocks.embed).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "foldkit-organization-catalog" }),
-      { catalogKind: "Team", client: mocks.client },
-    );
-
-    element.disconnectedCallback();
-    expect(mocks.dispose).toHaveBeenCalledTimes(1);
-
-    element.connectedCallback();
+    teamElement.connectedCallback();
+    teamElement.connectedCallback();
+    fieldOfStudyElement.connectedCallback();
     expect(mocks.createClient).toHaveBeenCalledTimes(2);
-    expect(mocks.embed).toHaveBeenCalledTimes(2);
-  });
-
-  it("starts when hydration supplies the catalog kind after connection", async () => {
-    // Dynamic import is required so module evaluation sees the per-test custom-element registry.
-    const {
-      ORGANIZATION_CATALOG_ELEMENT,
-      ORGANIZATION_CATALOG_KIND_ATTRIBUTE,
-      registerOrganizationCatalogElement,
-    } = await import("./elements");
-    registerOrganizationCatalogElement();
-
-    const ElementConstructor = registry.get(ORGANIZATION_CATALOG_ELEMENT);
-    if (ElementConstructor === undefined)
-      throw new Error("organization element was not registered");
-    const element = new ElementConstructor() as HTMLElement & OrganizationElementLifecycle;
-
-    element.connectedCallback();
-    expect(mocks.embed).not.toHaveBeenCalled();
-
-    element.setAttribute(ORGANIZATION_CATALOG_KIND_ATTRIBUTE, "Team");
-
-    expect(mocks.createClient).toHaveBeenCalledTimes(1);
-    expect(mocks.embed).toHaveBeenCalledWith(
+    expect(mocks.embed).toHaveBeenNthCalledWith(
+      1,
       expect.objectContaining({ id: "foldkit-organization-catalog" }),
       { catalogKind: "Team", client: mocks.client },
     );
+    expect(mocks.embed).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ id: "foldkit-organization-catalog" }),
+      { catalogKind: "FieldOfStudy", client: mocks.client },
+    );
+
+    teamElement.disconnectedCallback();
+    fieldOfStudyElement.disconnectedCallback();
+    expect(mocks.dispose).toHaveBeenCalledTimes(2);
+
+    teamElement.connectedCallback();
+    expect(mocks.createClient).toHaveBeenCalledTimes(3);
+    expect(mocks.embed).toHaveBeenCalledTimes(3);
   });
 });

@@ -1,35 +1,30 @@
-import { Schema as S } from "effect";
 import { createBrowserOrganizationCatalogClient } from "./browser-client";
 import { embedOrganizationCatalog } from "./main";
-import { OrganizationCatalogKind } from "./model";
+import type { OrganizationCatalogKind } from "./model";
 
-export const ORGANIZATION_CATALOG_ELEMENT = "vektor-organization-catalog";
-export const ORGANIZATION_CATALOG_KIND_ATTRIBUTE = "catalog-kind";
+export const TEAM_CATALOG_ELEMENT = "vektor-team-catalog";
+export const FIELD_OF_STUDY_CATALOG_ELEMENT = "vektor-field-of-study-catalog";
 
-export const registerOrganizationCatalogElement = (): void => {
-  if (typeof window === "undefined" || typeof customElements === "undefined") return;
-  if (customElements.get(ORGANIZATION_CATALOG_ELEMENT) !== undefined) return;
+const defineOrganizationCatalogElement = (
+  elementName: string,
+  catalogKind: OrganizationCatalogKind,
+): void => {
+  if (customElements.get(elementName) !== undefined) return;
 
   customElements.define(
-    ORGANIZATION_CATALOG_ELEMENT,
+    elementName,
     class extends HTMLElement {
-      static readonly observedAttributes = [ORGANIZATION_CATALOG_KIND_ATTRIBUTE];
-
       readonly #container = document.createElement("div");
       #connected = false;
       #dispose: (() => void) | undefined;
 
-      #start(): void {
-        this.#dispose?.();
-        this.#dispose = undefined;
+      connectedCallback(): void {
+        if (this.#connected) return;
+        this.#connected = true;
         this.#container.id = "foldkit-organization-catalog";
         this.replaceChildren(this.#container);
 
         try {
-          const catalogKind = S.decodeUnknownSync(OrganizationCatalogKind)(
-            this.getAttribute(ORGANIZATION_CATALOG_KIND_ATTRIBUTE),
-            { onExcessProperty: "error" },
-          );
           this.#dispose = embedOrganizationCatalog(this.#container, {
             catalogKind,
             client: createBrowserOrganizationCatalogClient(),
@@ -41,23 +36,10 @@ export const registerOrganizationCatalogElement = (): void => {
           const heading = document.createElement("h1");
           heading.textContent = "Organisasjonsoversikten kunne ikke startes";
           const guidance = document.createElement("p");
-          guidance.textContent = "Katalogtypen mangler eller er ugyldig.";
+          guidance.textContent = "Last siden på nytt og prøv igjen.";
           error.replaceChildren(heading, guidance);
           this.#container.replaceChildren(error);
         }
-      }
-
-      connectedCallback(): void {
-        if (this.#connected) return;
-        this.#connected = true;
-        this.#start();
-      }
-
-      attributeChangedCallback(name: string, previous: string | null, next: string | null): void {
-        if (name !== ORGANIZATION_CATALOG_KIND_ATTRIBUTE || previous === next || !this.#connected) {
-          return;
-        }
-        this.#start();
       }
 
       disconnectedCallback(): void {
@@ -67,4 +49,10 @@ export const registerOrganizationCatalogElement = (): void => {
       }
     },
   );
+};
+
+export const registerOrganizationCatalogElement = (): void => {
+  if (typeof window === "undefined" || typeof customElements === "undefined") return;
+  defineOrganizationCatalogElement(TEAM_CATALOG_ELEMENT, "Team");
+  defineOrganizationCatalogElement(FIELD_OF_STUDY_CATALOG_ELEMENT, "FieldOfStudy");
 };

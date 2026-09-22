@@ -76,7 +76,7 @@ const readFinalPageState = async (
   } satisfies DiagnosticFinalPageState;
   if (page === undefined) return fallback;
   try {
-    const host = page.locator("vektor-organization-catalog").first();
+    const host = page.locator("vektor-team-catalog").first();
     const container = host.locator("#foldkit-organization-catalog").first();
     const [
       customElementDefined,
@@ -87,7 +87,7 @@ const readFinalPageState = async (
       headings,
       alerts,
     ] = await Promise.all([
-      page.evaluate(() => customElements.get("vektor-organization-catalog") !== undefined),
+      page.evaluate(() => customElements.get("vektor-team-catalog") !== undefined),
       host.count(),
       host.locator(":scope > *").count(),
       container.count(),
