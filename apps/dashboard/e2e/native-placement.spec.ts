@@ -524,7 +524,16 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     });
     await leaderAbsence.getByLabel("Dato").fill(manifest.coverage.secondServiceDate);
     await leaderAbsence.getByRole("button", { name: "Rapporter fravær", exact: true }).click();
-    await saved(leaderAbsence);
+    await expect
+      .poll(async () =>
+        (await readCoverageBoard(page)).absences.some(
+          (absence: { proposalId: string; personId: string; serviceDate: string }) =>
+            absence.proposalId === serviceProposalId &&
+            absence.personId === manifest.leaderId &&
+            absence.serviceDate === manifest.coverage.secondServiceDate,
+        ),
+      )
+      .toBe(true);
     await page.reload();
     const afterLeaderAbsence = await readCoverageBoard(page);
     const uncoveredAbsence = afterLeaderAbsence.absences.find(
