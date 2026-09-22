@@ -8,7 +8,7 @@ The native replacement has substantial local functionality. Production still
 runs the legacy PHP application.
 
 The latest observed native runtime architecture is revision
-`0e9e10cbebfcc5ff0f581cca62b7f204a3bb860d`.
+`037610ba04b1497816f5bd6e814ec628d4cd245b`.
 
 Implemented native journeys include:
 
