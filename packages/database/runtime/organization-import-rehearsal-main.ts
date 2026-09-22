@@ -5,17 +5,36 @@ import * as BunServices from "@effect/platform-bun/BunServices";
 import { randomBytes } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import {
-  createServer as createHttpServer, type IncomingMessage, type Server as HttpServer, } from "node:http";
+  createServer as createHttpServer,
+  type IncomingMessage,
+  type Server as HttpServer,
+} from "node:http";
 import { createConnection, createServer as createNetServer } from "node:net";
 import {
-  access, cp, lstat, mkdir, readFile, readdir, readlink, rm, writeFile, } from "node:fs/promises";
+  access,
+  cp,
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  readlink,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
+import { ReturningAssistantsLive } from "@vektorprogrammet/database/application";
 import { ContentLive, ContentManagementLive } from "@vektorprogrammet/database/content";
-import { Database, type DatabaseShape, databaseHealth } from "@vektorprogrammet/database";
+import {
+  Database,
+  OAuthCredentialAuthority,
+  type DatabaseShape,
+  databaseHealth,
+} from "@vektorprogrammet/database";
+import { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import {
   Identity,
@@ -24,21 +43,28 @@ import {
   IdentitySessionNotFound,
   type IdentityShape,
 } from "@vektorprogrammet/domain/identity";
-import { Organization, PersonId, importLegacyOrganizationEffect, type LegacyOrganizationSnapshot, type OrganizationImportResult } from "@vektorprogrammet/domain/organization";
+import {
+  Organization,
+  PersonId,
+  importLegacyOrganizationEffect,
+  type LegacyOrganizationSnapshot,
+  type OrganizationImportResult,
+} from "@vektorprogrammet/domain/organization";
+import { makeReceiptAuxiliaryRecording } from "@vektorprogrammet/domain/receipt";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { EconomyLive } from "@vektorprogrammet/database/receipt";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
+import { SocialEventsLive } from "@vektorprogrammet/database/social-events";
+import { SchoolSurveysLive } from "@vektorprogrammet/database/surveys";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";
-import { Config, DateTime, Effect, Layer, Redacted, Result } from "effect";
+import { Config, DateTime, Effect, Layer, ManagedRuntime, Redacted, Result } from "effect";
 import { Etag, HttpEffect, HttpRouter } from "effect/unstable/http";
 import { makeBackendConfig, type BackendConfig } from "../../../apps/backend/src/config.js";
 import {
   makeBackendHttp,
   makeExternalNativeApiRouterLayer,
-  type BackendRun,
 } from "../../../apps/backend/src/router.js";
-import { makeBackendRuntime } from "../../../apps/backend/runtime.js";
 import { DatabaseLive } from "../src/layers.js";
 import { IdentitySnapshot } from "../src/auth-live.js";
 import { databaseMigrationDefinitions, databaseSchemaRevision } from "../src/migrations.js";
@@ -1170,6 +1196,9 @@ const makeRehearsalRuntime = (
   const admissionsLayer = AdmissionsLive.pipe(Layer.provide(observedDatabaseLayer));
   const economyLayer = EconomyLive.pipe(Layer.provide(observedDatabaseLayer));
   const organizationLayer = OrganizationLive.pipe(Layer.provide(observedDatabaseLayer));
+  const returningAssistantsLayer = ReturningAssistantsLive.pipe(
+    Layer.provide(observedDatabaseLayer),
+  );
   const profileLayer = ProfileLive.pipe(
     Layer.provide(Layer.merge(observedDatabaseLayer, organizationLayer)),
   );
@@ -1183,32 +1212,55 @@ const makeRehearsalRuntime = (
       Layer.mergeAll(observedDatabaseLayer, admissionsLayer, organizationLayer, profileLayer),
     ),
   );
+  const socialEventsLayer = SocialEventsLive.pipe(Layer.provide(observedDatabaseLayer));
+  const schoolSurveysLayer = SchoolSurveysLive.pipe(Layer.provide(observedDatabaseLayer));
+  const receiptAuxiliaryLayer = makeReceiptAuxiliaryRecording().layer;
+  const servicePrincipalGrantLayer = Layer.succeed(
+    ServicePrincipalGrantAuthority,
+    ServicePrincipalGrantAuthority.of({
+      readReceiptApprovalCandidates: () =>
+        Effect.die("unexpected service-principal grant resolution"),
+      createGrant: () => Effect.die("unexpected service-principal grant mutation"),
+      endGrant: () => Effect.die("unexpected service-principal grant mutation"),
+      revokeGrant: () => Effect.die("unexpected service-principal grant mutation"),
+    }),
+  );
+  const oauthCredentialLayer = Layer.succeed(
+    OAuthCredentialAuthority,
+    OAuthCredentialAuthority.of({
+      resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
+      resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
+    }),
+  );
+  const servicesLayer = Layer.mergeAll(
+    observedDatabaseLayer,
+    admissionsLayer,
+    economyLayer,
+    organizationLayer,
+    profileLayer,
+    schoolsLayer,
+    contentManagementLayer,
+    contentLayer,
+    recruitmentLayer,
+    identityLayer,
+    oauthCredentialLayer,
+    returningAssistantsLayer,
+    socialEventsLayer,
+    schoolSurveysLayer,
+    receiptAuxiliaryLayer,
+    servicePrincipalGrantLayer,
+  );
   const platformLayer = Layer.mergeAll(BunServices.layer, BunHttpPlatform.layer, Etag.layer);
   const routerLayer = HttpRouter.layer;
-  let run!: BackendRun;
-  const deferredRun: BackendRun = (effect) => run(effect);
-  const nativeApiLayer = makeExternalNativeApiRouterLayer(config, deferredRun, {
+  const httpLayer = Layer.merge(platformLayer, routerLayer);
+  const nativeApiLayer = makeExternalNativeApiRouterLayer(config, {
     now: () => SPEC_0067.authorizationInstant,
-  }).pipe(Layer.provide(platformLayer), Layer.provide(routerLayer));
-  const runtime = makeBackendRuntime(
-    Layer.mergeAll(
-      observedDatabaseLayer,
-      admissionsLayer,
-      economyLayer,
-      organizationLayer,
-      profileLayer,
-      schoolsLayer,
-      contentManagementLayer,
-      contentLayer,
-      recruitmentLayer,
-      identityLayer,
-      platformLayer,
-      routerLayer,
-      nativeApiLayer,
-    ),
+  }).pipe(
+    HttpRouter.provideRequest(servicesLayer),
+    Layer.provide(servicesLayer),
+    Layer.provide(httpLayer),
   );
-  run = runtime.runPromise as BackendRun;
-  return runtime;
+  return ManagedRuntime.make(Layer.mergeAll(servicesLayer, httpLayer, nativeApiLayer));
 };
 
 const seedPrerequisites = (sql: DatabaseShape): Effect.Effect<void, unknown> =>

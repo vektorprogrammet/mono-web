@@ -338,10 +338,10 @@ describe("unified backend router", () => {
     expect({ status: receipt.status, body: await receipt.json() }).toEqual({
       status: 401,
       body: expectedProblem(
-        "credential.missing",
-        "Credential required",
+        "credential.invalid",
+        "Invalid credential",
         401,
-        "A credential is required for this operation.",
+        "The supplied credential is invalid.",
       ),
     });
     expect({ status: recruitment.status, body: await recruitment.json() }).toEqual({

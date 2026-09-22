@@ -12,10 +12,7 @@ import {
   ProfileApi,
   ReceiptsApi,
   RecruitmentApi,
-  InvitationCapabilitySecurity,
-  PersonSecurity,
   RequestSchemaErrorMiddleware,
-  SessionSecurity,
 } from "@vektorprogrammet/http-api";
 import { Effect, Layer } from "effect";
 import { Etag, HttpRouter, HttpServerResponse } from "effect/unstable/http";
@@ -52,6 +49,10 @@ const testSessionBoundary = {
   trustedOrigins: ["http://127.0.0.1:5174"],
   secureCookies: false,
 } as const;
+const testAuthHandler: BackendAuthHandler = {
+  handle: () => Promise.resolve(new Response(null, { status: 404 })),
+  recordTrustedOriginRejection: () => Promise.resolve(),
+};
 const notFound = HttpRouter.use((router) =>
   router.add(
     "*",
@@ -88,11 +89,6 @@ const contentContract = HttpApi.make("external-native-api")
   .add(ContentApi)
   .middleware(RequestSchemaErrorMiddleware);
 
-type NativeMiddlewareRequirements =
-  | SessionSecurity
-  | PersonSecurity
-  | InvitationCapabilitySecurity
-  | RequestSchemaErrorMiddleware;
 type TestServiceLayer = Layer.Layer<Identity | OAuthCredentialAuthority>;
 
 const provideTestServices = <Output, Error, Requirements>(
@@ -109,28 +105,28 @@ const testRouterFetch = <
   contract: HttpApi.HttpApi<Id, Groups>,
   handlers: Layer.Layer<HttpApiGroup.ToService<Id, Groups>, never, R>,
   services: S,
-) => {
+): ((request: Request) => Promise<Response>) => {
   const middleware = NativeHttpApiMiddlewareLive.pipe(Layer.provide(services));
   const app = HttpApiBuilder.layer(contract).pipe(
     Layer.provide(handlers),
     Layer.provide(middleware),
     Layer.provide(platform),
   );
-  const remainingServices = Layer.effectContext(
-    Effect.context<Exclude<HttpRouter.Request.Only<"Requires", R>, Layer.Success<S>>>(),
-  );
-  const routerLayer = HttpRouter.provideRequest(remainingServices)(
-    HttpRouter.provideRequest(services)(Layer.merge(app, notFound)),
-  );
-  // Each test request owns and releases the handler layer that serves it.
-  return (request: Request) =>
-    Effect.contextWith((context) =>
-      Effect.acquireUseRelease(
-        Effect.sync(() => HttpRouter.toWebHandler(routerLayer, { disableLogger: true })),
-        (webHandler) => Effect.promise(() => webHandler.handler(request, context)),
-        (webHandler) => Effect.promise(() => webHandler.dispose()),
-      ),
+  const routerLayer = HttpRouter.provideRequest(services)(Layer.merge(app, notFound));
+  return async (request) => {
+    const webHandler = HttpRouter.toWebHandler(
+      routerLayer as Layer.Layer<never, never, HttpRouter.HttpRouter>,
+      { disableLogger: true },
     );
+    // Effect's conditional Context type cannot reduce Layer.Success<S> across this
+    // generic group helper. The exact service Layer is applied above.
+    const handler = webHandler.handler as unknown as (request: Request) => Promise<Response>;
+    try {
+      return await handler(request);
+    } finally {
+      await webHandler.dispose();
+    }
+  };
 };
 
 const testFetch = <
@@ -142,7 +138,12 @@ const testFetch = <
   contract: HttpApi.HttpApi<Id, Groups>,
   handlers: Layer.Layer<HttpApiGroup.ToService<Id, Groups>, never, R>,
   services: S,
-) => testRouterFetch(contract, handlers, services);
+) =>
+  makeBackendHttp(
+    testRouterFetch(contract, handlers, services),
+    testAuthHandler,
+    testSessionBoundary,
+  ).fetch;
 
 export const makeOrganizationTestHttp = <S extends TestServiceLayer>(
   options: OrganizationApiHttpOptions,
@@ -204,7 +205,9 @@ export const makeDirectoryTestHttp = <S extends TestServiceLayer>(
     directoryContract,
     DirectoryApiHandlers(options, {
       resolveActor: () =>
-        Effect.fail(new UnauthenticatedActor({ message: "school actor resolution is unavailable" })),
+        Effect.fail(
+          new UnauthenticatedActor({ message: "school actor resolution is unavailable" }),
+        ),
     }),
     services,
   ),

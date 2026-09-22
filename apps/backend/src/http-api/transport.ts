@@ -81,7 +81,10 @@ export const requestSchemaErrorResponse = (error: HttpApiError.HttpApiSchemaErro
 };
 
 const rejectedCredential = (
-  challenge: "VektorSession realm=\"native-api\"" | "VektorSession realm=\"native-api\", Bearer realm=\"native-api\"" | "ContactSSR realm=\"native-contact\"",
+  challenge:
+    | 'VektorSession realm="native-api"'
+    | 'VektorSession realm="native-api", Bearer realm="native-api"'
+    | 'ContactSSR realm="native-contact"',
 ) =>
   HttpServerResponse.fromWeb(
     nativeProblemResponse("credential.invalid", 401, { "www-authenticate": challenge }),
@@ -118,30 +121,33 @@ const personSecurityLayer = Layer.effect(
     return PersonSecurity.of({
       cookieHeader: (httpEffect, { credential }) =>
         Effect.gen(function* () {
+          const cookieHeader = Redacted.value(credential);
           const request = yield* HttpServerRequest.HttpServerRequest;
-          const webRequest = new Request(request.url, {
+          const webRequest = new Request(new URL(request.url, "http://native-api.invalid"), {
             method: request.method,
             headers: request.headers,
           });
           const authentication = yield* Effect.result(
-            request.headers.has("authorization")
+            request.headers.authorization !== undefined
               ? resolveRequestPerson(webRequest).pipe(
                   Effect.provideService(Identity, identity),
                   Effect.provideService(OAuthCredentialAuthority, oauthCredentialAuthority),
                 )
-              : resolveAuthenticatedPerson(Redacted.value(credential)).pipe(
+              : resolveAuthenticatedPerson(cookieHeader).pipe(
                   Effect.provideService(Identity, identity),
                 ),
           );
           if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
-            return rejectedCredential('VektorSession realm="native-api", Bearer realm="native-api"');
+            return rejectedCredential(
+              'VektorSession realm="native-api", Bearer realm="native-api"',
+            );
           }
           return yield* httpEffect;
         }),
       oauthUserBearer: (httpEffect) =>
         Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest;
-          const webRequest = new Request(request.url, {
+          const webRequest = new Request(new URL(request.url, "http://native-api.invalid"), {
             method: request.method,
             headers: request.headers,
           });
@@ -152,7 +158,9 @@ const personSecurityLayer = Layer.effect(
             ),
           );
           if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
-            return rejectedCredential('VektorSession realm="native-api", Bearer realm="native-api"');
+            return rejectedCredential(
+              'VektorSession realm="native-api", Bearer realm="native-api"',
+            );
           }
           return yield* httpEffect;
         }),

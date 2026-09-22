@@ -1,23 +1,15 @@
-import {
-  Database,
-  OAuthCredentialAuthority,
-  type DatabaseShape,
-} from "@vektorprogrammet/database";
+import { Database, OAuthCredentialAuthority, type DatabaseShape } from "@vektorprogrammet/database";
 import {
   Identity,
   IdentityActor,
   IdentitySessionNotFound,
   type IdentityShape,
 } from "@vektorprogrammet/domain/identity";
-import {
-  OrganizationPersistenceError,
-  PersonId,
-} from "@vektorprogrammet/domain/organization";
+import { OrganizationPersistenceError, PersonId } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import { DateTime, Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeProfileTestHttp as makeProfileApiHttp } from "../test/native-http.js";
-import { runTestPromise } from "../../test/runtime.js";
 
 type ProfileAuthorityTestFailure = Error & {
   readonly _tag: "AuthorityInactive" | "NotInScope";
@@ -75,7 +67,7 @@ const securityServices = Layer.mergeAll(
 const request = async (
   cause: ProfileAuthorityTestFailure | OrganizationPersistenceError,
 ): Promise<Response> =>
-  runTestPromise(makeProfileApiHttp(
+  makeProfileApiHttp(
     {
       config: {} as never,
       resolveActor: () => Effect.fail(cause),
@@ -85,7 +77,7 @@ const request = async (
     new Request("http://backend.test/api/profile", {
       headers: { cookie: "better-auth.session_token=profile-test-session" },
     }),
-  ));
+  );
 
 describe("Profile HTTP authority failures", () => {
   it.each(["AuthorityInactive", "NotInScope"] as const)(
@@ -142,7 +134,7 @@ describe("Profile HTTP ETag", () => {
       Layer.succeed(Profile, profileService),
       securityServices,
     );
-    return runTestPromise(makeProfileApiHttp(
+    return makeProfileApiHttp(
       {
         config: {} as never,
         resolveActor: () => Effect.succeed({ personId: profile.personId, role }),
@@ -152,7 +144,7 @@ describe("Profile HTTP ETag", () => {
       new Request("http://backend.test/api/profile", {
         headers: { cookie: "better-auth.session_token=profile-test-session" },
       }),
-    ));
+    );
   };
 
   it("changes only after the persisted role representation revision changes", async () => {

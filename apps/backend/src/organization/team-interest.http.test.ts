@@ -16,7 +16,6 @@ import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeOrganizationApiConfig } from "./config.js";
 import { makeOrganizationTestHttp as makeOrganizationApiHttp } from "../test/native-http.js";
-import { runTestPromise } from "../../test/runtime.js";
 
 /**
  * Specs 0059/0060 gate matrix and wire shapes, driven through the backend
@@ -232,14 +231,14 @@ const http = makeOrganizationApiHttp(
 );
 
 const get = (pathname: string, cookie?: string): Promise<Response> =>
-  runTestPromise(http.fetch(
+  http.fetch(
     new Request(`http://backend.test${pathname}`, {
       headers:
         cookie === undefined
           ? {}
           : { cookie: `better-auth.session_token=${cookie.replace(/^session=/, "")}` },
     }),
-  ));
+  );
 
 describe("spec 0059 team-interest HTTP boundary", () => {
   it("answers 401 without a session before any data leaves the store", async () => {

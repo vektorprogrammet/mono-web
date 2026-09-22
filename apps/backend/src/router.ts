@@ -8,19 +8,20 @@ import {
   AdmissionScopeDenied,
   InactiveActor,
   UnauthenticatedActor,
+  type AdmissionPeriodActor,
 } from "@vektorprogrammet/domain/admission-period";
 import {
   type Identity,
   type IdentityEngineError,
   type IdentityRequestContext,
 } from "@vektorprogrammet/domain/identity";
-import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { DepartmentId, type Organization } from "@vektorprogrammet/domain/organization";
 import { ExternalNativeApi, InternalNativeApi } from "@vektorprogrammet/http-api";
 import { Effect, Layer } from "effect";
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { DirectoryApiHandlers } from "./directory/http.js";
 import { AdmissionsApiHandlers } from "./admission/http.js";
+import { DirectoryApiHandlers } from "./directory/http.js";
 import {
   admissionActorForDepartment,
   organizationActorFrom,
@@ -32,6 +33,7 @@ import {
   resolveRequestPersonAtInstant,
   resolveRequestCredentialAtInstant,
   resolveRequestPersonAuthority,
+  type OrganizationResolutionError,
 } from "./authority.js";
 import type { BackendConfig } from "./config.js";
 import { ContentApiHandlers } from "./content/http.js";
@@ -63,7 +65,6 @@ import {
 export interface BackendHttp {
   readonly fetch: (request: Request) => Promise<Response>;
 }
-
 
 const jsonResponse = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {
@@ -115,34 +116,44 @@ export const makeExternalNativeApiRouterLayer = (
   config: BackendConfig,
   options: BackendHttpOptions = {},
 ) => {
-  const resolveAdmissionActor = (request: Request, departmentScope?: string) =>
-    resolveRequestPersonAuthority(request, { now: options.now }).pipe(
-      Effect.flatMap((authority) => {
-        if (departmentScope === undefined) {
-          if (authority.globalAdministrator !== "Active") {
-            return Effect.fail(
-              authority.globalAdministrator === "Inactive"
-                ? new InactiveActor({ personId: authority.personId })
-                : new UnauthenticatedActor({
-                    message: "no authority for unscoped management route",
-                  }),
-            );
-          }
-          return Effect.succeed({
-            _tag: "GlobalAdmin" as const,
-            personId: authority.personId,
-            active: true,
-          });
+  const resolveAdmissionActor = (
+    request: Request,
+    departmentScope?: string,
+  ): Effect.Effect<
+    AdmissionPeriodActor,
+    | IdentityEngineError
+    | UnauthenticatedActor
+    | InactiveActor
+    | AdmissionScopeDenied
+    | OrganizationResolutionError,
+    Organization | Identity | OAuthCredentialAuthority
+  > =>
+    Effect.gen(function* () {
+      const authority = yield* resolveRequestPersonAuthority(request, { now: options.now });
+      if (departmentScope === undefined) {
+        if (authority.globalAdministrator !== "Active") {
+          return yield* Effect.fail(
+            authority.globalAdministrator === "Inactive"
+              ? new InactiveActor({ personId: authority.personId })
+              : new UnauthenticatedActor({
+                  message: "no authority for unscoped management route",
+                }),
+          );
         }
-        return Effect.try({
-          try: () => admissionActorForDepartment(authority, DepartmentId.make(departmentScope)),
-          catch: (cause) => {
-            if (cause instanceof InactiveActor || cause instanceof AdmissionScopeDenied) return cause;
-            throw cause;
-          },
-        });
-      }),
-    );
+        return {
+          _tag: "GlobalAdmin" as const,
+          personId: authority.personId,
+          active: true,
+        };
+      }
+      return yield* Effect.try({
+        try: () => admissionActorForDepartment(authority, DepartmentId.make(departmentScope)),
+        catch: (cause) => {
+          if (cause instanceof InactiveActor || cause instanceof AdmissionScopeDenied) return cause;
+          throw cause;
+        },
+      });
+    });
 
   const receiptIdentity: ReceiptIdentityResolvers<
     IdentityEngineError | UnauthenticatedActor,
@@ -212,9 +223,7 @@ export const makeExternalNativeApiRouterLayer = (
         resolveActor: (request) => resolveRequestPersonAtInstant(request, { now: options.now }),
       },
     ),
-    ContentApiHandlers((request) =>
-      resolveRequestPersonAtInstant(request, { now: options.now }),
-    ),
+    ContentApiHandlers((request) => resolveRequestPersonAtInstant(request, { now: options.now })),
     ProfileApiHandlers({
       config,
       resolveActor: (request) =>
@@ -261,24 +270,24 @@ export const makeInternalNativeApiRouterLayer = (
   config: BackendConfig,
   options: BackendHttpOptions = {},
 ) => {
-  const receiptIdentity: ReceiptIdentityResolvers<IdentityEngineError | UnauthenticatedActor, Identity> =
-    {
-      resolveAuthorizationPrincipal: (request: Request) =>
-        resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, {
-          now: options.now,
-        }),
-      resolvePersonId: (request: Request) =>
-        resolveAuthenticatedPerson(request.headers.get("cookie") ?? undefined),
-    };
+  const receiptIdentity: ReceiptIdentityResolvers<
+    IdentityEngineError | UnauthenticatedActor,
+    Identity
+  > = {
+    resolveAuthorizationPrincipal: (request: Request) =>
+      resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, {
+        now: options.now,
+      }),
+    resolvePersonId: (request: Request) =>
+      resolveAuthenticatedPerson(request.headers.get("cookie") ?? undefined),
+  };
   const receiptOptions = {
     config: config.receipt,
     identity: receiptIdentity,
     now: options.now,
   };
   const middlewareLayer = makeNativeHttpApiMiddlewareLayer(config.contact);
-  const handlers = InternalReceiptApiHandlers(receiptOptions).pipe(
-    Layer.provide(middlewareLayer),
-  );
+  const handlers = InternalReceiptApiHandlers(receiptOptions).pipe(Layer.provide(middlewareLayer));
   const internalRoutes = HttpApiBuilder.layer(InternalNativeApi).pipe(
     Layer.provide(handlers),
     Layer.provide(middlewareLayer),

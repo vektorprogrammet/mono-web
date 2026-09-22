@@ -1,5 +1,8 @@
 import { InterviewReportQuery, InterviewReport } from "@vektorprogrammet/domain/recruitment";
-import { readCompletedInterviewReport, resolveInterviewReportLeader } from "@vektorprogrammet/database/recruitment";
+import {
+  readCompletedInterviewReport,
+  resolveInterviewReportLeader,
+} from "@vektorprogrammet/database/recruitment";
 import { guardInterviewApplicantIdentity } from "@vektorprogrammet/database/recruitment";
 import {
   AssignmentBoard,
@@ -118,7 +121,10 @@ import {
   semanticMutationRequest,
   semanticRequestDigest,
 } from "../http-semantics.js";
-import { authorizePersonNativeOperation, nativeCommandOutcomeResponse } from "../native-operation.js";
+import {
+  authorizePersonNativeOperation,
+  nativeCommandOutcomeResponse,
+} from "../native-operation.js";
 import { type RecruitmentApiConfig } from "./config.js";
 
 export interface RecruitmentConductContextResolution {
@@ -336,11 +342,7 @@ const readJsonBody = (request: Request, maxBodyBytes: number, malformedOnly = fa
           malformedOnly ? 400 : status,
         );
       };
-      const mediaType = request.headers
-        .get("content-type")
-        ?.split(";", 1)[0]
-        ?.trim()
-        .toLowerCase();
+      const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
       if (mediaType !== "application/json") fail("media-type.unsupported", 415);
       const declaredLength = request.headers.get("content-length");
       if (declaredLength !== null) {
@@ -424,10 +426,12 @@ const actorFor = <E, R>(
   request: Request,
   input: RecruitmentApiHttpOptions<E, R>,
 ): Effect.Effect<RecruitmentActor, E | HttpSemanticFailure, R> =>
-  Effect.catch(input.resolveActor(request), (cause) =>
-    errorTag(cause) === undefined
-      ? Effect.fail(new HttpSemanticFailure("credential.invalid", 401))
-      : Effect.fail(cause),
+  Effect.catch(
+    input.resolveActor(request),
+    (cause): Effect.Effect<never, E | HttpSemanticFailure> =>
+      Effect.fail(
+        errorTag(cause) === undefined ? new HttpSemanticFailure("credential.invalid", 401) : cause,
+      ),
   );
 
 const capabilityForSpec = (spec: AccessSpec) =>
@@ -657,11 +661,7 @@ export const schedulingBoardWithETags = (
   })),
 });
 
-export const conditionalJsonResponse = (
-  request: Request,
-  body: unknown,
-  etag: StrongETag,
-) =>
+export const conditionalJsonResponse = (request: Request, body: unknown, etag: StrongETag) =>
   Effect.try({
     try: () => {
       const decision = evaluateReadPreconditions({
@@ -702,23 +702,27 @@ const commandIdentity = (
   });
 };
 
-const executeCommand = <S extends Schema.ConstraintDecoder<unknown, never>, E, R>(input: {
+const executeCommand = <CommandId, E, R>(input: {
   readonly request: Request;
   readonly operationId: string;
   readonly routeTemplate: string;
   readonly identities: Readonly<Record<string, string>>;
   readonly semanticRequest: CanonicalSemanticRequest;
-  readonly commandIdSchema: S;
-  readonly prepare: () => Effect.Effect<{
-    readonly credentialSubject: CredentialSubject;
-    readonly execute: (
-      commandId: S["Type"],
-    ) => Effect.Effect<
-      Response,
-      unknown,
-      never | Database | Admissions | Organization | Profile | Recruitment
-    >;
-  }, E, R>;
+  readonly commandIdSchema: Schema.ConstraintDecoder<CommandId, never>;
+  readonly prepare: () => Effect.Effect<
+    {
+      readonly credentialSubject: CredentialSubject;
+      readonly execute: (
+        commandId: NoInfer<CommandId>,
+      ) => Effect.Effect<
+        Response,
+        unknown,
+        never | Database | Admissions | Organization | Profile | Recruitment
+      >;
+    },
+    E,
+    R
+  >;
   readonly retry?: "serialization-once";
 }) =>
   Effect.gen(function* () {
@@ -758,10 +762,7 @@ const executeCommand = <S extends Schema.ConstraintDecoder<unknown, never>, E, R
     return nativeCommandOutcomeResponse(outcome);
   });
 
-const readInvitationResponse = <E, R>(
-  request: Request,
-  input: RecruitmentApiHttpOptions<E, R>,
-) =>
+const readInvitationResponse = <E, R>(request: Request, input: RecruitmentApiHttpOptions<E, R>) =>
   Effect.gen(function* () {
     yield* noQuery(request);
     const capability = yield* invitationCapability(request);
@@ -929,10 +930,7 @@ const readInterviewReport = <E, R>(request: Request, input: RecruitmentApiHttpOp
     });
   });
 
-const readSchedulingBoard = <E, R>(
-  request: Request,
-  input: RecruitmentApiHttpOptions<E, R>,
-) =>
+const readSchedulingBoard = <E, R>(request: Request, input: RecruitmentApiHttpOptions<E, R>) =>
   Effect.gen(function* () {
     yield* noQuery(request);
     const actor = yield* actorFor(request, input);
@@ -961,7 +959,9 @@ const readSchedulingBoard = <E, R>(
           : [{ _tag: "Department", departmentId }],
       authorizationInstant: now,
     });
-    const observation = yield* Recruitment.use(({ readSchedulingBoard: read }) => read({ actor, now }));
+    const observation = yield* Recruitment.use(({ readSchedulingBoard: read }) =>
+      read({ actor, now }),
+    );
     const authority = yield* readRecruitmentPersonAuthorityHttpSourcesPostgres(actor.personId);
     const output = yield* strictOutput(
       SchedulingBoard,
@@ -1023,7 +1023,9 @@ const createApplicationInterview = <E, R>(
                   facts: {
                     departmentLeaderPersonIds:
                       actor._tag === "DepartmentLeader" && actor.active ? [actor.personId] : [],
-                    eligibleInterviewerPersonIds: access.interviewerEligible ? [actor.personId] : [],
+                    eligibleInterviewerPersonIds: access.interviewerEligible
+                      ? [actor.personId]
+                      : [],
                   },
                   version: authorization.authorizationInstant,
                 }),
@@ -1034,7 +1036,7 @@ const createApplicationInterview = <E, R>(
           });
           return {
             credentialSubject: `Person:${actor.personId}`,
-            execute: (commandId) =>
+            execute: (commandId: RecruitmentAssignmentCommandId) =>
               Effect.gen(function* () {
                 const result = yield* assignApplicant(
                   { commandId, applicationId, ...body },
@@ -1154,11 +1156,13 @@ const scheduleInterview = <E, R>(
             ifMatch,
           );
           if (precondition._tag === "Failed") {
-            return yield* Effect.fail(new HttpSemanticFailure(precondition.code, precondition.status));
+            return yield* Effect.fail(
+              new HttpSemanticFailure(precondition.code, precondition.status),
+            );
           }
           return {
             credentialSubject: `Person:${authorization.actor.personId}`,
-            execute: (commandId) =>
+            execute: (commandId: RecruitmentScheduleCommandId) =>
               Effect.gen(function* () {
                 const result = yield* scheduleInterviewPostgres(
                   {
@@ -1273,7 +1277,7 @@ const correctInterviewAssessment = <E, R>(
           );
           return {
             credentialSubject: `Person:${authorization.actor.personId}`,
-            execute: (commandId) =>
+            execute: (commandId: RecruitmentInterviewCorrectionCommandId) =>
               Effect.gen(function* () {
                 const precondition = evaluateMutationPrecondition(
                   interviewETag(authorization.source),
@@ -1369,7 +1373,7 @@ const lifecycleInterview = <E, R>(
             const authorization = yield* prepareAuthorization();
             return {
               credentialSubject: `Person:${authorization.actor.personId}`,
-              execute: (commandId) =>
+              execute: (commandId: RecruitmentConductCommandId) =>
                 Effect.gen(function* () {
                   const precondition = evaluateMutationPrecondition(
                     interviewETag(authorization.source),
@@ -1433,7 +1437,7 @@ const lifecycleInterview = <E, R>(
           const authorization = yield* prepareAuthorization();
           return {
             credentialSubject: `Person:${authorization.actor.personId}`,
-            execute: (commandId) =>
+            execute: (commandId: RecruitmentCancellationCommandId) =>
               Effect.gen(function* () {
                 const precondition = evaluateMutationPrecondition(
                   interviewETag(authorization.source),

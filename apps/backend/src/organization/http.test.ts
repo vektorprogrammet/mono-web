@@ -26,7 +26,6 @@ import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeOrganizationApiConfig } from "./config.js";
 import { makeOrganizationTestHttp as makeOrganizationApiHttp } from "../test/native-http.js";
-import { runTestPromise } from "../../test/runtime.js";
 
 const ADMIN_SESSION = "organization-admin-session";
 const MEMBER_SESSION = "organization-member-session";
@@ -317,7 +316,7 @@ const http = makeOrganizationApiHttp(
   services,
 );
 const request = (pathname: string, init?: RequestInit): Promise<Response> =>
-  runTestPromise(http.fetch(new Request(`http://backend.test${pathname}`, init)));
+  http.fetch(new Request(`http://backend.test${pathname}`, init));
 const post = (
   pathname: string,
   session: string,

@@ -6,6 +6,7 @@ import {
   ContentSlugConflict,
 } from "@vektorprogrammet/domain/content";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { HttpSemanticFailure } from "../http-semantics.js";
 import {
@@ -95,12 +96,14 @@ describe("native content HTTP boundary", () => {
     });
 
     await expect(
-      readContentRequestBody(wrongMedia, "application/json", 1024),
+      Effect.runPromise(readContentRequestBody(wrongMedia, "application/json", 1024)),
     ).rejects.toMatchObject({
       code: "media-type.unsupported",
       status: 415,
     });
-    await expect(readContentRequestBody(oversized, "application/json", 4)).rejects.toMatchObject({
+    await expect(
+      Effect.runPromise(readContentRequestBody(oversized, "application/json", 4)),
+    ).rejects.toMatchObject({
       code: "request.too-large",
       status: 413,
     });
@@ -113,11 +116,11 @@ describe("native content HTTP boundary", () => {
       body: '{"title":"first","title":"second"}',
     });
 
-    await expect(readContentRequestBody(duplicate, "application/json", 1024)).rejects.toMatchObject(
-      {
-        code: "request.malformed",
-        status: 400,
-      },
-    );
+    await expect(
+      Effect.runPromise(readContentRequestBody(duplicate, "application/json", 1024)),
+    ).rejects.toMatchObject({
+      code: "request.malformed",
+      status: 400,
+    });
   });
 });

@@ -5,8 +5,6 @@ import {
   SocialEventScopeResource,
   SocialEventsBridgeFailure,
   SocialEventsBridgeOperationJson,
-  SocialEventsCreateCommand,
-  SocialEventsListInput,
   socialEventsBridgeFailure,
   type SocialEventsBridgeFailure as SocialEventsBridgeFailureType,
   type SocialEventsBridgeOperation,
@@ -35,22 +33,29 @@ export interface SocialEventsClient {
 const bridgeUrl = `${import.meta.env.BASE_URL}social-events`;
 
 const bridgeRequest = <A>(
-  method: "GET" | "POST",
   schema: S.Decoder<A, never>,
   operation?: SocialEventsBridgeOperation,
 ): Effect.Effect<A, SocialEventsBridgeFailureType> =>
   Effect.tryPromise({
     try: async () => {
-      const response = await fetch(bridgeUrl, {
-        method,
-        credentials: "same-origin",
-        headers: {
-          accept: "application/json",
-          ...(operation === undefined ? {} : { "content-type": "application/json" }),
-        },
-        body:
-          operation === undefined ? undefined : S.encodeSync(SocialEventsBridgeOperationJson)(operation),
-      });
+      const response = await fetch(
+        bridgeUrl,
+        operation === undefined
+          ? {
+              method: "GET",
+              credentials: "same-origin",
+              headers: { accept: "application/json" },
+            }
+          : {
+              method: "POST",
+              credentials: "same-origin",
+              headers: {
+                accept: "application/json",
+                "content-type": "application/json",
+              },
+              body: S.encodeSync(SocialEventsBridgeOperationJson)(operation),
+            },
+      );
       const payload = (await response.json().catch(() => null)) as unknown;
       return { response, payload };
     },
@@ -73,14 +78,14 @@ const bridgeRequest = <A>(
 
 export const createBrowserSocialEventsClient = (): SocialEventsClient => ({
   socialEvents: {
-    readScope: () => bridgeRequest("GET", SocialEventScopeResource),
+    readScope: () => bridgeRequest(SocialEventScopeResource),
     list: (query) =>
-      bridgeRequest("POST", SocialEventListResource, {
+      bridgeRequest(SocialEventListResource, {
         operation: "list",
         query,
       }),
     create: (command) =>
-      bridgeRequest("POST", SocialEventResource, {
+      bridgeRequest(SocialEventResource, {
         operation: "create",
         ...command,
       }),

@@ -101,15 +101,14 @@ const nativeApiLayer = (
     : makeInternalNativeApiRouterLayer(config)
 ).pipe(
   HttpRouter.provideRequest(backendServicesLayer),
+  Layer.provide(backendServicesLayer),
   Layer.provide(httpLayer),
 );
 const backendLayer = Layer.mergeAll(backendServicesLayer, httpLayer, nativeApiLayer);
 const runtime = ManagedRuntime.make(backendLayer);
 const router = await runtime.runPromise(HttpRouter.HttpRouter);
 const nativeHandler = HttpEffect.toWebHandler(router.asHttpEffect());
-const authBoundary = <A>(
-  operation: (engine: AuthEngineService) => Promise<A>,
-) =>
+const authBoundary = <A>(operation: (engine: AuthEngineService) => Promise<A>) =>
   AuthEngine.use((engine) =>
     Effect.tryPromise({
       try: () => operation(engine),
@@ -123,9 +122,13 @@ const authHandler: BackendAuthHandler = {
   handleOAuth: (request, context) =>
     runtime.runPromise(authBoundary((engine) => engine.oauthHandler(request, context))),
   handleOAuthIntrospection: (request, context) =>
-    runtime.runPromise(authBoundary((engine) => engine.oauthIntrospectionHandler(request, context))),
+    runtime.runPromise(
+      authBoundary((engine) => engine.oauthIntrospectionHandler(request, context)),
+    ),
   exactRedirectAccepted: (clientId, redirectUri) =>
-    runtime.runPromise(authBoundary((engine) => engine.exactRedirectAccepted(clientId, redirectUri))),
+    runtime.runPromise(
+      authBoundary((engine) => engine.exactRedirectAccepted(clientId, redirectUri)),
+    ),
   recordTrustedOriginRejection: (context, credentialFlow) =>
     runtime.runPromise(
       authBoundary((engine) => engine.recordTrustedOriginRejection(context, credentialFlow)),

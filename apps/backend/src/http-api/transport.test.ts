@@ -7,7 +7,6 @@ import {
   makeOrganizationTestHttp,
   makeProfileTestHttp,
 } from "../test/native-http.js";
-import { runTestPromise } from "../../test/runtime.js";
 
 const expectProblem = async (response: Response, status: number, code: string): Promise<void> => {
   expect(response.status).toBe(status);
@@ -27,7 +26,8 @@ const securityServices = Layer.mergeAll(
   Layer.succeed(
     Identity,
     Identity.of({
-      resolveSession: () => Promise.reject(new Error("request schema failure reached authentication")),
+      resolveSession: () =>
+        Promise.reject(new Error("request schema failure reached authentication")),
     } as never),
   ),
   Layer.succeed(
@@ -58,7 +58,7 @@ describe("native request schema error transport", () => {
     ],
   ] as const)("maps %s before dispatch", async (_name, transportHeaders, status, code) => {
     unreachable.mockClear();
-    const response = await runTestPromise(makeProfileTestHttp(
+    const response = await makeProfileTestHttp(
       {
         config: {} as never,
         resolveActor: unreachable as never,
@@ -75,7 +75,7 @@ describe("native request schema error transport", () => {
         },
         body: '{"firstName":"Ada"}',
       }),
-    ));
+    );
 
     await expectProblem(response, status, code);
     expect(unreachable).not.toHaveBeenCalled();
@@ -83,7 +83,7 @@ describe("native request schema error transport", () => {
 
   it("maps query decoding to request.malformed before dispatch", async () => {
     unreachable.mockClear();
-    const response = await runTestPromise(makeOrganizationTestHttp(
+    const response = await makeOrganizationTestHttp(
       {
         config: {} as never,
         resolveActor: unreachable as never,
@@ -94,21 +94,21 @@ describe("native request schema error transport", () => {
       new Request("http://backend.test/api/mailing-lists?type=unknown", {
         headers: { cookie: "better-auth.session_token=transport-test-session" },
       }),
-    ));
+    );
     await expectProblem(response, 400, "request.malformed");
     expect(unreachable).not.toHaveBeenCalled();
   });
 
   it("maps path-parameter decoding to request.malformed before dispatch", async () => {
     unreachable.mockClear();
-    const response = await runTestPromise(makeContentManagementTestHttp(
+    const response = await makeContentManagementTestHttp(
       unreachable as never,
       securityServices,
     ).fetch(
       new Request("http://backend.test/api/content/articles/not-a-number", {
         headers: { cookie: "better-auth.session_token=transport-test-session" },
       }),
-    ));
+    );
     await expectProblem(response, 400, "request.malformed");
     expect(unreachable).not.toHaveBeenCalled();
   });

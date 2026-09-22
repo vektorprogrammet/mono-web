@@ -27,7 +27,6 @@ import {
 import { DateTime, Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeSchoolsTestHttp as makeSchoolsApiHttp } from "../test/native-http.js";
-import { runTestPromise } from "../../test/runtime.js";
 
 const personId = PersonId.make("schools-http-person");
 const sessionRequest = (url: string): Request =>
@@ -181,9 +180,9 @@ describe("Schools native HTTP adapter", () => {
       services,
     );
 
-    const response = await runTestPromise(api.fetch(
+    const response = await api.fetch(
       sessionRequest(`http://backend.test/api/schools?department=${departmentA}`),
-    ));
+    );
 
     expect({ status: response.status, body: await responseBody(response) }).toEqual({
       status: 200,
@@ -231,7 +230,7 @@ describe("Schools native HTTP adapter", () => {
         expectedProblem("request.malformed", "Malformed request", 400, "The request is malformed."),
       ],
     ] as const) {
-      const response = await runTestPromise(api.fetch(sessionRequest(`http://backend.test/api/schools?${query}`)));
+      const response = await api.fetch(sessionRequest(`http://backend.test/api/schools?${query}`));
       expect({ status: response.status, body: await responseBody(response) }, query).toEqual({
         status: expected.status,
         body: expected,
@@ -331,7 +330,7 @@ describe("Schools native HTTP adapter", () => {
         ),
       );
       const query = testCase.query === undefined ? "" : `?${testCase.query}`;
-      const response = await runTestPromise(api.fetch(sessionRequest(`http://backend.test/api/schools?${query}`)));
+      const response = await api.fetch(sessionRequest(`http://backend.test/api/schools?${query}`));
       expect(
         { status: response.status, body: await responseBody(response) },
         testCase.name,
