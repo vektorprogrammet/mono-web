@@ -29,7 +29,7 @@ const defineOrganizationCatalogElement = (
             catalogKind,
             client: createBrowserOrganizationCatalogClient(),
           });
-        } catch {
+        } catch (cause) {
           const error = document.createElement("section");
           error.className = "organization-catalog organization-catalog__error";
           error.setAttribute("role", "alert");
@@ -39,6 +39,7 @@ const defineOrganizationCatalogElement = (
           guidance.textContent = "Last siden på nytt og prøv igjen.";
           error.replaceChildren(heading, guidance);
           this.#container.replaceChildren(error);
+          globalThis.reportError(cause);
         }
       }
 
