@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
 import { SchoolId } from "../schools/schema.js";
+import { isIsoDate } from "../receipt/schema.js";
 
 export const PlacementScope = Schema.Struct({ departmentId: DepartmentId, semesterId: SemesterId });
 export const AffiliationScope = Schema.Struct({ departmentId: DepartmentId });
@@ -39,7 +40,9 @@ export const Placement = Schema.Struct({
   lastName: Schema.String,
   schoolName: Schema.String,
 });
-const NonNegativeCount = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
+const NonNegativeCount = Schema.Int.pipe(
+  Schema.check(Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(2_147_483_647)),
+);
 export const SchoolServiceDemand = Schema.Struct({
   schoolId: SchoolId,
   day: TeachingDay,
@@ -182,7 +185,9 @@ export const PlacementCommand = Schema.Union([
     schoolId: SchoolId,
     day: TeachingDay,
     block: TeachingBlock,
-    occurredOn: Schema.String.pipe(Schema.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/))),
+    occurredOn: Schema.String.pipe(
+      Schema.check(Schema.makeFilter(isIsoDate, { message: "a valid YYYY-MM-DD date" })),
+    ),
     attendedPersonIds: Schema.Array(PersonId),
   }),
 ]);

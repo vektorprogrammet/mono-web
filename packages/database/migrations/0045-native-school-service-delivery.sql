@@ -26,7 +26,8 @@ CREATE TABLE public.school_service_proposals (
   exception_snapshot jsonb NOT NULL CHECK(jsonb_typeof(exception_snapshot)='array'),
   reviewed_exception_ids jsonb NOT NULL DEFAULT '[]'::jsonb CHECK(jsonb_typeof(reviewed_exception_ids)='array'),
   CHECK((status='Draft' AND confirmed_at IS NULL AND confirmed_by_person_id IS NULL)
-    OR (status='Confirmed' AND confirmed_at IS NOT NULL AND confirmed_by_person_id IS NOT NULL))
+    OR (status='Confirmed' AND confirmed_at IS NOT NULL AND confirmed_by_person_id IS NOT NULL)),
+  UNIQUE(proposal_id,department_id,semester_id)
 );
 CREATE INDEX school_service_proposals_scope_order
   ON public.school_service_proposals(department_id,semester_id,created_at DESC,proposal_id DESC);
@@ -91,7 +92,7 @@ CREATE TRIGGER school_service_notification_guard
 
 CREATE TABLE public.school_service_occurrences (
   occurrence_id text PRIMARY KEY CHECK(occurrence_id ~ '^school-service-occurrence-[a-f0-9]{64}$'),
-  proposal_id text NOT NULL REFERENCES public.school_service_proposals(proposal_id),
+  proposal_id text NOT NULL,
   department_id text NOT NULL REFERENCES public.organization_departments(department_id),
   semester_id text NOT NULL REFERENCES public.admission_period_semesters(semester_id),
   school_id bigint NOT NULL REFERENCES public.schools_directory_schools(school_id),
@@ -101,7 +102,11 @@ CREATE TABLE public.school_service_occurrences (
   attended_person_ids jsonb NOT NULL CHECK(jsonb_typeof(attended_person_ids)='array'),
   recorded_at timestamptz NOT NULL,
   recorded_by_person_id text NOT NULL REFERENCES public.person_profiles(person_id),
-  UNIQUE(proposal_id,school_id,day,block,occurred_on)
+  UNIQUE(proposal_id,school_id,day,block,occurred_on),
+  FOREIGN KEY(proposal_id,department_id,semester_id)
+    REFERENCES public.school_service_proposals(proposal_id,department_id,semester_id),
+  FOREIGN KEY(school_id,department_id)
+    REFERENCES public.schools_directory_departments(school_id,department_id)
 );
 
 CREATE FUNCTION public.reject_school_service_occurrence_update() RETURNS trigger LANGUAGE plpgsql AS $$

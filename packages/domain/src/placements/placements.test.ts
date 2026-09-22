@@ -98,6 +98,28 @@ describe("placement boundaries", () => {
       ),
     ).toThrow();
   });
+  it("rejects persistence-overflow demand and calendar-invalid occurrence input", () => {
+    expect(() =>
+      Schema.decodeUnknownSync(PlacementCommand)({
+        action: "SetDemand",
+        schoolId: 1,
+        day: "Monday",
+        block: "1",
+        requiredVolunteers: 2_147_483_648,
+      }),
+    ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(PlacementCommand)({
+        action: "RecordOccurrence",
+        proposalId: `school-service-proposal-${"a".repeat(64)}`,
+        schoolId: 1,
+        day: "Monday",
+        block: "1",
+        occurredOn: "2026-02-30",
+        attendedPersonIds: ["person-1"],
+      }),
+    ).toThrow();
+  });
 });
 
 describe("school service proposal boundaries", () => {
@@ -131,6 +153,21 @@ describe("school service proposal boundaries", () => {
           lastName: "Aktiv",
           day: "Monday",
           block: "Both",
+          workdays: 8,
+          active: true,
+          revision: 1,
+        },
+        {
+          placementId: `placement-${"3".repeat(64)}`,
+          personId: PersonId.make("person-1"),
+          departmentId: DepartmentId.make("trondheim"),
+          semesterId: SemesterId.make("2026-autumn"),
+          schoolId: SchoolId.make(1),
+          schoolName: "Lade skole",
+          firstName: "Ada",
+          lastName: "Aktiv",
+          day: "Monday",
+          block: "1",
           workdays: 8,
           active: true,
           revision: 1,

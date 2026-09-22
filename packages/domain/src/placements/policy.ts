@@ -86,7 +86,7 @@ export const buildSchoolServiceProposal = (input: {
   readonly actor: PersonId;
   readonly now: string;
 }): SchoolServiceProposal => {
-  const assignments = input.board.placements
+  const expandedAssignments = input.board.placements
     .filter((placement) => placement.active)
     .flatMap((placement): ReadonlyArray<SchoolServiceProposalAssignment> => {
       const blocks = placement.block === "Both" ? (["1", "2"] as const) : [placement.block];
@@ -102,6 +102,14 @@ export const buildSchoolServiceProposal = (input: {
       }));
     })
     .sort(assignmentOrder);
+  const assignments = [
+    ...new Map(
+      expandedAssignments.map((assignment) => [
+        `${assignmentKey(assignment)}:${assignment.personId}`,
+        assignment,
+      ]),
+    ).values(),
+  ];
   const demands = [...input.board.demands].sort((left, right) =>
     compareText(assignmentKey(left), assignmentKey(right)),
   );

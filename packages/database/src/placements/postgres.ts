@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { Database } from "../service.js";
+import { Database, type DatabaseShape } from "../service.js";
 import type { OrganizationPersonAuthority } from "@vektorprogrammet/domain/organization";
 import type { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
@@ -20,6 +20,42 @@ import {
 
 const fail = (code: PlacementFailure["code"], status: PlacementFailure["status"] = 422) =>
   Effect.fail(new PlacementFailure({ code, status }));
+
+interface SchoolServiceProposalRow {
+  readonly proposalId: string;
+  readonly status: string;
+  readonly revision: number;
+  readonly createdAt: string;
+  readonly createdBy: string;
+  readonly confirmedAt: string | null;
+  readonly confirmedBy: string | null;
+  readonly demands: unknown;
+  readonly assignments: unknown;
+  readonly exceptions: unknown;
+  readonly reviewedExceptionIds: unknown;
+}
+
+const readSchoolServiceProposal = (sql: DatabaseShape, scope: PlacementScope, proposalId: string) =>
+  Effect.gen(function* () {
+    const rows = yield* sql<SchoolServiceProposalRow>`
+      SELECT proposal_id AS "proposalId",status,revision,
+        to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
+        created_by_person_id AS "createdBy",
+        CASE WHEN confirmed_at IS NULL THEN NULL
+          ELSE to_char(confirmed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+        END AS "confirmedAt",
+        confirmed_by_person_id AS "confirmedBy",demand_snapshot AS demands,
+        assignment_snapshot AS assignments,exception_snapshot AS exceptions,
+        reviewed_exception_ids AS "reviewedExceptionIds"
+      FROM public.school_service_proposals
+      WHERE proposal_id=${proposalId}
+        AND department_id=${scope.departmentId}
+        AND semester_id=${scope.semesterId}
+    `;
+    return rows[0] === undefined
+      ? null
+      : yield* Schema.decodeUnknownEffect(SchoolServiceProposal)(rows[0]);
+  });
 
 export const readPlacementScopes = (authority: OrganizationPersonAuthority) =>
   Database.use((sql) =>
@@ -96,19 +132,8 @@ export const readPlacementBoard = (scope: PlacementScope) =>
         yield* sql`SELECT s.school_id::double precision AS "schoolId",s.name FROM public.schools_directory_schools s JOIN public.schools_directory_departments d USING(school_id) WHERE d.department_id=${scope.departmentId} AND s.active ORDER BY s.name,s.school_id`;
       const demands =
         yield* sql`SELECT school_id::double precision AS "schoolId",day,block,required_volunteers AS "requiredVolunteers",revision FROM public.school_service_demand WHERE department_id=${scope.departmentId} AND semester_id=${scope.semesterId} ORDER BY school_id,day,block`;
-      const proposalRows = yield* sql<{
-        proposalId: string;
-        status: string;
-        revision: number;
-        createdAt: string;
-        createdBy: string;
-        confirmedAt: string | null;
-        confirmedBy: string | null;
-        demands: unknown;
-        assignments: unknown;
-        exceptions: unknown;
-        reviewedExceptionIds: unknown;
-      }>`SELECT proposal_id AS "proposalId",status,revision,to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",created_by_person_id AS "createdBy",CASE WHEN confirmed_at IS NULL THEN NULL ELSE to_char(confirmed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') END AS "confirmedAt",confirmed_by_person_id AS "confirmedBy",demand_snapshot AS demands,assignment_snapshot AS assignments,exception_snapshot AS exceptions,reviewed_exception_ids AS "reviewedExceptionIds" FROM public.school_service_proposals WHERE department_id=${scope.departmentId} AND semester_id=${scope.semesterId} ORDER BY created_at DESC,proposal_id DESC LIMIT 1`;
+      const proposalRows =
+        yield* sql<SchoolServiceProposalRow>`SELECT proposal_id AS "proposalId",status,revision,to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",created_by_person_id AS "createdBy",CASE WHEN confirmed_at IS NULL THEN NULL ELSE to_char(confirmed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') END AS "confirmedAt",confirmed_by_person_id AS "confirmedBy",demand_snapshot AS demands,assignment_snapshot AS assignments,exception_snapshot AS exceptions,reviewed_exception_ids AS "reviewedExceptionIds" FROM public.school_service_proposals WHERE department_id=${scope.departmentId} AND semester_id=${scope.semesterId} ORDER BY created_at DESC,proposal_id DESC LIMIT 1`;
       const proposal =
         proposalRows.length === 0
           ? null
@@ -186,10 +211,8 @@ export const mutatePlacementBoard = (
         return yield* readPlacementBoard(scope);
       }
       if (command.action === "ConfirmProposal") {
-        const proposal = board.proposal;
-        if (proposal === null || proposal.proposalId !== command.proposalId) {
-          return yield* fail("resource.not-found", 404);
-        }
+        const proposal = yield* readSchoolServiceProposal(sql, scope, command.proposalId);
+        if (proposal === null) return yield* fail("resource.not-found", 404);
         if (proposal.status !== "Draft") return yield* fail("school-service.proposal-inactive");
         if (!hasExactSchoolServiceExceptionReview(proposal, command.reviewedExceptionIds)) {
           return yield* fail("school-service.exception-review-invalid");
@@ -222,10 +245,8 @@ export const mutatePlacementBoard = (
         return yield* readPlacementBoard(scope);
       }
       if (command.action === "RecordOccurrence") {
-        const proposal = board.proposal;
-        if (proposal === null || proposal.proposalId !== command.proposalId) {
-          return yield* fail("resource.not-found", 404);
-        }
+        const proposal = yield* readSchoolServiceProposal(sql, scope, command.proposalId);
+        if (proposal === null) return yield* fail("resource.not-found", 404);
         if (!hasExactSchoolServiceAttendance(proposal, command)) {
           return yield* fail("school-service.occurrence-invalid");
         }

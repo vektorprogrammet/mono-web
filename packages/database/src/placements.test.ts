@@ -118,6 +118,9 @@ describe("canonical placement persistence", () => {
     const serviceVolunteer = PersonId.make("service-volunteer");
     const serviceCoordinator = PersonId.make("service-coordinator");
     const proposalId = SchoolServiceProposalId.make(`school-service-proposal-${"a".repeat(64)}`);
+    const newerProposalId = SchoolServiceProposalId.make(
+      `school-service-proposal-${"c".repeat(64)}`,
+    );
     const observed = await runtime.runPromise(
       Database.use((sql) =>
         sql.withTransaction(
@@ -183,13 +186,22 @@ describe("canonical placement persistence", () => {
             const exceptionIds = draft.proposal!.exceptions.map(
               (exception) => exception.exceptionId,
             );
-            const confirmed = yield* mutatePlacementBoard(
+            yield* mutatePlacementBoard(
+              serviceScope,
+              { action: "GenerateProposal" },
+              serviceCoordinator,
+              "2026-09-06T00:30:00.000Z",
+              newerProposalId,
+            );
+            yield* mutatePlacementBoard(
               serviceScope,
               { action: "ConfirmProposal", proposalId, reviewedExceptionIds: exceptionIds },
               serviceCoordinator,
               "2026-09-06T01:00:00.000Z",
               "unused",
             );
+            const confirmedStatus =
+              yield* sql`SELECT status FROM school_service_proposals WHERE proposal_id=${proposalId}`;
             const invalidAttendance = yield* Effect.flip(
               mutatePlacementBoard(
                 serviceScope,
@@ -229,7 +241,7 @@ describe("canonical placement persistence", () => {
             return {
               draft,
               incompleteReview,
-              confirmed,
+              confirmedStatus,
               invalidAttendance,
               recorded,
               outbox,
@@ -248,7 +260,7 @@ describe("canonical placement persistence", () => {
     expect(observed.incompleteReview).toMatchObject({
       code: "school-service.exception-review-invalid",
     });
-    expect(observed.confirmed.proposal).toMatchObject({ proposalId, status: "Confirmed" });
+    expect(observed.confirmedStatus).toEqual([{ status: "Confirmed" }]);
     expect(observed.invalidAttendance).toMatchObject({ code: "school-service.occurrence-invalid" });
     expect(observed.recorded.occurrences).toMatchObject([
       { proposalId, occurredOn: "2026-09-07", attendedPersonIds: [serviceVolunteer] },
@@ -258,6 +270,7 @@ describe("canonical placement persistence", () => {
     ]);
     expect(observed.audit.map(({ action }) => action)).toEqual([
       "SetDemand",
+      "GenerateProposal",
       "GenerateProposal",
       "ConfirmProposal",
       "RecordOccurrence",
@@ -275,11 +288,11 @@ describe("canonical placement persistence", () => {
           }),
       ),
     );
-    const forgedEffectId = `school-service-notification:school-service-proposal-${"a".repeat(64)}:forged`;
+    const forgedEffectId = `school-service-notification:school-service-proposal-${"a".repeat(64)}:${coordinator}`;
     await runtime.runPromise(
       Database.use(
         (sql) =>
-          sql`INSERT INTO school_service_notification_outbox(effect_id,proposal_id,person_id,payload_json) SELECT ${forgedEffectId},proposal_id,${coordinator},jsonb_set(payload_json,'{effectId}',to_jsonb(${forgedEffectId}::text)) FROM school_service_notification_outbox WHERE effect_id=${deliveredEffectId}`,
+          sql`INSERT INTO school_service_notification_outbox(effect_id,proposal_id,person_id,payload_json) SELECT ${forgedEffectId},proposal_id,${coordinator},jsonb_set(jsonb_set(jsonb_set(payload_json,'{effectId}',to_jsonb(${forgedEffectId}::text)),'{personId}',to_jsonb(${coordinator}::text)),'{assignments}','[]'::jsonb) FROM school_service_notification_outbox WHERE effect_id=${deliveredEffectId}`,
       ),
     );
     const quarantined = await runtime.runPromise(
@@ -304,6 +317,48 @@ describe("canonical placement persistence", () => {
       { status: "Delivered", attempts: 1, lastFailureTag: null },
       { status: "Quarantined", attempts: 1, lastFailureTag: "AuthorityEnvelopeMismatch" },
     ]);
+  }, 15000);
+  it("rejects occurrences outside their proposal and school scope", async () => {
+    const otherDepartment = DepartmentId.make("other-service-department");
+    const setup = await runtime.runPromise(
+      Database.use((sql) =>
+        Effect.gen(function* () {
+          yield* sql`INSERT INTO organization_departments(department_id,name,short_name,email,city) VALUES(${otherDepartment},'Other service department','OSD','other-service@example.invalid','Trondheim')`;
+          const serviceSchools = yield* sql<{
+            schoolId: number;
+          }>`SELECT school_id::double precision AS "schoolId" FROM schools_directory_schools WHERE name='Service school'`;
+          const otherSchools = yield* sql<{
+            schoolId: number;
+          }>`INSERT INTO schools_directory_schools(name,contact_person,email,phone,language,active) VALUES('Other service school','Contact','other-school@example.invalid','12345678','Norwegian',true) RETURNING school_id::double precision AS "schoolId"`;
+          yield* sql`INSERT INTO schools_directory_departments(school_id,department_id) VALUES(${serviceSchools[0]!.schoolId},${otherDepartment}),(${otherSchools[0]!.schoolId},${otherDepartment})`;
+          return {
+            serviceSchoolId: serviceSchools[0]!.schoolId,
+            otherSchoolId: otherSchools[0]!.schoolId,
+          };
+        }),
+      ),
+    );
+    const insertOccurrence = (occurrenceId: string, departmentId: string, schoolId: number) =>
+      runtime.runPromise(
+        Database.use(
+          (sql) =>
+            sql`INSERT INTO school_service_occurrences(occurrence_id,proposal_id,department_id,semester_id,school_id,day,block,occurred_on,attended_person_ids,recorded_at,recorded_by_person_id) VALUES(${occurrenceId},${`school-service-proposal-${"a".repeat(64)}`},${departmentId},${"service-semester"},${schoolId},'Monday','1','2026-09-08',${sql.json([])},'2026-09-08T12:00:00Z',${coordinator})`,
+        ),
+      );
+    await expect(
+      insertOccurrence(
+        `school-service-occurrence-${"d".repeat(64)}`,
+        otherDepartment,
+        setup.serviceSchoolId,
+      ),
+    ).rejects.toBeDefined();
+    await expect(
+      insertOccurrence(
+        `school-service-occurrence-${"e".repeat(64)}`,
+        "service-department",
+        setup.otherSchoolId,
+      ),
+    ).rejects.toBeDefined();
   }, 15000);
 });
 

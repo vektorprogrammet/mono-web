@@ -102,19 +102,19 @@ export const runSchoolServiceNotificationWorker = (
   if (options.workerId.length === 0) throw new Error("worker ID must not be empty");
   let sequence = 0;
   const tick = Effect.gen(function* () {
+    const claimedAt = options.now();
+    const claimedBefore = new Date(
+      Date.parse(claimedAt) - options.staleClaimMilliseconds,
+    ).toISOString();
+    yield* recoverStaleSchoolServiceNotifications(claimedBefore);
     const result = yield* deliverNextSchoolServiceNotification(
       `${options.workerId}:${sequence++}`,
-      options.now(),
+      claimedAt,
       interpreter,
     );
     if (result._tag !== "Delivered") {
       yield* Effect.sleep(Duration.millis(options.pollIntervalMilliseconds));
     }
   });
-  return Effect.gen(function* () {
-    const now = Date.parse(options.now());
-    const claimedBefore = new Date(now - options.staleClaimMilliseconds).toISOString();
-    yield* recoverStaleSchoolServiceNotifications(claimedBefore);
-    return yield* Effect.forever(tick);
-  });
+  return Effect.forever(tick);
 };

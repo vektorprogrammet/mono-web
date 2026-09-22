@@ -4331,6 +4331,9 @@
             "allOf": [
               {
                 "minimum": 0
+              },
+              {
+                "maximum": 2147483647
               }
             ],
             "type": "integer"
@@ -6809,6 +6812,9 @@
                   "allOf": [
                     {
                       "minimum": 0
+                    },
+                    {
+                      "maximum": 2147483647
                     }
                   ],
                   "type": "integer"
@@ -7122,6 +7128,9 @@
                           "allOf": [
                             {
                               "minimum": 0
+                            },
+                            {
+                              "maximum": 2147483647
                             }
                           ],
                           "type": "integer"
@@ -7147,6 +7156,9 @@
                           "allOf": [
                             {
                               "minimum": 0
+                            },
+                            {
+                              "maximum": 2147483647
                             }
                           ],
                           "type": "integer"
@@ -33463,6 +33475,9 @@
                         "allOf": [
                           {
                             "minimum": 0
+                          },
+                          {
+                            "maximum": 2147483647
                           }
                         ],
                         "type": "integer"
@@ -33553,11 +33568,6 @@
                         "$ref": "#/components/schemas/Union_4"
                       },
                       "occurredOn": {
-                        "allOf": [
-                          {
-                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-                          }
-                        ],
                         "type": "string"
                       },
                       "proposalId": {

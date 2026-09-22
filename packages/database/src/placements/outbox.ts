@@ -149,6 +149,7 @@ const claimInTransaction = (sql: DatabaseShape, claimId: string, claimedAt: stri
       request.departmentId === canonical.departmentId &&
       request.semesterId === canonical.semesterId &&
       request.confirmedAt === canonical.confirmedAt &&
+      assignments.length > 0 &&
       canonicalJson(request.assignments) === canonicalJson(assignments);
     if (!valid) {
       yield* quarantine(sql, decodedRow.effectId, decodedRow.claimId, "AuthorityEnvelopeMismatch");
