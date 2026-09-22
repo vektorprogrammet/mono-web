@@ -289,7 +289,14 @@ test("0096 placement and 0110 school-service journeys persist with explicit auth
     await saved(demand);
     await page.reload();
     const generate = page.getByRole("form", { name: "Lag nytt tjenesteforslag", exact: true });
+    const proposalAction = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname.endsWith("/assistenter.data"),
+    );
     await generate.getByRole("button", { name: "Lag forslag fra aktive plasseringer" }).click();
+    const proposalActionBody = await (await proposalAction).text();
+    expect(proposalActionBody, proposalActionBody).toContain("Endringen er lagret.");
     await page.reload();
     const proposalArticle = page.locator("[data-proposal-id]");
     const serviceProposalId = await proposalArticle.getAttribute("data-proposal-id");
