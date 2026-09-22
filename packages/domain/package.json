@@ -15,6 +15,7 @@
     "./fixtures": "./src/fixtures.ts",
     "./capabilities": "./src/capabilities.ts",
     "./authz": "./src/authz/index.ts",
+    "./mail": "./src/mail.ts",
     "./receipt": "./src/receipt/index.ts",
     "./application": "./src/application/index.ts",
     "./admission-period": "./src/admission-period/index.ts",

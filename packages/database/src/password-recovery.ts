@@ -6,8 +6,8 @@ import type {
   IdentityRequestContext,
   IdentitySecurityEventKind,
   IdentitySecurityOutcomeCode,
-  PasswordResetMailDeliveryShape,
 } from "@vektorprogrammet/domain/identity";
+import type { MailShape } from "@vektorprogrammet/domain/mail";
 import type { AuthEngineConfig } from "./auth-engine.js";
 
 interface Coordination {
@@ -226,7 +226,8 @@ export const makePasswordRecovery = (pool: Pool, config: AuthEngineConfig) => {
 export const drainPasswordResetMail = async (
   pool: Pool,
   config: Pick<AuthEngineConfig, "oauth">,
-  delivery: PasswordResetMailDeliveryShape,
+  mail: MailShape,
+  sender: string,
 ): Promise<"Empty" | "Delivered" | "Failed" | "Quarantined" | "LostClaim"> => {
   const claim = randomUUID();
   const row = await transaction(pool, async (client) => {
@@ -266,15 +267,30 @@ export const drainPasswordResetMail = async (
     const token = verification.identifier.slice("reset-password:".length);
     const result = await Effect.runPromise(
       Effect.result(
-        delivery.deliver({
-          effectId: row.effect_id,
-          recipientEmail: verification.email!,
-          resetUrl: `${config.oauth.canonicalOrigin}/api/auth/reset-password/${token}?callbackURL=${encodeURIComponent(`${config.oauth.dashboardOrigin}/tilbakestill-passord`)}`,
-          expiresAt: verification.expiresAt,
+        mail.deliver({
+          deliveryId: row.effect_id,
+          sender,
+          recipient: verification.email!,
+          subject: "Tilbakestill passordet ditt",
+          text: [
+            "Det ble bedt om et nytt passord for Vektorprogrammet-kontoen din.",
+            "",
+            "Bruk denne lenken for å velge et nytt passord:",
+            `${config.oauth.canonicalOrigin}/api/auth/reset-password/${token}?callbackURL=${encodeURIComponent(`${config.oauth.dashboardOrigin}/tilbakestill-passord`)}`,
+            `Lenken utløper ${verification.expiresAt.toISOString()}.`,
+            "",
+            "Hvis du ikke ba om dette, kan du se bort fra e-posten.",
+          ].join("\n"),
         }),
       ),
     );
-    if (result._tag === "Failure") failure = result.failure.code;
+    if (result._tag === "Failure")
+      failure =
+        result.failure.kind === "permanent-rejection"
+          ? "provider-rejected"
+          : result.failure.kind === "ambiguous-outcome"
+            ? "delivery-timeout"
+            : "provider-unavailable";
   }
   return transaction(pool, async (client) => {
     const updated = await client.query(

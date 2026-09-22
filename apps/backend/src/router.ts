@@ -54,6 +54,7 @@ import {
   ReceiptApiHandlers,
   type ReceiptIdentityResolvers,
 } from "./receipt/http.js";
+import type { ReceiptFileStore } from "./receipt/filesystem.js";
 import { RecruitmentApiHandlers } from "./recruitment/http.js";
 import { SocialEventsApiHandlers, type SocialEventTransactionHook } from "./social-events/http.js";
 import { SchoolSurveysApiHandlers } from "./surveys/http.js";
@@ -115,6 +116,8 @@ export interface BackendHttpOptions {
   readonly now?: () => string;
   /** Test-only social-event transaction coordination for real concurrent snapshot evidence. */
   readonly socialEventsTransactionHook?: SocialEventTransactionHook;
+  /** Selects the composition-owned private receipt store; Bun keeps its filesystem default. */
+  readonly receiptFileStore?: ReceiptFileStore;
 }
 
 /**
@@ -178,6 +181,7 @@ export const makeExternalNativeApiRouterLayer = (
     config: config.receipt,
     identity: receiptIdentity,
     now: options.now,
+    fileStore: options.receiptFileStore,
   };
 
   const middlewareLayer = makeNativeHttpApiMiddlewareLayer(config.contact);

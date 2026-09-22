@@ -14,10 +14,7 @@ import { DatabaseLive } from "../src/layers.js";
 import { makeAuthEngine, makeAuthPool, type AuthEngineConfig } from "../src/auth-engine.js";
 import { makePasswordRecovery, drainPasswordResetMail } from "../src/password-recovery.js";
 import { identityRequestContext } from "../../../apps/backend/src/session-security.js";
-import {
-  makeHttpPasswordResetDelivery,
-  passwordResetDeliveryConfig,
-} from "../../../apps/backend/src/password-recovery/http-delivery.js";
+import { mailDeliveryConfig, makeHttpMailDelivery } from "../../../apps/backend/src/mail/http.js";
 import { importIdentityCohort, IdentityCohortFailure } from "../src/identity-cohort.js";
 import { importPersonCohort } from "../src/person-cohort.js";
 import { isNativePasswordHash, verifyNativeOrLegacyPassword } from "../src/password-codec.js";
@@ -548,13 +545,18 @@ try {
       const value = JSON.parse(body);
       deliveryAttempts++;
       if (
-        value.recipientEmail !== "cohort-accepted-0@example.invalid" ||
-        typeof value.resetUrl !== "string"
+        value.recipient !== "cohort-accepted-0@example.invalid" ||
+        typeof value.text !== "string"
       ) {
         res.writeHead(422).end();
         return;
       }
-      deliveredUrl = value.resetUrl;
+      const match = value.text.match(/https:\/\/[^\s]+\/api\/auth\/reset-password\/[^\s]+/u);
+      if (!match) {
+        res.writeHead(422).end();
+        return;
+      }
+      deliveredUrl = match[0];
       secrets.push(deliveredUrl);
       res.writeHead(202).end();
     } catch {
@@ -568,15 +570,17 @@ try {
     redirectTo: "http://127.0.0.1:5174/tilbakestill-passord",
   });
   assert.equal(requestReset.status, 200, "migrated account reset request");
-  const delivery = makeHttpPasswordResetDelivery(
-    passwordResetDeliveryConfig({
-      PASSWORD_RESET_DELIVERY_URL: `http://127.0.0.1:${sinkPort}`,
-      PASSWORD_RESET_DELIVERY_TOKEN: deliveryToken,
-      PASSWORD_RESET_DELIVERY_TIMEOUT_MS: "1000",
-      PASSWORD_RESET_DELIVERY_SENDER: "recovery@example.invalid",
+  const delivery = makeHttpMailDelivery(
+    mailDeliveryConfig({
+      MAIL_DELIVERY_URL: `http://127.0.0.1:${sinkPort}`,
+      MAIL_DELIVERY_TOKEN: deliveryToken,
+      MAIL_DELIVERY_TIMEOUT_MS: "1000",
     }),
   );
-  assert.equal(await drainPasswordResetMail(authPool!, config, delivery), "Delivered");
+  assert.equal(
+    await drainPasswordResetMail(authPool!, config, delivery, "recovery@example.invalid"),
+    "Delivered",
+  );
   assert.equal(deliveryAttempts, 1);
   const redirect = await fetch(deliveredUrl, { redirect: "manual" });
   assert.equal(redirect.status, 302);

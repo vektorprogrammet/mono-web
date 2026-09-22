@@ -10,7 +10,7 @@ import { createRequire } from "node:module";
 import { Console, Effect } from "effect";
 import { stopPreviewScenarioBackend } from "./preview-scenario.js";
 import { drainPasswordResetMail } from "../../packages/database/src/password-recovery.js";
-import { makeHttpPasswordResetDelivery } from "../../apps/backend/src/password-recovery/http-delivery.js";
+import { makeHttpMailDelivery } from "../../apps/backend/src/mail/http.js";
 const root = new URL("../../", import.meta.url).pathname;
 const requireDatabase = createRequire(
   new URL("../../packages/database/package.json", import.meta.url),
@@ -138,7 +138,7 @@ try {
   const cookie1 = await login(oldPassword),
     cookie2 = await login(oldPassword);
   secrets.push(cookie1, cookie2);
-  const messages = new Map<string, { resetUrl: string; recipientEmail: string }>();
+  const messages = new Map<string, { text: string; recipient: string }>();
   let rejectMail = false;
   const mailboxToken = randomBytes(24).toString("hex");
   secrets.push(mailboxToken);
@@ -151,19 +151,18 @@ try {
       if (request.method === "GET") return Response.json([...messages.values()]);
       if (rejectMail) return new Response(null, { status: 503 });
       const body = (await request.json()) as {
-        effectId: string;
-        resetUrl: string;
-        recipientEmail: string;
+        deliveryId: string;
+        text: string;
+        recipient: string;
       };
-      messages.set(body.effectId, body);
+      messages.set(body.deliveryId, body);
       return Response.json({ acknowledged: true });
     },
   });
-  const delivery = makeHttpPasswordResetDelivery({
+  const delivery = makeHttpMailDelivery({
     endpoint: new URL(`http://127.0.0.1:${mailbox.port}/mail`),
     token: mailboxToken,
     deliveryTimeoutMilliseconds: 2000,
-    sender: "recovery@example.invalid",
   });
   const drain = () =>
     drainPasswordResetMail(
@@ -176,6 +175,7 @@ try {
         },
       },
       delivery,
+      "recovery@example.invalid",
     );
   run("bun", ["run", "build"], env, join(root, "packages/sdk"));
   run("bun", ["run", "build"], env, join(root, "apps/dashboard"));
@@ -225,7 +225,8 @@ try {
           nativeApiResource: "urn:vektorprogrammet:native-api",
         },
       },
-      makeHttpPasswordResetDelivery(undefined),
+      makeHttpMailDelivery(undefined),
+      "recovery@example.invalid",
     ),
     "Failed",
   );
@@ -234,10 +235,10 @@ try {
   rejectMail = false;
   const operator = start("bun", ["apps/backend/src/password-recovery/drain-main.ts", "--once"], {
     ...env,
-    PASSWORD_RESET_DELIVERY_URL: `http://127.0.0.1:${mailbox.port}/mail`,
-    PASSWORD_RESET_DELIVERY_TOKEN: mailboxToken,
-    PASSWORD_RESET_DELIVERY_TIMEOUT_MS: "2000",
-    PASSWORD_RESET_DELIVERY_SENDER: "recovery@example.invalid",
+    MAIL_DELIVERY_URL: `http://127.0.0.1:${mailbox.port}/mail`,
+    MAIL_DELIVERY_TOKEN: mailboxToken,
+    MAIL_DELIVERY_TIMEOUT_MS: "2000",
+    MAIL_SENDER: "recovery@example.invalid",
   });
   assert.equal(await new Promise((resolve) => operator.once("exit", resolve)), 0);
   assert.equal(
@@ -251,8 +252,11 @@ try {
     await fetch(`http://127.0.0.1:${mailbox.port}/mail`, {
       headers: { authorization: `Bearer ${mailboxToken}` },
     })
-  ).json()) as { resetUrl: string }[];
-  const resetUrl = received[0]!.resetUrl;
+  ).json()) as { text: string }[];
+  const resetUrl = received[0]!.text.match(
+    /https:\/\/[^\s]+\/api\/auth\/reset-password\/[^\s]+/u,
+  )?.[0];
+  assert.ok(resetUrl, "password reset email contains its reset link");
   const token = new URL(resetUrl).pathname.split("/").at(-1)!;
   secrets.push(token, resetUrl);
   await page.goto(resetUrl);

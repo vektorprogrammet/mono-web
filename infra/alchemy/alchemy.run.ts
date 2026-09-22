@@ -4,15 +4,20 @@ import * as Effect from "effect/Effect";
 import { APEX_IDENTITY, PREVIEW_IDENTITY } from "./preview/identity.ts";
 import { PreviewWorker } from "./preview/worker-resource.ts";
 import { apexStack } from "./preview/apex.ts";
+import { cloudflareDevelopmentStack } from "./cloudflare-development.ts";
 import { stateBackendForStage } from "./preview/state-contract.ts";
 import * as Layer from "effect/Layer";
 
-export { PREVIEW_IDENTITY, PreviewWorker, apexStack };
+export { PREVIEW_IDENTITY, PreviewWorker, apexStack, cloudflareDevelopmentStack };
 
 const stageGuard = (stage: string): void => {
-  if (stage !== PREVIEW_IDENTITY.stage && stage !== APEX_IDENTITY.stage) {
+  if (
+    stage !== "development" &&
+    stage !== PREVIEW_IDENTITY.stage &&
+    stage !== APEX_IDENTITY.stage
+  ) {
     throw new Error(
-      `Only ${PREVIEW_IDENTITY.stage} or ${APEX_IDENTITY.stage} is allowed by this delivery stack`,
+      `Only development, ${PREVIEW_IDENTITY.stage}, or ${APEX_IDENTITY.stage} is allowed by this delivery stack`,
     );
   }
   if (
@@ -26,7 +31,11 @@ const stageGuard = (stage: string): void => {
 const deploymentState = Layer.unwrap(
   Alchemy.Stage.pipe(
     Effect.map((stage) =>
-      stateBackendForStage(stage) === "local" ? Alchemy.localState() : Cloudflare.state(),
+      stage === "development"
+        ? Cloudflare.state()
+        : stateBackendForStage(stage) === "local"
+          ? Alchemy.localState()
+          : Cloudflare.state(),
     ),
   ),
 );
@@ -39,6 +48,9 @@ export default Alchemy.Stack(
   Effect.gen(function* () {
     const stage = yield* Alchemy.Stage;
     stageGuard(stage);
+    if (stage === "development") {
+      return yield* cloudflareDevelopmentStack;
+    }
     const domain =
       stage === APEX_IDENTITY.stage ? APEX_IDENTITY.hostname : PREVIEW_IDENTITY.hostname;
 
