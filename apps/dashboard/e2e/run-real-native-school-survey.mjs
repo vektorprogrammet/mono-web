@@ -21,10 +21,10 @@ const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const backendRoot = fileURLToPath(new URL("../../backend/", import.meta.url));
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 const runnerPath = fileURLToPath(import.meta.url);
-const specPath = join(repositoryRoot, "design-specs/0111-native-school-survey-participation.md");
+const contractPath = join(repositoryRoot, "docs/system.md");
 const manifestPath =
   process.env.SCHOOL_SURVEY_EVIDENCE_MANIFEST_PATH ??
-  join(repositoryRoot, "evidence/functional-parity/0111/acceptance-manifest.json");
+  join(repositoryRoot, "artifacts/runtime/school-survey.json");
 const postgresPort = 45370;
 const backendPort = 45371;
 const proxyPort = 45372;
@@ -1438,7 +1438,7 @@ const manifest = {
   },
   checksums: {
     runner: await checksum(runnerPath),
-    designSpec: await checksum(specPath),
+    contract: await checksum(contractPath),
   },
   skippedOrUnavailable: [],
   cleanup: {

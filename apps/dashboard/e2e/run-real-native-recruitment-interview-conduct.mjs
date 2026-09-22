@@ -235,7 +235,7 @@ const main = async () => {
   const postgresRoot = join(temporaryRoot, "postgres");
   const browserEvidencePath = join(temporaryRoot, "browser-evidence.json");
   const screenshotDirectory = join(temporaryRoot, "screenshots");
-  const evidenceDirectory = join(repositoryRoot, "evidence", "functional-parity", "0108");
+  const evidenceDirectory = join(repositoryRoot, "artifacts", "parity", "runtime", "0108");
   const baseEnvironment = { ...process.env };
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
@@ -511,7 +511,7 @@ const main = async () => {
     throw new Error("conduct evidence was not produced");
   const retainedEvidence = { ...runtimeEvidence, cleanup: { disposableResourcesRemoved: true } };
   await withProjectionFileLock(
-    join(repositoryRoot, "evidence", "functional-parity"),
+    join(repositoryRoot, "artifacts", "parity"),
     "exclusive",
     async () => {
       for (const { name, bytes } of screenshotEvidence)

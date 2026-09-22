@@ -28,10 +28,16 @@ export const sanitizePlaywrightArtifact = (rawBytes) => {
           title: typeof spec.title === "string" ? spec.title : "",
           ok: spec.ok === true,
           tests: specTests.map((test) => ({
-            expectedStatus: test && typeof test.expectedStatus === "string" ? test.expectedStatus : "",
-            resultStatuses: test && Array.isArray(test.results)
-              ? test.results.map((result) => result && typeof result.status === "string" ? result.status : "").sort()
-              : [],
+            expectedStatus:
+              test && typeof test.expectedStatus === "string" ? test.expectedStatus : "",
+            resultStatuses:
+              test && Array.isArray(test.results)
+                ? test.results
+                    .map((result) =>
+                      result && typeof result.status === "string" ? result.status : "",
+                    )
+                    .sort()
+                : [],
           })),
         });
       }
@@ -44,11 +50,18 @@ export const sanitizePlaywrightArtifact = (rawBytes) => {
     const rightText = JSON.stringify(right);
     return leftText < rightText ? -1 : leftText > rightText ? 1 : 0;
   });
-  const passed = tests.length > 0 &&
-    tests.every((spec) =>
-      spec.ok &&
-      spec.tests.length > 0 &&
-      spec.tests.every((test) => test.resultStatuses.length > 0 && test.resultStatuses.every((status) => status === "passed")));
+  const passed =
+    tests.length > 0 &&
+    tests.every(
+      (spec) =>
+        spec.ok &&
+        spec.tests.length > 0 &&
+        spec.tests.every(
+          (test) =>
+            test.resultStatuses.length > 0 &&
+            test.resultStatuses.every((status) => status === "passed"),
+        ),
+    );
   if (!passed) throw new Error("Runtime evidence requires a non-empty passing Playwright report");
   return jsonBytes({ tests });
 };
@@ -60,13 +73,22 @@ export const runtimeEvidenceOutcome = (sanitizedBytes) => {
     throw new Error("Runtime evidence artifact is not valid sanitized JSON");
   }
   const tests = value && typeof value === "object" && Array.isArray(value.tests) ? value.tests : [];
-  const passed = tests.length > 0 &&
-    tests.every((spec) =>
-      spec && spec.ok === true &&
-      Array.isArray(spec.tests) && spec.tests.length > 0 &&
-      spec.tests.every((test) =>
-        test && Array.isArray(test.resultStatuses) && test.resultStatuses.length > 0 &&
-        test.resultStatuses.every((status) => status === "passed")));
+  const passed =
+    tests.length > 0 &&
+    tests.every(
+      (spec) =>
+        spec &&
+        spec.ok === true &&
+        Array.isArray(spec.tests) &&
+        spec.tests.length > 0 &&
+        spec.tests.every(
+          (test) =>
+            test &&
+            Array.isArray(test.resultStatuses) &&
+            test.resultStatuses.length > 0 &&
+            test.resultStatuses.every((status) => status === "passed"),
+        ),
+    );
   if (!passed) throw new Error("Runtime evidence requires a non-empty passing Playwright report");
   return { result: "passed", exit_code: 0 };
 };
@@ -80,9 +102,9 @@ const requiredEnvironment = (name) => {
   return value;
 };
 
-export const NATIVE_RUNTIME_EVIDENCE_DIRECTORY = "evidence/functional-parity/runtime";
+export const NATIVE_RUNTIME_EVIDENCE_DIRECTORY = "artifacts/parity/runtime";
 export const projectionDirectoryForEvidencePath = (path, repositoryRoot) => {
-  const projectionDirectory = resolve(repositoryRoot, "evidence", "functional-parity");
+  const projectionDirectory = resolve(repositoryRoot, "artifacts", "parity");
   const relativePath = relative(projectionDirectory, resolve(path));
   return relativePath.length === 0 ||
     (!relativePath.startsWith(`..${sep}`) && relativePath !== ".." && !relativePath.startsWith(sep))
@@ -94,8 +116,6 @@ const withEvidenceProjectionLock = async (projectionDirectory, operation) => {
   const { withProjectionFileLock } = await nodeRuntime();
   return withProjectionFileLock(projectionDirectory, "exclusive", operation);
 };
-
-
 
 export const resolveNativeRuntimeEvidencePath = (
   repositoryRoot,
@@ -201,7 +221,8 @@ export async function emitRuntimeEvidenceReceipts({
     .split(",")
     .map((value) => value.trim())
     .filter((value) => value.length > 0);
-  const contentAddressedRevisionRef = /^rev-(?:legacy|mono)-(?:[a-f0-9]{40,64}|sha256:[a-f0-9]{64})$/;
+  const contentAddressedRevisionRef =
+    /^rev-(?:legacy|mono)-(?:[a-f0-9]{40,64}|sha256:[a-f0-9]{64})$/;
   const { unsafeScalarReason } = await import("../../../tools/parity/src/source-manifest.ts");
   if (
     !REVISION_REF.test(legacyRevisionRefId) ||
@@ -220,7 +241,10 @@ export async function emitRuntimeEvidenceReceipts({
   ) {
     throw new Error("Runtime evidence runner source references are malformed");
   }
-  if (!Array.isArray(runnerSourceInputBytes) || runnerSourceInputBytes.length !== runnerSourceRefIds.length) {
+  if (
+    !Array.isArray(runnerSourceInputBytes) ||
+    runnerSourceInputBytes.length !== runnerSourceRefIds.length
+  ) {
     throw new Error("Runtime evidence runner source inputs do not match source references");
   }
   const sourceInputs = new Map();
@@ -228,8 +252,12 @@ export async function emitRuntimeEvidenceReceipts({
     if (input === null || typeof input !== "object" || !SOURCE_REF.test(input.sourceRefId)) {
       throw new Error("Runtime evidence runner source input reference is malformed");
     }
-    if (sourceInputs.has(input.sourceRefId)) throw new Error("Runtime evidence runner source inputs are duplicated");
-    sourceInputs.set(input.sourceRefId, asBytes(input.bytes, `runner source input ${input.sourceRefId}`));
+    if (sourceInputs.has(input.sourceRefId))
+      throw new Error("Runtime evidence runner source inputs are duplicated");
+    sourceInputs.set(
+      input.sourceRefId,
+      asBytes(input.bytes, `runner source input ${input.sourceRefId}`),
+    );
   }
   if (
     sourceInputs.size !== runnerSourceRefIds.length ||
@@ -257,10 +285,11 @@ export async function emitRuntimeEvidenceReceipts({
     const stepIds = [...new Set(journey.stepIds)];
     if (
       stepIds.length === 0 ||
-      stepIds.some((value) =>
-        typeof value !== "string" ||
-        !STEP_REF.test(value) ||
-        unsafeScalarReason(value, "journey_step") !== null
+      stepIds.some(
+        (value) =>
+          typeof value !== "string" ||
+          !STEP_REF.test(value) ||
+          unsafeScalarReason(value, "journey_step") !== null,
       )
     ) {
       throw new Error("Runtime evidence step identifiers are malformed");
@@ -271,7 +300,8 @@ export async function emitRuntimeEvidenceReceipts({
     };
   });
   if (
-    new Set(normalizedJourneys.map(({ journeyRefId }) => journeyRefId)).size !== normalizedJourneys.length
+    new Set(normalizedJourneys.map(({ journeyRefId }) => journeyRefId)).size !==
+    normalizedJourneys.length
   ) {
     throw new Error("Runtime evidence journey references are duplicated");
   }

@@ -17,11 +17,8 @@ const backendRoot = fileURLToPath(new URL("../../backend/", import.meta.url));
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 const runnerPath = fileURLToPath(import.meta.url);
-const specPath = join(repositoryRoot, "design-specs/0110-native-social-event-creation.md");
-const manifestPath = join(
-  repositoryRoot,
-  "evidence/functional-parity/0110/acceptance-manifest.json",
-);
+const contractPath = join(repositoryRoot, "docs/system.md");
+const manifestPath = join(repositoryRoot, "artifacts/runtime/social-events.json");
 const postgresPort = 45310;
 const backendPort = 45311;
 const proxyPort = 45312;
@@ -1073,7 +1070,7 @@ const manifest = {
   ],
   checksums: {
     runner: await checksum(runnerPath),
-    designSpec: await checksum(specPath),
+    contract: await checksum(contractPath),
   },
   negativeCases: journey.negativeCases,
   skippedOrUnavailable: [],
