@@ -454,7 +454,15 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await candidateOffer.getByRole("button", { name: "Aksepter tilbud", exact: true }).click();
     await submittedAndRemoved(candidateOffer);
     await candidatePage.reload();
-    await expect(candidatePage.getByText("Endelig svar: Akseptert", { exact: true })).toBeVisible();
+    const acceptedOfferArticle = candidatePage
+      .getByRole("heading", {
+        name: `Skole Beta, ${manifest.coverage.serviceDate} — Monday, bolk 2`,
+        exact: true,
+      })
+      .locator("xpath=..");
+    await expect(
+      acceptedOfferArticle.getByText("Endelig svar: Akseptert", { exact: true }),
+    ).toBeVisible();
     await axe(candidatePage, "addressed substitute offer on mobile");
     expect(
       await candidatePage.evaluate("document.documentElement.scrollWidth <= window.innerWidth"),
@@ -485,8 +493,16 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       .getByRole("button", { name: "Godta oppdatert versjon", exact: true })
       .click();
     await page.reload();
+    const acknowledgedOfferArticle = page
+      .getByRole("heading", {
+        name: `Skole Beta, ${manifest.coverage.serviceDate} — Monday, bolk 2`,
+        exact: true,
+      })
+      .locator("xpath=..");
     await expect(
-      page.getByText("Dekningen er bekreftet av koordinator.", { exact: true }),
+      acknowledgedOfferArticle.getByText("Dekningen er bekreftet av koordinator.", {
+        exact: true,
+      }),
     ).toBeVisible();
     const closeCovered = page.getByRole("form", {
       name: `Tjenestelukking: Skole Beta, ${manifest.coverage.serviceDate}, bolk 2, tjenesteplan ${serviceProposalId.slice(-8)}`,
@@ -499,7 +515,11 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await closeCovered.getByRole("button", { name: "Lukk tjeneste", exact: true }).click();
     await submittedAndRemoved(closeCovered);
     await page.reload();
-    await expect(page.getByText("Utfallet: Dekket", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText(`Skole Beta, ${manifest.coverage.serviceDate}, bolk 2 — Utfallet: Dekket`, {
+        exact: true,
+      }),
+    ).toBeVisible();
     const leaderAbsence = page.getByRole("form", {
       name: coordinatorAbsenceFormName,
       exact: true,
@@ -592,7 +612,12 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await closeUncovered.getByRole("button", { name: "Lukk tjeneste", exact: true }).click();
     await submittedAndRemoved(closeUncovered);
     await page.reload();
-    await expect(page.getByText("Utfallet: Ikke dekket", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText(
+        `Skole Beta, ${manifest.coverage.secondServiceDate}, bolk 2 — Utfallet: Ikke dekket`,
+        { exact: true },
+      ),
+    ).toBeVisible();
     const finalCoverage = await readCoverageBoard(page);
     const coveredOccurrence = finalCoverage.occurrences.find(
       (occurrence: { proposalId: string; occurredOn: string }) =>

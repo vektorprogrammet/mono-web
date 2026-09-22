@@ -1433,7 +1433,8 @@ function CoordinatorCoveragePanel({
                     {absence === undefined
                       ? "Fraværssak"
                       : `${absence.schoolName}, ${absence.serviceDate}, bolk ${absence.block}`}
-                    : {closureOutcomeLabel[closure.outcome]}
+                    {" — Utfallet: "}
+                    {closureOutcomeLabel[closure.outcome]}
                   </li>
                 );
               })}
