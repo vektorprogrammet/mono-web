@@ -29,7 +29,12 @@ import {
   RecruitmentScheduleCommandSchema,
   RecruitmentScheduleObservationSchema,
 } from "@vektorprogrammet/domain/recruitment";
-import { Receipt, isIsoDate } from "@vektorprogrammet/domain/receipt";
+import {
+  Receipt,
+  ReceiptSettlementCommandRequestSchema,
+  ReceiptSettlementEvidenceSchema,
+  isIsoDate,
+} from "@vektorprogrammet/domain/receipt";
 import { Schema } from "effect";
 import { Multipart } from "effect/unstable/http";
 import { HttpApiSchema } from "effect/unstable/httpapi";
@@ -72,8 +77,19 @@ export const CancelInterviewRequest = EmptyJsonRequest.annotate({
 export const WithdrawReceiptRequest = EmptyJsonRequest.annotate({
   identifier: "WithdrawReceiptRequest",
 });
-export const RefundReceiptRequest = EmptyJsonRequest.annotate({
-  identifier: "RefundReceiptRequest",
+export const ApproveReceiptRequest = EmptyJsonRequest.annotate({
+  identifier: "ApproveReceiptRequest",
+});
+export const RecordReceiptSettlementRequest = Schema.Struct({
+  expectedRevision:
+    ReceiptSettlementCommandRequestSchema.cases.RecordReceiptSettlement.fields.expectedRevision,
+  externalAuthority:
+    ReceiptSettlementCommandRequestSchema.cases.RecordReceiptSettlement.fields.externalAuthority,
+  externalReference:
+    ReceiptSettlementCommandRequestSchema.cases.RecordReceiptSettlement.fields.externalReference,
+  settledAt: ReceiptSettlementCommandRequestSchema.cases.RecordReceiptSettlement.fields.settledAt,
+}).annotate({
+  identifier: "RecordReceiptSettlementRequest",
 });
 export const RejectReceiptRequest = EmptyJsonRequest.annotate({
   identifier: "RejectReceiptRequest",
@@ -289,6 +305,10 @@ export const ReceiptResource = Schema.Struct({
   ...Receipt.json.fields,
   etag: StrongETag,
 }).annotate({ identifier: "ReceiptResource" });
+
+export const ReceiptSettlementEvidenceResource = ReceiptSettlementEvidenceSchema.annotate({
+  identifier: "ReceiptSettlementEvidenceResource",
+});
 
 export const PublishArticleResponse = Schema.Struct({
   articleId: ArticleId,

@@ -252,6 +252,10 @@ const adminLinks = [
         url: href("/utlegg"),
       },
       {
+        title: "Oppgjør",
+        url: href("/utlegg/oppgjor"),
+      },
+      {
         title: "Sponsorer",
         url: href("/sponsorer"),
       },

@@ -109,12 +109,12 @@ export function ApprovalReceiptList({
                 data-etag={actionNotice.etag}
               >
                 Utlegget er{" "}
-                {actionNotice.intent === "refund"
-                  ? "refundert"
+                {actionNotice.intent === "approve"
+                  ? "godkjent"
                   : actionNotice.intent === "reopen"
                     ? "åpnet for korrigering (Venter)"
                     : "avvist"}{" "}
-                som versjon {actionNotice.revision}.
+                som versjon {actionNotice.revision}. Godkjenning registrerer ikke oppgjør.
               </p>
             )}
 

@@ -46,6 +46,8 @@ import {
   type ReceiptFailure,
   type ReceiptFile,
   type ReceiptMutationAuthorization,
+  type ReceiptSettlementAuthorization,
+  type ReceiptSettlementEvidence,
   type ReceiptStatus,
   type ReceiptSubmissionAllocation,
 } from "@vektorprogrammet/domain/receipt";
@@ -70,6 +72,7 @@ type ProjectionRow = {
   readonly amountOre: string;
   readonly currency: "NOK";
   readonly description: string;
+  readonly approvedAt: string | null;
   readonly receiptDate: string;
   readonly submittedAt: string;
   readonly status: ReceiptStatus;
@@ -116,10 +119,29 @@ const pendingReceipt = (overrides: Partial<ProjectionRow> = {}): ProjectionRow =
   description: "bus ticket",
   receiptDate: "2026-08-01",
   submittedAt: evaluatedAt,
+  approvedAt: null,
   status: "Pending",
   revision: 0,
   ...overrides,
 });
+
+const settlementEvidence = (
+  overrides: Partial<ReceiptSettlementEvidence> = {},
+): ReceiptSettlementEvidence =>
+  ({
+    settlementId: "settlement-one",
+    receiptId,
+    amountOre: 1200,
+    currency: "NOK",
+    paymentDestinationFingerprint: "a".repeat(64),
+    externalAuthority: "Bank AS",
+    externalReference: "external-reference-1",
+    settledAt: "2026-08-24T11:00:00.000Z",
+    recordedByPersonId: personId,
+    recordedAt: evaluatedAt,
+    receiptRevision: 1,
+    ...overrides,
+  }) as ReceiptSettlementEvidence;
 
 const receiptEtag = (id: string, revision: number): string =>
   deriveStrongETag({
@@ -162,6 +184,8 @@ interface HarnessOptions {
   readonly ownedRows?: ReadonlyArray<ProjectionRow>;
   readonly approvalRows?: ReadonlyArray<ProjectionRow>;
   readonly commandFailure?: ReceiptScopeDenied | ReceiptNotFound | ReceiptPersistenceError;
+  readonly settlementRows?: ReadonlyArray<ProjectionRow>;
+  readonly settlementEvidence?: ReceiptSettlementEvidence;
   readonly evidenceAccessRows?: ReadonlyArray<ReceiptAccessRow>;
   readonly evidenceResult?: unknown;
   readonly revokeSessionAfterSnapshotRead?: boolean;
@@ -195,6 +219,8 @@ const harness = (options: HarnessOptions = {}) => {
   const commands: Array<Record<string, unknown>> = [];
   const principals: Array<ReceiptCommandPrincipal> = [];
   const allocations: Array<ReceiptSubmissionAllocation | undefined> = [];
+  const settlementCommands: Array<Record<string, unknown>> = [];
+  const settlementReads: Array<{ readonly receiptId: string; readonly personId: string }> = [];
   const approvalQueries: Array<{
     readonly personId: typeof personId;
     readonly authorizationInstant: string;
@@ -240,7 +266,7 @@ const harness = (options: HarnessOptions = {}) => {
     ({
       ...row,
       amountOre: Number(row.amountOre),
-      refundDate: row.status === "Refunded" ? "2026-08-24T12:00:00.000Z" : null,
+      approvedAt: row.status === "Approved" ? "2026-08-24T12:00:00.000Z" : null,
       paymentAccountCiphertext: "encrypted",
       file: {
         fileRef: "staging/file-one",
@@ -265,8 +291,8 @@ const harness = (options: HarnessOptions = {}) => {
       const status =
         command._tag === "WithdrawPendingReceipt"
           ? "Withdrawn"
-          : command._tag === "RefundReceipt"
-            ? "Refunded"
+          : command._tag === "ApproveReceipt"
+            ? "Approved"
             : command._tag === "RejectReceipt"
               ? "Rejected"
               : "Pending";
@@ -277,7 +303,7 @@ const harness = (options: HarnessOptions = {}) => {
         receiptDate: String(command.receiptDate ?? source.receiptDate),
         status,
         revision: nextRevision,
-        refundDate: status === "Refunded" ? "2026-08-24T12:00:00.000Z" : null,
+        approvedAt: status === "Approved" ? "2026-08-24T12:00:00.000Z" : null,
         paymentAccountCiphertext: "encrypted",
         file: {
           fileRef: "staging/file-one",
@@ -320,7 +346,7 @@ const harness = (options: HarnessOptions = {}) => {
         });
       }
       const approval =
-        target._tag === "RefundReceipt" ||
+        target._tag === "ApproveReceipt" ||
         target._tag === "RejectReceipt" ||
         target._tag === "ReopenRejectedReceipt";
       const source = (approval ? options.approvalRows : options.ownedRows)?.find(
@@ -349,6 +375,7 @@ const harness = (options: HarnessOptions = {}) => {
               }),
         );
       }
+
       const authorization: ReceiptMutationAuthorization = {
         _tag: target._tag,
         principal,
@@ -370,11 +397,81 @@ const harness = (options: HarnessOptions = {}) => {
     authorization,
     allocation,
   ) => executeReceipt(input, authorization.principal, allocation);
+  const authorizeReceiptSettlement: EconomyShape["authorizeReceiptSettlement"] = (
+    target,
+    principal,
+  ) =>
+    Effect.suspend(() => {
+      authorizationChecks.push(target._tag);
+      const source = (options.settlementRows ?? []).find(
+        (row) => row.receiptId === target.receiptId,
+      );
+      if (source === undefined) {
+        return Effect.fail(new ReceiptNotFound({ receiptId: target.receiptId }));
+      }
+      return Effect.succeed({
+        _tag: target._tag,
+        principal,
+        actor: {
+          personId: principal.personId,
+          active: true,
+          settlementScope: { _tag: "Department", departmentId: source.departmentId },
+        },
+        current: receiptFromProjection(source),
+      } as ReceiptSettlementAuthorization);
+    });
+
+  const executeAuthorizedReceiptSettlement: EconomyShape["executeAuthorizedReceiptSettlement"] = (
+    input,
+    authorization,
+  ) =>
+    Effect.suspend(() => {
+      const command = input as Record<string, unknown>;
+      settlementCommands.push(command);
+      const receipt = {
+        ...authorization.current,
+        revision: authorization.current.revision + 1,
+      };
+      const evidence = settlementEvidence({
+        ...(options.settlementEvidence ?? {}),
+        receiptId: receipt.receiptId,
+        amountOre: receipt.amountOre,
+        currency: "NOK",
+        recordedByPersonId: authorization.principal.personId,
+        receiptRevision: receipt.revision,
+      });
+      return Effect.succeed({
+        observation: {
+          commandId: String(command.commandId),
+          receiptId: receipt.receiptId,
+          settlementId: evidence.settlementId,
+          revision: receipt.revision,
+          replayed: false,
+        },
+        receipt,
+        settlement: evidence,
+        replayed: false,
+        outboxCount: 1,
+      } as never);
+    });
 
   const economy: EconomyShape = {
     executeReceipt,
     authorizeReceiptMutation,
     executeAuthorizedReceipt,
+    authorizeReceiptSettlement,
+    executeAuthorizedReceiptSettlement,
+    recordReceiptSettlement: () => Effect.die("unexpected direct settlement command"),
+    listReceiptsForSettlement: () =>
+      Effect.succeed((options.settlementRows ?? []) as never),
+    readReceiptSettlementForFinance: (requestedReceiptId, queryPersonId) =>
+      Effect.suspend(() => {
+        settlementReads.push({ receiptId: requestedReceiptId, personId: queryPersonId });
+        const evidence = options.settlementEvidence;
+        return evidence === undefined || evidence.receiptId !== requestedReceiptId
+          ? Effect.fail(new ReceiptNotFound({ receiptId: requestedReceiptId }))
+          : Effect.succeed(evidence);
+      }),
     listOwnedReceipts: () => Effect.succeed((options.ownedRows ?? []) as never),
     listReceiptsForApproval: (queryPersonId, authorizationInstant, status) => {
       approvalQueries.push({ personId: queryPersonId, authorizationInstant, status });
@@ -459,7 +556,7 @@ const harness = (options: HarnessOptions = {}) => {
           {
             departmentId: departmentOne,
             revision: 1,
-            status: "Refunded",
+            status: "Approved",
             fileRef: "staging/private",
             objectKey: "committed/private",
             contentType: "application/pdf",
@@ -623,6 +720,8 @@ const harness = (options: HarnessOptions = {}) => {
     http: makeReceiptApiHttp(httpOptions, services),
     internalHttp: makeInternalReceiptTestHttp(httpOptions, services),
     commands,
+    settlementCommands,
+    settlementReads: () => settlementReads,
     privateFileReads: () => privateFileReads,
     principals,
     allocations,
@@ -749,6 +848,113 @@ describe("receipt v0.2 HTTP contract", () => {
     expect(state.authorizationPrincipalCalls()).toBe(1);
   });
 
+  it("lists only approved unsettled receipts in the private settlement queue", async () => {
+    const queueRow = pendingReceipt({
+      status: "Approved",
+      approvedAt: evaluatedAt,
+      revision: 2,
+    });
+    const state = harness({ settlementRows: [queueRow] });
+    const response = await request(state.http, "/api/receipt-settlement-queue");
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("vary")).toBe("Origin");
+    expect(await readJson(response)).toEqual({
+      items: [
+        {
+          receiptId,
+          visualId,
+          ownerPersonId: personId,
+          departmentId: departmentOne,
+          description: "bus ticket",
+          amountOre: 1200,
+          currency: "NOK",
+          receiptDate: "2026-08-01",
+          status: "Approved",
+          approvedAt: evaluatedAt,
+          revision: 2,
+          etag: receiptEtag(receiptId, 2),
+        },
+      ],
+      totalItems: 1,
+    });
+  });
+
+  it("records private immutable settlement evidence with revision and idempotent replay", async () => {
+    const queueRow = pendingReceipt({
+      status: "Approved",
+      approvedAt: evaluatedAt,
+      revision: 2,
+    });
+    const evidence = settlementEvidence({ receiptRevision: 3 });
+    const state = harness({ settlementRows: [queueRow], settlementEvidence: evidence });
+    const payload = {
+      expectedRevision: 2,
+      externalAuthority: evidence.externalAuthority,
+      externalReference: evidence.externalReference,
+      settledAt: evidence.settledAt,
+    };
+    const key = "settle-receipt-idempotency-key-0001";
+
+    const recorded = await actionRequest(
+      state.http,
+      `/api/receipts/${receiptId}:settle`,
+      key,
+      2,
+      payload,
+    );
+    const recordedBody = await readJson(recorded);
+    const replay = await actionRequest(state.http, `/api/receipts/${receiptId}:settle`, key, 2, payload);
+    const changedReplay = await actionRequest(
+      state.http,
+      `/api/receipts/${receiptId}:settle`,
+      key,
+      2,
+      { ...payload, externalReference: "changed-external-reference" },
+    );
+
+    expect(changedReplay.status).toBe(409);
+    expect(changedReplay.headers.get("cache-control")).toBe("private, no-store");
+    expect(await changedReplay.json()).toMatchObject({ code: "idempotency.digest-conflict" });
+
+    expect(recorded.status).toBe(200);
+    expect(recorded.headers.get("cache-control")).toBe("private, no-store");
+    expect(recorded.headers.get("vary")).toBe("Origin");
+    expect(recorded.headers.get("etag")).toBe(receiptEtag(receiptId, 3));
+    expect(recordedBody).toMatchObject(evidence);
+    expect(await replay.json()).toEqual(recordedBody);
+    expect(state.settlementCommands).toHaveLength(1);
+    expect(state.settlementCommands[0]).toMatchObject({
+      _tag: "RecordReceiptSettlement",
+      expectedRevision: 2,
+      externalAuthority: evidence.externalAuthority,
+      externalReference: evidence.externalReference,
+      settledAt: evidence.settledAt,
+    });
+  });
+
+  it("reads finance settlement evidence privately and conceals a missing settlement", async () => {
+    const evidence = settlementEvidence();
+    const state = harness({ settlementEvidence: evidence });
+    const visible = await request(
+      state.http,
+      `/api/receipt-settlement-queue/${encodeURIComponent(receiptId)}`,
+    );
+    const concealed = await request(state.http, "/api/receipt-settlement-queue/not-visible");
+
+    expect(visible.status).toBe(200);
+    expect(visible.headers.get("cache-control")).toBe("private, no-store");
+    expect(await readJson(visible)).toMatchObject(evidence);
+    expect(state.settlementReads()).toEqual([
+      { receiptId, personId },
+      { receiptId: "not-visible", personId },
+    ]);
+    expect(concealed.status).toBe(404);
+    expect(concealed.headers.get("cache-control")).toBe("private, no-store");
+    expect(await concealed.json()).toMatchObject({ code: "receipt.not-found" });
+  });
+
   it("returns the frozen RFC 9457 credential problem", async () => {
     const response = await request(
       harness({ unauthenticated: true }).http,
@@ -855,7 +1061,7 @@ describe("receipt v0.2 HTTP contract", () => {
     const submitState = harness();
     const submitted = await submitRequest(submitState.http, "submit-http-replay-key-0001");
     const submittedBody = await readJson(submitted);
-    expect(Schema.decodeUnknownSync(ReceiptResource)(submittedBody).refundDate).toBeNull();
+    expect(Schema.decodeUnknownSync(ReceiptResource)(submittedBody).approvedAt).toBeNull();
     const submitReplay = await submitRequest(submitState.http, "submit-http-replay-key-0001");
     expect(submitted.status).toBe(201);
     expect(submitReplay.status).toBe(201);
@@ -954,13 +1160,13 @@ describe("receipt v0.2 HTTP contract", () => {
 
   it("denies a matching approval replay after grant revocation without another transition", async () => {
     const state = harness({ approvalRows: [pendingReceipt()] });
-    const pathname = `/api/receipts/${receiptId}:refund`;
-    const idempotencyKey = "refund-approval-revocation-key-0001";
+    const pathname = `/api/receipts/${receiptId}:approve`;
+    const idempotencyKey = "approve-approval-revocation-key-0001";
 
     const accepted = await actionRequest(state.http, pathname, idempotencyKey);
     expect(accepted.status).toBe(200);
     expect(state.commands).toHaveLength(1);
-    expect(state.authorizationChecks()).toEqual(["RefundReceipt"]);
+    expect(state.authorizationChecks()).toEqual(["ApproveReceipt"]);
 
     state.revokeAuthority("Approval");
     const revokedReplay = await actionRequest(state.http, pathname, idempotencyKey);
@@ -970,7 +1176,7 @@ describe("receipt v0.2 HTTP contract", () => {
       status: 403,
       detail: "The authenticated principal is not permitted to perform this operation.",
     });
-    expect(state.authorizationChecks()).toEqual(["RefundReceipt", "RefundReceipt"]);
+    expect(state.authorizationChecks()).toEqual(["ApproveReceipt", "ApproveReceipt"]);
     expect(state.commands).toHaveLength(1);
     expect(state.nativeReceiptCount()).toBe(1);
     expect(state.mutationTransactions()).toEqual({
@@ -1009,7 +1215,7 @@ describe("receipt v0.2 HTTP contract", () => {
   it("registers and executes only the exact frozen action suffixes", async () => {
     const actions = [
       ["withdraw", "WithdrawPendingReceipt"],
-      ["refund", "RefundReceipt"],
+      ["approve", "ApproveReceipt"],
       ["reject", "RejectReceipt"],
     ] as const;
     for (const [action, commandTag] of actions) {
@@ -1020,8 +1226,8 @@ describe("receipt v0.2 HTTP contract", () => {
         `${action}-receipt-idempotency-key`,
       );
       expect(exact.status).toBe(200);
-      expect(Schema.decodeUnknownSync(ReceiptResource)(await exact.json()).refundDate).toBe(
-        action === "refund" ? "2026-08-24T12:00:00.000Z" : null,
+      expect(Schema.decodeUnknownSync(ReceiptResource)(await exact.json()).approvedAt).toBe(
+        action === "approve" ? "2026-08-24T12:00:00.000Z" : null,
       );
       expect(state.commands).toHaveLength(1);
       expect(state.commands[0]).toMatchObject({
@@ -1050,7 +1256,7 @@ describe("receipt v0.2 HTTP contract", () => {
 
   it("returns RFC 9457 malformed-request problems for manual and schema query failures", async () => {
     for (const pathname of [
-      "/api/receipts?status=Pending&status=Refunded",
+      "/api/receipts?status=Pending&status=Approved",
       "/api/receipts?status=Unknown",
       "/api/receipt-approval-queue?status=Pending&unexpected=1",
       "/api/receipt-approval-queue?status=Unknown",
@@ -1069,8 +1275,8 @@ describe("receipt v0.2 HTTP contract", () => {
     const state = harness();
     const response = await actionRequest(
       state.http,
-      `/api/receipts/${receiptId}:refund?unexpected=1`,
-      "refund-query-rejected-0109",
+      `/api/receipts/${receiptId}:approve?unexpected=1`,
+      "approve-query-rejected-0109",
     );
 
     await expectProblem(response, {
@@ -1103,7 +1309,7 @@ describe("receipt v0.2 HTTP contract", () => {
   });
 
   it("service-principal queue items expose the same entity condition consumed by person decisions", async () => {
-    for (const action of ["refund", "reopen"] as const) {
+    for (const action of ["approve", "reopen"] as const) {
       const receipt = pendingReceipt({
         status: action === "reopen" ? "Rejected" : "Pending",
         revision: 2,
@@ -1164,7 +1370,7 @@ describe("receipt v0.2 HTTP contract", () => {
   });
 
   it("uses the queue's canonical receipt ETag for approval and reopening commands", async () => {
-    for (const action of ["refund", "reopen"] as const) {
+    for (const action of ["approve", "reopen"] as const) {
       const row = pendingReceipt({
         status: action === "reopen" ? "Rejected" : "Pending",
         revision: 2,
@@ -1357,7 +1563,7 @@ describe("scoped receipt approval file reads", () => {
     const state = harness({
       approvalFileRow: pendingReceipt({
         receiptId: "terminal-approval-file",
-        status: "Refunded",
+        status: "Approved",
       }),
       approvalFileContentType: "application/pdf",
     });

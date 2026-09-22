@@ -903,8 +903,66 @@ export const ReceiptsListReceiptsForApprovalProblem = problemUnion(
   ],
 );
 
-/** Problems for `receipts.refundReceipt`. */
-export const ReceiptsRefundReceiptProblem = problemUnion("ReceiptsRefundReceiptProblem", [
+/** Problems for `receipts.listReceiptsForSettlement`. */
+export const ReceiptsListReceiptsForSettlementProblem = problemUnion(
+  "ReceiptsListReceiptsForSettlementProblem",
+  [
+    ["request.malformed", 400],
+    ["header.malformed", 400],
+    ["credential.missing", 401],
+    ["credential.invalid", 401],
+    ["origin.denied", 403],
+    ["receipt.not-found", 404],
+    ["internal.error", 500],
+    ["receipts.unavailable", 503],
+  ],
+);
+
+/** Problems for `receipts.readReceiptSettlementForFinance`. */
+export const ReceiptsReadReceiptSettlementForFinanceProblem = problemUnion(
+  "ReceiptsReadReceiptSettlementForFinanceProblem",
+  [
+    ["request.malformed", 400],
+    ["header.malformed", 400],
+    ["credential.missing", 401],
+    ["credential.invalid", 401],
+    ["origin.denied", 403],
+    ["receipt.not-found", 404],
+    ["internal.error", 500],
+    ["receipts.unavailable", 503],
+  ],
+);
+
+/** Problems for `receipts.settleReceipt`. */
+export const ReceiptsSettleReceiptProblem = problemUnion("ReceiptsSettleReceiptProblem", [
+  ["request.malformed", 400],
+  ["header.malformed", 400],
+  ["credential.missing", 401],
+  ["credential.invalid", 401],
+  ["origin.denied", 403],
+  ["idempotency-key.invalid", 400],
+  ["idempotency.in-flight", 409],
+  ["idempotency.digest-conflict", 409],
+  ["idempotency.response-expired", 409],
+  ["request.too-large", 413],
+  ["media-type.unsupported", 415],
+  ["validation.failed", 422],
+  ["settlement.after-recorded-at", 422],
+  ["precondition.invalid", 400],
+  ["precondition.failed", 412],
+  ["precondition.required", 428],
+  ["receipt.already-settled", 409],
+  ["receipt.invalid-transition", 409],
+  ["settlement.external-reference-conflict", 409],
+  ["receipt.not-found", 404],
+  ["internal.error", 500],
+  ["dependency.unavailable", 503],
+  ["receipts.unavailable", 503],
+  ["idempotency.unavailable", 503],
+]);
+
+/** Problems for `receipts.approveReceipt`. */
+export const ReceiptsApproveReceiptProblem = problemUnion("ReceiptsApproveReceiptProblem", [
   ["request.malformed", 400],
   ["header.malformed", 400],
   ["credential.missing", 401],

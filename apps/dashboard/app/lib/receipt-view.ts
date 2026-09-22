@@ -5,11 +5,14 @@ import {
 import {
   ReceiptApprovalQueueItem,
   ReceiptListItem,
+  ReceiptSettlementQueueItem,
   type StrongETag as StrongETagValue,
 } from "@vektorprogrammet/http-api";
 
 type OwnedReceiptProjection = typeof ReceiptListItem.Type;
 type ApprovalReceiptProjection = typeof ReceiptApprovalQueueItem.Type;
+type SettlementQueueProjection = typeof ReceiptSettlementQueueItem.Type;
+type ReceiptSettlementEvidenceProjection = Exclude<OwnedReceiptProjection["settlement"], null>;
 
 export type ReceiptStatus = OwnedReceiptProjection["status"];
 export type OwnedReceiptStatus = ReceiptStatus;
@@ -23,6 +26,8 @@ export type OwnedReceiptView = {
   amount: string;
   receiptDate: string;
   status: OwnedReceiptStatus;
+  approvedAt: string | null;
+  settlement: ReceiptSettlementEvidenceView | null;
   revision: number;
   etag: StrongETagValue;
 };
@@ -38,11 +43,50 @@ export type ApprovalReceiptView = {
   currency: "NOK";
   receiptDate: string;
   status: ReceiptStatus;
+  approvedAt: string | null;
   revision: number;
   etag: StrongETagValue;
 };
 
-export type ReceiptUiErrorField = "description" | "amountNok" | "receiptDate" | "file";
+export type ReceiptSettlementEvidenceView = {
+  settlementId: string;
+  receiptId: string;
+  amountOre: number;
+  amount: string;
+  currency: "NOK";
+  paymentDestinationFingerprint: string;
+  externalAuthority: string;
+  externalReference: string;
+  settledAt: string;
+  recordedByPersonId: string;
+  recordedAt: string;
+  receiptRevision: number;
+};
+
+export type SettlementReceiptView = {
+  receiptId: string;
+  visualId: string;
+  ownerPersonId: string;
+  departmentId: string;
+  description: string;
+  amountOre: number;
+  amount: string;
+  currency: "NOK";
+  receiptDate: string;
+  status: "Approved";
+  approvedAt: string;
+  revision: number;
+  etag: StrongETagValue;
+};
+
+export type ReceiptUiErrorField =
+  | "description"
+  | "amountNok"
+  | "receiptDate"
+  | "file"
+  | "externalAuthority"
+  | "externalReference"
+  | "settledAt";
 
 export type ReceiptUiErrorTag =
   | "UnauthenticatedActor"
@@ -50,6 +94,9 @@ export type ReceiptUiErrorTag =
   | "ReceiptScopeDenied"
   | "ReceiptDecodeError"
   | "ReceiptAlreadyExists"
+  | "ReceiptAlreadySettled"
+  | "DuplicateExternalSettlementReference"
+  | "SettlementAfterRecordedAt"
   | "DuplicateReceiptCommandConflict"
   | "ReceiptPersistenceError"
   | "ReceiptNotFound"
@@ -91,7 +138,7 @@ export type ReceiptOwnerMutationNotice = {
   readonly etag: StrongETagValue;
 };
 
-export type ReceiptApprovalIntent = "refund" | "reject" | "reopen";
+export type ReceiptApprovalIntent = "approve" | "reject" | "reopen";
 
 export type ReceiptApprovalFailure = {
   readonly intent: ReceiptApprovalIntent;
@@ -110,9 +157,24 @@ export type ReceiptApprovalNotice = {
   readonly etag: StrongETagValue;
 };
 
+export type ReceiptSettlementFailure = {
+  readonly receiptId: string;
+  readonly etag?: StrongETagValue;
+  readonly commandId: string;
+  readonly externalAuthority: string;
+  readonly externalReference: string;
+  readonly settledAt: string;
+  readonly error: ReceiptUiError;
+};
+
+export type ReceiptSettlementNotice = {
+  readonly commandId: string;
+  readonly settlement: ReceiptSettlementEvidenceView;
+};
+
 const statusLabels: Record<ReceiptStatus, string> = {
   Pending: "Venter",
-  Refunded: "Refundert",
+  Approved: "Godkjent",
   Rejected: "Avvist",
   Withdrawn: "Trukket tilbake",
 };
@@ -123,6 +185,11 @@ const receiptErrorMessages: Record<ReceiptUiErrorTag, string> = {
   ReceiptScopeDenied: "Du har ikke godkjenningsområde for dette utlegget.",
   ReceiptDecodeError: "Kontroller feltene og prøv igjen.",
   ReceiptAlreadyExists: "Utlegget finnes allerede.",
+  ReceiptAlreadySettled: "Oppgjør er allerede registrert for dette utlegget.",
+  DuplicateExternalSettlementReference:
+    "Den eksterne autoriteten og referansen er allerede brukt for et annet oppgjør.",
+  SettlementAfterRecordedAt:
+    "Oppgjørstidspunktet kan ikke være senere enn tidspunktet det registreres.",
   DuplicateReceiptCommandConflict:
     "Handlingen er endret etter et tidligere forsøk. Start handlingen på nytt.",
   ReceiptPersistenceError: "Utlegget kunne ikke lagres. Prøv igjen senere.",
@@ -149,6 +216,12 @@ const validationField = (problem: DecodedNativeProblem): ReceiptUiErrorField | u
       return "receiptDate";
     case "/file":
       return "file";
+    case "/externalAuthority":
+      return "externalAuthority";
+    case "/externalReference":
+      return "externalReference";
+    case "/settledAt":
+      return "settledAt";
     default:
       return undefined;
   }
@@ -166,6 +239,25 @@ export function formatNokInput(amountOre: number): string {
   return `${digits.slice(0, -2)},${digits.slice(-2)}`;
 }
 
+export function mapReceiptSettlementEvidenceView(
+  settlement: ReceiptSettlementEvidenceProjection,
+): ReceiptSettlementEvidenceView {
+  return {
+    settlementId: settlement.settlementId,
+    receiptId: settlement.receiptId,
+    amountOre: settlement.amountOre,
+    amount: formatNokAmount(settlement.amountOre),
+    currency: settlement.currency,
+    paymentDestinationFingerprint: settlement.paymentDestinationFingerprint,
+    externalAuthority: settlement.externalAuthority,
+    externalReference: settlement.externalReference,
+    settledAt: settlement.settledAt,
+    recordedByPersonId: settlement.recordedByPersonId,
+    recordedAt: settlement.recordedAt,
+    receiptRevision: settlement.receiptRevision,
+  };
+}
+
 export function mapOwnedReceiptView(receipt: OwnedReceiptProjection): OwnedReceiptView {
   return {
     receiptId: receipt.receiptId,
@@ -176,6 +268,9 @@ export function mapOwnedReceiptView(receipt: OwnedReceiptProjection): OwnedRecei
     amountNok: formatNokInput(receipt.amountOre),
     receiptDate: receipt.receiptDate,
     status: receipt.status,
+    approvedAt: receipt.approvedAt,
+    settlement:
+      receipt.settlement === null ? null : mapReceiptSettlementEvidenceView(receipt.settlement),
     revision: receipt.revision,
     etag: receipt.etag,
   };
@@ -193,6 +288,25 @@ export function mapApprovalReceiptView(receipt: ApprovalReceiptProjection): Appr
     currency: receipt.currency,
     receiptDate: receipt.receiptDate,
     status: receipt.status,
+    approvedAt: receipt.approvedAt,
+    revision: receipt.revision,
+    etag: receipt.etag,
+  };
+}
+
+export function mapSettlementReceiptView(receipt: SettlementQueueProjection): SettlementReceiptView {
+  return {
+    receiptId: receipt.receiptId,
+    visualId: receipt.visualId,
+    ownerPersonId: receipt.ownerPersonId,
+    departmentId: receipt.departmentId,
+    description: receipt.description,
+    amountOre: receipt.amountOre,
+    amount: formatNokAmount(receipt.amountOre),
+    currency: receipt.currency,
+    receiptDate: receipt.receiptDate,
+    status: receipt.status,
+    approvedAt: receipt.approvedAt,
     revision: receipt.revision,
     etag: receipt.etag,
   };
@@ -243,6 +357,12 @@ const mapReceiptError = (
       return receiptError("ReceiptNotFound");
     case "receipt.already-exists":
       return receiptError("ReceiptAlreadyExists");
+    case "receipt.already-settled":
+      return receiptError("ReceiptAlreadySettled");
+    case "settlement.external-reference-conflict":
+      return receiptError("DuplicateExternalSettlementReference", "externalReference");
+    case "settlement.after-recorded-at":
+      return receiptError("SettlementAfterRecordedAt", "settledAt");
     case "receipt.invalid-transition":
       return receiptError("InvalidReceiptTransition");
     case "receipt.file-not-staged":
@@ -282,5 +402,9 @@ export function mapOwnedReceiptError(error: unknown): ReceiptUiError {
 }
 
 export function mapApprovalReceiptError(error: unknown): ReceiptUiError {
+  return mapReceiptError(error, "ReceiptScopeDenied");
+}
+
+export function mapSettlementReceiptError(error: unknown): ReceiptUiError {
   return mapReceiptError(error, "ReceiptScopeDenied");
 }

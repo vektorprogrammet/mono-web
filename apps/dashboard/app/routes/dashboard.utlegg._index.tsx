@@ -37,7 +37,7 @@ type ApprovalCommandParseResult =
 const statusFilters = [
   { status: undefined, label: "Alle" },
   { status: "Pending", label: "Venter" },
-  { status: "Refunded", label: "Refundert" },
+  { status: "Approved", label: "Godkjent" },
   { status: "Rejected", label: "Avvist" },
   { status: "Withdrawn", label: "Trukket tilbake" },
 ] satisfies ReadonlyArray<{ status: ReceiptStatus | undefined; label: string }>;
@@ -49,7 +49,7 @@ function readFormText(form: FormData, name: string): string | null {
 
 function isReceiptStatus(value: string | null): value is ReceiptStatus {
   return (
-    value === "Pending" || value === "Refunded" || value === "Rejected" || value === "Withdrawn"
+    value === "Pending" || value === "Approved" || value === "Rejected" || value === "Withdrawn"
   );
 }
 
@@ -140,7 +140,7 @@ export async function action({ request }: Route.ActionArgs) {
   const form = await request.formData();
   const intentValue = readFormText(form, "_intent");
 
-  if (intentValue !== "refund" && intentValue !== "reject" && intentValue !== "reopen") {
+  if (intentValue !== "approve" && intentValue !== "reject" && intentValue !== "reopen") {
     const actionError: ReceiptUiError = {
       _tag: "ReceiptDecodeError",
       message: "Ukjent behandling. Åpne bekreftelsen på nytt og prøv igjen.",
@@ -165,8 +165,8 @@ export async function action({ request }: Route.ActionArgs) {
       payload: {},
     };
     const result =
-      command.intent === "refund"
-        ? await client.receipts.refundReceipt(requestInput)
+      command.intent === "approve"
+        ? await client.receipts.approveReceipt(requestInput)
         : command.intent === "reopen"
           ? await client.receipts.reopenReceipt(requestInput)
           : await client.receipts.rejectReceipt(requestInput);
@@ -222,6 +222,11 @@ export default function Utlegg() {
             Behandle ventende utlegg eller åpne avviste utlegg for korrigering i godkjenningsområdet
             ditt.
           </p>
+          <Button className="mt-4" size="sm" asChild>
+            <Link to="/dashboard/utlegg/oppgjor" prefetch="intent">
+              Åpne oppgjørskø
+            </Link>
+          </Button>
         </header>
 
         <nav aria-label="Filtrer utlegg etter status">

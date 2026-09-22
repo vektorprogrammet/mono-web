@@ -15,7 +15,8 @@ const terminalReceipt = {
   receiptDate: "2026-09-20",
   receiptId: "receipt/id with a space",
   revision: 1,
-  status: "Refunded" as const,
+  approvedAt: "2026-09-20T12:00:00.000Z",
+  status: "Approved" as const,
   visualId: "KV-1001",
 } satisfies ApprovalReceiptView;
 

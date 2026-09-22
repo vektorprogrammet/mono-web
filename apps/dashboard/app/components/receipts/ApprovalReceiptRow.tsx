@@ -39,11 +39,11 @@ function ResolutionAction({ receipt, intent, failure, actionErrorId }: Resolutio
     navigation.state !== "idle" &&
     navigation.formData?.get("receiptId") === receipt.receiptId &&
     navigation.formData?.get("_intent") === intent;
-  const refunding = intent === "refund";
+  const approving = intent === "approve";
   const reopening = intent === "reopen";
-  const label = refunding ? "Refunder" : reopening ? "Åpne for korrigering" : "Avvis";
-  const confirmation = refunding
-    ? "Bekreft refusjon"
+  const label = approving ? "Godkjenn" : reopening ? "Åpne for korrigering" : "Avvis";
+  const confirmation = approving
+    ? "Bekreft godkjenning"
     : reopening
       ? "Bekreft gjenåpning"
       : "Bekreft avvisning";
@@ -54,7 +54,7 @@ function ResolutionAction({ receipt, intent, failure, actionErrorId }: Resolutio
         <Button
           type="button"
           size="sm"
-          variant={refunding || reopening ? "default" : "destructive"}
+          variant={approving || reopening ? "default" : "destructive"}
           disabled={navigation.state !== "idle"}
           onClick={() => {
             setCommandId((current) => current || crypto.randomUUID());
@@ -72,8 +72,8 @@ function ResolutionAction({ receipt, intent, failure, actionErrorId }: Resolutio
           </AlertDialogTitle>
           <AlertDialogDescription>
             <span id={descriptionId}>
-              {refunding
-                ? `${receipt.amount} fra eier ${receipt.ownerPersonId} i avdeling ${receipt.departmentId} markeres som refundert. Handlingen kan ikke angres.`
+              {approving
+                ? `${receipt.amount} fra eier ${receipt.ownerPersonId} i avdeling ${receipt.departmentId} markeres som godkjent. Dette registrerer ikke et oppgjør.`
                 : reopening
                   ? "Utlegget åpnes for korrigering. Eieren kan redigere det samme utlegget før ny behandling. Det sendes ingen e-post nå."
                   : `${receipt.amount} fra eier ${receipt.ownerPersonId} i avdeling ${receipt.departmentId} avvises. En godkjenner kan åpne det for korrigering senere.`}
@@ -94,8 +94,8 @@ function ResolutionAction({ receipt, intent, failure, actionErrorId }: Resolutio
 
           {busy && (
             <p className="sr-only" role="status">
-              {refunding
-                ? "Refunderer utlegget."
+              {approving
+                ? "Godkjenner utlegget."
                 : reopening
                   ? "Åpner utlegget."
                   : "Avviser utlegget."}
@@ -110,12 +110,12 @@ function ResolutionAction({ receipt, intent, failure, actionErrorId }: Resolutio
               type="submit"
               disabled={busy || commandId.length === 0}
               className={
-                refunding || reopening ? undefined : buttonVariants({ variant: "destructive" })
+                approving || reopening ? undefined : buttonVariants({ variant: "destructive" })
               }
             >
               {busy
-                ? refunding
-                  ? "Refunderer …"
+                ? approving
+                  ? "Godkjenner …"
                   : reopening
                     ? "Åpner …"
                     : "Avviser …"
@@ -207,7 +207,7 @@ export function ApprovalReceiptRow({ receipt, failure, actionErrorId }: Approval
             <>
               <ResolutionAction
                 receipt={receipt}
-                intent="refund"
+                intent="approve"
                 failure={relevantFailure}
                 actionErrorId={actionErrorId}
               />

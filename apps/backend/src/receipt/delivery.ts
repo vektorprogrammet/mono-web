@@ -115,43 +115,66 @@ export const makeReceiptDeliveryLayer = (
                   department_id: string;
                   email: string;
                   visual_id: string;
-                  status: string;
+                  status: string | null;
                   amount: string;
                   description: string;
                   receipt_date: string;
+                  settlement_amount: string | null;
+                  settlement_currency: string | null;
+                  external_authority: string | null;
+                  external_reference: string | null;
+                  settled_at: string | null;
                 }>`
             SELECT receipt.department_id, contact.email,
-              command.observation_json ->> 'visualId' AS visual_id,
+              receipt.visual_id,
               command.observation_json ->> 'status' AS status,
               COALESCE((SELECT h.command_json ->> 'amountOre' FROM economy_receipt_command_receipts h JOIN economy_receipt_audit a ON a.command_id=h.command_id WHERE h.receipt_id=receipt.receipt_id AND a.receipt_revision<=audit.receipt_revision AND h.command_json ->> 'amountOre' IS NOT NULL ORDER BY a.receipt_revision DESC LIMIT 1), receipt.amount_ore::text) AS amount,
               COALESCE((SELECT h.command_json ->> 'description' FROM economy_receipt_command_receipts h JOIN economy_receipt_audit a ON a.command_id=h.command_id WHERE h.receipt_id=receipt.receipt_id AND a.receipt_revision<=audit.receipt_revision AND h.command_json ->> 'description' IS NOT NULL ORDER BY a.receipt_revision DESC LIMIT 1), receipt.description) AS description,
-              COALESCE((SELECT h.command_json ->> 'receiptDate' FROM economy_receipt_command_receipts h JOIN economy_receipt_audit a ON a.command_id=h.command_id WHERE h.receipt_id=receipt.receipt_id AND a.receipt_revision<=audit.receipt_revision AND h.command_json ->> 'receiptDate' IS NOT NULL ORDER BY a.receipt_revision DESC LIMIT 1), receipt.receipt_date::text) AS receipt_date
+              COALESCE((SELECT h.command_json ->> 'receiptDate' FROM economy_receipt_command_receipts h JOIN economy_receipt_audit a ON a.command_id=h.command_id WHERE h.receipt_id=receipt.receipt_id AND a.receipt_revision<=audit.receipt_revision AND h.command_json ->> 'receiptDate' IS NOT NULL ORDER BY a.receipt_revision DESC LIMIT 1), receipt.receipt_date::text) AS receipt_date,
+              settlement.amount_ore::text AS settlement_amount,
+              settlement.currency AS settlement_currency,
+              settlement.external_authority,
+              settlement.external_reference,
+              settlement.settled_at::text AS settled_at
             FROM economy_receipts receipt
             JOIN person_contact_profiles contact ON contact.person_id = receipt.owner_person_id
             JOIN economy_receipt_command_receipts command ON command.receipt_id = receipt.receipt_id
             JOIN economy_receipt_audit audit ON audit.command_id = command.command_id
+            LEFT JOIN economy_receipt_settlements settlement ON settlement.receipt_id = receipt.receipt_id
             WHERE receipt.receipt_id = ${request.receiptId} AND command.command_id = ${request.commandId}`;
                 const fact = facts[0];
-                const status =
-                  request._tag === "NotifyEconomyReceiptSubmitted"
-                    ? "Pending"
-                    : request._tag === "NotifyReceiptRefunded"
-                      ? "Refunded"
-                      : "Rejected";
-                if (!fact || fact.status !== status)
-                  return yield* Effect.fail(new Error("Receipt notification facts unavailable"));
                 const submitted = request._tag === "NotifyEconomyReceiptSubmitted";
+                const approved = request._tag === "NotifyReceiptApproved";
+                const settled = request._tag === "NotifyReceiptSettled";
+                const status = submitted ? "Pending" : approved ? "Approved" : "Rejected";
+                if (
+                  !fact ||
+                  (!settled && fact.status !== status) ||
+                  (settled &&
+                    (fact.settlement_amount === null ||
+                      fact.settlement_currency !== "NOK" ||
+                      fact.external_authority === null ||
+                      fact.external_reference === null ||
+                      fact.settled_at === null))
+                ) {
+                  return yield* Effect.fail(new Error("Receipt notification facts unavailable"));
+                }
                 const subject = submitted
                   ? "Nytt utlegg registrert"
-                  : request._tag === "NotifyReceiptRefunded"
-                    ? "Utlegget ditt er markert som refundert"
-                    : "Utlegget ditt er avvist";
+                  : settled
+                    ? "Utlegget ditt er registrert som oppgjort"
+                    : approved
+                      ? "Utlegget ditt er godkjent"
+                      : "Utlegget ditt er avvist";
+                const text = settled
+                  ? `${subject}. Referanse: ${fact.visual_id}.\nBeløp: ${(Number(fact.settlement_amount) / 100).toFixed(2)} ${fact.settlement_currency}\nEkstern autoritet: ${fact.external_authority}\nEkstern referanse: ${fact.external_reference}\nOppgjort: ${fact.settled_at}`
+                  : `${subject}. Referanse: ${fact.visual_id}.\nBeløp: ${(Number(fact.amount) / 100).toFixed(2)} NOK\nDato: ${fact.receipt_date}\nBeskrivelse: ${fact.description}${request._tag === "NotifyReceiptRejected" ? `\nKontakt økonomiansvarlig på ${config.sender} dersom du har spørsmål om avvisningen.` : ""}`;
                 const prepared = yield* Schema.decodeUnknownEffect(Envelope)({
                   deliveryId: request.effectId,
                   from: config.sender,
                   to: submitted ? config.economyRecipients[fact.department_id] : fact.email,
                   subject,
-                  text: `${subject}. Referanse: ${fact.visual_id}.\nBeløp: ${(Number(fact.amount) / 100).toFixed(2)} NOK\nDato: ${fact.receipt_date}\nBeskrivelse: ${fact.description}${request._tag === "NotifyReceiptRejected" ? `\nKontakt økonomiansvarlig på ${config.sender} dersom du har spørsmål om avvisningen.` : ""}`,
+                  text,
                 });
                 yield* sql`UPDATE economy_receipt_outbox SET delivery_envelope = ${sql.json(prepared)} WHERE effect_id = ${request.effectId} AND claim_id = ${claimId}`;
                 return prepared;

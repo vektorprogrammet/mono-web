@@ -6,21 +6,30 @@
 import {
   INTERNAL_RECEIPT_EVIDENCE_ACCESS,
   RECEIPT_APPROVAL_QUEUE_ACCESS,
+  makeAccessSpec,
 } from "@vektorprogrammet/domain/authz";
-import { ReceiptId, ReceiptStatusSchema } from "@vektorprogrammet/domain/receipt";
+import {
+  Receipt,
+  ReceiptId,
+  ReceiptSettlementEvidenceSchema,
+  ReceiptStatusSchema,
+} from "@vektorprogrammet/domain/receipt";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, personNativeAccess } from "./access.js";
 import { operationAnnotations, PersonSecurity, SessionSecurity } from "./common.js";
 import {
   InternalReadReceiptEvidenceProblem,
+  ReceiptsApproveReceiptProblem,
   ReceiptsListReceiptsForApprovalProblem,
+  ReceiptsListReceiptsForSettlementProblem,
   ReceiptsListReceiptsProblem,
   ReceiptsReadReceiptFileProblem,
-  ReceiptsRefundReceiptProblem,
+  ReceiptsReadReceiptSettlementForFinanceProblem,
   ReceiptsRejectReceiptProblem,
   ReceiptsReopenReceiptProblem,
   ReceiptsReviseReceiptProblem,
+  ReceiptsSettleReceiptProblem,
   ReceiptsSubmitReceiptProblem,
   ReceiptsWithdrawReceiptProblem,
 } from "./endpoint-problems.js";
@@ -35,8 +44,10 @@ import {
   StrongETag,
 } from "./http-semantics.js";
 import {
+  ApproveReceiptRequest,
   ReceiptResource,
-  RefundReceiptRequest,
+  ReceiptSettlementEvidenceResource,
+  RecordReceiptSettlementRequest,
   RejectReceiptRequest,
   ReopenReceiptRequest,
   ReviseReceiptMultipartV2,
@@ -44,6 +55,46 @@ import {
   WithdrawReceiptRequest,
 } from "./v2-schemas.js";
 export { ReceiptId };
+
+const privateEntityMutationResponse = <S extends Schema.Top>(success: S) =>
+  HttpApiSchema.WithHeaders(success, {
+    "cache-control": Schema.Literal("private, no-store"),
+    vary: Schema.Literal("Origin"),
+    etag: StrongETag,
+  });
+
+const ReceiptSettlementQueueAccess = makeAccessSpec({
+  exposure: "External",
+  acceptedCredentials: [{ _tag: "BetterAuthCookie" }, { _tag: "OAuthUserBearer" }],
+  principalKinds: ["Person"],
+  capabilities: { _tag: "None" },
+  requirements: [],
+  canonicalScopeResolver: "receipts.approval-queue",
+  concealment: { _tag: "Reveal" },
+  decisionTime: "SnapshotRead",
+});
+
+const ReceiptSettlementReadAccess = makeAccessSpec({
+  exposure: "External",
+  acceptedCredentials: [{ _tag: "BetterAuthCookie" }, { _tag: "OAuthUserBearer" }],
+  principalKinds: ["Person"],
+  capabilities: { _tag: "None" },
+  requirements: [],
+  canonicalScopeResolver: "receipts.by-id",
+  concealment: { _tag: "Reveal" },
+  decisionTime: "SnapshotRead",
+});
+
+const ReceiptSettlementMutationAccess = makeAccessSpec({
+  exposure: "External",
+  acceptedCredentials: [{ _tag: "BetterAuthCookie" }, { _tag: "OAuthUserBearer" }],
+  principalKinds: ["Person"],
+  capabilities: { _tag: "None" },
+  requirements: [],
+  canonicalScopeResolver: "receipts.by-id",
+  concealment: { _tag: "Reveal" },
+  decisionTime: "Transaction",
+});
 
 /**
  * Receipt list projection item.
@@ -61,6 +112,8 @@ export const ReceiptListItemExample = {
   description: "list row",
   receiptDate: "2026-08-24",
   status: "Pending",
+  approvedAt: null,
+  settlement: null,
   revision: 2,
   etag: StrongETag.make('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"'),
 } as const;
@@ -76,6 +129,8 @@ export const ReceiptListItem = Schema.Struct({
   receiptDate: Schema.String,
   status: ReceiptStatusSchema,
   revision: Schema.Int,
+  approvedAt: Receipt.json.fields.approvedAt,
+  settlement: Schema.NullOr(ReceiptSettlementEvidenceSchema),
   etag: StrongETag,
 }).annotate({
   identifier: "ReceiptListItem",
@@ -91,6 +146,8 @@ export const ReceiptListItem = Schema.Struct({
       description: "list row",
       receiptDate: "2026-08-24",
       status: "Pending",
+      approvedAt: null,
+      settlement: null,
       revision: 2,
       etag: StrongETag.make('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"'),
     },
@@ -128,6 +185,7 @@ export const ReceiptApprovalQueueItem = Schema.Struct({
   status: ReceiptStatusSchema,
   revision: Schema.Int,
   etag: StrongETag,
+  approvedAt: Receipt.json.fields.approvedAt,
 }).annotate({
   identifier: "ReceiptApprovalQueueItem",
   description: "One receipt visible in the current approver queue.",
@@ -139,6 +197,32 @@ export const ReceiptApprovalQueueResponse = Schema.Struct({
 }).annotate({
   identifier: "ReceiptApprovalQueueResponse",
   description: "Receipts in the current approver queue and their count.",
+});
+
+export const ReceiptSettlementQueueItem = Schema.Struct({
+  receiptId: Schema.String,
+  visualId: Schema.String,
+  ownerPersonId: Schema.String,
+  departmentId: Schema.String,
+  amountOre: Schema.Int,
+  currency: Schema.Literal("NOK"),
+  description: Schema.String,
+  receiptDate: Schema.String,
+  status: Schema.Literal("Approved"),
+  approvedAt: Schema.String,
+  revision: Schema.Int,
+  etag: StrongETag,
+}).annotate({
+  identifier: "ReceiptSettlementQueueItem",
+  description: "One approved, unsettled receipt visible in the current settlement scope.",
+});
+
+export const ReceiptSettlementQueueResponse = Schema.Struct({
+  items: Schema.Array(ReceiptSettlementQueueItem),
+  totalItems: Schema.Int,
+}).annotate({
+  identifier: "ReceiptSettlementQueueResponse",
+  description: "Approved, unsettled receipts in the current settlement scope and their count.",
 });
 
 /**
@@ -401,15 +485,73 @@ export const ListReceiptsForApprovalEndpoint = HttpApiEndpoint.get(
   );
 
 /** @since 0.1.0 @category Endpoints */
-export const RefundReceiptEndpoint = HttpApiEndpoint.post(
-  "refundReceipt",
-  "/api/receipts/:receiptId([^:]+)::refund",
+export const ListReceiptsForSettlementEndpoint = HttpApiEndpoint.get(
+  "listReceiptsForSettlement",
+  "/api/receipt-settlement-queue",
+  {
+    success: privateReadResponse(ReceiptSettlementQueueResponse),
+    error: endpointProblemResponses(ReceiptsListReceiptsForSettlementProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((endpoint) => annotateAccessSpec(endpoint, ReceiptSettlementQueueAccess))
+  .annotateMerge(
+    operationAnnotations(
+      "List receipts for settlement",
+      "Lists approved, unsettled receipts visible to the current settlement grant.",
+    ),
+  );
+
+/** @since 0.1.0 @category Endpoints */
+export const ReadReceiptSettlementForFinanceEndpoint = HttpApiEndpoint.get(
+  "readReceiptSettlementForFinance",
+  "/api/receipt-settlement-queue/:receiptId",
+  {
+    params: ReceiptParams,
+    success: privateReadResponse(ReceiptSettlementEvidenceResource),
+    error: endpointProblemResponses(ReceiptsReadReceiptSettlementForFinanceProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((endpoint) => annotateAccessSpec(endpoint, ReceiptSettlementReadAccess))
+  .annotateMerge(
+    operationAnnotations(
+      "Read receipt settlement for finance",
+      "Reads immutable settlement evidence visible to the current settlement grant.",
+    ),
+  );
+
+/** @since 0.1.0 @category Endpoints */
+export const SettleReceiptEndpoint = HttpApiEndpoint.post(
+  "settleReceipt",
+  "/api/receipts/:receiptId([^:]+)::settle",
   {
     params: ReceiptParams,
     headers: IdempotencyIfMatchHeaders,
-    payload: RefundReceiptRequest,
+    payload: RecordReceiptSettlementRequest,
+    success: privateEntityMutationResponse(ReceiptSettlementEvidenceResource),
+    error: endpointProblemResponses(ReceiptsSettleReceiptProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((endpoint) => annotateAccessSpec(endpoint, ReceiptSettlementMutationAccess))
+  .annotateMerge(
+    operationAnnotations(
+      "Record receipt settlement",
+      "Records immutable evidence for an externally settled approved receipt.",
+    ),
+  );
+
+/** @since 0.1.0 @category Endpoints */
+export const ApproveReceiptEndpoint = HttpApiEndpoint.post(
+  "approveReceipt",
+  "/api/receipts/:receiptId([^:]+)::approve",
+  {
+    params: ReceiptParams,
+    headers: IdempotencyIfMatchHeaders,
+    payload: ApproveReceiptRequest,
     success: entityMutationResponse(ReceiptResource),
-    error: endpointProblemResponses(ReceiptsRefundReceiptProblem),
+    error: endpointProblemResponses(ReceiptsApproveReceiptProblem),
   },
 )
   .middleware(PersonSecurity)
@@ -424,7 +566,7 @@ export const RefundReceiptEndpoint = HttpApiEndpoint.post(
       }),
     ),
   )
-  .annotateMerge(operationAnnotations("Refund receipt", "Approves a pending receipt for refund."));
+  .annotateMerge(operationAnnotations("Approve receipt", "Approves a pending receipt."));
 
 /** @since 0.1.0 @category Endpoints */
 export const RejectReceiptEndpoint = HttpApiEndpoint.post(
@@ -497,7 +639,10 @@ export class ReceiptsApi extends HttpApiGroup.make("receipts")
     WithdrawReceiptEndpoint,
     ListReceiptsEndpoint,
     ListReceiptsForApprovalEndpoint,
-    RefundReceiptEndpoint,
+    ApproveReceiptEndpoint,
+    ListReceiptsForSettlementEndpoint,
+    ReadReceiptSettlementForFinanceEndpoint,
+    SettleReceiptEndpoint,
     RejectReceiptEndpoint,
     ReopenReceiptEndpoint,
   )

@@ -11,6 +11,7 @@ import {
 } from "@/lib/receipt-view";
 import { Fragment, useId, useState } from "react";
 import { Form, useNavigation } from "react-router";
+import { ReceiptSettlementEvidence } from "./ReceiptSettlementEvidence";
 
 type ActionPanel = "revise" | "withdraw" | null;
 
@@ -129,6 +130,18 @@ export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
           )}
         </TableCell>
       </TableRow>
+
+      {receipt.settlement !== null && (
+        <TableRow
+          data-receipt-settlement
+          data-receipt-id={receipt.receiptId}
+          data-settlement-id={receipt.settlement.settlementId}
+        >
+          <TableCell colSpan={6} className="whitespace-normal">
+            <ReceiptSettlementEvidence evidence={receipt.settlement} title="Oppgjørsbevis" />
+          </TableCell>
+        </TableRow>
+      )}
 
       {receipt.status === "Pending" && (
         <TableRow
