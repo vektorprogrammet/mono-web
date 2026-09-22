@@ -286,6 +286,12 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
                         : selected.command.action === "RecordOccurrence"
                           ? `school-service-occurrence-${identity.identitySha256}`
                           : `placement-${identity.identitySha256}`,
+                    ).pipe(
+                      Effect.tapError((cause) =>
+                        Effect.sync(() => {
+                          console.error(cause);
+                        }),
+                      ),
                     ),
                   );
               return yield* Effect.tryPromise({
