@@ -74,7 +74,7 @@ export const cloudflareDevelopmentStack = Effect.gen(function* () {
   const hyperdrive = yield* Cloudflare.Hyperdrive.Connection("DevelopmentHyperdrive", {
     name: "vektor-development-hyperdrive",
     origin: hyperdriveOrigin,
-    mtls: { sslmode: "verify-full" },
+    mtls: { sslmode: "require" },
   });
 
   return yield* Cloudflare.Worker("DevelopmentBackend", {
