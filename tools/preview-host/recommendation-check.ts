@@ -1864,7 +1864,7 @@ try {
     .getByRole("button", { name: "Fullfør intervju", exact: true })
     .press("Enter");
   assert.equal((await finalResponse).status(), 200);
-  await page.getByText("Completed", { exact: true }).waitFor();
+  await page.getByText("Intervjuet er fullført.", { exact: true }).waitFor();
   await page.reload();
   await open(page, "Sofie Gjennomfører");
   assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Ja");
