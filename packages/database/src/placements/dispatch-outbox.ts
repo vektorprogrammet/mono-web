@@ -25,7 +25,7 @@ const CanonicalRow = Schema.Struct({
   departmentId: Schema.String,
   semesterId: Schema.String,
   schoolId: Schema.Number,
-  schoolName: Schema.String,
+  schoolNameSnapshot: Schema.String,
   day: Schema.String,
   block: Schema.String,
   serviceDate: Schema.String,
@@ -120,7 +120,7 @@ const claimInTransaction = (sql: DatabaseShape, claimId: string, claimedAt: stri
       readonly departmentId: string;
       readonly semesterId: string;
       readonly schoolId: number;
-      readonly schoolName: string;
+      readonly schoolNameSnapshot: string;
       readonly day: string;
       readonly block: string;
       readonly serviceDate: string;
@@ -129,7 +129,8 @@ const claimInTransaction = (sql: DatabaseShape, claimId: string, claimedAt: stri
       SELECT offer.offer_id AS "offerId",absence.absence_id AS "absenceId",
         offer.candidate_person_id AS "personId",absence.proposal_id AS "proposalId",
         absence.department_id AS "departmentId",absence.semester_id AS "semesterId",
-        absence.school_id::double precision AS "schoolId",school.name AS "schoolName",
+        absence.school_id::double precision AS "schoolId",
+        offer.school_name_snapshot AS "schoolNameSnapshot",
         absence.day,absence.block,to_char(absence.service_date,'YYYY-MM-DD') AS "serviceDate",
         to_char(offer.dispatched_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "dispatchedAt"
       FROM public.school_service_substitute_offers AS offer
@@ -169,7 +170,7 @@ const claimInTransaction = (sql: DatabaseShape, claimId: string, claimedAt: stri
             departmentId: canonical.departmentId,
             semesterId: canonical.semesterId,
             schoolId: canonical.schoolId,
-            schoolName: canonical.schoolName,
+            schoolName: canonical.schoolNameSnapshot,
             day: canonical.day,
             block: canonical.block,
             serviceDate: canonical.serviceDate,

@@ -21,6 +21,7 @@ import {
   mutateCoverageBoard,
   mutateOwnCoverage,
   mutatePlacementBoard,
+  readCoverageBoard,
   readOwnAffiliation,
   readPlacementBoard,
 } from "@vektorprogrammet/database/placements";
@@ -410,6 +411,11 @@ describe("canonical placement persistence", () => {
                 { absenceId, offerId, acknowledgementId, occurrenceId },
               ),
             );
+            yield* sql`
+              UPDATE admission_substitute_preferences
+              SET active=false,revision=revision+1
+              WHERE application_id='coverage-application'
+            `;
             yield* mutateOwnCoverage(
               coverageScope,
               { action: "RespondToOffer", offerId, response: "Accept" },
@@ -444,6 +450,20 @@ describe("canonical placement persistence", () => {
         ),
       ),
     );
+    const invalidScope = await runtime.runPromise(
+      Effect.flip(
+        readCoverageBoard({
+          ...coverageScope,
+          semesterId: SemesterId.make("coverage-missing-semester"),
+        }),
+      ),
+    );
+    await runtime.runPromise(
+      Database.use(
+        (sql) =>
+          sql`UPDATE schools_directory_schools SET name='Renamed coverage school' WHERE name='Coverage school'`,
+      ),
+    );
     const failed = await runtime.runPromise(
       deliverNextSchoolServiceDispatchNotification(
         "coverage-worker:1",
@@ -472,7 +492,7 @@ describe("canonical placement persistence", () => {
     await runtime.runPromise(
       Database.use((sql) =>
         Effect.gen(function* () {
-          yield* sql`INSERT INTO public.school_service_substitute_offers(offer_id,absence_id,candidate_person_id,dispatcher_person_id,dispatched_at,status,revision,eligibility_snapshot) VALUES(${forgedOfferId},${absenceId},${candidatePerson},${coverageCoordinator},${now},'Declined',1,${sql.json({})})`;
+          yield* sql`INSERT INTO public.school_service_substitute_offers(offer_id,absence_id,candidate_person_id,dispatcher_person_id,dispatched_at,school_name_snapshot,status,revision,eligibility_snapshot) VALUES(${forgedOfferId},${absenceId},${candidatePerson},${coverageCoordinator},${now},'Coverage school','Declined',1,${sql.json({})})`;
           yield* sql`INSERT INTO public.school_service_dispatch_notification_outbox(effect_id,offer_id,absence_id,person_id,status,attempts,claim_id,claimed_at,payload_json) VALUES(${forgedEffectId},${forgedOfferId},${absenceId},${candidatePerson},'Processing',1,'abandoned-claim','2026-09-06T00:00:00.000Z',${sql.json({})})`;
         }),
       ),
@@ -489,6 +509,7 @@ describe("canonical placement persistence", () => {
     );
     expect(observed.dispatched.offers).toMatchObject([{ offerId, status: "Offered" }]);
     expect(observed.blocked).toMatchObject({ code: "coverage.pending-offer" });
+    expect(invalidScope).toMatchObject({ code: "scope.invalid" });
     expect(observed.closed.closures).toMatchObject([
       {
         absenceId,

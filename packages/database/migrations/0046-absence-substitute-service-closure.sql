@@ -45,6 +45,7 @@ CREATE TABLE public.school_service_substitute_offers (
   candidate_person_id text NOT NULL REFERENCES public.person_profiles(person_id),
   dispatcher_person_id text NOT NULL REFERENCES public.person_profiles(person_id),
   dispatched_at timestamptz NOT NULL,
+  school_name_snapshot text NOT NULL,
   status text NOT NULL DEFAULT 'Offered'
     CHECK (status IN ('Offered','Accepted','Declined','Withdrawn','Acknowledged')),
   revision integer NOT NULL DEFAULT 1 CHECK (revision > 0),
@@ -179,6 +180,7 @@ BEGIN
     OR NEW.candidate_person_id IS DISTINCT FROM OLD.candidate_person_id
     OR NEW.dispatcher_person_id IS DISTINCT FROM OLD.dispatcher_person_id
     OR NEW.dispatched_at IS DISTINCT FROM OLD.dispatched_at
+    OR NEW.school_name_snapshot IS DISTINCT FROM OLD.school_name_snapshot
     OR NEW.eligibility_snapshot IS DISTINCT FROM OLD.eligibility_snapshot THEN
     RAISE EXCEPTION 'School service substitute offer identity is immutable';
   END IF;
