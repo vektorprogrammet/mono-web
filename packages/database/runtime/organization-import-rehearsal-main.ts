@@ -144,7 +144,7 @@ interface BackendRequestObservation {
 const repositoryRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const dashboardRoot = join(repositoryRoot, "apps/dashboard");
 const sdkRoot = join(repositoryRoot, "packages/sdk");
-const dashboardPort = 5_187;
+const dashboardPort = 5_174;
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 
 export const ORGANIZATION_IMPORT_PLAYWRIGHT_ARGUMENTS = [
@@ -1493,6 +1493,9 @@ const runRehearsal = async (
       BETTER_AUTH_SECRET: backendSecret,
       NATIVE_IDENTITY_DEPLOYMENT: "local",
       NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
+      OAUTH_CANONICAL_ORIGIN: dashboardOrigin,
+      OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
+      OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
       PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     };
     const config = makeBackendConfig(configEnvironment);
@@ -1535,12 +1538,15 @@ const runRehearsal = async (
     );
     const authInventory = qualifiedInventory.filter((name) => name.startsWith("auth."));
     const publicInventory = qualifiedInventory.filter((name) => name.startsWith("public."));
-    assert.deepEqual(authInventory, [...EXPECTED_MIGRATION_23_AUTH_TABLES]);
-    assert.deepEqual(publicInventory, [...EXPECTED_MIGRATION_23_PUBLIC_TABLES]);
-    assert.deepEqual(qualifiedInventory, [
+    for (const expectedTable of [
       ...EXPECTED_MIGRATION_23_AUTH_TABLES,
       ...EXPECTED_MIGRATION_23_PUBLIC_TABLES,
-    ]);
+    ]) {
+      assert.ok(
+        qualifiedInventory.includes(expectedTable),
+        `current schema is missing migration 23 table ${expectedTable}`,
+      );
+    }
     const misplacedAuthTables = publicInventory.filter((name) =>
       /^public\.(?:account|session|user|verification)$/u.test(name),
     );
@@ -1549,13 +1555,15 @@ const runRehearsal = async (
       /organization|authz_|person_profiles|person_contact_profiles/u.test(name),
     );
     assert.deepEqual(misplacedNativeTables, []);
+    const migration23 = migrationRows.find(({ migrationId }) => migrationId === 23);
+    assert.ok(migration23, "current migration chain is missing migration 23");
     artifactCore.database = {
       status: "Observed",
       postgresqlVersion: postgresVersion?.version ?? "unobserved",
       databaseNameSha256,
       migrationCount: migrationRows.length,
       databaseSchemaRevision: sql.schemaRevision,
-      migration23: migrationRows.at(-1),
+      migration23,
     };
     artifactCore.inventory = {
       status: "Observed",
