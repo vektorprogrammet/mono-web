@@ -1977,6 +1977,7 @@ try {
   recordGate(
     "missing/null/unknown/numeric rejected without effects; all choices roundtrip; exact replay and conflicting/concurrent writes fenced",
   );
+  const effectsAfterInterviewCompletions = await effectSnapshot();
   await pool.query(
     `UPDATE public.organization_memberships SET is_suspended=true WHERE membership_id='membership-native-conduct-leader-0063'`,
   );
@@ -2120,7 +2121,7 @@ try {
     },
   );
   assert.equal(selfCancel.status, 403);
-  assert.deepEqual(await effectSnapshot(), effectsBefore);
+  assert.deepEqual(await effectSnapshot(), effectsAfterInterviewCompletions);
   // This separate actual onboarding action observes its applicant-facing projection.
   const onboardingToken = `onboard_${randomBytes(32).toString("hex")}`;
   secrets.push(onboardingToken);
