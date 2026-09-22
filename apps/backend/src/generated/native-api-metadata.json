@@ -1,8 +1,8 @@
 {
   "counts": {
-    "externalOperations": 80,
+    "externalOperations": 84,
     "internalOperations": 1,
-    "operations": 81
+    "operations": 85
   },
   "operations": [
     {
@@ -1303,6 +1303,48 @@
         ],
         "canonicalScopeResolver": "placements.explicit-department",
         "capabilities": {
+          "one": "placements.manage"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "placements",
+      "method": "POST",
+      "operationId": "placements.commandCoverageBoard",
+      "path": "/api/placements/coverage",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500"
+      ],
+      "summary": "Coordinate coverage and close service",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "placements.explicit-department",
+        "capabilities": {
           "one": "placements.self"
         },
         "concealment": {
@@ -1335,6 +1377,48 @@
         "500"
       ],
       "summary": "Request or withdraw own affiliation",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "placements.explicit-department",
+        "capabilities": {
+          "one": "placements.self"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "placements",
+      "method": "POST",
+      "operationId": "placements.commandOwnCoverage",
+      "path": "/api/placements/coverage/own",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500"
+      ],
+      "summary": "Report own absence or answer addressed offer",
       "visibility": "external"
     },
     {
@@ -1429,6 +1513,48 @@
         ],
         "canonicalScopeResolver": "placements.explicit-department",
         "capabilities": {
+          "one": "placements.manage"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "placements",
+      "method": "GET",
+      "operationId": "placements.readCoverageBoard",
+      "path": "/api/placements/coverage",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500"
+      ],
+      "summary": "Read coordinator coverage board",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "placements.explicit-department",
+        "capabilities": {
           "one": "placements.self"
         },
         "concealment": {
@@ -1461,6 +1587,48 @@
         "500"
       ],
       "summary": "Read own affiliation",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "placements.explicit-department",
+        "capabilities": {
+          "one": "placements.self"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "placements",
+      "method": "GET",
+      "operationId": "placements.readOwnCoverage",
+      "path": "/api/placements/coverage/own",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500"
+      ],
+      "summary": "Read own coverage",
       "visibility": "external"
     },
     {

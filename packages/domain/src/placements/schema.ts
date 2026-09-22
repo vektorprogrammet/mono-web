@@ -20,6 +20,9 @@ export const TeachingDay = Schema.Literals([
   "Friday",
 ]);
 export const TeachingBlock = Schema.Literals(["1", "2"]);
+export const IsoServiceDate = Schema.String.pipe(
+  Schema.check(Schema.makeFilter(isIsoDate, { message: "a valid YYYY-MM-DD date" })),
+);
 export const PlacementValues = Schema.Struct({
   schoolId: SchoolId,
   day: TeachingDay,
@@ -55,6 +58,18 @@ export const SchoolServiceProposalId = Schema.String.pipe(
 );
 export const SchoolServiceOccurrenceId = Schema.String.pipe(
   Schema.check(Schema.isPattern(/^school-service-occurrence-[a-f0-9]{64}$/)),
+);
+export const SchoolServiceAbsenceId = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^school-service-absence-[a-f0-9]{64}$/)),
+);
+export const SchoolServiceSubstituteOfferId = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^school-service-substitute-offer-[a-f0-9]{64}$/)),
+);
+export const SchoolServiceCoverageAcknowledgementId = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^school-service-coverage-acknowledgement-[a-f0-9]{64}$/)),
+);
+export const SchoolServiceClosureId = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^school-service-closure-[a-f0-9]{64}$/)),
 );
 export const SchoolServiceProposalAssignment = Schema.Struct({
   placementId: PlacementId,
@@ -121,11 +136,151 @@ export const SchoolServiceOccurrence = Schema.Struct({
   schoolName: Schema.String,
   day: TeachingDay,
   block: TeachingBlock,
-  occurredOn: Schema.String.pipe(Schema.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/))),
+  occurredOn: IsoServiceDate,
   attendedPersonIds: Schema.Array(PersonId),
   recordedAt: Schema.String,
   recordedBy: PersonId,
 });
+
+export const SchoolServiceAbsence = Schema.Struct({
+  absenceId: SchoolServiceAbsenceId,
+  proposalId: SchoolServiceProposalId,
+  departmentId: DepartmentId,
+  semesterId: SemesterId,
+  personId: PersonId,
+  schoolId: SchoolId,
+  schoolName: Schema.String,
+  day: TeachingDay,
+  block: TeachingBlock,
+  serviceDate: IsoServiceDate,
+  reporterPersonId: PersonId,
+  reportedAt: Schema.String,
+});
+export const SchoolServiceEligibilitySnapshot = Schema.Struct({
+  applicationId: Schema.String,
+  candidatePersonId: PersonId,
+  activeAffiliation: Schema.Literal(true),
+  activePool: Schema.Literal(true),
+  weekdayAvailable: Schema.Literal(true),
+  placementConflict: Schema.Literal(false),
+  acknowledgedCoverageConflict: Schema.Literal(false),
+  checkedAt: Schema.String,
+});
+export const SchoolServiceSubstituteOfferStatus = Schema.Literals([
+  "Offered",
+  "Accepted",
+  "Declined",
+  "Withdrawn",
+  "Acknowledged",
+]);
+export const SchoolServiceSubstituteOffer = Schema.Struct({
+  offerId: SchoolServiceSubstituteOfferId,
+  absenceId: SchoolServiceAbsenceId,
+  proposalId: SchoolServiceProposalId,
+  departmentId: DepartmentId,
+  semesterId: SemesterId,
+  candidatePersonId: PersonId,
+  candidateFirstName: Schema.String,
+  candidateLastName: Schema.String,
+  schoolId: SchoolId,
+  schoolName: Schema.String,
+  day: TeachingDay,
+  block: TeachingBlock,
+  serviceDate: IsoServiceDate,
+  dispatcherPersonId: PersonId,
+  dispatchedAt: Schema.String,
+  status: SchoolServiceSubstituteOfferStatus,
+  revision: Schema.Int,
+  eligibilitySnapshot: SchoolServiceEligibilitySnapshot,
+});
+export const SchoolServiceOfferResponse = Schema.Struct({
+  offerId: SchoolServiceSubstituteOfferId,
+  absenceId: SchoolServiceAbsenceId,
+  response: Schema.Literals(["Accept", "Decline"]),
+  responderPersonId: PersonId,
+  respondedAt: Schema.String,
+});
+export const SchoolServiceCoverageAcknowledgement = Schema.Struct({
+  acknowledgementId: SchoolServiceCoverageAcknowledgementId,
+  offerId: SchoolServiceSubstituteOfferId,
+  absenceId: SchoolServiceAbsenceId,
+  candidatePersonId: PersonId,
+  acknowledgedByPersonId: PersonId,
+  acknowledgedAt: Schema.String,
+});
+export const SchoolServiceClosure = Schema.Struct({
+  closureId: SchoolServiceClosureId,
+  absenceId: SchoolServiceAbsenceId,
+  occurrenceId: SchoolServiceOccurrenceId,
+  scheduledPersonId: PersonId,
+  outcome: Schema.Literals(["Covered", "Uncovered"]),
+  acknowledgementId: Schema.NullOr(SchoolServiceCoverageAcknowledgementId),
+  substitutePersonId: Schema.NullOr(PersonId),
+  closedByPersonId: PersonId,
+  closedAt: Schema.String,
+});
+export const SchoolServiceDispatchNotificationRequest = Schema.Struct({
+  _tag: Schema.Literal("NotifySchoolServiceSubstituteOffer"),
+  effectId: Schema.String,
+  offerId: SchoolServiceSubstituteOfferId,
+  absenceId: SchoolServiceAbsenceId,
+  personId: PersonId,
+  proposalId: SchoolServiceProposalId,
+  departmentId: DepartmentId,
+  semesterId: SemesterId,
+  schoolId: SchoolId,
+  schoolName: Schema.String,
+  day: TeachingDay,
+  block: TeachingBlock,
+  serviceDate: IsoServiceDate,
+  dispatchedAt: Schema.String,
+});
+export type SchoolServiceDispatchNotificationRequest =
+  typeof SchoolServiceDispatchNotificationRequest.Type;
+export const SchoolServiceDispatchNotification = Schema.Struct({
+  effectId: Schema.String,
+  offerId: SchoolServiceSubstituteOfferId,
+  absenceId: SchoolServiceAbsenceId,
+  personId: PersonId,
+  status: Schema.Literals(["Pending", "Processing", "Delivered", "Failed", "Quarantined"]),
+  attempts: NonNegativeCount,
+  deliveredAt: Schema.NullOr(Schema.String),
+  lastFailureTag: Schema.NullOr(Schema.String),
+});
+export const ConfirmedRosterSlot = Schema.Struct({
+  proposalId: SchoolServiceProposalId,
+  schoolId: SchoolId,
+  schoolName: Schema.String,
+  day: TeachingDay,
+  block: TeachingBlock,
+});
+export const CoverageCandidate = Schema.Struct({
+  absenceId: SchoolServiceAbsenceId,
+  applicationId: Schema.String,
+  personId: PersonId,
+  firstName: Schema.String,
+  lastName: Schema.String,
+});
+export const OwnCoverageView = Schema.Struct({
+  ...PlacementScope.fields,
+  rosterSlots: Schema.Array(ConfirmedRosterSlot),
+  absences: Schema.Array(SchoolServiceAbsence),
+  offers: Schema.Array(SchoolServiceSubstituteOffer),
+  responses: Schema.Array(SchoolServiceOfferResponse),
+  dispatchNotifications: Schema.Array(SchoolServiceDispatchNotification),
+});
+export const CoverageBoard = Schema.Struct({
+  ...PlacementScope.fields,
+  absences: Schema.Array(SchoolServiceAbsence),
+  candidates: Schema.Array(CoverageCandidate),
+  offers: Schema.Array(SchoolServiceSubstituteOffer),
+  responses: Schema.Array(SchoolServiceOfferResponse),
+  acknowledgements: Schema.Array(SchoolServiceCoverageAcknowledgement),
+  closures: Schema.Array(SchoolServiceClosure),
+  dispatchNotifications: Schema.Array(SchoolServiceDispatchNotification),
+  occurrences: Schema.Array(SchoolServiceOccurrence),
+});
+
 export const PlacementBoard = Schema.Struct({
   ...PlacementScope.fields,
   affiliations: Schema.Array(
@@ -149,6 +304,54 @@ export const PlacementScopes = Schema.Struct({
 export const OwnAffiliationCommand = Schema.Struct({
   action: Schema.Literals(["Request", "Withdraw"]),
 });
+export const OwnCoverageCommand = Schema.Union([
+  Schema.Struct({
+    action: Schema.Literal("ReportAbsence"),
+    proposalId: SchoolServiceProposalId,
+    schoolId: SchoolId,
+    day: TeachingDay,
+    block: TeachingBlock,
+    serviceDate: IsoServiceDate,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("RespondToOffer"),
+    offerId: SchoolServiceSubstituteOfferId,
+    response: Schema.Literals(["Accept", "Decline"]),
+  }),
+]);
+export const CoverageCommand = Schema.Union([
+  Schema.Struct({
+    action: Schema.Literal("ReportAbsenceForVolunteer"),
+    personId: PersonId,
+    proposalId: SchoolServiceProposalId,
+    schoolId: SchoolId,
+    day: TeachingDay,
+    block: TeachingBlock,
+    serviceDate: IsoServiceDate,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("DispatchSubstituteOffer"),
+    absenceId: SchoolServiceAbsenceId,
+    candidatePersonId: PersonId,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("WithdrawSubstituteOffer"),
+    offerId: SchoolServiceSubstituteOfferId,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("AcknowledgeCoverage"),
+    offerId: SchoolServiceSubstituteOfferId,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("CloseCoverage"),
+    proposalId: SchoolServiceProposalId,
+    schoolId: SchoolId,
+    day: TeachingDay,
+    block: TeachingBlock,
+    occurredOn: IsoServiceDate,
+    attendedPersonIds: Schema.Array(PersonId),
+  }),
+]);
 export const PlacementCommand = Schema.Union([
   Schema.Struct({
     action: Schema.Literal("Affiliation"),
@@ -185,12 +388,11 @@ export const PlacementCommand = Schema.Union([
     schoolId: SchoolId,
     day: TeachingDay,
     block: TeachingBlock,
-    occurredOn: Schema.String.pipe(
-      Schema.check(Schema.makeFilter(isIsoDate, { message: "a valid YYYY-MM-DD date" })),
-    ),
+    occurredOn: IsoServiceDate,
     attendedPersonIds: Schema.Array(PersonId),
   }),
 ]);
+
 export type PlacementScope = typeof PlacementScope.Type;
 export type Affiliation = typeof Affiliation.Type;
 export type Placement = typeof Placement.Type;
@@ -199,5 +401,18 @@ export type SchoolServiceDemand = typeof SchoolServiceDemand.Type;
 export type SchoolServiceProposal = typeof SchoolServiceProposal.Type;
 export type SchoolServiceProposalAssignment = typeof SchoolServiceProposalAssignment.Type;
 export type SchoolServiceProposalException = typeof SchoolServiceProposalException.Type;
+export type SchoolServiceAbsence = typeof SchoolServiceAbsence.Type;
+export type SchoolServiceEligibilitySnapshot = typeof SchoolServiceEligibilitySnapshot.Type;
+export type SchoolServiceSubstituteOffer = typeof SchoolServiceSubstituteOffer.Type;
+export type SchoolServiceOfferResponse = typeof SchoolServiceOfferResponse.Type;
+export type SchoolServiceCoverageAcknowledgement = typeof SchoolServiceCoverageAcknowledgement.Type;
+export type SchoolServiceClosure = typeof SchoolServiceClosure.Type;
+export type SchoolServiceDispatchNotification = typeof SchoolServiceDispatchNotification.Type;
+export type ConfirmedRosterSlot = typeof ConfirmedRosterSlot.Type;
+export type CoverageCandidate = typeof CoverageCandidate.Type;
+export type OwnCoverageView = typeof OwnCoverageView.Type;
+export type CoverageBoard = typeof CoverageBoard.Type;
 export type PlacementCommand = typeof PlacementCommand.Type;
 export type OwnAffiliationCommand = typeof OwnAffiliationCommand.Type;
+export type OwnCoverageCommand = typeof OwnCoverageCommand.Type;
+export type CoverageCommand = typeof CoverageCommand.Type;

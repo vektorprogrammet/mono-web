@@ -247,6 +247,11 @@ export const mutatePlacementBoard = (
       if (command.action === "RecordOccurrence") {
         const proposal = yield* readSchoolServiceProposal(sql, scope, command.proposalId);
         if (proposal === null) return yield* fail("resource.not-found", 404);
+        const coverageAbsences =
+          yield* sql`SELECT 1 FROM public.school_service_absences WHERE proposal_id=${proposal.proposalId} AND department_id=${scope.departmentId} AND semester_id=${scope.semesterId} AND school_id=${command.schoolId} AND day=${command.day} AND block=${command.block} AND service_date=CAST(${command.occurredOn} AS date)`;
+        if (coverageAbsences.length > 0) {
+          return yield* fail("school-service.occurrence-invalid");
+        }
         if (!hasExactSchoolServiceAttendance(proposal, command)) {
           return yield* fail("school-service.occurrence-invalid");
         }

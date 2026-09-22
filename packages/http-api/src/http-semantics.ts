@@ -322,6 +322,78 @@ export const NativeProblemRegistry = {
     status: 409,
     detail: "This confirmed roster already has a teaching occurrence for the date and slot.",
   },
+  "absence.target-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:absence.target-invalid",
+    title: "Invalid absence target",
+    status: 422,
+    detail: "The person is not scheduled for this confirmed proposal slot and service date.",
+  },
+  "absence.duplicate": {
+    type: "urn:vektorprogrammet:problem:v0.2:absence.duplicate",
+    title: "Duplicate absence report",
+    status: 409,
+    detail: "An absence has already been reported for this person, slot and service date.",
+  },
+  "absence.closed": {
+    type: "urn:vektorprogrammet:problem:v0.2:absence.closed",
+    title: "Coverage already closed",
+    status: 409,
+    detail: "This absence already has an immutable service closure.",
+  },
+  "offer.candidate-ineligible": {
+    type: "urn:vektorprogrammet:problem:v0.2:offer.candidate-ineligible",
+    title: "Ineligible substitute candidate",
+    status: 422,
+    detail: "The candidate no longer has active linked pool eligibility for this service slot.",
+  },
+  "offer.unresolved": {
+    type: "urn:vektorprogrammet:problem:v0.2:offer.unresolved",
+    title: "Unresolved substitute offer",
+    status: 409,
+    detail: "An offered, accepted or acknowledged substitute offer already selects this absence.",
+  },
+  "offer.owner-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:offer.owner-invalid",
+    title: "Offer is addressed to another person",
+    status: 403,
+    detail: "Only the current addressed substitute can answer this offer.",
+  },
+  "offer.response-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:offer.response-invalid",
+    title: "Invalid offer response",
+    status: 409,
+    detail: "This substitute offer is no longer offered for a final response.",
+  },
+  "offer.withdraw-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:offer.withdraw-invalid",
+    title: "Invalid offer withdrawal",
+    status: 409,
+    detail: "Only an offered or accepted substitute offer can be withdrawn before acknowledgement.",
+  },
+  "coverage.acknowledgement-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:coverage.acknowledgement-invalid",
+    title: "Invalid coverage acknowledgement",
+    status: 409,
+    detail: "Only the current accepted, eligible substitute offer can be acknowledged.",
+  },
+  "coverage.pending-offer": {
+    type: "urn:vektorprogrammet:problem:v0.2:coverage.pending-offer",
+    title: "Coverage has a pending offer",
+    status: 409,
+    detail: "An offered or accepted substitute offer must be declined, withdrawn or acknowledged before closure.",
+  },
+  "coverage.attendance-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:coverage.attendance-invalid",
+    title: "Invalid substituted attendance",
+    status: 422,
+    detail: "Attendance must exactly equal the confirmed roster minus absences plus acknowledged substitutes.",
+  },
+  "coverage.occurrence-duplicate": {
+    type: "urn:vektorprogrammet:problem:v0.2:coverage.occurrence-duplicate",
+    title: "Duplicate covered teaching occurrence",
+    status: 409,
+    detail: "This confirmed proposal slot already has a teaching occurrence for the service date.",
+  },
 
   "scope.invalid": {
     type: "urn:vektorprogrammet:problem:v0.2:scope.invalid",

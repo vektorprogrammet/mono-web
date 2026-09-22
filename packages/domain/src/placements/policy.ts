@@ -9,6 +9,8 @@ import type {
   Affiliation,
   OwnAffiliationCommand,
   PlacementBoard,
+  SchoolServiceAbsence,
+  SchoolServiceCoverageAcknowledgement,
   SchoolServiceProposal,
   SchoolServiceProposalAssignment,
   SchoolServiceProposalException,
@@ -27,7 +29,19 @@ export class PlacementFailure extends Data.TaggedError("PlacementFailure")<{
     | "school-service.proposal-inactive"
     | "school-service.exception-review-invalid"
     | "school-service.occurrence-invalid"
-    | "school-service.occurrence-duplicate";
+    | "school-service.occurrence-duplicate"
+    | "absence.target-invalid"
+    | "absence.duplicate"
+    | "absence.closed"
+    | "offer.candidate-ineligible"
+    | "offer.unresolved"
+    | "offer.owner-invalid"
+    | "offer.response-invalid"
+    | "offer.withdraw-invalid"
+    | "coverage.acknowledgement-invalid"
+    | "coverage.pending-offer"
+    | "coverage.attendance-invalid"
+    | "coverage.occurrence-duplicate";
   readonly status: 403 | 404 | 409 | 422;
 }> {}
 
@@ -44,6 +58,20 @@ export class SchoolServiceNotificationDeliveryError extends Data.TaggedError(
   readonly effectId: string;
 }> {}
 
+export class SchoolServiceDispatchNotificationOutboxError extends Data.TaggedError(
+  "SchoolServiceDispatchNotificationOutboxError",
+)<{
+  readonly operation: string;
+  readonly message: string;
+}> {}
+
+export class SchoolServiceDispatchNotificationDeliveryError extends Data.TaggedError(
+  "SchoolServiceDispatchNotificationDeliveryError",
+)<{
+  readonly effectId: string;
+}> {}
+
+/** A coordinator is an active scoped department leader or an active global administrator. */
 export const canManagePlacements = (
   authority: OrganizationPersonAuthority,
   departmentId: DepartmentId,
@@ -202,4 +230,49 @@ export const hasExactSchoolServiceAttendance = (
     )
     .map((assignment) => assignment.personId);
   return expected.length > 0 && exactUniqueValues(expected, slot.attendedPersonIds);
+};
+
+/**
+ * Attendance is derived from separate immutable facts. An absence removes only
+ * its scheduled person, while an acknowledgement adds only the fixed candidate.
+ */
+export const hasExactSubstitutedSchoolServiceAttendance = (
+  proposal: SchoolServiceProposal,
+  absences: ReadonlyArray<SchoolServiceAbsence>,
+  acknowledgements: ReadonlyArray<SchoolServiceCoverageAcknowledgement>,
+  slot: {
+    readonly schoolId: SchoolId;
+    readonly day: SchoolServiceProposalAssignment["day"];
+    readonly block: SchoolServiceProposalAssignment["block"];
+    readonly serviceDate: string;
+    readonly attendedPersonIds: ReadonlyArray<PersonId>;
+  },
+): boolean => {
+  if (proposal.status !== "Confirmed") return false;
+  const roster = proposal.assignments
+    .filter(
+      (assignment) =>
+        assignment.schoolId === slot.schoolId &&
+        assignment.day === slot.day &&
+        assignment.block === slot.block,
+    )
+    .map((assignment) => assignment.personId);
+  if (roster.length === 0) return false;
+  const slotAbsences = absences.filter(
+    (absence) =>
+      absence.proposalId === proposal.proposalId &&
+      absence.schoolId === slot.schoolId &&
+      absence.day === slot.day &&
+      absence.block === slot.block &&
+      absence.serviceDate === slot.serviceDate,
+  );
+  const absentPeople = new Set(slotAbsences.map((absence) => absence.personId));
+  const absenceIds = new Set(slotAbsences.map((absence) => absence.absenceId));
+  const substitutions = acknowledgements
+    .filter((acknowledgement) => absenceIds.has(acknowledgement.absenceId))
+    .map((acknowledgement) => acknowledgement.candidatePersonId);
+  return exactUniqueValues(
+    [...roster.filter((personId) => !absentPeople.has(personId)), ...substitutions],
+    slot.attendedPersonIds,
+  );
 };

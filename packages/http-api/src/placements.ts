@@ -1,7 +1,11 @@
 import {
   Affiliation,
   AffiliationScope,
+  CoverageBoard,
+  CoverageCommand,
   OwnAffiliationCommand,
+  OwnCoverageCommand,
+  OwnCoverageView,
   PlacementBoard,
   PlacementCommand,
   PlacementScope,
@@ -19,7 +23,15 @@ import {
   endpointProblemResponses,
   problemUnion,
 } from "./http-semantics.js";
-export { AffiliationScope, OwnAffiliationCommand, PlacementCommand, PlacementScope };
+
+export {
+  AffiliationScope,
+  CoverageCommand,
+  OwnAffiliationCommand,
+  OwnCoverageCommand,
+  PlacementCommand,
+  PlacementScope,
+};
 
 export const OwnAffiliationResource = Schema.Struct({
   ...Affiliation.fields,
@@ -29,6 +41,15 @@ export const PlacementBoardResource = Schema.Struct({
   ...PlacementBoard.fields,
   etag: StrongETag,
 }).annotate({ identifier: "PlacementBoardResource" });
+export const OwnCoverageResource = Schema.Struct({
+  ...OwnCoverageView.fields,
+  etag: StrongETag,
+}).annotate({ identifier: "OwnCoverageResource" });
+export const CoverageBoardResource = Schema.Struct({
+  ...CoverageBoard.fields,
+  etag: StrongETag,
+}).annotate({ identifier: "CoverageBoardResource" });
+
 export const PlacementProblem = problemUnion("PlacementProblem", [
   ["request.malformed", 400],
   ["request.too-large", 413],
@@ -49,6 +70,18 @@ export const PlacementProblem = problemUnion("PlacementProblem", [
   ["school-service.exception-review-invalid", 422],
   ["school-service.occurrence-invalid", 422],
   ["school-service.occurrence-duplicate", 409],
+  ["absence.target-invalid", 422],
+  ["absence.duplicate", 409],
+  ["absence.closed", 409],
+  ["offer.candidate-ineligible", 422],
+  ["offer.unresolved", 409],
+  ["offer.owner-invalid", 403],
+  ["offer.response-invalid", 409],
+  ["offer.withdraw-invalid", 409],
+  ["coverage.acknowledgement-invalid", 409],
+  ["coverage.pending-offer", 409],
+  ["coverage.attendance-invalid", 422],
+  ["coverage.occurrence-duplicate", 409],
   ["precondition.required", 428],
   ["precondition.failed", 412],
   ["idempotency.in-flight", 409],
@@ -58,12 +91,14 @@ export const PlacementProblem = problemUnion("PlacementProblem", [
   ["internal.error", 500],
   ["media-type.unsupported", 415],
 ]);
+
 const access = (capability: "placements.self" | "placements.manage", write = false) =>
   personNativeAccess({
     capability,
     canonicalScopeResolver: "placements.explicit-department",
     decisionTime: write ? "Transaction" : "SnapshotRead",
   });
+
 export const ListPlacementScopesEndpoint = HttpApiEndpoint.get(
   "listScopes",
   "/api/placements/scopes",
@@ -145,16 +180,94 @@ export const CommandPlacementBoardEndpoint = HttpApiEndpoint.post(
       "Conditional audited commands; demand, proposal, confirmation, notification, occurrence, and placement scope stay transaction-bound.",
     ),
   );
+
+export const ReadOwnCoverageEndpoint = HttpApiEndpoint.get(
+  "readOwnCoverage",
+  "/api/placements/coverage/own",
+  {
+    query: PlacementScope.fields,
+    success: privateReadResponse(OwnCoverageResource),
+    error: endpointProblemResponses(PlacementProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((e) => annotateAccessSpec(e, access("placements.self")))
+  .annotateMerge(
+    operationAnnotations(
+      "Read own coverage",
+      "Authenticated volunteers can see only their confirmed roster slots, absences, and addressed substitute offers.",
+    ),
+  );
+export const CommandOwnCoverageEndpoint = HttpApiEndpoint.post(
+  "commandOwnCoverage",
+  "/api/placements/coverage/own",
+  {
+    query: PlacementScope.fields,
+    headers: IdempotencyIfMatchHeaders,
+    payload: OwnCoverageCommand,
+    success: entityMutationResponse(OwnCoverageResource),
+    error: endpointProblemResponses(PlacementProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((e) => annotateAccessSpec(e, access("placements.self", true)))
+  .annotateMerge(
+    operationAnnotations(
+      "Report own absence or answer addressed offer",
+      "The current person must own the frozen roster slot or the selected substitute offer inside the command transaction.",
+    ),
+  );
+export const ReadCoverageBoardEndpoint = HttpApiEndpoint.get(
+  "readCoverageBoard",
+  "/api/placements/coverage",
+  {
+    query: PlacementScope.fields,
+    success: privateReadResponse(CoverageBoardResource),
+    error: endpointProblemResponses(PlacementProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((e) => annotateAccessSpec(e, access("placements.manage")))
+  .annotateMerge(
+    operationAnnotations(
+      "Read coordinator coverage board",
+      "Only a currently scoped coordinator can read candidate eligibility, offer delivery, acknowledgement, occurrence, and immutable closure facts.",
+    ),
+  );
+export const CommandCoverageBoardEndpoint = HttpApiEndpoint.post(
+  "commandCoverageBoard",
+  "/api/placements/coverage",
+  {
+    query: PlacementScope.fields,
+    headers: IdempotencyIfMatchHeaders,
+    payload: CoverageCommand,
+    success: entityMutationResponse(CoverageBoardResource),
+    error: endpointProblemResponses(PlacementProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((e) => annotateAccessSpec(e, access("placements.manage", true)))
+  .annotateMerge(
+    operationAnnotations(
+      "Coordinate coverage and close service",
+      "Every coordinator command rechecks department scope, roster, candidate eligibility, offer transition, acknowledgement, exact attendance, and immutable closure inside one serializable transaction.",
+    ),
+  );
+
 export class PlacementsApi extends HttpApiGroup.make("placements")
   .add(ListPlacementScopesEndpoint)
   .add(ReadOwnAffiliationEndpoint)
   .add(CommandOwnAffiliationEndpoint)
   .add(ReadPlacementBoardEndpoint)
   .add(CommandPlacementBoardEndpoint)
+  .add(ReadOwnCoverageEndpoint)
+  .add(CommandOwnCoverageEndpoint)
+  .add(ReadCoverageBoardEndpoint)
+  .add(CommandCoverageBoardEndpoint)
   .annotateMerge(
     OpenApi.annotations({
       title: "Volunteer placement",
       description:
-        "Explicit affiliation, placement, demand, human-confirmed roster, and teaching occurrence.",
+        "Explicit affiliation, placement, human-confirmed roster, absence, sequential substitute coverage, and immutable teaching closure.",
     }),
   ) {}

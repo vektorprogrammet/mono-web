@@ -2,16 +2,20 @@ import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import {
   buildSchoolServiceProposal,
+  canManagePlacements,
   hasExactSchoolServiceAttendance,
   hasExactSchoolServiceExceptionReview,
+  hasExactSubstitutedSchoolServiceAttendance,
   nextAffiliationStatus,
-  canManagePlacements,
 } from "./policy.js";
 import {
   OwnAffiliationCommand,
   PlacementCommand,
   PlacementValues,
+  SchoolServiceAbsenceId,
+  SchoolServiceCoverageAcknowledgementId,
   SchoolServiceProposalId,
+  SchoolServiceSubstituteOfferId,
 } from "./schema.js";
 import { OrganizationPersonAuthoritySchema } from "../organization/authority.js";
 import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
@@ -247,6 +251,60 @@ describe("school service proposal boundaries", () => {
         day: "Monday",
         block: "1",
         attendedPersonIds: [PersonId.make("person-1")],
+      }),
+    ).toBe(false);
+  });
+
+  it("derives exact substituted attendance from immutable absence and acknowledgement facts", () => {
+    const confirmed = { ...proposal, status: "Confirmed" as const };
+    const absence = {
+      absenceId: SchoolServiceAbsenceId.make(`school-service-absence-${"b".repeat(64)}`),
+      proposalId: confirmed.proposalId,
+      departmentId: DepartmentId.make("trondheim"),
+      semesterId: SemesterId.make("2026-autumn"),
+      personId: PersonId.make("person-1"),
+      schoolId: SchoolId.make(1),
+      schoolName: "Lade skole",
+      day: "Monday" as const,
+      block: "1" as const,
+      serviceDate: "2026-09-21",
+      reporterPersonId: PersonId.make("person-1"),
+      reportedAt: "2026-09-20T10:00:00.000Z",
+    };
+    const acknowledgement = {
+      acknowledgementId: SchoolServiceCoverageAcknowledgementId.make(
+        `school-service-coverage-acknowledgement-${"c".repeat(64)}`,
+      ),
+      offerId: SchoolServiceSubstituteOfferId.make(
+        `school-service-substitute-offer-${"d".repeat(64)}`,
+      ),
+      absenceId: absence.absenceId,
+      candidatePersonId: PersonId.make("person-2"),
+      acknowledgedByPersonId: PersonId.make("coordinator"),
+      acknowledgedAt: "2026-09-20T11:00:00.000Z",
+    };
+    const slot = {
+      schoolId: SchoolId.make(1),
+      day: "Monday" as const,
+      block: "1" as const,
+      serviceDate: "2026-09-21",
+    };
+    expect(
+      hasExactSubstitutedSchoolServiceAttendance(confirmed, [absence], [acknowledgement], {
+        ...slot,
+        attendedPersonIds: [PersonId.make("person-2")],
+      }),
+    ).toBe(true);
+    expect(
+      hasExactSubstitutedSchoolServiceAttendance(confirmed, [absence], [acknowledgement], {
+        ...slot,
+        attendedPersonIds: [PersonId.make("person-1")],
+      }),
+    ).toBe(false);
+    expect(
+      hasExactSubstitutedSchoolServiceAttendance(confirmed, [absence], [acknowledgement], {
+        ...slot,
+        attendedPersonIds: [PersonId.make("person-2"), PersonId.make("person-2")],
       }),
     ).toBe(false);
   });

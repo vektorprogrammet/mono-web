@@ -30,6 +30,10 @@ import {
   runSchoolServiceNotificationWorker,
 } from "./placements/notification.js";
 import {
+  makeHttpSchoolServiceDispatchNotificationInterpreter,
+  runSchoolServiceDispatchNotificationWorker,
+} from "./placements/dispatch-notification.js";
+import {
   makeBackendHttp,
   makeExternalNativeApiRouterLayer,
   makeInternalBackendHttp,
@@ -187,11 +191,31 @@ if (process.exitCode !== 1) {
             },
           ),
         );
+  const schoolServiceDispatchWorkerFiber =
+    ingress === "internal" || config.schoolServiceDispatchNotifications === undefined
+      ? undefined
+      : runtime.runFork(
+          runSchoolServiceDispatchNotificationWorker(
+            makeHttpSchoolServiceDispatchNotificationInterpreter(
+              config.schoolServiceDispatchNotifications,
+            ),
+            {
+              workerId: `school-service-dispatch-${randomUUID()}`,
+              pollIntervalMilliseconds:
+                config.schoolServiceDispatchNotifications.pollIntervalMilliseconds,
+              staleClaimMilliseconds: config.schoolServiceDispatchNotifications.staleClaimMilliseconds,
+              now: () => new Date().toISOString(),
+            },
+          ),
+        );
   if (ingress === "external" && workerFiber === undefined) {
     process.stderr.write("public application effect worker is not configured\n");
   }
   if (ingress === "external" && schoolServiceWorkerFiber === undefined) {
     process.stderr.write("school service notification worker is not configured\n");
+  }
+  if (ingress === "external" && schoolServiceDispatchWorkerFiber === undefined) {
+    process.stderr.write("school service dispatch notification worker is not configured\n");
   }
   process.stdout.write(`${ingress} backend listening on ${config.host}:${config.port}\n`);
   let shutdownPromise: Promise<void> | undefined;
@@ -220,6 +244,13 @@ if (process.exitCode !== 1) {
       if (schoolServiceWorkerFiber !== undefined) {
         try {
           await runtime.runPromise(Fiber.interrupt(schoolServiceWorkerFiber));
+        } catch {
+          exitCode = 1;
+        }
+      }
+      if (schoolServiceDispatchWorkerFiber !== undefined) {
+        try {
+          await runtime.runPromise(Fiber.interrupt(schoolServiceDispatchWorkerFiber));
         } catch {
           exitCode = 1;
         }
@@ -253,6 +284,14 @@ if (process.exitCode !== 1) {
     void runtime.runPromise(Fiber.await(schoolServiceWorkerFiber)).then((exit) => {
       if (Exit.isFailure(exit) && shutdownPromise === undefined) {
         process.stderr.write("school service notification worker failed\n");
+        shutdown(true);
+      }
+    });
+  }
+  if (schoolServiceDispatchWorkerFiber !== undefined) {
+    void runtime.runPromise(Fiber.await(schoolServiceDispatchWorkerFiber)).then((exit) => {
+      if (Exit.isFailure(exit) && shutdownPromise === undefined) {
+        process.stderr.write("school service dispatch notification worker failed\n");
         shutdown(true);
       }
     });

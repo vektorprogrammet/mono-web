@@ -201,8 +201,20 @@
     {
       "group": "placements",
       "method": "POST",
+      "operationId": "placements.commandCoverageBoard",
+      "path": "/api/placements/coverage"
+    },
+    {
+      "group": "placements",
+      "method": "POST",
       "operationId": "placements.commandOwnAffiliation",
       "path": "/api/placements/affiliation"
+    },
+    {
+      "group": "placements",
+      "method": "POST",
+      "operationId": "placements.commandOwnCoverage",
+      "path": "/api/placements/coverage/own"
     },
     {
       "group": "placements",
@@ -219,8 +231,20 @@
     {
       "group": "placements",
       "method": "GET",
+      "operationId": "placements.readCoverageBoard",
+      "path": "/api/placements/coverage"
+    },
+    {
+      "group": "placements",
+      "method": "GET",
       "operationId": "placements.readOwnAffiliation",
       "path": "/api/placements/affiliation"
+    },
+    {
+      "group": "placements",
+      "method": "GET",
+      "operationId": "placements.readOwnCoverage",
+      "path": "/api/placements/coverage/own"
     },
     {
       "group": "profile",

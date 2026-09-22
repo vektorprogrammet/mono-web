@@ -3,12 +3,23 @@ import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { afterAll, describe, expect, it } from "vitest";
 import { Database } from "./service.js";
 import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
-import { SchoolServiceProposalId } from "@vektorprogrammet/domain/placements";
+import {
+  SchoolServiceAbsenceId,
+  SchoolServiceCoverageAcknowledgementId,
+  SchoolServiceDispatchNotificationDeliveryError,
+  SchoolServiceOccurrenceId,
+  SchoolServiceProposalId,
+  SchoolServiceSubstituteOfferId,
+} from "@vektorprogrammet/domain/placements";
 import { SchoolId } from "@vektorprogrammet/domain/schools";
 import {
+  deliverNextSchoolServiceDispatchNotification,
   deliverNextSchoolServiceNotification,
   lockPlacementDepartment,
   mutateAffiliation,
+  recoverStaleSchoolServiceDispatchNotifications,
+  mutateCoverageBoard,
+  mutateOwnCoverage,
   mutatePlacementBoard,
   readOwnAffiliation,
   readPlacementBoard,
@@ -318,6 +329,196 @@ describe("canonical placement persistence", () => {
       { status: "Quarantined", attempts: 1, lastFailureTag: "AuthorityEnvelopeMismatch" },
     ]);
   }, 15000);
+  it("keeps absence, offer response, acknowledgement, delivery, and closure facts separate", async () => {
+    const coverageScope = {
+      departmentId: DepartmentId.make("coverage-department"),
+      semesterId: SemesterId.make("coverage-semester"),
+    };
+    const rosterPerson = PersonId.make("coverage-roster-person");
+    const candidatePerson = PersonId.make("coverage-candidate-person");
+    const coverageCoordinator = PersonId.make("coverage-coordinator");
+    const proposalId = SchoolServiceProposalId.make(
+      `school-service-proposal-${"f".repeat(64)}`,
+    );
+    const absenceId = SchoolServiceAbsenceId.make(`school-service-absence-${"1".repeat(64)}`);
+    const offerId = SchoolServiceSubstituteOfferId.make(
+      `school-service-substitute-offer-${"2".repeat(64)}`,
+    );
+    const acknowledgementId = SchoolServiceCoverageAcknowledgementId.make(
+      `school-service-coverage-acknowledgement-${"3".repeat(64)}`,
+    );
+    const occurrenceId = SchoolServiceOccurrenceId.make(
+      `school-service-occurrence-${"4".repeat(64)}`,
+    );
+    const observed = await runtime.runPromise(
+      Database.use((sql) =>
+        sql.withTransaction(
+          Effect.gen(function* () {
+            yield* sql`INSERT INTO organization_departments(department_id,name,short_name,email,city) VALUES(${coverageScope.departmentId},'Coverage department','CD','coverage@example.invalid','Trondheim')`;
+            yield* sql`INSERT INTO admission_period_departments(department_id,name) VALUES(${coverageScope.departmentId},'Coverage department')`;
+            yield* sql`INSERT INTO admission_period_semesters VALUES(${coverageScope.semesterId},'2026-08-01T00:00:00Z','2026-12-31T00:00:00Z')`;
+            yield* sql`INSERT INTO admission_periods VALUES('coverage-period',${coverageScope.departmentId},${coverageScope.semesterId},'2026-08-01T00:00:00Z','2026-12-31T00:00:00Z',0,'coverage-seed')`;
+            yield* sql`INSERT INTO admission_period_fields_of_study VALUES('coverage-field',${coverageScope.departmentId},'Math',true)`;
+            yield* sql`INSERT INTO person_profiles(person_id,first_name,last_name) VALUES(${rosterPerson},'Rosa','Roster'),(${candidatePerson},'Cato','Candidate'),(${coverageCoordinator},'Cora','Coordinator')`;
+            const schools = yield* sql<{
+              schoolId: number;
+            }>`INSERT INTO schools_directory_schools(name,contact_person,email,phone,language,active) VALUES('Coverage school','Contact','coverage-school@example.invalid','12345678','Norwegian',true) RETURNING school_id::double precision AS "schoolId"`;
+            const schoolId = SchoolId.make(schools[0]!.schoolId);
+            yield* sql`INSERT INTO schools_directory_departments(school_id,department_id) VALUES(${schoolId},${coverageScope.departmentId})`;
+            yield* sql`INSERT INTO organization_volunteer_affiliations(person_id,department_id,status,revision) VALUES(${candidatePerson},${coverageScope.departmentId},'Active',1)`;
+            yield* sql`INSERT INTO admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study) VALUES('coverage-applicant','coverage@applicant.invalid','coverage@applicant.invalid','Cato','Candidate','12345678',0,'coverage-field',2)`;
+            yield* sql`INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES('coverage-application','coverage-applicant','coverage-period',${coverageScope.departmentId},'coverage-field',2,${now})`;
+            yield* sql`INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES('coverage-invitation','coverage-application','coverage-applicant',${"a".repeat(64)},'2027-01-01T00:00:00Z','Claimed',${coverageCoordinator},${now})`;
+            yield* sql`INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES('coverage-applicant',${candidatePerson},${now},'coverage-invitation')`;
+            yield* sql`INSERT INTO admission_substitute_preferences(application_id,active,monday,tuesday,wednesday,thursday,friday,language,revision) VALUES('coverage-application',true,true,false,false,false,false,'Norwegian',1)`;
+            yield* sql`INSERT INTO school_service_proposals(proposal_id,department_id,semester_id,status,revision,created_at,created_by_person_id,confirmed_at,confirmed_by_person_id,demand_snapshot,assignment_snapshot,exception_snapshot,reviewed_exception_ids) VALUES(${proposalId},${coverageScope.departmentId},${coverageScope.semesterId},'Confirmed',2,${now},${coverageCoordinator},${now},${coverageCoordinator},${sql.json([])},${sql.json([{ placementId: `placement-${"5".repeat(64)}`, personId: rosterPerson, firstName: 'Rosa', lastName: 'Roster', schoolId, schoolName: 'Coverage school', day: 'Monday', block: '1' }])},${sql.json([])},${sql.json([])})`;
+            yield* lockPlacementDepartment(coverageScope.departmentId);
+            yield* mutateCoverageBoard(
+              coverageScope,
+              {
+                action: "ReportAbsenceForVolunteer",
+                personId: rosterPerson,
+                proposalId,
+                schoolId,
+                day: "Monday",
+                block: "1",
+                serviceDate: "2026-09-14",
+              },
+              coverageCoordinator,
+              now,
+              { absenceId, offerId, acknowledgementId, occurrenceId },
+            );
+            const dispatched = yield* mutateCoverageBoard(
+              coverageScope,
+              { action: "DispatchSubstituteOffer", absenceId, candidatePersonId: candidatePerson },
+              coverageCoordinator,
+              now,
+              { absenceId, offerId, acknowledgementId, occurrenceId },
+            );
+            const blocked = yield* Effect.flip(
+              mutateCoverageBoard(
+                coverageScope,
+                {
+                  action: "CloseCoverage",
+                  proposalId,
+                  schoolId,
+                  day: "Monday",
+                  block: "1",
+                  occurredOn: "2026-09-14",
+                  attendedPersonIds: [candidatePerson],
+                },
+                coverageCoordinator,
+                now,
+                { absenceId, offerId, acknowledgementId, occurrenceId },
+              ),
+            );
+            yield* mutateOwnCoverage(
+              coverageScope,
+              { action: "RespondToOffer", offerId, response: "Accept" },
+              candidatePerson,
+              now,
+              absenceId,
+            );
+            yield* mutateCoverageBoard(
+              coverageScope,
+              { action: "AcknowledgeCoverage", offerId },
+              coverageCoordinator,
+              now,
+              { absenceId, offerId, acknowledgementId, occurrenceId },
+            );
+            const closed = yield* mutateCoverageBoard(
+              coverageScope,
+              {
+                action: "CloseCoverage",
+                proposalId,
+                schoolId,
+                day: "Monday",
+                block: "1",
+                occurredOn: "2026-09-14",
+                attendedPersonIds: [candidatePerson],
+              },
+              coverageCoordinator,
+              now,
+              { absenceId, offerId, acknowledgementId, occurrenceId },
+            );
+            return { dispatched, blocked, closed };
+          }),
+        ),
+      ),
+    );
+    const failed = await runtime.runPromise(
+      deliverNextSchoolServiceDispatchNotification(
+        "coverage-worker:1",
+        "2026-09-06T00:01:00.000Z",
+        (request) =>
+          Effect.fail(new SchoolServiceDispatchNotificationDeliveryError({ effectId: request.effectId })),
+      ),
+    );
+    let deliveredEffectId = "";
+    const delivery = await runtime.runPromise(
+      deliverNextSchoolServiceDispatchNotification(
+        "coverage-worker:2",
+        "2026-09-06T00:02:00.000Z",
+        (request) =>
+          Effect.sync(() => {
+            deliveredEffectId = request.effectId;
+          }),
+      ),
+    );
+    const forgedOfferId = SchoolServiceSubstituteOfferId.make(
+      `school-service-substitute-offer-${"6".repeat(64)}`,
+    );
+    const forgedEffectId = `school-service-substitute-dispatch:${forgedOfferId}`;
+    await runtime.runPromise(
+      Database.use((sql) =>
+        Effect.gen(function* () {
+          yield* sql`INSERT INTO public.school_service_substitute_offers(offer_id,absence_id,candidate_person_id,dispatcher_person_id,dispatched_at,status,revision,eligibility_snapshot) VALUES(${forgedOfferId},${absenceId},${candidatePerson},${coverageCoordinator},${now},'Declined',1,${sql.json({})})`;
+          yield* sql`INSERT INTO public.school_service_dispatch_notification_outbox(effect_id,offer_id,absence_id,person_id,status,attempts,claim_id,claimed_at,payload_json) VALUES(${forgedEffectId},${forgedOfferId},${absenceId},${candidatePerson},'Processing',1,'abandoned-claim','2026-09-06T00:00:00.000Z',${sql.json({})})`;
+        }),
+      ),
+    );
+    const recovered = await runtime.runPromise(
+      recoverStaleSchoolServiceDispatchNotifications("2026-09-06T00:01:00.000Z"),
+    );
+    const quarantined = await runtime.runPromise(
+      deliverNextSchoolServiceDispatchNotification(
+        "coverage-worker:3",
+        "2026-09-06T00:03:00.000Z",
+        () => Effect.die("forged dispatch envelope must not reach transport"),
+      ),
+    );
+    expect(observed.dispatched.offers).toMatchObject([{ offerId, status: "Offered" }]);
+    expect(observed.blocked).toMatchObject({ code: "coverage.pending-offer" });
+    expect(observed.closed.closures).toMatchObject([
+      {
+        absenceId,
+        occurrenceId,
+        scheduledPersonId: rosterPerson,
+        outcome: "Covered",
+        acknowledgementId,
+        substitutePersonId: candidatePerson,
+      },
+    ]);
+    expect(observed.closed.occurrences).toMatchObject([
+      { occurrenceId, attendedPersonIds: [candidatePerson] },
+    ]);
+    expect(failed).toMatchObject({
+      _tag: "Failed",
+      failureTag: "SchoolServiceDispatchNotificationDeliveryError",
+      claim: { effectId: `school-service-substitute-dispatch:${offerId}`, attempts: 1 },
+    });
+    expect(delivery).toMatchObject({
+      _tag: "Delivered",
+      claim: { effectId: `school-service-substitute-dispatch:${offerId}`, attempts: 2 },
+    });
+    expect(recovered).toBe(1);
+    expect(quarantined).toEqual({
+      _tag: "Quarantined",
+      effectId: forgedEffectId,
+      failureTag: "AuthorityEnvelopeMismatch",
+    });
+    expect(deliveredEffectId).toBe(`school-service-substitute-dispatch:${offerId}`);
+  }, 15000);
   it("rejects occurrences outside their proposal and school scope", async () => {
     const otherDepartment = DepartmentId.make("other-service-department");
     const setup = await runtime.runPromise(
@@ -363,7 +564,7 @@ describe("canonical placement persistence", () => {
 });
 
 describe("placement schema ownership", () => {
-  it("creates all four canonical tables in public even when auth is first in search_path", async () => {
+  it("creates canonical placement and coverage tables in public even when auth is first in search_path", async () => {
     const pglite = new PGlite({ extensions: { btree_gist } });
     await pglite.waitReady;
     await pglite.exec("SET search_path TO auth,public");
@@ -375,11 +576,15 @@ describe("placement schema ownership", () => {
         SELECT name, to_regclass('public.' || name) IS NOT NULL AS "publicExists",
           to_regclass('auth.' || name) IS NOT NULL AS "authExists"
         FROM (VALUES ('organization_volunteer_affiliations'), ('organization_volunteer_affiliation_audit'),
-          ('assistant_placements'), ('assistant_placement_audit')) AS expected(name) ORDER BY name
+          ('assistant_placements'), ('assistant_placement_audit'), ('school_service_absences'),
+          ('school_service_substitute_offers'), ('school_service_substitute_offer_responses'),
+          ('school_service_substitute_offer_withdrawals'), ('school_service_coverage_acknowledgements'),
+          ('school_service_dispatch_notification_outbox'), ('school_service_closures'),
+          ('school_service_coverage_audit')) AS expected(name) ORDER BY name
       `,
         ),
       );
-      expect(rows).toHaveLength(4);
+      expect(rows).toHaveLength(12);
       for (const row of rows) expect(row).toMatchObject({ publicExists: true, authExists: false });
     } finally {
       await isolated.dispose();
