@@ -1,10 +1,11 @@
 import { Effect } from "effect";
 import { Command } from "foldkit";
-import type {
-  SchoolSurveyCloseCommand,
-  SchoolSurveyCreateCommand,
-  SchoolSurveyListInput,
-  SchoolSurveysBridgeFailure,
+import {
+  SurveyId,
+  type SchoolSurveyCloseCommand,
+  type SchoolSurveyCreateCommand,
+  type SchoolSurveyListInput,
+  type SchoolSurveysBridgeFailure,
 } from "./bridge";
 import type { SchoolSurveysClient } from "./browser-client";
 import {
@@ -38,7 +39,7 @@ export interface SchoolSurveysCommandFactories {
   }) => Command.Command<Message>;
   readonly LoadResults: (args: {
     readonly requestId: number;
-    readonly surveyId: string;
+    readonly surveyId: typeof SurveyId.Type;
   }) => Command.Command<Message>;
 }
 
@@ -91,7 +92,9 @@ export const makeSchoolSurveysCommands = (
     args: { requestId, query },
     effect: client.surveys.listAdminSurveys(query).pipe(
       Effect.map((list) => LoadedList({ requestId, list })),
-      Effect.catch((error) => Effect.succeed(FailedList({ requestId, failure: failureFrom(error) }))),
+      Effect.catch((error) =>
+        Effect.succeed(FailedList({ requestId, failure: failureFrom(error) })),
+      ),
     ),
   }),
   Create: ({ requestId, command }) => ({
@@ -109,7 +112,9 @@ export const makeSchoolSurveysCommands = (
     args: { requestId },
     effect: client.surveys.closeAdminSurvey(command).pipe(
       Effect.map((survey) => SucceededClose({ requestId, survey })),
-      Effect.catch((error) => Effect.succeed(FailedClose({ requestId, failure: failureFrom(error) }))),
+      Effect.catch((error) =>
+        Effect.succeed(FailedClose({ requestId, failure: failureFrom(error) })),
+      ),
     ),
   }),
   LoadResults: ({ requestId, surveyId }) => ({
