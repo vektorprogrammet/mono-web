@@ -2194,9 +2194,12 @@ const runRehearsal = async (
             candidate.path === requirement.path &&
             isExpectedNativeBrowserJourneyObservation(candidate),
         );
+        const pathCandidates = browserProxyRequests.filter(
+          (candidate) => candidate.path === requirement.path,
+        );
         assert.ok(
           observation,
-          `Chromium journey did not observe the required ${requirement.access} 200 GET ${requirement.path}`,
+          `Chromium journey did not observe the required ${requirement.access} 200 GET ${requirement.path}; observed ${JSON.stringify(pathCandidates)}`,
         );
         return {
           path: observation.path,
