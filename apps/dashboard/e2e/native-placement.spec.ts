@@ -449,11 +449,16 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await other.reload();
     const acknowledgementName = `Dekningstilbud: ${manifest.coverage.candidateFirstName} ${manifest.coverage.candidateLastName}, ${manifest.coverage.serviceDate}`;
     const acknowledgeCoverage = page.getByRole("form", { name: acknowledgementName, exact: true });
-    const staleAcknowledgement = other.getByRole("form", { name: acknowledgementName, exact: true });
+    const staleAcknowledgement = other.getByRole("form", {
+      name: acknowledgementName,
+      exact: true,
+    });
     await expect(acknowledgeCoverage).toContainText("Tilbudstatus: Akseptert");
     await acknowledgeCoverage.getByRole("button", { name: "Bekreft dekning", exact: true }).click();
     await saved(acknowledgeCoverage);
-    await staleAcknowledgement.getByRole("button", { name: "Bekreft dekning", exact: true }).click();
+    await staleAcknowledgement
+      .getByRole("button", { name: "Bekreft dekning", exact: true })
+      .click();
     await expect(staleAcknowledgement.getByRole("alert")).toContainText("Oversikten er endret");
     await staleAcknowledgement
       .getByRole("button", { name: "Hent oppdatert oversikt", exact: true })
@@ -500,9 +505,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await dispatchUncovered
       .getByRole("combobox", { name: "Kvalifisert vikar", exact: true })
       .selectOption(manifest.coverage.candidateId);
-    await dispatchUncovered
-      .getByRole("button", { name: "Send vikartilbud", exact: true })
-      .click();
+    await dispatchUncovered.getByRole("button", { name: "Send vikartilbud", exact: true }).click();
     await saved(dispatchUncovered);
     await expect
       .poll(
@@ -595,7 +598,8 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
         offer.absenceId === uncoveredAbsence.absenceId && offer.status === "Withdrawn",
     );
     const coveredAcknowledgement = finalCoverage.acknowledgements.find(
-      (acknowledgement: { absenceId: string }) => acknowledgement.absenceId === coveredAbsence.absenceId,
+      (acknowledgement: { absenceId: string }) =>
+        acknowledgement.absenceId === coveredAbsence.absenceId,
     );
     expect(coveredOccurrence).toBeDefined();
     expect(uncoveredOccurrence).toBeDefined();

@@ -189,15 +189,11 @@ try {
     password: "journey-secret-0123456789abcdef",
   };
   run("bun", ["apps/dashboard/e2e/native-recruitment-journey-seed.mjs"], environment);
-  run(
-    "bun",
-    ["run", "--cwd", "packages/database", "identity:seed"],
-    {
-      ...environment,
-      IDENTITY_SEED_PG_URL: postgresUrl,
-      IDENTITY_SEED_PERSONS: JSON.stringify([substitute]),
-    },
-  );
+  run("bun", ["run", "--cwd", "packages/database", "identity:seed"], {
+    ...environment,
+    IDENTITY_SEED_PG_URL: postgresUrl,
+    IDENTITY_SEED_PERSONS: JSON.stringify([substitute]),
+  });
   const departmentId = "department-native-journey-0049";
   const semesterId = "semester-historical-0096";
   const secondSemesterId = "semester-native-journey-0049";
@@ -586,12 +582,7 @@ try {
   assert.equal(
     (
       await expectStatus(
-        await request(
-          ownPath,
-          candidate,
-          { action: "Request" },
-          candidateAffiliation.etag,
-        ),
+        await request(ownPath, candidate, { action: "Request" }, candidateAffiliation.etag),
         200,
       )
     ).status,
@@ -800,7 +791,9 @@ try {
   await command({ action: "Remove", placementId: overlapPlacement.placementId });
   coverageBoard = await readCoverageBoard();
   assert.deepEqual(
-    coverageBoard.candidates.filter((candidate) => candidate.absenceId === coveredAbsence.absenceId),
+    coverageBoard.candidates.filter(
+      (candidate) => candidate.absenceId === coveredAbsence.absenceId,
+    ),
     [
       {
         absenceId: coveredAbsence.absenceId,
@@ -848,14 +841,8 @@ try {
     (request) => request.body.offerId === coveredOffer.offerId,
   );
   assert.ok(deliveredDispatchRequests.length >= 2);
-  assert.equal(
-    new Set(deliveredDispatchRequests.map((request) => request.body.effectId)).size,
-    1,
-  );
-  assert.equal(
-    new Set(deliveredDispatchRequests.map((request) => request.idempotencyKey)).size,
-    1,
-  );
+  assert.equal(new Set(deliveredDispatchRequests.map((request) => request.body.effectId)).size, 1);
+  assert.equal(new Set(deliveredDispatchRequests.map((request) => request.idempotencyKey)).size, 1);
   for (const request of deliveredDispatchRequests) {
     assert.equal(request.authorization, "Bearer synthetic-school-service-dispatch-token");
     assert.deepEqual(request.body, deliveredDispatchRequests[0]?.body);
@@ -879,12 +866,7 @@ try {
     0,
   );
   await expectStatus(
-    await request(
-      coverageBoardPath,
-      leader,
-      dispatch(substitute.personId),
-      deliveredCoverage.etag,
-    ),
+    await request(coverageBoardPath, leader, dispatch(substitute.personId), deliveredCoverage.etag),
     409,
     "offer.unresolved",
   );
@@ -937,7 +919,10 @@ try {
     ),
   );
   const acceptanceResults = await Promise.all(
-    acceptanceRace.map(async (response) => ({ status: response.status, body: await response.json() })),
+    acceptanceRace.map(async (response) => ({
+      status: response.status,
+      body: await response.json(),
+    })),
   );
   assert.equal(acceptanceResults.filter((result) => result.status === 200).length, 1);
   const losingAcceptance = acceptanceResults.find((result) => result.status !== 200);
@@ -981,12 +966,7 @@ try {
     )
   ).rows;
   await expectStatus(
-    await request(
-      coverageBoardPath,
-      leader,
-      acknowledgeOffer,
-      staleAcknowledgementSnapshot.etag,
-    ),
+    await request(coverageBoardPath, leader, acknowledgeOffer, staleAcknowledgementSnapshot.etag),
     412,
     "precondition.failed",
   );
@@ -1076,7 +1056,11 @@ try {
   );
   assert.ok(uncoveredAbsence);
   const declinedDispatchBoard = await commandCoverage(
-    { action: "DispatchSubstituteOffer", absenceId: uncoveredAbsence.absenceId, candidatePersonId: substitute.personId },
+    {
+      action: "DispatchSubstituteOffer",
+      absenceId: uncoveredAbsence.absenceId,
+      candidatePersonId: substitute.personId,
+    },
     coordinatorAbsenceBoard.etag,
   );
   const declinedOffer = declinedDispatchBoard.offers.find(
@@ -1165,22 +1149,19 @@ try {
        FROM school_service_coverage_audit ORDER BY audit_id`,
     )
   ).rows;
-  assert.deepEqual(
-    apiCoverageAudit,
-    [
-      { action: "ReportAbsence", actorPersonId: volunteerId },
-      { action: "DispatchSubstituteOffer", actorPersonId: leaderId },
-      { action: "RespondToOffer", actorPersonId: substitute.personId },
-      { action: "AcknowledgeCoverage", actorPersonId: leaderId },
-      { action: "CloseCoverage", actorPersonId: leaderId },
-      { action: "ReportAbsence", actorPersonId: leaderId },
-      { action: "DispatchSubstituteOffer", actorPersonId: leaderId },
-      { action: "RespondToOffer", actorPersonId: substitute.personId },
-      { action: "DispatchSubstituteOffer", actorPersonId: leaderId },
-      { action: "WithdrawSubstituteOffer", actorPersonId: leaderId },
-      { action: "CloseCoverage", actorPersonId: leaderId },
-    ],
-  );
+  assert.deepEqual(apiCoverageAudit, [
+    { action: "ReportAbsence", actorPersonId: volunteerId },
+    { action: "DispatchSubstituteOffer", actorPersonId: leaderId },
+    { action: "RespondToOffer", actorPersonId: substitute.personId },
+    { action: "AcknowledgeCoverage", actorPersonId: leaderId },
+    { action: "CloseCoverage", actorPersonId: leaderId },
+    { action: "ReportAbsence", actorPersonId: leaderId },
+    { action: "DispatchSubstituteOffer", actorPersonId: leaderId },
+    { action: "RespondToOffer", actorPersonId: substitute.personId },
+    { action: "DispatchSubstituteOffer", actorPersonId: leaderId },
+    { action: "WithdrawSubstituteOffer", actorPersonId: leaderId },
+    { action: "CloseCoverage", actorPersonId: leaderId },
+  ]);
   const apiCoverageAuditCount = apiCoverageAudit.length;
   assert.deepEqual(
     (
@@ -1291,7 +1272,9 @@ try {
           [browserCoverageExpected.proposalId],
         )
       ).rows;
-      return rows.length === 3 && rows.every((row) => row.status === "Delivered") ? rows : undefined;
+      return rows.length === 3 && rows.every((row) => row.status === "Delivered")
+        ? rows
+        : undefined;
     });
     const actual = (
       await pool.query(
