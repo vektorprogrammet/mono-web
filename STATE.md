@@ -8,7 +8,7 @@ The native replacement has substantial local functionality. Production still
 runs the legacy PHP application.
 
 The latest observed native runtime architecture is revision
-`bf7064e65cfae99ba6a59edd769a110e107fb25d`.
+`0e9e10cbebfcc5ff0f581cca62b7f204a3bb860d`.
 
 Implemented native journeys include:
 
@@ -36,14 +36,17 @@ atomic audit/outbox/receipt writes, and Foldkit dashboard workflows.
 
 ## Next
 
-Close complete operating outcomes in this order:
+The implemented recruitment sequence is complete under the current product model.
+It keeps recommendation, invitation, account claim, affiliation, and placement as
+separate facts. It does not infer an admission decision. Adding one requires a new
+product decision that names the fact and its authority.
 
-1. Close remaining recruitment outcomes. Add a coordinator admission decision
-   only if the organization defines it as a separate fact and authority.
-2. Complete survey administration, audience rules, results, and exports.
-3. Define the wider finance workflow, payment authority, and settlement evidence.
-4. Reconcile real identity, credentials, files, affiliation, and placement data.
-5. Rehearse production writer transfer, recovery, and rollback.
+Close the remaining operating outcomes in this order:
+
+1. Complete survey administration, audience rules, results, and exports.
+2. Define the wider finance workflow, payment authority, and settlement evidence.
+3. Reconcile real identity, credentials, files, affiliation, and placement data.
+4. Rehearse production writer transfer, recovery, and rollback.
 
 Create one active file under `docs/specs/` for the next journey. Remove it when
 the accepted behavior is represented by [docs/system.md](docs/system.md), code,

@@ -81,6 +81,12 @@ as a separate command and authority.
 A returning volunteer may use an existing account and history. They still need an
 explicit affiliation for the relevant chapter and an explicit placement.
 
+Applicant progress shows the same facts in sequence. Interview or returning
+registration completion can lead to a pending affiliation, active affiliation,
+and active school placement. Placement is the final visible state. Affiliation
+does not hide an earlier invitation or cancellation, and the projection does not
+invent a separate admission answer.
+
 ### School demand and placement
 
 Partner-school demand includes capacity, weekday, teaching block, location,

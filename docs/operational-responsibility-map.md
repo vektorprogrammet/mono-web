@@ -158,17 +158,17 @@ closed as one operational journey.
 
 ## Migration gaps
 
-| Area                | Closed native boundary                                                                                                                  | Remaining work                                                                                    |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Recruitment         | Application, invitations, scheduling, recommendation, reporting, completed-assessment correction, applicant progress                    | Real cohort reconciliation, remaining recruitment outcomes, explicit admission decision if wanted |
-| Identity            | Native sessions, OAuth, account claim, password recovery, profile                                                                       | Real Person and Account reconciliation, unsupported credentials and aliases                       |
-| Placement           | Affiliation, placement, demand, roster confirmation, notifications, absence, exact occurrence, and Covered or Uncovered service closure | No-show, correction, complete history, certificate, and reporting outcomes                        |
-| Substitute coverage | Pool membership, eligibility, sequential dispatch, response, acknowledgement, delivery recovery, and closure                            | Wider notification channels and complete operational reporting                                    |
-| Economy             | Claim, private file, approval, rejection, reopen, outbox retry                                                                          | Wider finance workflow, payment authority, settlement integration                                 |
-| Organization        | Units, memberships, team interest, scoped authority                                                                                     | Verify all national and cross-chapter operations; retire linear legacy roles                      |
-| Surveys             | Selected native survey journeys                                                                                                         | Full administration, results, audience rules, and export                                          |
-| Reporting           | Several recruitment, receipt, and operational projections                                                                               | Complete statistics, exports, certificate, and service-delivery reports                           |
-| Production          | Local synthetic PostgreSQL, browser, API, recovery, and delivery exercises                                                              | Real-data rehearsal, writer transfer, rollback, deployment, and legacy shutdown                   |
+| Area                | Closed native boundary                                                                                                                  | Remaining work                                                                                           |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Recruitment         | Application, invitations, scheduling, recommendation, reporting, completed-assessment correction, applicant progress                    | Real cohort reconciliation; a future admission decision requires a separately defined fact and authority |
+| Identity            | Native sessions, OAuth, account claim, password recovery, profile                                                                       | Real Person and Account reconciliation, unsupported credentials and aliases                              |
+| Placement           | Affiliation, placement, demand, roster confirmation, notifications, absence, exact occurrence, and Covered or Uncovered service closure | No-show, correction, complete history, certificate, and reporting outcomes                               |
+| Substitute coverage | Pool membership, eligibility, sequential dispatch, response, acknowledgement, delivery recovery, and closure                            | Wider notification channels and complete operational reporting                                           |
+| Economy             | Claim, private file, approval, rejection, reopen, outbox retry                                                                          | Wider finance workflow, payment authority, settlement integration                                        |
+| Organization        | Units, memberships, team interest, scoped authority                                                                                     | Verify all national and cross-chapter operations; retire linear legacy roles                             |
+| Surveys             | Selected native survey journeys                                                                                                         | Full administration, results, audience rules, and export                                                 |
+| Reporting           | Several recruitment, receipt, and operational projections                                                                               | Complete statistics, exports, certificate, and service-delivery reports                                  |
+| Production          | Local synthetic PostgreSQL, browser, API, recovery, and delivery exercises                                                              | Real-data rehearsal, writer transfer, rollback, deployment, and legacy shutdown                          |
 
 ## Known retained-data constraints
 
@@ -215,12 +215,10 @@ Before cutover, prove on the exact candidate revision:
 
 Complete operational journeys, not isolated endpoints:
 
-1. Close remaining recruitment outcomes and decide whether admission is a real
-   separate command.
-2. Close survey administration, results, and exports.
-3. Define wider finance and settlement ownership.
-4. Reconcile real identity, files, affiliation, and placement data.
-5. Rehearse production writer transfer and rollback.
+1. Close survey administration, results, audience rules, and exports.
+2. Define wider finance and settlement ownership.
+3. Reconcile real identity, files, affiliation, and placement data.
+4. Rehearse production writer transfer and rollback.
 
 Each journey gets one active contract in `docs/specs/`. Remove the contract after
 its durable intent is in this map, the system document, code, and observable checks.

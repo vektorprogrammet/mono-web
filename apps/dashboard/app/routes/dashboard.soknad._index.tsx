@@ -1,7 +1,9 @@
-import type { ApplicantProgressItem,
-ApplicantProgressResponse,
-ApplicantProgressState, } from "@vektorprogrammet/http-api"
-import { data, useLoaderData } from "react-router";
+import type {
+  ApplicantProgressItem,
+  ApplicantProgressResponse,
+  ApplicantProgressState,
+} from "@vektorprogrammet/http-api";
+import { data, Link, useLoaderData } from "react-router";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import { nativeProblemFrom } from "../lib/native-problem";
@@ -38,8 +40,10 @@ const steps = [
   "Søknad mottatt",
   "Invitert til intervju",
   "Intervju avtalt",
-  "Intervju fullført",
-  "Tatt opp som vektorassistent",
+  "Rekruttering fullført",
+  "Tilknytning søkt",
+  "Tilknytning godkjent",
+  "Skoletildeling",
 ] as const;
 
 const statePresentation: Record<
@@ -79,13 +83,28 @@ const statePresentation: Record<
   },
   InterviewCompleted: {
     title: "Intervjuet er fullført",
-    next: "Søknaden vurderes. Du får svar separat.",
+    next: "Kontoen er knyttet til søknaden. Be om frivilligtilknytning i assistentoversikten.",
     step: 3,
   },
-  AssignedToSchool: {
-    title: "Du er tatt opp som vektorassistent",
-    next: "Følg informasjonen fra kontaktpersonene ved skolen.",
+  ReturningRegistrationCompleted: {
+    title: "Registreringen er fullført",
+    next: "Kontoen er knyttet til søknaden. Be om frivilligtilknytning i assistentoversikten.",
+    step: 3,
+  },
+  AffiliationPending: {
+    title: "Tilknytning er søkt",
+    next: "Vent på at en koordinator behandler forespørselen.",
     step: 4,
+  },
+  AffiliationActive: {
+    title: "Du er tilknyttet avdelingen",
+    next: "Vent på skoletildeling for semesteret.",
+    step: 5,
+  },
+  AssignedToSchool: {
+    title: "Du har fått skoletildeling",
+    next: "Følg informasjonen fra kontaktpersonene ved skolen.",
+    step: 6,
   },
 };
 
@@ -137,7 +156,7 @@ function Schedule({ progress }: { readonly progress: ApplicantProgressState }) {
 function ProgressSteps({ progress }: { readonly progress: ApplicantProgressState }) {
   const presentation = statePresentation[progress._tag];
   return (
-    <ol aria-label="Søknadsprosess" className="mt-6 grid gap-3 md:grid-cols-5">
+    <ol aria-label="Søknadsprosess" className="mt-6 grid gap-3 md:grid-cols-4 lg:grid-cols-7">
       {steps.map((label, index) => {
         const completed = !presentation.cancelled && index < presentation.step;
         const current = index === presentation.step;
@@ -169,6 +188,9 @@ function ProgressSteps({ progress }: { readonly progress: ApplicantProgressState
 
 function ApplicationCard({ application }: { readonly application: ApplicantProgressItem }) {
   const presentation = statePresentation[application.progress._tag];
+  const canRequestAffiliation =
+    application.progress._tag === "InterviewCompleted" ||
+    application.progress._tag === "ReturningRegistrationCompleted";
   return (
     <article
       className="rounded-lg border bg-card p-5 shadow-sm"
@@ -191,6 +213,17 @@ function ApplicationCard({ application }: { readonly application: ApplicantProgr
       <p role="status" className="mt-3 font-medium">
         Neste: {presentation.next}
       </p>
+      {canRequestAffiliation ? (
+        <Link
+          className="mt-2 inline-flex font-medium underline underline-offset-4"
+          to={`/dashboard/assistenter?${new URLSearchParams({
+            departmentId: application.departmentId,
+            semesterId: application.semesterId,
+          })}`}
+        >
+          Åpne assistentoversikten
+        </Link>
+      ) : null}
       <Schedule progress={application.progress} />
       <ProgressSteps progress={application.progress} />
     </article>

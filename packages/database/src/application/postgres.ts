@@ -112,6 +112,7 @@ interface ApplicantProgressRow {
   readonly hasConduct: boolean;
   readonly hasCancellation: boolean;
   readonly hasReturningRegistration: boolean;
+  readonly affiliationStatus: string | null;
   readonly hasActivePlacement: boolean;
 }
 const persistenceError = (operation: string): PublicApplicationPersistenceError =>
@@ -869,6 +870,7 @@ export const readApplicantProgress = (
           FROM public.admission_returning_registrations AS registration
           WHERE registration.application_id = application.application_id
         ) AS "hasReturningRegistration",
+        affiliation.status AS "affiliationStatus",
         EXISTS (
           SELECT 1
           FROM public.assistant_placements AS placement
@@ -893,6 +895,9 @@ export const readApplicantProgress = (
       LEFT JOIN public.recruitment_invitations AS invitation
         ON invitation.interview_id = interview.interview_id
         AND invitation.superseded_at IS NULL
+      LEFT JOIN public.organization_volunteer_affiliations AS affiliation
+        ON affiliation.person_id = link.person_id
+        AND affiliation.department_id = application.department_id
       WHERE link.person_id = ${personId}
         AND semester.start_at <= ${now}::timestamptz
         AND ${now}::timestamptz < semester.end_at
@@ -910,7 +915,15 @@ export const readApplicantProgress = (
       if (row.hasActivePlacement) {
         progress = { _tag: "AssignedToSchool" };
       } else if (row.hasConduct || row.hasReturningRegistration) {
-        progress = { _tag: "InterviewCompleted" };
+        if (row.affiliationStatus === "Active") {
+          progress = { _tag: "AffiliationActive" };
+        } else if (row.affiliationStatus === "Pending") {
+          progress = { _tag: "AffiliationPending" };
+        } else {
+          progress = {
+            _tag: row.hasConduct ? "InterviewCompleted" : "ReturningRegistrationCompleted",
+          };
+        }
       } else if (row.hasCancellation || row.responseState === "Rejected") {
         progress = { _tag: "Cancelled" };
       } else if (row.responseState === "RequestedNewTime") {

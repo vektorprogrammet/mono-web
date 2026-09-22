@@ -20,6 +20,14 @@ describe("applicant progress projection", () => {
       Database.use((sql) =>
         Effect.gen(function* () {
           yield* sql`
+            INSERT INTO organization_departments (
+              department_id, name, short_name, email, city
+            ) VALUES (
+              'applicant-progress-department', 'Applicant progress', 'AP',
+              'applicant-progress@example.invalid', 'Trondheim'
+            )
+          `;
+          yield* sql`
             INSERT INTO admission_period_departments (department_id, name)
             VALUES ('applicant-progress-department', 'Applicant progress')
           `;
@@ -222,6 +230,93 @@ describe("applicant progress projection", () => {
 
     const completed = await readProgress();
     expect(completed.applications[0]?.progress).toEqual({ _tag: "InterviewCompleted" });
+
+    await runtime.runPromise(
+      Database.use(
+        (sql) =>
+          sql`
+          INSERT INTO organization_volunteer_affiliations (
+            person_id, department_id, status, revision
+          ) VALUES (
+            ${personId}, 'applicant-progress-department', 'Pending', 1
+          )
+        `,
+      ),
+    );
+    expect((await readProgress()).applications[0]?.progress).toEqual({
+      _tag: "AffiliationPending",
+    });
+
+    await runtime.runPromise(
+      Database.use(
+        (sql) =>
+          sql`
+          UPDATE organization_volunteer_affiliations
+          SET status = 'Active', revision = 2
+          WHERE person_id = ${personId}
+            AND department_id = 'applicant-progress-department'
+        `,
+      ),
+    );
+    expect((await readProgress()).applications[0]?.progress).toEqual({
+      _tag: "AffiliationActive",
+    });
+
+    await runtime.runPromise(
+      Database.use(
+        (sql) =>
+          sql`
+          UPDATE organization_volunteer_affiliations
+          SET status = 'Inactive', revision = 3
+          WHERE person_id = ${personId}
+            AND department_id = 'applicant-progress-department'
+        `,
+      ),
+    );
+    expect((await readProgress()).applications[0]?.progress).toEqual({
+      _tag: "InterviewCompleted",
+    });
+
+    await runtime.runPromise(
+      Database.use((sql) =>
+        Effect.gen(function* () {
+          yield* sql`
+            UPDATE organization_volunteer_affiliations
+            SET status = 'Active', revision = 4
+            WHERE person_id = ${personId}
+              AND department_id = 'applicant-progress-department'
+          `;
+          const schools = yield* sql<{ readonly schoolId: number }>`
+            INSERT INTO schools_directory_schools (
+              name, contact_person, email, phone, language, active
+            ) VALUES (
+              'Applicant progress school', 'School Contact',
+              'applicant-progress-school@example.invalid', '90000002',
+              'Norwegian', true
+            )
+            RETURNING school_id::double precision AS "schoolId"
+          `;
+          const schoolId = schools[0]!.schoolId;
+          yield* sql`
+            INSERT INTO schools_directory_departments (school_id, department_id)
+            VALUES (${schoolId}, 'applicant-progress-department')
+          `;
+          yield* sql`
+            INSERT INTO assistant_placements (
+              placement_id, person_id, department_id, semester_id, school_id,
+              day, workdays, block, active, revision
+            ) VALUES (
+              ${`placement-${"a".repeat(64)}`}, ${personId},
+              'applicant-progress-department', 'applicant-progress-current',
+              ${schoolId}, 'Monday', 4, '1', true, 1
+            )
+          `;
+        }),
+      ),
+    );
+    expect((await readProgress()).applications[0]?.progress).toEqual({
+      _tag: "AssignedToSchool",
+    });
     expect(JSON.stringify(completed)).not.toMatch(
       /email|phone|recommendation|answers|capability|interviewer/iu,
     );

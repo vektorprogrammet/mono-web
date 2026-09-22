@@ -306,6 +306,9 @@ export const ApplicantProgressStateSchema = Schema.TaggedUnion({
   AwaitingNewInterviewTime: {},
   Cancelled: {},
   InterviewCompleted: {},
+  ReturningRegistrationCompleted: {},
+  AffiliationPending: {},
+  AffiliationActive: {},
   AssignedToSchool: {},
 });
 export type ApplicantProgressState = typeof ApplicantProgressStateSchema.Type;

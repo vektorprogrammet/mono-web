@@ -90,6 +90,12 @@ ON CONFLICT (applicant_id) DO NOTHING;
 INSERT INTO organization_departments (department_id, name, short_name, email, city, active, revision)
 VALUES ('${departmentId}', 'Vektorprogrammet Trondheim', 'Trondheim', 'trondheim.conduct@example.invalid', 'Trondheim', TRUE, 0)
 ON CONFLICT (department_id) DO NOTHING;
+INSERT INTO schools_directory_schools (name, contact_person, email, phone, language, active)
+VALUES ('Applicant handoff school', 'School Contact', 'handoff.school@example.invalid', '90000112', 'Norwegian', TRUE);
+INSERT INTO schools_directory_departments (school_id, department_id)
+SELECT school_id, '${departmentId}'
+FROM schools_directory_schools
+WHERE email = 'handoff.school@example.invalid';
 INSERT INTO organization_teams (team_id, department_id, name, active, revision)
 VALUES ('${teamId}', '${departmentId}', 'Rekruttering', TRUE, 0) ON CONFLICT (team_id) DO NOTHING;
 INSERT INTO person_contact_profiles (person_id, email, phone, revision)

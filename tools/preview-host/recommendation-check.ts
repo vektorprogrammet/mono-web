@@ -590,6 +590,11 @@ try {
   const cookie = cookies.map((c: any) => `${c.name}=${c.value}`).join("; ");
   secrets.push(...cookies.map((c: any) => c.value));
   if (applicantProgressMode) {
+    await pool.query(
+      `UPDATE public.organization_memberships
+       SET is_team_leader=true, position_id='teamleader'
+       WHERE membership_id='membership-native-conduct-leader-0063'`,
+    );
     const journey = await runApplicantProgress0107({
       pool,
       page,

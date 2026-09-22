@@ -15136,6 +15136,51 @@
                                 "properties": {
                                   "_tag": {
                                     "enum": [
+                                      "ReturningRegistrationCompleted"
+                                    ],
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "_tag"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "_tag": {
+                                    "enum": [
+                                      "AffiliationPending"
+                                    ],
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "_tag"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "_tag": {
+                                    "enum": [
+                                      "AffiliationActive"
+                                    ],
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "_tag"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "_tag": {
+                                    "enum": [
                                       "AssignedToSchool"
                                     ],
                                     "type": "string"

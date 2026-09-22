@@ -198,8 +198,8 @@ const seedScopedApplication = async (
   });
   await linkApplicant(client, suffix, applicationId, applicantId);
   await client.query(
-    `INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision) VALUES($1,$2,'Active',1)`,
-    [personId, departmentId],
+    `INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision) VALUES($1,$2,$3,1)`,
+    [personId, departmentId, suffix === "returning" ? "Inactive" : "Active"],
   );
   const school = await client.query(
     `INSERT INTO public.schools_directory_schools(name,contact_person,email,phone,language,active,revision) VALUES($1,'Synthetic Contact',$2,'90000000','Norwegian',true,0) RETURNING school_id`,
@@ -305,6 +305,18 @@ export const runApplicantProgress0107 = async (input: {
   assert.equal((await request("/api/applicant-progress", unlinkedCookie)).status, 401);
   const body = decodeApplicantProgressResponse(await response.json());
   const tags = body.applications.map((application) => application.progress._tag);
+  const observedStates = new Set(tags);
+  const readCompletedApplicationState = async () => {
+    const current = decodeApplicantProgressResponse(
+      await (await request("/api/applicant-progress")).json(),
+    );
+    const application = current.applications.find(
+      (candidate) => candidate.applicationId === "application-progress-completed-0107",
+    );
+    assert.ok(application, "completed applicant-progress fixture is missing");
+    observedStates.add(application.progress._tag);
+    return application.progress._tag;
+  };
   const sdk = createPromiseClient(input.api, { cookie: input.cookie, origin: input.ui });
   const readSdk = async () => {
     try {
@@ -324,6 +336,7 @@ export const runApplicantProgress0107 = async (input: {
     "AwaitingNewInterviewTime",
     "Cancelled",
     "InterviewCompleted",
+    "ReturningRegistrationCompleted",
     "AssignedToSchool",
   ] as const) {
     assert.ok(tags.includes(tag), `missing applicant progress state ${tag}`);
@@ -352,7 +365,8 @@ export const runApplicantProgress0107 = async (input: {
     "Du har bedt om et nytt intervjutidspunkt",
     "Rekrutteringsløpet er avsluttet",
     "Intervjuet er fullført",
-    "Du er tatt opp som vektorassistent",
+    "Registreringen er fullført",
+    "Du har fått skoletildeling",
   ] as const) {
     assert.ok(
       (await input.page.getByRole("heading", { name: title, exact: true }).count()) >= 1,
@@ -378,6 +392,64 @@ export const runApplicantProgress0107 = async (input: {
     path: join(input.artifacts, "applicant-progress-mobile.png"),
     fullPage: true,
   });
+
+  const completedCard = input.page.getByRole("article").filter({
+    has: input.page.getByRole("heading", { name: "Intervjuet er fullført", exact: true }),
+  });
+  const handoffLink = completedCard.getByRole("link", {
+    name: "Åpne assistentoversikten",
+    exact: true,
+  });
+  await handoffLink.focus();
+  assert.equal(
+    await handoffLink.evaluate((element) => element.ownerDocument.activeElement === element),
+    true,
+  );
+  await handoffLink.click();
+  await input.page.waitForURL((url) => url.pathname.endsWith("/dashboard/assistenter"));
+  assert.equal(
+    new URL(input.page.url()).searchParams.get("departmentId"),
+    "department-native-conduct-0063",
+  );
+  assert.equal(
+    new URL(input.page.url()).searchParams.get("semesterId"),
+    "semester-native-conduct-0063",
+  );
+  assert.equal(
+    await input.page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"),
+    true,
+  );
+  const ownAffiliation = input.page.getByRole("form", {
+    name: "Min tilknytning",
+    exact: true,
+  });
+  await ownAffiliation.getByRole("button", { name: "Be om tilknytning", exact: true }).click();
+  await ownAffiliation
+    .getByRole("status")
+    .getByText("Endringen er lagret.", { exact: true })
+    .waitFor();
+  await input.page.goto(`${input.ui}/dashboard/soknad`);
+  await input.page.getByRole("heading", { name: "Tilknytning er søkt", exact: true }).waitFor();
+  assert.equal(await readCompletedApplicationState(), "AffiliationPending");
+
+  await input.page.setViewportSize({ width: 1280, height: 900 });
+  await input.page.goto(
+    `${input.ui}/dashboard/assistenter?${new URLSearchParams({
+      departmentId: "department-native-conduct-0063",
+      semesterId: "semester-native-conduct-0063",
+    })}`,
+  );
+  const approveAffiliation = input.page.getByRole("button", {
+    name: "Godkjenn tilknytning",
+    exact: true,
+  });
+  await approveAffiliation.click();
+  await input.page.getByText("Endringen er lagret.", { exact: true }).waitFor();
+  await input.page.goto(`${input.ui}/dashboard/soknad`);
+  await input.page
+    .getByRole("heading", { name: "Du er tilknyttet avdelingen", exact: true })
+    .waitFor();
+  assert.equal(await readCompletedApplicationState(), "AffiliationActive");
 
   const client = await input.pool.connect();
   try {
@@ -407,6 +479,34 @@ export const runApplicantProgress0107 = async (input: {
       .getByRole("heading", { name: "Intervjuet er avtalt", exact: true })
       .count()) >= 2,
   );
+
+  await input.page.goto(
+    `${input.ui}/dashboard/assistenter?${new URLSearchParams({
+      departmentId: "department-native-conduct-0063",
+      semesterId: "semester-native-conduct-0063",
+    })}`,
+  );
+  const placement = input.page.getByRole("form", {
+    name: "Ny skoleplassering",
+    exact: true,
+  });
+  await placement.getByRole("combobox", { name: "Frivillig", exact: true }).selectOption(personId);
+  await placement
+    .getByRole("combobox", { name: "Skole", exact: true })
+    .selectOption({ label: "Applicant handoff school" });
+  await placement.getByRole("combobox", { name: "Ukedag", exact: true }).selectOption("Monday");
+  await placement.getByLabel("Antall undervisningsdager").fill("4");
+  await placement.getByRole("combobox", { name: "Bolk", exact: true }).selectOption("1");
+  await placement.getByRole("button", { name: "Opprett plassering", exact: true }).click();
+  await placement.getByRole("status").getByText("Endringen er lagret.", { exact: true }).waitFor();
+  await input.page.goto(`${input.ui}/dashboard/soknad`);
+  assert.ok(
+    (await input.page
+      .getByRole("heading", { name: "Du har fått skoletildeling", exact: true })
+      .count()) >= 1,
+  );
+  assert.equal(await readCompletedApplicationState(), "AssignedToSchool");
+  assert.deepEqual(await input.audit(input.page), []);
   const signOut = await fetch(`${input.api}/api/auth/sign-out`, {
     method: "POST",
     headers: { cookie: input.cookie, origin: input.ui },
@@ -418,7 +518,7 @@ export const runApplicantProgress0107 = async (input: {
     join(input.artifacts, "applicant-progress-targeted-evidence.json"),
     `${JSON.stringify(
       {
-        states: [...new Set(tags)].sort(),
+        states: [...observedStates].sort(),
         applicationCount: body.applications.length,
         accessibilityViolations: violations.length,
         sourceReload: "Pending->Accepted",
@@ -428,7 +528,7 @@ export const runApplicantProgress0107 = async (input: {
     )}\n`,
   );
   return {
-    states: [...new Set(tags)].sort(),
+    states: [...observedStates].sort(),
     applicationCount: body.applications.length,
     accessibilityViolations: violations.length,
     sourceReload: "Pending->Accepted",
