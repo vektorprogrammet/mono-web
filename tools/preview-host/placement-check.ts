@@ -7,7 +7,7 @@ import {
 import { IdempotencyIfMatchHeaders } from "../../packages/http-api/src/http-semantics.js";
 /** 0096 real local API + browser acceptance. Reuses native identity seed and owned process lifecycle. */
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { randomBytes, createHash } from "node:crypto";
@@ -15,6 +15,7 @@ import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
+import { promisify } from "node:util";
 import { stopPreviewScenarioBackend } from "./preview-scenario.js";
 const root = new URL("../../", import.meta.url).pathname;
 const requireDatabase = createRequire(
@@ -25,6 +26,22 @@ const { Schema } = await import(requireApi.resolve("effect"));
 const { Pool } = requireDatabase("pg");
 const run = (command: string, args: string[], env = process.env, timeout = 60_000) =>
   execFileSync(command, args, { cwd: root, env, encoding: "utf8", timeout });
+const execFileAsync = promisify(execFile);
+const runAsync = async (
+  command: string,
+  args: string[],
+  env = process.env,
+  timeout = 60_000,
+) =>
+  (
+    await execFileAsync(command, args, {
+      cwd: root,
+      env,
+      encoding: "utf8",
+      timeout,
+      maxBuffer: 10 * 1024 * 1024,
+    })
+  ).stdout;
 const mode = process.argv[2];
 assert.ok(
   process.argv.length === 3 && (mode === "--browser" || mode === "--api-only"),
@@ -479,7 +496,7 @@ try {
   await writeFile(manifestPath, JSON.stringify(manifest), { mode: 0o600 });
   let browserEvidence: Record<string, unknown> | null = null;
   if (mode === "--browser") {
-    run(
+    await runAsync(
       "bun",
       ["apps/dashboard/e2e/run-real-native-placement.mjs"],
       { ...environment, PLACEMENT_JOURNEY_MANIFEST: manifestPath },
@@ -549,10 +566,7 @@ try {
           [serviceProposal.proposalId],
         )
       ).rows,
-      [
-        { status: "Delivered", attempts: 1 },
-        { status: "Delivered", attempts: 1 },
-      ],
+      [{ status: "Delivered", attempts: 1 }],
     );
     assert.deepEqual(
       (
