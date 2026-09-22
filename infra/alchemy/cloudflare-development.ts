@@ -62,18 +62,31 @@ export const cloudflareDevelopmentStack = Effect.gen(function* () {
     allowedSenderAddresses: [mailSender],
     destinationAddress: mailRecipient,
   });
+  const database = yield* Config.string("CLOUDFLARE_DEVELOPMENT_DATABASE");
+  const databaseUser = yield* Config.string("CLOUDFLARE_DEVELOPMENT_DATABASE_USER");
+  const databasePassword = Redacted.make(
+    yield* Config.string("CLOUDFLARE_DEVELOPMENT_DATABASE_PASSWORD"),
+  );
   const hyperdriveOrigin = {
     scheme: "postgresql" as const,
     host: databaseOrigin,
-    database: yield* Config.string("CLOUDFLARE_DEVELOPMENT_DATABASE"),
-    user: yield* Config.string("CLOUDFLARE_DEVELOPMENT_DATABASE_USER"),
-    password: Redacted.make(yield* Config.string("CLOUDFLARE_DEVELOPMENT_DATABASE_PASSWORD")),
+    database,
+    user: databaseUser,
+    password: databasePassword,
     accessClientId: databaseClient.clientId.pipe(Output.map(Redacted.make)),
     accessClientSecret: databaseClientSecret,
   };
   const hyperdrive = yield* Cloudflare.Hyperdrive.Connection("DevelopmentHyperdrive", {
     name: "vektor-development-hyperdrive",
     origin: hyperdriveOrigin,
+    dev: {
+      scheme: "postgresql",
+      host: "127.0.0.1",
+      database,
+      user: databaseUser,
+      password: databasePassword,
+      sslmode: "require",
+    },
     mtls: { sslmode: "require" },
   });
 
