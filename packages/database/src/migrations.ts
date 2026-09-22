@@ -422,6 +422,11 @@ export const databaseMigrationDefinitions = [
     name: "reconciled-historical-service-import",
     url: new URL("../migrations/0051-reconciled-historical-service-import.sql", import.meta.url),
   },
+  {
+    id: "52_current-assignment-reconciliation",
+    name: "current-assignment-reconciliation",
+    url: new URL("../migrations/0052-current-assignment-reconciliation.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

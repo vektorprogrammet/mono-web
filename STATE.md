@@ -44,7 +44,13 @@ and conflicts, preserves replay, and exercises native sign-in, recovery, and
 restore. The historical service path accepts only explicitly mapped Person,
 department, semester, and school references; preserves append-only source
 provenance; derives historical affiliation; and leaves all current operational
-state unchanged. Real cohort mapping and production import remain unperformed.
+state unchanged. The synthetic current-assignment path accepts only active rows
+with declared snapshot and source-row digests, immutable accepted Person evidence,
+and explicit Person, department, semester, and school mappings. It establishes
+existing canonical affiliations and placements at revision 1 without fabricating
+human audit actions; preserves deterministic identity, append-only provenance,
+quarantine, replay, rollback, concurrency, excluded-authority, and backup/restore
+behavior. Real cohort mapping and production import remain unperformed.
 
 ## Next
 

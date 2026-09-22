@@ -76,6 +76,19 @@ semester, and school mappings. Historical affiliation is derived from accepted
 service rows. Importing history never creates a current affiliation, placement,
 demand, absence, service occurrence, Account, or admission decision.
 
+A synthetic current-assignment reconciliation snapshot may establish current facts only
+when every active source assignment has accepted immutable Person evidence and explicit
+Person, department, semester, and school mappings. It retains its declared canonical
+digest, source watermark, source-row digest, assignment evidence, mapping, disposition,
+and deterministic placement identity as append-only provenance. The transaction creates
+the existing Active affiliation at revision 1 only when it has no canonical target, then
+creates the existing active placement at revision 1. It writes no human operational
+audit action. Several placements can share the one importer-proven affiliation. Exact
+replay is stable; changed source identity, ambiguous or unresolved mappings, inactive
+assignments, overlap, and unowned canonical targets are rejected or quarantined without
+adopting or mutating canonical facts. This local synthetic path does not authorize
+production import.
+
 ## Core lifecycles
 
 ### Recruitment and affiliation

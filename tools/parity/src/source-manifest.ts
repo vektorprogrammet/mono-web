@@ -680,6 +680,10 @@ const approvedSqlSourceDigests = new Map<string, string>([
     "packages/database/migrations/0051-reconciled-historical-service-import.sql",
     "sha256:6873dfc22187de74de48a14c1dfafbeda0293a79a41db85712f59b991fa89083",
   ],
+  [
+    "packages/database/migrations/0052-current-assignment-reconciliation.sql",
+    "sha256:54bd164f136ff477e332374f9b80bda36162d7248f8c058b3e2899ec1df25bec",
+  ],
 ]);
 const envSourcePathPattern = /(?:^|\/)\.env(?:$|[.-])/i;
 const sqlSourcePathPattern = /\.sql$/i;
