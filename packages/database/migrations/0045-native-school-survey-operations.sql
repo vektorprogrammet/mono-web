@@ -213,25 +213,25 @@ BEGIN
   WHERE survey_id = NEW.survey_id
     AND target_audience = 'School';
 
-  IF NOT FOUND OR NEW.department_id <> definition_department_id THEN
+  IF NOT FOUND OR NEW.department_id IS DISTINCT FROM definition_department_id THEN
     RAISE EXCEPTION 'School survey audit must retain its School-survey owner';
   END IF;
   IF NEW.action = 'Created' AND (
-    definition_state <> 'Open'
-    OR definition_revision <> 0
-    OR NEW.command_id <> definition_creation_command_id
-    OR NEW.actor_person_id <> definition_created_by_person_id
-    OR NEW.occurred_at <> definition_created_at
-    OR NEW.survey_revision <> definition_revision
+    definition_state IS DISTINCT FROM 'Open'
+    OR definition_revision IS DISTINCT FROM 0
+    OR NEW.command_id IS DISTINCT FROM definition_creation_command_id
+    OR NEW.actor_person_id IS DISTINCT FROM definition_created_by_person_id
+    OR NEW.occurred_at IS DISTINCT FROM definition_created_at
+    OR NEW.survey_revision IS DISTINCT FROM definition_revision
   ) THEN
     RAISE EXCEPTION 'School survey creation audit must match its definition';
   END IF;
   IF NEW.action = 'Closed' AND (
-    definition_state <> 'Closed'
-    OR NEW.command_id <> definition_close_command_id
-    OR NEW.actor_person_id <> definition_closed_by_person_id
-    OR NEW.occurred_at <> definition_closed_at
-    OR NEW.survey_revision <> definition_revision
+    definition_state IS DISTINCT FROM 'Closed'
+    OR NEW.command_id IS DISTINCT FROM definition_close_command_id
+    OR NEW.actor_person_id IS DISTINCT FROM definition_closed_by_person_id
+    OR NEW.occurred_at IS DISTINCT FROM definition_closed_at
+    OR NEW.survey_revision IS DISTINCT FROM definition_revision
   ) THEN
     RAISE EXCEPTION 'School survey closure audit must match its definition';
   END IF;

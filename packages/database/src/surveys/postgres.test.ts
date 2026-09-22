@@ -29,6 +29,8 @@ const managerPersonId = PersonId.make("school-survey-postgres-manager");
 const volunteerPersonId = PersonId.make("school-survey-postgres-volunteer");
 const surveyId = SurveyId.make("survey_123e4567-e89b-12d3-a456-426614174000");
 const createdAt = "2035-09-22T10:00:00.000Z";
+const importedListAlternative = "\tTwo";
+const importedSurveyId = SurveyId.make("survey_imported_without_native_provenance");
 
 const questionId = (position: number) => SurveyQuestionId.make(`${surveyId}_q_${position}`);
 
@@ -74,7 +76,7 @@ const responseRequest = (schoolId: number, text: string) => ({
   schoolId,
   answers: [
     { kind: "Text" as const, questionId: questionId(0), value: text },
-    { kind: "List" as const, questionId: questionId(1), value: "Two" },
+    { kind: "List" as const, questionId: questionId(1), value: importedListAlternative },
     { kind: "Radio" as const, questionId: questionId(2), value: "Yes" },
     {
       kind: "Check" as const,
@@ -173,6 +175,11 @@ describe("School-survey PostgreSQL administration", () => {
             const replayed = yield* createSchoolSurveyAdminSurveyPostgres(createCommand).pipe(
               Effect.provideService(Database, sql),
             );
+            yield* sql`
+              UPDATE public.school_survey_question_alternatives
+              SET value = ${importedListAlternative}
+              WHERE alternative_id = ${`${questionId(1)}_a_1`}
+            `;
             const listed = yield* listSchoolSurveyAdminSurveysPostgres({
               departmentId,
               semesterId,
@@ -250,6 +257,15 @@ describe("School-survey PostgreSQL administration", () => {
               FROM public.school_survey_responses
               WHERE survey_id = ${surveyId}
             `;
+            yield* sql`
+              INSERT INTO public.native_survey_definitions (
+                survey_id, department_id, semester_id, semester_label, title, completion_text,
+                target_audience
+              ) VALUES (
+                ${importedSurveyId}, ${departmentId}, ${semesterId}, 'Imported semester',
+                'Imported survey', 'Thank you.', 'School'
+              )
+            `;
             return {
               catalog,
               created,
@@ -270,6 +286,25 @@ describe("School-survey PostgreSQL administration", () => {
       ),
     );
 
+    const importedAuditFailure = await runtime.runPromise(
+      Effect.flip(
+        Database.use((sql) =>
+          sql.withTransaction(
+            sql`
+              INSERT INTO public.school_survey_audit (
+                survey_id, department_id, actor_person_id, command_id, action, occurred_at,
+                survey_revision, snapshot
+              ) VALUES (
+                ${importedSurveyId}, ${departmentId}, ${managerPersonId}, 'forged-created-command',
+                'Created', ${createdAt}, 0, ${sql.json({ state: "Open" })}
+              )
+            `,
+          ),
+        ),
+      ),
+    );
+
+    expect(importedAuditFailure._tag).toBe("SqlError");
     expect(evidence.catalog.departments).toEqual([{ departmentId, name: "Survey department" }]);
     expect(evidence.catalog.semesters.map((semester) => semester.semesterId)).toEqual([semesterId]);
     expect(evidence.created).toMatchObject({
@@ -309,6 +344,11 @@ describe("School-survey PostgreSQL administration", () => {
       { kind: "Text", questionId: questionId(0), value: "first response" },
       { kind: "Text", questionId: questionId(0), value: "second response" },
     ]);
+    expect(evidence.results.responses[0]?.answers[1]).toEqual({
+      kind: "List",
+      questionId: questionId(1),
+      value: importedListAlternative,
+    });
     expect(evidence.results.responses[0]?.answers[3]).toEqual({
       kind: "Check",
       questionId: questionId(3),

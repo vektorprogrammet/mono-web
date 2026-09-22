@@ -7,7 +7,6 @@ import {
   SurveyResponseId,
   SemesterId,
   encodeSchoolSurveyResultsCsv,
-  type PreparedSchoolSurveyResponse,
 } from "@vektorprogrammet/domain";
 import {
   OrganizationAuthorityInstantSchema,
@@ -274,16 +273,6 @@ const authorizeAdmin = (
     now,
   });
 
-/** Uses the service's position-normalized representation for idempotency semantics. */
-const canonicalRequest = (prepared: PreparedSchoolSurveyResponse) => ({
-  schoolId: prepared.schoolId,
-  answers: prepared.answers.map((answer) =>
-    answer.kind === "Check"
-      ? { kind: answer.kind, questionId: answer.questionId, values: answer.values }
-      : { kind: answer.kind, questionId: answer.questionId, value: answer.value },
-  ),
-});
-
 const readAdminSurvey = (surveyId: SurveyId) =>
   SchoolSurveys.use(({ readAdminSurvey: read }) => read(surveyId)).pipe(
     Effect.flatMap((survey) => strictDecode(SchoolSurveyAdminResource, survey, "internal.error")),
@@ -333,9 +322,6 @@ const submit = (request: Request, surveyId: SurveyId) =>
       Effect.gen(function* () {
         const now = yield* transactionInstant();
         yield* authorizeAnonymous(SubmitSchoolSurveyResponseEndpoint, surveyId, now);
-        const prepared = yield* SchoolSurveys.use(({ prepareResponse }) =>
-          prepareResponse({ surveyId, request: body }),
-        );
         const identity = yield* semantic(() =>
           deriveHttpIdentity({
             credentialSubject: "Anonymous",
@@ -347,11 +333,12 @@ const submit = (request: Request, surveyId: SurveyId) =>
         return {
           identity: {
             identitySha256: identity.identitySha256,
-            requestSha256: semanticRequestDigest({ body: canonicalRequest(prepared) }),
+            requestSha256: semanticRequestDigest({ body }),
             operationId,
           },
-          execute: SchoolSurveys.use(({ persistResponse }) =>
+          execute: SchoolSurveys.use(({ prepareResponse, persistResponse }) =>
             Effect.gen(function* () {
+              const prepared = yield* prepareResponse({ surveyId, request: body });
               const response = yield* persistResponse({
                 responseId: yield* semantic(() =>
                   SurveyResponseId.make(`survey_response_${randomUUID()}`),

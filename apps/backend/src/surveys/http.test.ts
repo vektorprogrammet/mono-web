@@ -516,6 +516,66 @@ describe("School surveys native HTTP adapter", () => {
     });
   });
 
+  it("replays an accepted response after closure but rejects a duplicate-selection body", async () => {
+    let open = true;
+    let prepareCalls = 0;
+    let persistCalls = 0;
+    const api = makeSchoolSurveysTestHttp(
+      makeServices(authority(), {
+        prepareResponse: ({ request }) => {
+          prepareCalls += 1;
+          return open
+            ? Effect.succeed({
+                surveyId: schoolSurveyId,
+                departmentId,
+                completionText: "Thank you.",
+                schoolId: request.schoolId,
+                answers: request.answers,
+              })
+            : Effect.fail(new SchoolSurveyNotFound({ surveyId: String(schoolSurveyId) }));
+        },
+        persistResponse: ({ responseId, prepared }) => {
+          persistCalls += 1;
+          return Effect.succeed({
+            responseId,
+            submittedAt: observedAt,
+            completionText: prepared.completionText,
+          });
+        },
+      }),
+    );
+    const request = (values: ReadonlyArray<string>) =>
+      new Request(`http://backend.test/api/surveys/public/${schoolSurveyId}/responses`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": "REPLAYAFTERCLOSURE0001",
+        },
+        body: JSON.stringify({
+          schoolId: 1,
+          answers: [{ kind: "Check", questionId: schoolSurveyQuestionId, values }],
+        }),
+      });
+
+    const accepted = await api.fetch(request(["Second", "First"]));
+    const acceptedBody = await accepted.json();
+    open = false;
+    const replayed = await api.fetch(request(["Second", "First"]));
+
+    expect(replayed.status).toBe(201);
+    expect(await replayed.json()).toEqual(acceptedBody);
+    expect({ prepareCalls, persistCalls }).toEqual({ prepareCalls: 1, persistCalls: 1 });
+    const duplicateSelection = await api.fetch(request(["First", "First", "Second"]));
+    const duplicateSelectionBody = (await duplicateSelection.json()) as Record<string, unknown>;
+    expect({
+      status: duplicateSelection.status,
+      code: duplicateSelectionBody.code,
+    }).toEqual({
+      status: 409,
+      code: "idempotency.digest-conflict",
+    });
+  });
+
   it("keeps a closed anonymous survey concealed and avoids response persistence", async () => {
     let persistCalls = 0;
     const api = makeSchoolSurveysTestHttp(

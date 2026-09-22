@@ -22,7 +22,7 @@ export interface SchoolSurveysShape {
   readonly readForm: (
     surveyId: SurveyId,
   ) => Effect.Effect<SchoolSurveyFormResource, SchoolSurveyFailure>;
-  /** Resolves the current School survey, eligibility, and canonical answer order before receipt lookup. */
+  /** Resolves the current School survey, eligibility, and canonical answer order before a new write. */
   readonly prepareResponse: (input: {
     readonly surveyId: SurveyId;
     readonly request: SubmitSchoolSurveyResponseRequest;

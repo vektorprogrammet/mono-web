@@ -322,7 +322,7 @@ const normalizeAnswers = (
           continue;
         }
         if (answer.kind === "List" || answer.kind === "Radio") {
-          const value = answer.value.trim();
+          const value = answer.value;
           if (!question.alternatives.some((alternative) => alternative.value === value)) {
             throw validationFailure(surveyId, `answers[${index}].value`);
           }
@@ -333,7 +333,7 @@ const normalizeAnswers = (
           });
           continue;
         }
-        const selected = new Set(answer.values.map((value) => value.trim()));
+        const selected = new Set(answer.values);
         if (selected.size !== answer.values.length) {
           throw validationFailure(surveyId, `answers[${index}].values`);
         }
