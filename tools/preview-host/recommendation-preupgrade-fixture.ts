@@ -185,6 +185,7 @@ const lifecycleRows = (interviewId: string) => {
     finalizedAt: fixtureTimestamps.explicitFinalizedAt,
     completionState: "Completed",
     cancellationState: "NotCancelled",
+    notificationState: "Pending",
   });
   return {
     command,
