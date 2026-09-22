@@ -2,7 +2,10 @@ import { afterAll, describe, expect, it } from "vitest";
 import { Database } from "./service.js";
 import { databaseSchemaRevision } from "./migrations.js";
 import {
-  DepartmentId, OrganizationAuthorityInstantSchema, PersonId } from "@vektorprogrammet/domain/organization";
+  DepartmentId,
+  OrganizationAuthorityInstantSchema,
+  PersonId,
+} from "@vektorprogrammet/domain/organization";
 import { Schools } from "@vektorprogrammet/domain/schools";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { readSchoolsDirectory } from "@vektorprogrammet/database/schools";

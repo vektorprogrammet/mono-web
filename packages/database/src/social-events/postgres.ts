@@ -21,7 +21,10 @@ import {
   SocialEventScopeInvalid,
   type SocialEventFailure,
 } from "@vektorprogrammet/domain/social-events";
-import type { ReadSocialEventListInput, ReadSocialEventScopeInput } from "@vektorprogrammet/domain/social-events";
+import type {
+  ReadSocialEventListInput,
+  ReadSocialEventScopeInput,
+} from "@vektorprogrammet/domain/social-events";
 
 interface SnapshotRow {
   readonly observedAt: string;

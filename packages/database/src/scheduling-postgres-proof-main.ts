@@ -6,7 +6,14 @@ import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
-import { Recruitment, RecruitmentInterviewId, RecruitmentInvitationId, RecruitmentScheduleCommandId, type RecruitmentScheduleCommand, type RecruitmentScheduleContext } from "@vektorprogrammet/domain/recruitment";
+import {
+  Recruitment,
+  RecruitmentInterviewId,
+  RecruitmentInvitationId,
+  RecruitmentScheduleCommandId,
+  type RecruitmentScheduleCommand,
+  type RecruitmentScheduleContext,
+} from "@vektorprogrammet/domain/recruitment";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { DatabaseLive } from "./layers.js";
 

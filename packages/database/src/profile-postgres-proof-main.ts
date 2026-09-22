@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { Profile, ProfileCommandId, type UpdateOwnProfileCommand } from "@vektorprogrammet/domain/profile";
+import {
+  Profile,
+  ProfileCommandId,
+  type UpdateOwnProfileCommand,
+} from "@vektorprogrammet/domain/profile";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";

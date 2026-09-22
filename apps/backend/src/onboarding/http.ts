@@ -53,25 +53,19 @@ const semantic = <A>(operation: () => A) =>
   Effect.try({
     try: operation,
     catch: (cause) =>
-      cause instanceof HttpSemanticFailure
-        ? cause
-        : new HttpSemanticFailure("internal.error", 500),
+      cause instanceof HttpSemanticFailure ? cause : new HttpSemanticFailure("internal.error", 500),
   });
 const promise = <A>(operation: () => PromiseLike<A>) =>
   Effect.tryPromise({
     try: () => operation(),
     catch: (cause) =>
-      cause instanceof HttpSemanticFailure
-        ? cause
-        : new HttpSemanticFailure("internal.error", 500),
+      cause instanceof HttpSemanticFailure ? cause : new HttpSemanticFailure("internal.error", 500),
   });
 const tokenDigest = (token: string) =>
   Effect.tryPromise({
     try: () => crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)),
     catch: (cause) =>
-      cause instanceof HttpSemanticFailure
-        ? cause
-        : new HttpSemanticFailure("internal.error", 500),
+      cause instanceof HttpSemanticFailure ? cause : new HttpSemanticFailure("internal.error", 500),
   }).pipe(
     Effect.map((digest) =>
       Array.from(new Uint8Array(digest))
@@ -176,13 +170,7 @@ export const OnboardingApiHandlers = (input: {
       sql.withTransaction(
         Effect.gen(function* () {
           const scope = yield* decode(OnboardingScope, yield* query(request));
-          yield* authorize(
-            request,
-            ReadOnboardingEndpoint,
-            scope.departmentId,
-            true,
-            input.now,
-          );
+          yield* authorize(request, ReadOnboardingEndpoint, scope.departmentId, true, input.now);
           const board = yield* readOnboardingBoard(scope.departmentId);
           return json(yield* decode(OnboardingResource, resource(board)));
         }),
@@ -269,7 +257,9 @@ export const OnboardingApiHandlers = (input: {
       const digest = yield* tokenDigest(body.token);
       yield* checkOnboardingClaim(digest, now());
       const passwordHash =
-        body.mode === "NewAccount" ? yield* promise(() => hashOnboardingPassword(body.password)) : null;
+        body.mode === "NewAccount"
+          ? yield* promise(() => hashOnboardingPassword(body.password))
+          : null;
       const result = yield* Database.use((sql) =>
         sql.withTransaction(
           Effect.gen(function* () {
@@ -277,11 +267,9 @@ export const OnboardingApiHandlers = (input: {
               body.mode === "ExistingAccount"
                 ? {
                     mode: "ExistingAccount" as const,
-                    personId: (
-                      yield* resolveRequestPersonAuthorityInTransaction(request, {
-                        now: input.now,
-                      })
-                    ).authority.personId,
+                    personId: (yield* resolveRequestPersonAuthorityInTransaction(request, {
+                      now: input.now,
+                    })).authority.personId,
                   }
                 : {
                     mode: "NewAccount" as const,

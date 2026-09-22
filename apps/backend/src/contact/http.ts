@@ -65,9 +65,7 @@ export const makeContactHandler = (config: ContactConfig | undefined) => {
         return denied();
       const ip = yield* Effect.sync(() => {
         try {
-          return Schema.decodeUnknownSync(ContactVisitorIp)(
-            request.headers.get(CONTACT_IP_HEADER),
-          );
+          return Schema.decodeUnknownSync(ContactVisitorIp)(request.headers.get(CONTACT_IP_HEADER));
         } catch {
           return undefined;
         }

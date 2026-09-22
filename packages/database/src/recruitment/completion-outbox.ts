@@ -12,7 +12,10 @@ import {
   type RecruitmentNotificationDeliveryError,
   type RecruitmentNotificationEvidence,
 } from "@vektorprogrammet/domain/recruitment";
-import { FinalizeInterviewCommandSchema, FinalizeInterviewObservationSchema } from "@vektorprogrammet/domain/recruitment";
+import {
+  FinalizeInterviewCommandSchema,
+  FinalizeInterviewObservationSchema,
+} from "@vektorprogrammet/domain/recruitment";
 
 interface ClaimedRow {
   readonly effectId: string;

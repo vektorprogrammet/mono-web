@@ -48,8 +48,7 @@ const generatedGrantId = (
   authority: OrganizationPersonAuthority,
   capability: CapabilityTypeId,
   scope: Scope,
-): string =>
-  `social-events:${authority.personId}:${capability}:${scopeIdentity(scope)}`;
+): string => `social-events:${authority.personId}:${capability}:${scopeIdentity(scope)}`;
 
 /**
  * Derives all and only social-event candidate grants from one complete

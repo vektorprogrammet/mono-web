@@ -2,7 +2,12 @@ import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { readSchoolsDirectory } from "@vektorprogrammet/database/schools";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import type { Identity, IdentityEngineError } from "@vektorprogrammet/domain/identity";
-import { SchoolDirectoryQuerySchema, SchoolDirectorySchema, SchoolsDecodeError, type SchoolDirectoryQuery } from "@vektorprogrammet/domain/schools";
+import {
+  SchoolDirectoryQuerySchema,
+  SchoolDirectorySchema,
+  SchoolsDecodeError,
+  type SchoolDirectoryQuery,
+} from "@vektorprogrammet/domain/schools";
 import type { OrganizationAuthorityInstant, PersonId } from "@vektorprogrammet/domain/organization";
 import { ListSchoolsEndpoint, reflectAccessSpec } from "@vektorprogrammet/http-api";
 import { Effect, Option, Schema } from "effect";
@@ -64,7 +69,9 @@ export const schoolsErrorResponse = (cause: unknown): Response => {
   }
 };
 
-const decodeQuery = (request: Request): Effect.Effect<SchoolDirectoryQuery, SchoolsHttpQueryDecodeError> => {
+const decodeQuery = (
+  request: Request,
+): Effect.Effect<SchoolDirectoryQuery, SchoolsHttpQueryDecodeError> => {
   const parameters = [...new URL(request.url).searchParams];
   const encoded =
     parameters.length === 0
@@ -80,10 +87,7 @@ const decodeQuery = (request: Request): Effect.Effect<SchoolDirectoryQuery, Scho
 };
 
 /** Native Schools directory adapter. It owns transport only, never SQL or authority policy. */
-export const listSchools = (
-  request: Request,
-  options: SchoolsApiHttpOptions,
-) =>
+export const listSchools = (request: Request, options: SchoolsApiHttpOptions) =>
   Effect.gen(function* () {
     const query = yield* decodeQuery(request);
     const actor = yield* options.resolveActor(request);
@@ -104,7 +108,11 @@ export const listSchools = (
       grantScopes: [{ _tag: "Global" }],
       now: actor.authorizationInstant,
     });
-    const directory = yield* readSchoolsDirectory(actor.personId, actor.authorizationInstant, query);
+    const directory = yield* readSchoolsDirectory(
+      actor.personId,
+      actor.authorizationInstant,
+      query,
+    );
     const response = yield* Schema.decodeUnknownEffect(SchoolDirectorySchema)(directory, {
       onExcessProperty: "error",
     }).pipe(

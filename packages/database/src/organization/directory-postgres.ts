@@ -9,7 +9,10 @@ import {
   accumulateOrganizationDirectoryFacts,
   type OrganizationDirectoryFacts,
 } from "@vektorprogrammet/domain/organization";
-import { OrganizationDecodeError, OrganizationPersistenceError } from "@vektorprogrammet/domain/organization";
+import {
+  OrganizationDecodeError,
+  OrganizationPersistenceError,
+} from "@vektorprogrammet/domain/organization";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 
 const DirectoryMembershipRowSchema = Schema.Struct({

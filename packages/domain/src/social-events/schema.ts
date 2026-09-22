@@ -32,10 +32,7 @@ export type SocialEventId = typeof SocialEventId.Type;
 export const SocialEventCommandId = TrimmedNonEmpty.pipe(Schema.brand("SocialEventCommandId"));
 export type SocialEventCommandId = typeof SocialEventCommandId.Type;
 
-export const SocialEventAudience = Schema.Literals([
-  "TeamMembers",
-  "AssistantsAndTeamMembers",
-]);
+export const SocialEventAudience = Schema.Literals(["TeamMembers", "AssistantsAndTeamMembers"]);
 export type SocialEventAudience = typeof SocialEventAudience.Type;
 
 const SocialEventTitle = Schema.String.pipe(
@@ -89,7 +86,9 @@ export const SocialEventScope = Schema.Struct({
 }).annotate({ identifier: "SocialEventScope" });
 export type SocialEventScope = typeof SocialEventScope.Type;
 
-export const SocialEventObservedAt = Rfc3339InstantSchema.pipe(Schema.brand("SocialEventObservedAt"));
+export const SocialEventObservedAt = Rfc3339InstantSchema.pipe(
+  Schema.brand("SocialEventObservedAt"),
+);
 export type SocialEventObservedAt = typeof SocialEventObservedAt.Type;
 
 export const SocialEventDepartmentResource = Schema.Struct({

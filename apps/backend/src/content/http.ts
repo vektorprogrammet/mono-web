@@ -1,7 +1,52 @@
-import { ArticleMergePatch, CreateArticleEndpoint, CreateArticleRequest, ExternalNativeApi, ListNewsEndpoint, PublishArticleEndpoint, PublishArticleRequest, PublishArticleResponse, ReadArticleEndpoint, ReadContentWorkspaceEndpoint, ReadNewsArticleEndpoint, ReviseArticleEndpoint, UnpublishArticleEndpoint, UnpublishArticleRequest, UnpublishArticleResponse, reflectAccessSpec, type StrongETag, } from "@vektorprogrammet/http-api";
 import {
-  ArticleId, Content, ContentArticleDetailSchema, ContentAuthorityInactive, ContentCommandId, ContentManagement, ContentNotInScope, ContentWorkspaceQuerySchema, ContentWorkspaceSchema, PublishedNewsArticleSchema, PublishedNewsListingSchema, readPublicNews, resolveContentActor, runContentArticleDetail, runContentWorkspace, type ContentActor, type ContentArticleDetail } from "@vektorprogrammet/domain/content";
-import { createDraftPostgres, publishPostgres, readContentArticleHttpSourcePostgres, readArticleDetailInTransactionPostgres, readContentAuthorityHttpSourcesPostgres, readPublishedNewsArticleHttpSourcePostgres, readPublishedNewsCollectionHttpSourcesPostgres, reviseDraftPostgres, unpublishPostgres } from "@vektorprogrammet/database/content";
+  ArticleMergePatch,
+  CreateArticleEndpoint,
+  CreateArticleRequest,
+  ExternalNativeApi,
+  ListNewsEndpoint,
+  PublishArticleEndpoint,
+  PublishArticleRequest,
+  PublishArticleResponse,
+  ReadArticleEndpoint,
+  ReadContentWorkspaceEndpoint,
+  ReadNewsArticleEndpoint,
+  ReviseArticleEndpoint,
+  UnpublishArticleEndpoint,
+  UnpublishArticleRequest,
+  UnpublishArticleResponse,
+  reflectAccessSpec,
+  type StrongETag,
+} from "@vektorprogrammet/http-api";
+import {
+  ArticleId,
+  Content,
+  ContentArticleDetailSchema,
+  ContentAuthorityInactive,
+  ContentCommandId,
+  ContentManagement,
+  ContentNotInScope,
+  ContentWorkspaceQuerySchema,
+  ContentWorkspaceSchema,
+  PublishedNewsArticleSchema,
+  PublishedNewsListingSchema,
+  readPublicNews,
+  resolveContentActor,
+  runContentArticleDetail,
+  runContentWorkspace,
+  type ContentActor,
+  type ContentArticleDetail,
+} from "@vektorprogrammet/domain/content";
+import {
+  createDraftPostgres,
+  publishPostgres,
+  readContentArticleHttpSourcePostgres,
+  readArticleDetailInTransactionPostgres,
+  readContentAuthorityHttpSourcesPostgres,
+  readPublishedNewsArticleHttpSourcePostgres,
+  readPublishedNewsCollectionHttpSourcesPostgres,
+  reviseDraftPostgres,
+  unpublishPostgres,
+} from "@vektorprogrammet/database/content";
 import {
   AuthorityRef,
   AuthorityVersion,
@@ -50,7 +95,10 @@ import {
   semanticRequestDigest,
   validationProblemResponse,
 } from "../http-semantics.js";
-import { authorizePersonNativeOperation, nativeCommandOutcomeResponse } from "../native-operation.js";
+import {
+  authorizePersonNativeOperation,
+  nativeCommandOutcomeResponse,
+} from "../native-operation.js";
 
 export interface ContentRequestActor {
   readonly personId: PersonId;
@@ -162,11 +210,7 @@ const readJsonBody = (
 ) =>
   Effect.tryPromise({
     try: async () => {
-      const mediaType = request.headers
-        .get("content-type")
-        ?.split(";", 1)[0]
-        ?.trim()
-        .toLowerCase();
+      const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
       if (mediaType !== expectedMediaType) {
         throw new HttpSemanticFailure("media-type.unsupported", 415);
       }
@@ -235,10 +279,7 @@ const versionFromQuery = (request: Request) =>
     catch: (cause) => cause,
   });
 
-const authorizedActor = <E, R>(
-  request: Request,
-  resolveActor: ContentRequestActorResolver<E, R>,
-) =>
+const authorizedActor = <E, R>(request: Request, resolveActor: ContentRequestActorResolver<E, R>) =>
   Effect.gen(function* () {
     const actor = yield* resolveActor(request);
     const authority = yield* Organization.use(({ resolvePersonAuthority }) =>
@@ -360,10 +401,7 @@ const authorizeAnonymousContentOperation = (
     const status = accessHttpStatus(evaluation, spec.concealment);
     if (status !== 200) {
       return yield* Effect.fail(
-        new HttpSemanticFailure(
-          status === 404 ? "resource.not-found" : "authority.denied",
-          status,
-        ),
+        new HttpSemanticFailure(status === 404 ? "resource.not-found" : "authority.denied", status),
       );
     }
   });
@@ -496,10 +534,7 @@ const executeCommand = <E, R>(
     return nativeCommandOutcomeResponse(outcome);
   });
 
-const readWorkspace = <E, R>(
-  request: Request,
-  resolveActor: ContentRequestActorResolver<E, R>,
-) =>
+const readWorkspace = <E, R>(request: Request, resolveActor: ContentRequestActorResolver<E, R>) =>
   Effect.gen(function* () {
     const query = yield* departmentFromQuery(request);
     const actor = yield* authorizedActor(request, resolveActor);
@@ -577,7 +612,9 @@ const createArticle = (request: Request, maxBodyBytes: number) =>
                       articleId: created.articleId,
                     });
                     const source = yield* readContentArticleHttpSourcePostgres(created.articleId);
-                    const authority = yield* readContentAuthorityHttpSourcesPostgres(actor.personId);
+                    const authority = yield* readContentAuthorityHttpSourcesPostgres(
+                      actor.personId,
+                    );
                     const etag = deriveStrongETag({
                       representationKind: "ContentArticleDetailSchema",
                       resourceIdentity: `content-article:${created.articleId}`,
@@ -682,7 +719,9 @@ const reviseArticle = (request: Request, articleId: ArticleId, maxBodyBytes: num
             personId: actor.personId,
             resolution: {
               selection: "ExactlyOne",
-              contexts: [articleContext(current, source.createdByPersonId, actor.authorizationInstant)],
+              contexts: [
+                articleContext(current, source.createdByPersonId, actor.authorizationInstant),
+              ],
             },
             grantScopes: [contentScope],
             now: actor.authorizationInstant,
@@ -783,7 +822,9 @@ const lifecycleArticle = (
             personId: actor.personId,
             resolution: {
               selection: "ExactlyOne",
-              contexts: [articleContext(current, source.createdByPersonId, actor.authorizationInstant)],
+              contexts: [
+                articleContext(current, source.createdByPersonId, actor.authorizationInstant),
+              ],
             },
             grantScopes: [contentScope],
             now: actor.authorizationInstant,
@@ -823,7 +864,11 @@ const lifecycleArticle = (
                   const etag = yield* articleETagEffect(articleId, actor.personId);
                   return new Response(JSON.stringify(output), {
                     status: 200,
-                    headers: { "cache-control": NO_STORE, "content-type": "application/json", etag },
+                    headers: {
+                      "cache-control": NO_STORE,
+                      "content-type": "application/json",
+                      etag,
+                    },
                   });
                 }
                 const unpublished = yield* unpublishPostgres({
@@ -965,8 +1010,7 @@ export const ContentApiHandlers = <E, R>(
         .handleRaw("publishArticle", ({ request, params }) =>
           toHttpApiResponse(
             request,
-            (webRequest) =>
-              lifecycleArticle(webRequest, params.articleId, "Publish", maxBodyBytes),
+            (webRequest) => lifecycleArticle(webRequest, params.articleId, "Publish", maxBodyBytes),
             errorResponse,
           ),
         )
@@ -978,11 +1022,13 @@ export const ContentApiHandlers = <E, R>(
             errorResponse,
           ),
         )
-        .handleRaw("listNews", ({ request }) =>
-          toHttpApiResponse(request, listNews, errorResponse),
-        )
+        .handleRaw("listNews", ({ request }) => toHttpApiResponse(request, listNews, errorResponse))
         .handleRaw("readNewsArticle", ({ request, params }) =>
-          toHttpApiResponse(request, (webRequest) => readNewsArticle(webRequest, params.slug), errorResponse),
+          toHttpApiResponse(
+            request,
+            (webRequest) => readNewsArticle(webRequest, params.slug),
+            errorResponse,
+          ),
         ),
     ),
   );

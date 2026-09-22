@@ -27,4 +27,3 @@ export const substitutePermission = (
       ? "ReadOnly"
       : "Manage";
 };
-

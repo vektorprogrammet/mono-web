@@ -1,8 +1,21 @@
 import { Database } from "@vektorprogrammet/database";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
-  SubstituteFailure, SubstituteMutation, SubstituteScope, SubstituteScopes, substitutePermission, type SubstituteEntry } from "@vektorprogrammet/domain/substitutes";
-import { lockSubstituteApplication, mutateSubstitute, readSubstituteEntries, readSubstituteEntry, readSubstitutePeriod, readSubstituteScopes } from "@vektorprogrammet/database/substitutes";
+  SubstituteFailure,
+  SubstituteMutation,
+  SubstituteScope,
+  SubstituteScopes,
+  substitutePermission,
+  type SubstituteEntry,
+} from "@vektorprogrammet/domain/substitutes";
+import {
+  lockSubstituteApplication,
+  mutateSubstitute,
+  readSubstituteEntries,
+  readSubstituteEntry,
+  readSubstitutePeriod,
+  readSubstituteScopes,
+} from "@vektorprogrammet/database/substitutes";
 import {
   ExternalNativeApi,
   SubstituteBoard,
@@ -46,9 +59,7 @@ const semantic = <A>(operation: () => A) =>
   Effect.try({
     try: operation,
     catch: (cause) =>
-      cause instanceof HttpSemanticFailure
-        ? cause
-        : new HttpSemanticFailure("internal.error", 500),
+      cause instanceof HttpSemanticFailure ? cause : new HttpSemanticFailure("internal.error", 500),
   });
 const header = (request: Request, key: string) =>
   request.headers.has(key) ? [request.headers.get(key)!] : [];
@@ -76,10 +87,7 @@ const decode = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S, v
   Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
     Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)),
   );
-const output = <S extends Schema.ConstraintDecoder<unknown, never>>(
-  schema: S,
-  value: S["Type"],
-) =>
+const output = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S, value: S["Type"]) =>
   Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
     Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)),
   );
@@ -103,8 +111,7 @@ const authorize = (
   captured?: TransactionPersonAuthority,
 ) =>
   Effect.gen(function* () {
-    const auth =
-      captured ?? (yield* resolveRequestPersonAuthorityInTransaction(request, { now }));
+    const auth = captured ?? (yield* resolveRequestPersonAuthorityInTransaction(request, { now }));
     const permission = substitutePermission(auth.authority, departmentId);
     if (permission === "Denied" || (manage && permission !== "Manage"))
       return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
@@ -191,8 +198,7 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
               input.now,
             );
             const admissionPeriodId = yield* readSubstitutePeriod(scope);
-            const rows =
-              admissionPeriodId === null ? [] : yield* readSubstituteEntries(scope);
+            const rows = admissionPeriodId === null ? [] : yield* readSubstituteEntries(scope);
             const entries = rows.filter((row) => row.active).map(substituteResource);
             return json(
               yield* output(
@@ -252,13 +258,7 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
       const outcome = yield* executeNativeHttpCommandPostgres(
         Effect.gen(function* () {
           const selected = yield* readSubstituteEntry(applicationId);
-          const auth = yield* authorize(
-            request,
-            endpoint,
-            selected.departmentId,
-            true,
-            input.now,
-          );
+          const auth = yield* authorize(request, endpoint, selected.departmentId, true, input.now);
           const identity = yield* semantic(() =>
             deriveHttpIdentity({
               credentialSubject: `Person:${auth.authority.personId}`,

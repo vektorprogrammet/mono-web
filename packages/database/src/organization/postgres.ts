@@ -35,7 +35,10 @@ import {
   type OrganizationImportResult,
   type OrganizationQuarantine,
 } from "@vektorprogrammet/domain/organization";
-import { applyMembershipRevision, type MembershipRevisionCommand } from "@vektorprogrammet/domain/organization";
+import {
+  applyMembershipRevision,
+  type MembershipRevisionCommand,
+} from "@vektorprogrammet/domain/organization";
 
 const persistenceError = (operation: string, cause: unknown) =>
   new OrganizationPersistenceError({ operation, message: String(cause) });

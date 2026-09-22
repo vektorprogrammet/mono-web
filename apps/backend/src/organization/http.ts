@@ -821,19 +821,35 @@ export const OrganizationApiHandlers = (input: OrganizationApiHttpOptions) =>
           toHttpApiResponse(request, listFieldOfStudies, errorResponse),
         )
         .handleRaw("listTeamInterest", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => listTeamInterest(webRequest, input), errorResponse),
+          toHttpApiResponse(
+            request,
+            (webRequest) => listTeamInterest(webRequest, input),
+            errorResponse,
+          ),
         )
         .handleRaw("listMailingLists", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => listMailingLists(webRequest, input), errorResponse),
+          toHttpApiResponse(
+            request,
+            (webRequest) => listMailingLists(webRequest, input),
+            errorResponse,
+          ),
         )
         .handleRaw("createDepartment", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => createDepartment(webRequest, input), errorResponse),
+          toHttpApiResponse(
+            request,
+            (webRequest) => createDepartment(webRequest, input),
+            errorResponse,
+          ),
         )
         .handleRaw("createTeam", ({ request }) =>
           toHttpApiResponse(request, (webRequest) => createTeam(webRequest, input), errorResponse),
         )
         .handleRaw("createFieldOfStudy", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => createFieldOfStudy(webRequest, input), errorResponse),
+          toHttpApiResponse(
+            request,
+            (webRequest) => createFieldOfStudy(webRequest, input),
+            errorResponse,
+          ),
         ),
     ),
   );

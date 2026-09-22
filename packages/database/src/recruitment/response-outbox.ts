@@ -15,7 +15,10 @@ import {
   type RecruitmentNotificationDeliveryError,
   type RecruitmentNotificationEvidence,
 } from "@vektorprogrammet/domain/recruitment";
-import { RecruitmentInstantSchema, RecruitmentInvitationResponseMessageSchema } from "@vektorprogrammet/domain/recruitment";
+import {
+  RecruitmentInstantSchema,
+  RecruitmentInvitationResponseMessageSchema,
+} from "@vektorprogrammet/domain/recruitment";
 
 interface ClaimedInvitationResponseRow {
   readonly effectId: string;

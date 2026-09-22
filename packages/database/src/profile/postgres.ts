@@ -1,7 +1,11 @@
 import { Database, type DatabaseShape } from "../service.js";
 import { Organization } from "@vektorprogrammet/domain/organization";
 import { PersonId } from "@vektorprogrammet/domain/organization";
-import type { DirectoryEntry, DirectoryPage, ReadDirectoryPageInput } from "@vektorprogrammet/domain/profile";
+import type {
+  DirectoryEntry,
+  DirectoryPage,
+  ReadDirectoryPageInput,
+} from "@vektorprogrammet/domain/profile";
 import { decodeDirectoryCursor, encodeDirectoryCursor } from "@vektorprogrammet/domain/profile";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { Effect, Schema } from "effect";
@@ -604,7 +608,6 @@ export const updateOwnProfile = (
       );
   });
 
-
 interface DirectoryJoinedRow {
   readonly personId: string;
   readonly firstName: string;
@@ -612,7 +615,6 @@ interface DirectoryJoinedRow {
   readonly email: string | null;
   readonly phone: string | null;
 }
-
 
 /**
  * Scans one page of the directory from a single snapshot. Ordering is

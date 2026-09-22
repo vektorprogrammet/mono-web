@@ -55,10 +55,7 @@ export interface ProfileApiHttpOptions {
     request: Request,
   ) => Effect.Effect<
     ProfileActor,
-    | IdentityEngineError
-    | UnauthenticatedActor
-    | OrganizationResolutionError
-    | TaggedHttpError,
+    IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError | TaggedHttpError,
     Identity | OAuthCredentialAuthority | Organization
   >;
 }
@@ -167,9 +164,7 @@ const profileError = (cause: unknown): TaggedHttpError => {
 };
 
 const actorFor = (request: Request, input: ProfileApiHttpOptions) =>
-  input.resolveActor(request).pipe(
-    Effect.catch((cause) => Effect.fail(profileError(cause))),
-  );
+  input.resolveActor(request).pipe(Effect.catch((cause) => Effect.fail(profileError(cause))));
 
 const transactionProfileAuthorityFor = (request: Request) =>
   resolveRequestPersonAuthorityInTransaction(request, {}).pipe(
@@ -437,7 +432,11 @@ export const ProfileApiHandlers = (input: ProfileApiHttpOptions) =>
     Effect.succeed(
       handlers
         .handleRaw("readOwnProfile", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => readOwnProfile(webRequest, input), errorResponse),
+          toHttpApiResponse(
+            request,
+            (webRequest) => readOwnProfile(webRequest, input),
+            errorResponse,
+          ),
         )
         .handleRaw("updateOwnProfile", ({ request }) =>
           toHttpApiResponse(request, (webRequest) => updateOwnProfile(webRequest), errorResponse),

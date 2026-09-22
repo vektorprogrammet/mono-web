@@ -1,7 +1,10 @@
 import { Effect, Schema } from "effect";
 import { Database, type DatabaseShape } from "../service.js";
 import { sha256Hex } from "@vektorprogrammet/domain/evidence";
-import { canonicalJson, publicApplicationCommandDigest } from "@vektorprogrammet/domain/application";
+import {
+  canonicalJson,
+  publicApplicationCommandDigest,
+} from "@vektorprogrammet/domain/application";
 import { makeReturningAssistantOutboxRequests } from "@vektorprogrammet/domain/application";
 import {
   ApplicantRecord,

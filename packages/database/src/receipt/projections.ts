@@ -11,7 +11,6 @@ import type {
   ReceiptStatusTotal,
 } from "@vektorprogrammet/domain/receipt";
 
-
 const projectionError = (operation: string, cause: unknown) =>
   new ReceiptPersistenceError({ operation, message: String(cause) });
 
@@ -121,7 +120,6 @@ export interface ReceiptLifecycleFileProjection {
   readonly byteLength: string;
   readonly sha256: string;
 }
-
 
 export const readReceiptLifecycleEvidence = (
   receiptId: string,

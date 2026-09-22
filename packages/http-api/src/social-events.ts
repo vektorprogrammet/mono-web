@@ -30,7 +30,6 @@ export {
   SocialEventScopeResource,
 };
 
-
 export const SocialEventsReadScopeProblem = problemUnion("SocialEventsReadScopeProblem", [
   ["request.malformed", 400],
   ["header.malformed", 400],

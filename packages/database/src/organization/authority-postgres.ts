@@ -18,7 +18,12 @@ import {
   OrganizationDecodeError,
   OrganizationPersistenceError,
 } from "@vektorprogrammet/domain/organization";
-import { DepartmentId, MembershipId, PersonId, TeamId } from "@vektorprogrammet/domain/organization";
+import {
+  DepartmentId,
+  MembershipId,
+  PersonId,
+  TeamId,
+} from "@vektorprogrammet/domain/organization";
 
 const OrganizationAuthorityProjectionRowSchema = Schema.Struct({
   globalAdministrator: OrganizationGlobalAdministratorStatusSchema,

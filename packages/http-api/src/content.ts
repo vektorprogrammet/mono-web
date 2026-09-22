@@ -49,7 +49,6 @@ import {
 export { ArticleId, ArticleSlug, ContentWorkspaceSchema };
 export type { ContentWorkspace };
 
-
 /**
  * Optional public/staff department filter using the transport key.
  *

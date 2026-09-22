@@ -26,7 +26,10 @@ import {
   suspendOrganizationMembership,
 } from "./postgres.js";
 import { Organization } from "@vektorprogrammet/domain/organization";
-import type { OrganizationDecodeError, OrganizationPersistenceError } from "@vektorprogrammet/domain/organization";
+import type {
+  OrganizationDecodeError,
+  OrganizationPersistenceError,
+} from "@vektorprogrammet/domain/organization";
 import type { ProfileFailure } from "@vektorprogrammet/domain/profile";
 import {
   membershipCoversSemester,

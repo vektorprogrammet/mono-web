@@ -20,7 +20,6 @@ import { endpointProblemResponses, privateReadResponse } from "./http-semantics.
 export { SchoolDirectoryDepartmentSchema, SchoolDirectorySchema, SchoolId };
 export type { SchoolDirectory, SchoolDirectoryDepartment, SchoolDirectoryEntry };
 
-
 /**
  * One profile/organization directory row.
  *

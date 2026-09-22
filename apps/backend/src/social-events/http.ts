@@ -128,9 +128,7 @@ const strictScope = (request: Request) =>
       return Object.fromEntries(values);
     },
     catch: (cause) => cause,
-  }).pipe(
-    Effect.flatMap((scope) => strictDecode(SocialEventScope, scope, "request.malformed")),
-  );
+  }).pipe(Effect.flatMap((scope) => strictDecode(SocialEventScope, scope, "request.malformed")));
 
 const authorize = (input: {
   readonly endpoint: Endpoint;
@@ -209,15 +207,15 @@ const readSnapshot = (
     return yield* Database.use((sql) =>
       sql.withTransaction(
         Effect.gen(function* () {
-          yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`.pipe(Effect.asVoid);
+          yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`.pipe(
+            Effect.asVoid,
+          );
           const operation = mode === "scope" ? "readScope" : "list";
           yield* runTransactionHook(input, request, operation, "before-authority-snapshot");
-          const observedAt = yield* SocialEvents.use(({ readSnapshotInstant }) => readSnapshotInstant());
-          const authorization = yield* resolveSocialEventAuthority(
-            request,
-            observedAt,
-            "None",
+          const observedAt = yield* SocialEvents.use(({ readSnapshotInstant }) =>
+            readSnapshotInstant(),
           );
+          const authorization = yield* resolveSocialEventAuthority(request, observedAt, "None");
           yield* runTransactionHook(input, request, operation, "after-authority-snapshot");
 
           if (mode === "scope") {
@@ -231,11 +229,7 @@ const readSnapshot = (
             const body = yield* SocialEvents.use(({ readScope }) =>
               readScope({ authority: authorization.authority, observedAt }),
             );
-            const response = yield* strictDecode(
-              SocialEventScopeResource,
-              body,
-              "internal.error",
-            );
+            const response = yield* strictDecode(SocialEventScopeResource, body, "internal.error");
             return new Response(JSON.stringify(response), {
               headers: {
                 "content-type": "application/json",
@@ -253,7 +247,10 @@ const readSnapshot = (
             credential: authorization.credential,
             authority: authorization.authority,
             authorizationInstant: authorization.authorizationInstant,
-            context: socialEventDepartmentAccessContext(authorization.authority, scope.departmentId),
+            context: socialEventDepartmentAccessContext(
+              authorization.authority,
+              scope.departmentId,
+            ),
           });
           yield* SocialEvents.use(({ validateScope }) => validateScope(scope));
           const body = yield* SocialEvents.use(({ readList }) =>
@@ -299,7 +296,9 @@ const create = (request: Request, input: SocialEventsApiHttpOptions) =>
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         yield* runTransactionHook(input, request, "create", "before-authority-snapshot");
-        const observedAt = yield* SocialEvents.use(({ readSnapshotInstant }) => readSnapshotInstant());
+        const observedAt = yield* SocialEvents.use(({ readSnapshotInstant }) =>
+          readSnapshotInstant(),
+        );
         const authorization = yield* resolveSocialEventAuthority(request, observedAt, "ForShare");
         yield* runTransactionHook(input, request, "create", "after-authority-snapshot");
         yield* runTransactionHook(input, request, "create", "before-create-authorization");

@@ -1,6 +1,10 @@
 import { Effect, Schema } from "effect";
 import { Database } from "../service.js";
-import { SchoolsDecodeError, SchoolsPersistenceError, type SchoolsFailure } from "@vektorprogrammet/domain/schools";
+import {
+  SchoolsDecodeError,
+  SchoolsPersistenceError,
+  type SchoolsFailure,
+} from "@vektorprogrammet/domain/schools";
 import {
   SchoolDirectoryDepartmentsSchema,
   SchoolDirectoryListInputSchema,

@@ -1,8 +1,17 @@
 import assert from "node:assert/strict";
 import { Database, type DatabaseShape } from "./service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
-import { DepartmentId, Organization, OrganizationAuthorityInstantSchema, PersonId } from "@vektorprogrammet/domain/organization";
-import { Schools, SchoolsPersistenceError, type SchoolDirectoryListInput } from "@vektorprogrammet/domain/schools";
+import {
+  DepartmentId,
+  Organization,
+  OrganizationAuthorityInstantSchema,
+  PersonId,
+} from "@vektorprogrammet/domain/organization";
+import {
+  Schools,
+  SchoolsPersistenceError,
+  type SchoolDirectoryListInput,
+} from "@vektorprogrammet/domain/schools";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { readSchoolsDirectory } from "@vektorprogrammet/database/schools";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";

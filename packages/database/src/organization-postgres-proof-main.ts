@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { Database, type DatabaseShape } from "./service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
-import { Organization, OrganizationCommandId, PersonId, type CreateDepartmentCommand } from "@vektorprogrammet/domain/organization";
+import {
+  Organization,
+  OrganizationCommandId,
+  PersonId,
+  type CreateDepartmentCommand,
+} from "@vektorprogrammet/domain/organization";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "./layers.js";

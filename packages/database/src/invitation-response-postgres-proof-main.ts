@@ -8,7 +8,11 @@ import {
 } from "@vektorprogrammet/domain/notification";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
-import { Recruitment, RecruitmentInvitationCapabilitySchema, RecruitmentNotificationDeliveryError } from "@vektorprogrammet/domain/recruitment";
+import {
+  Recruitment,
+  RecruitmentInvitationCapabilitySchema,
+  RecruitmentNotificationDeliveryError,
+} from "@vektorprogrammet/domain/recruitment";
 import { deliverNextRecruitmentInvitationResponse } from "@vektorprogrammet/database/recruitment";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";

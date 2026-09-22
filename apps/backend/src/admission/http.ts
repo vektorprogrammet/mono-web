@@ -369,20 +369,18 @@ const requireActive = (actor: AdmissionPeriodActor) =>
     ? Effect.succeed(actor)
     : Effect.fail(new InactiveActor({ personId: actor.personId }));
 
-const actorFor = (
-  request: Request,
-  input: AdmissionApiHttpOptions,
-  departmentScope?: string,
-) =>
-  input.resolveActor(request, departmentScope).pipe(
-    Effect.catch((cause) =>
-      Effect.fail(
-        cause !== null && typeof cause === "object" && "_tag" in cause
-          ? cause
-          : new UnauthenticatedActor({ message: "authentication required" }),
+const actorFor = (request: Request, input: AdmissionApiHttpOptions, departmentScope?: string) =>
+  input
+    .resolveActor(request, departmentScope)
+    .pipe(
+      Effect.catch((cause) =>
+        Effect.fail(
+          cause !== null && typeof cause === "object" && "_tag" in cause
+            ? cause
+            : new UnauthenticatedActor({ message: "authentication required" }),
+        ),
       ),
-    ),
-  );
+    );
 
 const admissionActorForAuthority = (
   authority: OrganizationPersonAuthority,
@@ -696,23 +694,17 @@ const create = (request: Request, input: AdmissionApiHttpOptions) =>
     return nativeCommandOutcomeResponse(result);
   });
 
-const revise = (
-  request: Request,
-  admissionPeriodId: string,
-  input: AdmissionApiHttpOptions,
-) =>
+const revise = (request: Request, admissionPeriodId: string, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
-    const { typedAdmissionPeriodId, ifMatch, idempotencyKey, normalizedTarget } =
-      yield* Effect.try({
+    const { typedAdmissionPeriodId, ifMatch, idempotencyKey, normalizedTarget } = yield* Effect.try(
+      {
         try: () => {
           const typedAdmissionPeriodId = AdmissionPeriodId.make(admissionPeriodId);
           return {
             typedAdmissionPeriodId,
             ifMatch: parseRequiredIfMatch(
-              request.headers.get("if-match") === null
-                ? []
-                : [request.headers.get("if-match")!],
+              request.headers.get("if-match") === null ? [] : [request.headers.get("if-match")!],
             ),
             idempotencyKey: parseIdempotencyKey(
               request.headers.get("idempotency-key") === null
@@ -723,7 +715,8 @@ const revise = (
           };
         },
         catch: (cause) => cause,
-      });
+      },
+    );
     const patch = yield* decodeAdmissionPeriodPatch(request, input);
     const operationId = "admissions.reviseAdmissionPeriod";
     const result = yield* executeNativeHttpCommandPostgres(
@@ -1096,7 +1089,11 @@ export const AdmissionsApiHandlers = (input: AdmissionApiHttpOptions) =>
     Effect.succeed(
       handlers
         .handleRaw("listAdmissionPeriods", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => listManagement(webRequest, input), errorResponse),
+          toHttpApiResponse(
+            request,
+            (webRequest) => listManagement(webRequest, input),
+            errorResponse,
+          ),
         )
         .handleRaw("createAdmissionPeriod", ({ request }) =>
           toHttpApiResponse(request, (webRequest) => create(webRequest, input), errorResponse),
@@ -1119,7 +1116,11 @@ export const AdmissionsApiHandlers = (input: AdmissionApiHttpOptions) =>
           ),
         )
         .handleRaw("submitApplication", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => submitApplication(webRequest, input), errorResponse),
+          toHttpApiResponse(
+            request,
+            (webRequest) => submitApplication(webRequest, input),
+            errorResponse,
+          ),
         )
         .handleRaw("readApplicationConfirmation", ({ request, params }) =>
           toHttpApiResponse(
@@ -1129,7 +1130,11 @@ export const AdmissionsApiHandlers = (input: AdmissionApiHttpOptions) =>
           ),
         )
         .handleRaw("readApplicantProgress", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => applicantProgress(webRequest, input), errorResponse),
+          toHttpApiResponse(
+            request,
+            (webRequest) => applicantProgress(webRequest, input),
+            errorResponse,
+          ),
         )
         .handleRaw("readReturningAssistantOptions", ({ request }) =>
           toHttpApiResponse(

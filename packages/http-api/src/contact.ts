@@ -19,7 +19,6 @@ import { operationAnnotations, SessionUnauthorizedResponse } from "./common.js";
 import { endpointProblemResponses, problemUnion } from "./http-semantics.js";
 export { ContactMessage, ContactVisitorIp };
 
-
 export class ContactSsrSecurity extends HttpApiMiddleware.Service<ContactSsrSecurity>()(
   "@vektorprogrammet/http-api/ContactSsrSecurity",
   {

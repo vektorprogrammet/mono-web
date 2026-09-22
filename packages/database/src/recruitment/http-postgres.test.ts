@@ -2,7 +2,10 @@ import { Database, type DatabaseShape } from "../service.js";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import { RecruitmentInterviewId, RecruitmentInvitationCapabilitySchema } from "@vektorprogrammet/domain/recruitment";
+import {
+  RecruitmentInterviewId,
+  RecruitmentInvitationCapabilitySchema,
+} from "@vektorprogrammet/domain/recruitment";
 import {
   readRecruitmentInterviewHttpSourcePostgres,
   readRecruitmentInvitationHttpSnapshotPostgres,

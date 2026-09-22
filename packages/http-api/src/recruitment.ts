@@ -232,7 +232,6 @@ export type {
   RecruitmentSchedulingInterview,
 };
 
-
 const serviceFreePayload = <S extends Schema.Top>(
   schema: S,
 ): Schema.Codec<S["Type"], S["Encoded"]> =>

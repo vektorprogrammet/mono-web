@@ -2,7 +2,10 @@ import { Effect } from "effect";
 import { Database } from "../service.js";
 import { lockOnboardingApplicant } from "../onboarding/postgres.js";
 import type { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
-import { RecruitmentInterviewNotFound, RecruitmentScopeDenied } from "@vektorprogrammet/domain/recruitment";
+import {
+  RecruitmentInterviewNotFound,
+  RecruitmentScopeDenied,
+} from "@vektorprogrammet/domain/recruitment";
 import type { RecruitmentInterviewId } from "@vektorprogrammet/domain/recruitment";
 import { isKnownSelfInterview } from "@vektorprogrammet/domain/recruitment";
 

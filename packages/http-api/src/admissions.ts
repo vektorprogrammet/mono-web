@@ -63,7 +63,6 @@ export {
 };
 export type { ApplicantProgressItem, ApplicantProgressResponse, ApplicantProgressState };
 
-
 /** @since 0.1.0 @category Endpoints */
 export const ListOpenAdmissionPeriodsEndpoint = HttpApiEndpoint.get(
   "listOpenAdmissionPeriods",

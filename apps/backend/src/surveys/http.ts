@@ -46,9 +46,7 @@ const semantic = <A>(operation: () => A) =>
   Effect.try({
     try: operation,
     catch: (cause) =>
-      cause instanceof HttpSemanticFailure
-        ? cause
-        : new HttpSemanticFailure("internal.error", 500),
+      cause instanceof HttpSemanticFailure ? cause : new HttpSemanticFailure("internal.error", 500),
   });
 const noQuery = (request: Request) =>
   semantic(() => {

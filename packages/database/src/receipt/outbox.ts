@@ -30,7 +30,6 @@ interface ClaimIdRow {
   readonly claim_id: string;
 }
 
-
 const persistenceError = (operation: string, cause: unknown) =>
   new ReceiptPersistenceError({ operation, message: String(cause) });
 

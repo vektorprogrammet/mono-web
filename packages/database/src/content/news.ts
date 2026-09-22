@@ -4,7 +4,11 @@ import { Database } from "../service.js";
 import type { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { Organization } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
-import { ContentDecodeError, ContentDepartmentNotFound, ContentIntegrityError } from "@vektorprogrammet/domain/content";
+import {
+  ContentDecodeError,
+  ContentDepartmentNotFound,
+  ContentIntegrityError,
+} from "@vektorprogrammet/domain/content";
 import { filterNewsListingByDepartment } from "@vektorprogrammet/domain/content";
 import type { ArticleNotFound } from "@vektorprogrammet/domain/content";
 import {

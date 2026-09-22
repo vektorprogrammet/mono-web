@@ -53,7 +53,6 @@ export {
 };
 export type { DepartmentJson, FieldOfStudyJson, TeamJson };
 
-
 /**
  * Leader-scoped organization query. Repeated values remain representable because
  * the current transport selects the first value.

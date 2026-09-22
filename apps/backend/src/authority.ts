@@ -307,7 +307,11 @@ export const resolveRequestPersonAuthorityInTransaction = (
 export const resolveAuthenticatedPersonAtInstant = (
   cookieHeader: string | undefined,
   options: AuthorityResolutionOptions = {},
-): Effect.Effect<AuthenticatedPersonAtInstant, IdentityEngineError | UnauthenticatedActor, Identity> =>
+): Effect.Effect<
+  AuthenticatedPersonAtInstant,
+  IdentityEngineError | UnauthenticatedActor,
+  Identity
+> =>
   Effect.flatMap(sessionEffect(cookieHeader), (actor) =>
     Effect.sync(() => ({
       personId: actor.personId,

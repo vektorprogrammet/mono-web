@@ -7,7 +7,12 @@ import {
   type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
 import { DepartmentNotFound } from "@vektorprogrammet/domain/organization";
-import { DepartmentId, MembershipId, PersonId, TeamId } from "@vektorprogrammet/domain/organization";
+import {
+  DepartmentId,
+  MembershipId,
+  PersonId,
+  TeamId,
+} from "@vektorprogrammet/domain/organization";
 import { Organization } from "@vektorprogrammet/domain/organization";
 import { readSchoolsDirectory } from "./directory.js";
 import { Schools } from "@vektorprogrammet/domain/schools";

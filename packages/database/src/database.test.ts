@@ -17,17 +17,40 @@ import { runPublicApplicationOutboxWorker } from "../../../apps/backend/src/appl
 import { deliverNextPublicApplicationOutbox } from "./application/outbox.js";
 import { executePublicApplicationCommand } from "./application/postgres.js";
 import {
-  executeAdmissionPeriodCommand, listOpenAdmissionPeriods, } from "./admission-period/postgres.js";
+  executeAdmissionPeriodCommand,
+  listOpenAdmissionPeriods,
+} from "./admission-period/postgres.js";
 import {
-  importOrganizationSnapshot, listOrganizationTeamInterestRegistrations, } from "./organization/postgres.js";
+  importOrganizationSnapshot,
+  listOrganizationTeamInterestRegistrations,
+} from "./organization/postgres.js";
 import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
 import { Database } from "./service.js";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
-import { departmentIdForCommand, Organization, OrganizationCommandId } from "@vektorprogrammet/domain/organization";
-import { InterviewSchemaId, Recruitment, RecruitmentAssignmentCommandId, RecruitmentInterviewId, RecruitmentInvitationId, RecruitmentInvitationCapabilitySchema, RecruitmentScheduleCommandId, RecruitmentConductCommandId, RecruitmentCancellationCommandId, RecruitmentNotificationDeliveryError } from "@vektorprogrammet/domain/recruitment";
+import {
+  departmentIdForCommand,
+  Organization,
+  OrganizationCommandId,
+} from "@vektorprogrammet/domain/organization";
+import {
+  InterviewSchemaId,
+  Recruitment,
+  RecruitmentAssignmentCommandId,
+  RecruitmentInterviewId,
+  RecruitmentInvitationId,
+  RecruitmentInvitationCapabilitySchema,
+  RecruitmentScheduleCommandId,
+  RecruitmentConductCommandId,
+  RecruitmentCancellationCommandId,
+  RecruitmentNotificationDeliveryError,
+} from "@vektorprogrammet/domain/recruitment";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
-import { deliverNextRecruitmentInterviewCompletion, deliverNextRecruitmentInvitation, deliverNextRecruitmentInvitationResponse } from "@vektorprogrammet/database/recruitment";
+import {
+  deliverNextRecruitmentInterviewCompletion,
+  deliverNextRecruitmentInvitation,
+  deliverNextRecruitmentInvitationResponse,
+} from "@vektorprogrammet/database/recruitment";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import {
   makeRecordingNotificationGateway,

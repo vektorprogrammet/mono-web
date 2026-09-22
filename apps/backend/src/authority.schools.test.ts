@@ -10,12 +10,8 @@ import {
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { DateTime, Effect } from "effect";
 import { expect, it } from "vitest";
-import {
-  resolveAuthenticatedPerson,
-  resolveAuthenticatedPersonAtInstant,
-} from "./authority.js";
+import { resolveAuthenticatedPerson, resolveAuthenticatedPersonAtInstant } from "./authority.js";
 import { runTestPromise } from "../test/runtime.js";
-
 
 const unreachableSessionManagement = {
   readCurrentSession: () => Promise.reject(new Error("unexpected session read")),

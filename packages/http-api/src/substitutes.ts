@@ -22,7 +22,6 @@ import {
 } from "./http-semantics.js";
 export { SubstituteMutation };
 
-
 export const ActiveSubstituteResource = Schema.Struct({
   ...SubstituteEntry.members[0].fields,
   etag: StrongETag,

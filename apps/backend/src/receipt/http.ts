@@ -114,10 +114,14 @@ export interface ReceiptIdentityResolvers<E = never, R = never> {
   /** Request credential -> owner person id; no role or authority facts. */
   readonly resolvePersonId: (request: Request) => Effect.Effect<string, E, R>;
   /** Exact row 42 credential bridge; no token-carried authorization facts. */
-  readonly resolveApprovalCredential?: (request: Request) => Effect.Effect<{
-    readonly credential: AcceptedCredential;
-    readonly authorizationInstant: AuthorizationInstant;
-  }, E, R>;
+  readonly resolveApprovalCredential?: (request: Request) => Effect.Effect<
+    {
+      readonly credential: AcceptedCredential;
+      readonly authorizationInstant: AuthorizationInstant;
+    },
+    E,
+    R
+  >;
 }
 
 export interface ReceiptApiHttpOptions<E = never, R = never> {
@@ -435,10 +439,7 @@ const invalidSessionFailure = (request: Request, cause: unknown): unknown =>
     ? new HttpSemanticFailure("credential.invalid", 401)
     : cause;
 
-const authorizationPrincipalFor = <E, R>(
-  request: Request,
-  options: ReceiptApiHttpOptions<E, R>,
-) =>
+const authorizationPrincipalFor = <E, R>(request: Request, options: ReceiptApiHttpOptions<E, R>) =>
   options.identity.resolveAuthorizationPrincipal(request).pipe(
     Effect.catch((cause) => {
       const classified = invalidSessionFailure(request, cause);
@@ -616,15 +617,11 @@ const drainOutbox = <E, R>(
     const claimedBefore = staleOutboxCutoff(options.config.now());
     const staleClaimIds = yield* Economy.use(({ listStaleOutboxClaims }) =>
       listStaleOutboxClaims(claimedBefore, receiptId),
-    ).pipe(
-      Effect.catch(() => Effect.succeed([] as ReadonlyArray<string>)),
-    );
+    ).pipe(Effect.catch(() => Effect.succeed([] as ReadonlyArray<string>)));
     for (const staleClaimId of staleClaimIds) {
       yield* Economy.use(({ recoverStaleOutboxClaim }) =>
         recoverStaleOutboxClaim(staleClaimId, claimedBefore),
-      ).pipe(
-        Effect.catch(() => Effect.void),
-      );
+      ).pipe(Effect.catch(() => Effect.void));
     }
     for (let attempt = 0; attempt < 256; attempt += 1) {
       const delivery = yield* deliverOutbox(
@@ -755,7 +752,9 @@ const decodeV2ReviseMultipart = (request: Request, maxFileBytes: number) =>
           },
         );
         if (fields.size === 0) {
-          throw new ReceiptDecodeError({ message: "receipt revision must change at least one field" });
+          throw new ReceiptDecodeError({
+            message: "receipt revision must change at least one field",
+          });
         }
         const description = fields.has("description")
           ? readSingleField(fields, "description")
@@ -787,11 +786,7 @@ const decodeV2ReviseMultipart = (request: Request, maxFileBytes: number) =>
 const decodeExactEmptyJson = (request: Request) =>
   Effect.tryPromise({
     try: async () => {
-      const mediaType = request.headers
-        .get("content-type")
-        ?.split(";", 1)[0]
-        ?.trim()
-        .toLowerCase();
+      const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
       if (mediaType !== "application/json") {
         throw new HttpSemanticFailure("request.malformed", 400);
       }
@@ -879,9 +874,7 @@ const authorizeReceiptMutationInTransaction = <Target extends ReceiptMutationAut
   target: Target,
   principal: ReceiptCommandPrincipal,
 ) =>
-  Economy.use(({ authorizeReceiptMutation }) =>
-    authorizeReceiptMutation(target, principal),
-  ).pipe(
+  Economy.use(({ authorizeReceiptMutation }) => authorizeReceiptMutation(target, principal)).pipe(
     Effect.flatMap((authorization) =>
       authorization._tag === target._tag
         ? Effect.succeed(authorization as ReceiptMutationAuthorizationFor<Target>)
@@ -1014,7 +1007,8 @@ const submitV2 = <E, R>(
           principal,
         );
         const identity = yield* Effect.try({
-          try: () => mutationIdentity(request, principal, "receipts.submitReceipt", "/api/receipts"),
+          try: () =>
+            mutationIdentity(request, principal, "receipts.submitReceipt", "/api/receipts"),
           catch: (cause) => cause,
         });
         const nextStaged = yield* Effect.tryPromise({
@@ -1399,9 +1393,9 @@ const approvalList = <E, R>(request: Request, options: ReceiptApiHttpOptions<E, 
     const resolved =
       options.identity.resolveApprovalCredential === undefined
         ? undefined
-        : yield* options.identity.resolveApprovalCredential(request).pipe(
-            Effect.catch((cause) => Effect.fail(invalidSessionFailure(request, cause))),
-          );
+        : yield* options.identity
+            .resolveApprovalCredential(request)
+            .pipe(Effect.catch((cause) => Effect.fail(invalidSessionFailure(request, cause))));
     if (
       resolved !== undefined &&
       resolved.credential.mechanism._tag === "OAuthServiceBearer" &&

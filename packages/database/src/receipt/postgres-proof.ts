@@ -3,10 +3,18 @@ import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import assert from "node:assert/strict";
 import { Effect } from "effect";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
-import { importLegacyReceipts, type ReceiptImportProvenance } from "@vektorprogrammet/domain/receipt";
+import {
+  importLegacyReceipts,
+  type ReceiptImportProvenance,
+} from "@vektorprogrammet/domain/receipt";
 import { executeReceiptCommand, storeReceiptImportResult } from "./postgres.js";
 import { listApproverReceipts, listAssistantReceipts, receiptStatusTotals } from "./projections.js";
-import { ReceiptId, ReceiptVisualId, type LegacyReceiptRow, type ReceiptFile } from "@vektorprogrammet/domain/receipt";
+import {
+  ReceiptId,
+  ReceiptVisualId,
+  type LegacyReceiptRow,
+  type ReceiptFile,
+} from "@vektorprogrammet/domain/receipt";
 
 interface CountRow {
   readonly count: string;

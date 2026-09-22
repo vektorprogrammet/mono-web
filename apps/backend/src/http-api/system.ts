@@ -102,7 +102,10 @@ const identityOperation = <A>(
   operation: (identity: IdentityShape) => Promise<A>,
 ): Effect.Effect<
   A,
-  IdentityEngineError | IdentitySessionNotFound | IdentitySessionExpired | IdentityOwnedSessionNotFound,
+  | IdentityEngineError
+  | IdentitySessionNotFound
+  | IdentitySessionExpired
+  | IdentityOwnedSessionNotFound,
   Identity
 > =>
   Identity.use((identity) =>

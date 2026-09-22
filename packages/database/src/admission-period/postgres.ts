@@ -16,7 +16,10 @@ import {
   StaleAdmissionPeriodRevision,
   type AdmissionPeriodFailure,
 } from "@vektorprogrammet/domain/admission-period";
-import { admissionPeriodCommandDigest, canonicalJson } from "@vektorprogrammet/domain/admission-period";
+import {
+  admissionPeriodCommandDigest,
+  canonicalJson,
+} from "@vektorprogrammet/domain/admission-period";
 import type { AdmissionPeriodOutboxRequest } from "@vektorprogrammet/domain/admission-period";
 import {
   AdmissionDepartment,
