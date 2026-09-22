@@ -479,7 +479,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       name: acknowledgementName,
       exact: true,
     });
-    await expect(acknowledgeCoverage).toContainText("Tilbudstatus: Akseptert");
+    await expect(acknowledgeCoverage.locator("xpath=..")).toContainText("Tilbudstatus: Akseptert");
     await acknowledgeCoverage.getByRole("button", { name: "Bekreft dekning", exact: true }).click();
     await submittedAndRemoved(acknowledgeCoverage);
     await staleAcknowledgement
