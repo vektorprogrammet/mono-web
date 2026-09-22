@@ -264,31 +264,25 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
                 return yield* Effect.fail(
                   new HttpSemanticFailure(precondition.code, precondition.status),
                 );
-              const changed = selected.own
-                ? resource(
-                    yield* mutateAffiliation(
-                      yield* readOwnAffiliation(
-                        auth.authority.personId,
-                        selected.scope.departmentId,
-                      ),
-                      selected.command.action,
+              const mutated = selected.own
+                ? yield* mutateAffiliation(
+                    yield* readOwnAffiliation(
                       auth.authority.personId,
-                      auth.authorizationInstant,
+                      selected.scope.departmentId,
                     ),
+                    selected.command.action,
+                    auth.authority.personId,
+                    auth.authorizationInstant,
                   )
-                : resource(
-                    yield* mutatePlacementBoard(
-                      selected.scope,
-                      selected.command,
-                      auth.authority.personId,
-                      auth.authorizationInstant,
-                      selected.command.action === "GenerateProposal"
-                        ? `school-service-proposal-${identity.identitySha256}`
-                        : selected.command.action === "RecordOccurrence"
-                          ? `school-service-occurrence-${identity.identitySha256}`
-                          : `placement-${identity.identitySha256}`,
-                    ),
+                : yield* mutatePlacementBoard(
+                    selected.scope,
+                    selected.command,
+                    auth.authority.personId,
+                    auth.authorizationInstant,
                   );
+              console.error("placement-mutation-result", selected.command.action, mutated);
+              const changed = resource(mutated);
+              console.error("placement-resource-result", selected.command.action, changed);
               return yield* Effect.tryPromise({
                 try: () => responseCapsule(json(changed, changed.etag)),
                 catch: (cause) => {
