@@ -416,9 +416,15 @@ const exerciseJourney = async ({ browser, ledger }) => {
 
   await leader.page.goto("/dashboard/undersokelser");
   await leader.page.getByRole("heading", { name: "Undersøkelser" }).waitFor();
-  assert.ok(
-    (await leader.page.getByRole("link", { name: "Undersøkelser", exact: true }).count()) > 0,
-    "dashboard navigation exposes surveys",
+  await leader.page.getByRole("button", { name: "Assistenter", exact: true }).click();
+  const surveyNavigation = leader.page.getByRole("link", {
+    name: "Undersøkelser",
+    exact: true,
+  });
+  await surveyNavigation.waitFor();
+  assert.equal(
+    new URL(await surveyNavigation.getAttribute("href"), dashboardOrigin).pathname,
+    "/dashboard/undersokelser",
   );
   await leader.page
     .locator("#school-surveys-department option")
