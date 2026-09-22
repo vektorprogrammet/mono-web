@@ -13,11 +13,11 @@ describe("generated NativeApi client", () => {
       return new Response("", { status: 500 });
     };
     const client = createEffectClient("https://api.example.test", { fetch });
-    type RefundRequest = Parameters<EffectSdk["receipts"]["refundReceipt"]>[0];
+    type ApproveRequest = Parameters<EffectSdk["receipts"]["approveReceipt"]>[0];
 
     await Effect.runPromiseExit(
-      client.receipts.refundReceipt({
-        params: { receiptId: "receipt-1" } as RefundRequest["params"],
+      client.receipts.approveReceipt({
+        params: { receiptId: "receipt-1" } as ApproveRequest["params"],
         headers: {
           "idempotency-key": IdempotencyKey.make("AAAAAAAAAAAAAAAAAAAAAA"),
           "if-match": StrongETag.make('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"'),
@@ -26,7 +26,7 @@ describe("generated NativeApi client", () => {
       }),
     );
 
-    expect(requestUrl).toBe("https://api.example.test/api/receipts/receipt-1:refund");
+    expect(requestUrl).toBe("https://api.example.test/api/receipts/receipt-1:approve");
     expect(requestHeaders?.get("Idempotency-Key")).toBe("AAAAAAAAAAAAAAAAAAAAAA");
     expect(requestHeaders?.get("If-Match")).toBe(
       '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',

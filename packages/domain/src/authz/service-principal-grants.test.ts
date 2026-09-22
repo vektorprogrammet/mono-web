@@ -59,7 +59,7 @@ const authority = (
 
 const receipt = (
   receiptId: string,
-  status: "Pending" | "Refunded" | "Rejected",
+  status: "Pending" | "Approved" | "Rejected",
   resourceGrant: ServicePrincipalReceiptGrant,
 ): ServicePrincipalReceiptGrantAuthority["candidates"][number] => ({
   grant: resourceGrant,
@@ -74,6 +74,7 @@ const receipt = (
     description: "Service candidate",
     receiptDate: "2032-06-01",
     status,
+    approvedAt: status === "Approved" ? "2032-06-02T00:00:00.000Z" : null,
     revision: 0,
   },
 });
@@ -127,7 +128,7 @@ describe("service-principal receipt grants", () => {
       credential,
       authority([
         receipt("service-receipt-approval-pending", "Pending", pendingGrant),
-        receipt("service-receipt-approval-nonpending", "Refunded", nonpendingGrant),
+        receipt("service-receipt-approval-nonpending", "Approved", nonpendingGrant),
       ]),
       instant,
     );

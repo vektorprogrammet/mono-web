@@ -167,7 +167,9 @@ const settlementGrantRecord = (
     scope = { _tag: "Global" };
   } else {
     if (row.departmentId === null) {
-      return Effect.fail(decodeError("decode Receipt settlement grant", "missing department scope"));
+      return Effect.fail(
+        decodeError("decode Receipt settlement grant", "missing department scope"),
+      );
     }
     scope = { _tag: "Department", departmentId: row.departmentId };
   }
@@ -733,10 +735,9 @@ export const endReceiptSettlementGrant = (
   input: unknown,
 ): Effect.Effect<ReceiptSettlementGrant, ReceiptAuthorityWriteFailure, Database> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(EndReceiptSettlementGrantInputSchema)(
-      input,
-      { onExcessProperty: "error" },
-    ).pipe(
+    const command = yield* Schema.decodeUnknownEffect(EndReceiptSettlementGrantInputSchema)(input, {
+      onExcessProperty: "error",
+    }).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt settlement grant ending", cause)),
     );
     const sql = yield* Database;
@@ -756,9 +757,7 @@ export const endReceiptSettlementGrant = (
             },
             { onExcessProperty: "error" },
           ).pipe(
-            Effect.mapError((cause) =>
-              decodeError("decode ended Receipt settlement grant", cause),
-            ),
+            Effect.mapError((cause) => decodeError("decode ended Receipt settlement grant", cause)),
           );
           const updated = yield* sql<{ readonly settlementGrantId: string }>`
             UPDATE public.economy_receipt_settlement_grants

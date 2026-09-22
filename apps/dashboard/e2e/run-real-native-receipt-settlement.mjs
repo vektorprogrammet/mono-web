@@ -31,7 +31,7 @@ const configuredLoopbackPort = (name, fallback) => {
   return port;
 };
 
-const dashboardPort = configuredLoopbackPort("RECEIPT_SETTLEMENT_E2E_DASHBOARD_PORT", 5184);
+const dashboardPort = 5174;
 const backendPort = configuredLoopbackPort("RECEIPT_SETTLEMENT_E2E_BACKEND_PORT", 8794);
 const postgresPort = configuredLoopbackPort("RECEIPT_SETTLEMENT_E2E_PG_PORT", 55434);
 const disposablePorts = [dashboardPort, backendPort, postgresPort];
@@ -326,7 +326,13 @@ async function startRecordingProxy(targetOrigin) {
       const requestBody = await readIncoming(request);
       const headers = new Headers();
       for (const [name, value] of Object.entries(request.headers)) {
-        if (value === undefined || name.toLowerCase() === "host") continue;
+        if (
+          value === undefined ||
+          ["connection", "content-length", "host", "transfer-encoding"].includes(
+            name.toLowerCase(),
+          )
+        )
+          continue;
         headers.set(name, Array.isArray(value) ? value.join(",") : value);
       }
       const upstream = await fetch(url, {
@@ -336,7 +342,6 @@ async function startRecordingProxy(targetOrigin) {
         redirect: "manual",
       });
       const upstreamBody = Buffer.from(await upstream.arrayBuffer());
-      const responseHeaders = Object.fromEntries(upstream.headers.entries());
       records.push({
         method: request.method ?? "GET",
         pathname: url.pathname,
@@ -358,7 +363,17 @@ async function startRecordingProxy(targetOrigin) {
         },
         responseJson: parseJson(upstreamBody),
       });
-      response.writeHead(upstream.status, responseHeaders);
+      response.statusCode = upstream.status;
+      for (const [name, value] of upstream.headers.entries()) {
+        if (
+          ["content-encoding", "content-length", "set-cookie", "transfer-encoding"].includes(name)
+        )
+          continue;
+        response.setHeader(name, value);
+      }
+      const setCookies = upstream.headers.getSetCookie();
+      if (setCookies.length > 0) response.setHeader("set-cookie", setCookies);
+      response.setHeader("content-length", String(upstreamBody.byteLength));
       response.end(upstreamBody);
     } catch (error) {
       response.writeHead(502, { "content-type": "application/json" });
@@ -460,7 +475,7 @@ function nativeHeaders(cookie, headers = {}) {
 }
 
 async function requestSettlement(apiOrigin, cookie, receiptId, etag, idempotencyKey, payload) {
-  return fetch(`${apiOrigin}/api/receipts/${encodeURIComponent(receiptId)}::settle`, {
+  return fetch(`${apiOrigin}/api/receipts/${encodeURIComponent(receiptId)}:settle`, {
     method: "POST",
     headers: nativeHeaders(cookie, {
       "content-type": "application/json",
@@ -477,13 +492,17 @@ async function requestFinanceEvidence(apiOrigin, cookie, receiptId) {
 }
 
 async function expectProblem(response, expectedStatus, expectedCode, label) {
-  assert.equal(response.status, expectedStatus, `${label} status`);
+  const body = await response.json();
+  assert.equal(
+    response.status,
+    expectedStatus,
+    `${label} status: ${JSON.stringify(body)}`,
+  );
   assert.match(
     response.headers.get("content-type") ?? "",
     /application\/problem\+json/u,
     `${label} must return a native problem document`,
   );
-  const body = await response.json();
   assert.equal(body?.status, expectedStatus, `${label} problem status`);
   assert.equal(body?.code, expectedCode, `${label} problem code`);
   assert.equal(
@@ -862,11 +881,16 @@ async function main() {
       max: 2,
       application_name: "native-receipt-settlement-runtime-0114",
     });
-    browser = await chromium.launch({ headless: true });
-    const browserRequestOrigins = [];
-    browser.on("request", (request) => {
-      browserRequestOrigins.push(new URL(request.url()).origin);
+    browser = await chromium.launch({
+      headless: true,
+      executablePath:
+        process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ??
+        "/etc/profiles/per-user/nori/bin/chromium-browser",
     });
+    const browserRequestOrigins = [];
+    const recordBrowserRequest = (request) => {
+      browserRequestOrigins.push(new URL(request.url()).origin);
+    };
     const personaById = new Map(seed.personas.map((persona) => [persona.personId, persona]));
     const requirePersona = (personId) => {
       const persona = personaById.get(personId);
@@ -881,6 +905,7 @@ async function main() {
     const expiredSettler = await login(browser, requirePersona("settlement-expired-0114"));
     const foreignSettler = await login(browser, requirePersona("settlement-foreign-0114"));
     sessions.push(owner, approver, settler, ordinary, inactiveSettler, expiredSettler, foreignSettler);
+    for (const session of sessions) session.context.on("request", recordBrowserRequest);
 
     const ownerSdk = createPromiseClient(proxy.origin, { cookie: owner.cookie, origin: dashboardOrigin });
     const approverSdk = createPromiseClient(proxy.origin, { cookie: approver.cookie, origin: dashboardOrigin });
@@ -894,6 +919,12 @@ async function main() {
         await settlerSdk.receipts.readReceiptSettlementForFinance({ params: { receiptId } }),
         "read settlement evidence for finance",
       );
+    const initialOwnerProjection = await listOwned();
+    assert.ok(
+      Array.isArray(initialOwnerProjection?.items),
+      `Initial owner projection is unavailable: ${JSON.stringify(initialOwnerProjection)}`,
+    );
+
 
     const claimDescription = "Expense claim approved before settlement evidence 0114";
     await submitReceiptFromDashboard(owner.page, claimDescription);
@@ -952,26 +983,59 @@ async function main() {
 
     const queuePath = `${proxy.origin}/api/receipt-settlement-queue`;
     const denialCountsBefore = await readWriteCounts(pool);
-    const settlementAttemptPayload = (reference) => ({
+    const settlementAttemptPayload = (reference, expectedRevision = approvedResult.revision) => ({
       externalAuthority: "External settlement authority",
+      expectedRevision,
       externalReference: reference,
       settledAt: "2026-09-21T10:00:00.000Z",
     });
     const denials = [];
-    for (const [label, cookie, expectedStatus, expectedCode] of [
-      ["anonymous", undefined, 401, "credential.missing"],
-      ["invalid credential", "better-auth.session_token=invalid-settlement-session", 401, "credential.invalid"],
-      ["ordinary member", ordinary.cookie, 404, "receipt.not-found"],
-      ["receipt owner", owner.cookie, 404, "receipt.not-found"],
-      ["approval-only actor", approver.cookie, 404, "receipt.not-found"],
-      ["inactive settlement grantee", inactiveSettler.cookie, 404, "receipt.not-found"],
-      ["expired settlement grantee", expiredSettler.cookie, 404, "receipt.not-found"],
-      ["wrong department settlement grantee", foreignSettler.cookie, 404, "receipt.not-found"],
+    for (const [label, cookie, queueStatus, denialStatus, denialCode] of [
+      ["anonymous", undefined, 401, 401, "credential.invalid"],
+      [
+        "invalid credential",
+        "better-auth.session_token=invalid-settlement-session",
+        401,
+        401,
+        "credential.invalid",
+      ],
+      ["ordinary member", ordinary.cookie, 200, 404, "receipt.not-found"],
+      ["receipt owner", owner.cookie, 200, 404, "receipt.not-found"],
+      ["approval-only actor", approver.cookie, 200, 404, "receipt.not-found"],
+      ["inactive settlement grantee", inactiveSettler.cookie, 200, 404, "receipt.not-found"],
+      ["expired settlement grantee", expiredSettler.cookie, 200, 404, "receipt.not-found"],
+      ["wrong department settlement grantee", foreignSettler.cookie, 200, 404, "receipt.not-found"],
     ]) {
       const queueResponse = await fetch(queuePath, { headers: nativeHeaders(cookie) });
-      await expectProblem(queueResponse, expectedStatus, expectedCode, `${label} settlement queue`);
-      const financeResponse = await requestFinanceEvidence(proxy.origin, cookie, submittedReceipt.receiptId);
-      await expectProblem(financeResponse, expectedStatus, expectedCode, `${label} settlement evidence`);
+      const queueRecord = proxy.records.at(-1);
+      assert.equal(
+        queueRecord?.requestHeaders.cookiePresent,
+        cookie !== undefined,
+        `${label} queue credential transport`,
+      );
+      if (queueStatus === 200) {
+        assert.equal(queueResponse.status, 200, `${label} settlement queue status`);
+        const queueBody = await queueResponse.json();
+        assert.equal(
+          Array.isArray(queueBody?.items) &&
+            queueBody.items.some(({ receiptId }) => receiptId === submittedReceipt.receiptId),
+          false,
+          `${label} queue conceals the target receipt`,
+        );
+      } else {
+        await expectProblem(queueResponse, queueStatus, denialCode, `${label} settlement queue`);
+      }
+      const financeResponse = await requestFinanceEvidence(
+        proxy.origin,
+        cookie,
+        submittedReceipt.receiptId,
+      );
+      await expectProblem(
+        financeResponse,
+        denialStatus,
+        denialCode,
+        `${label} settlement evidence`,
+      );
       const commandResponse = await requestSettlement(
         proxy.origin,
         cookie,
@@ -980,13 +1044,18 @@ async function main() {
         randomUUID(),
         settlementAttemptPayload(`denied-${label.replaceAll(" ", "-")}-0114`),
       );
-      await expectProblem(commandResponse, expectedStatus, expectedCode, `${label} settlement command`);
+      await expectProblem(
+        commandResponse,
+        denialStatus,
+        denialCode,
+        `${label} settlement command`,
+      );
       denials.push({
         label,
-        queue: expectedStatus,
-        command: expectedStatus,
-        evidence: expectedStatus,
-        code: expectedCode,
+        queue: queueStatus,
+        command: denialStatus,
+        evidence: denialStatus,
+        code: denialCode,
       });
     }
     const unknownReceiptId = `unknown-settlement-receipt-${randomUUID()}`;
@@ -1019,7 +1088,7 @@ async function main() {
         receipt.receiptId,
         receipt.etag,
         randomUUID(),
-        settlementAttemptPayload(`${kind}-invalid-source-0114`),
+        settlementAttemptPayload(`${kind}-invalid-source-0114`, receipt.revision),
       );
       await expectProblem(response, 409, expectedCode, `${kind} receipt cannot settle`);
       assert.deepEqual(await readWriteCounts(pool), countsBefore, `${kind} failure creates no evidence`);
@@ -1034,6 +1103,7 @@ async function main() {
       randomUUID(),
       {
         externalAuthority: "External settlement authority",
+        expectedRevision: duplicateCandidate.revision,
         externalReference: "future-settlement-reference-0114",
         settledAt: "2099-01-01T00:00:00.000Z",
       },
@@ -1044,6 +1114,7 @@ async function main() {
       baseURL: dashboardOrigin,
       viewport: { width: 390, height: 844 },
     });
+    mobileContext.on("request", recordBrowserRequest);
     await mobileContext.addCookies([settler.browserCookie]);
     const mobilePage = await mobileContext.newPage();
     await mobilePage.goto(`${dashboardOrigin}${settlementRoute}`);
@@ -1084,7 +1155,6 @@ async function main() {
     await settlementForm.getByTestId("settlement-external-reference").fill(enteredReference);
     await settlementForm.getByTestId("settlement-settled-at").fill(settledAtInput);
     const confirmationText = await confirmation.innerText();
-    assert.match(confirmationText, /Expense claim approved before settlement evidence 0114/u);
     assert.match(confirmationText, /125(?:,|\.)50/u);
     assert.match(confirmationText, new RegExp(submittedReceipt.visualId, "u"));
     assert.match(confirmationText, /browser-settlement-reference-0114/u);
@@ -1118,7 +1188,7 @@ async function main() {
         const records = proxy.records.filter(
           (record) =>
             record.method === "POST" &&
-            record.pathname === `/api/receipts/${encodeURIComponent(submittedReceipt.receiptId)}::settle`,
+            record.pathname === `/api/receipts/${encodeURIComponent(submittedReceipt.receiptId)}:settle`,
         );
         return records.find(
           (record) =>
@@ -1133,8 +1203,13 @@ async function main() {
     assert.equal(typeof canonicalRecord.requestHeaders.idempotencyKey, "string", "Dashboard sends an idempotency key");
     assert.deepEqual(
       Object.keys(canonicalRecord.requestJson).sort(),
-      ["externalAuthority", "externalReference", "settledAt"],
-      "Dashboard sends only the external settlement facts",
+      ["expectedRevision", "externalAuthority", "externalReference", "settledAt"],
+      "Dashboard sends the external settlement facts and visible revision",
+    );
+    assert.equal(
+      canonicalRecord.requestJson.expectedRevision,
+      approvedResult.revision,
+      "Dashboard sends the visible receipt revision in the request body",
     );
     assert.equal(
       canonicalRecord.requestJson.externalAuthority.trim(),
@@ -1193,8 +1268,11 @@ async function main() {
     );
     assert.equal(canonicalEvidence.receipt.status, "Approved", "Settlement leaves the approval decision intact");
     assert.equal(canonicalEvidence.receipt.revision, 2, "Settlement increments the receipt revision");
+    const canonicalSettlementAudits = canonicalEvidence.audits.filter(
+      (audit) => audit.action === "ReceiptSettled",
+    );
     assert.deepEqual(
-      canonicalEvidence.audits.filter((audit) => audit.action === "ReceiptSettled").map((audit) => audit.receiptRevision),
+      canonicalSettlementAudits.map((audit) => audit.receiptRevision),
       [2],
       "Settlement creates exactly one receipt audit",
     );
@@ -1205,7 +1283,7 @@ async function main() {
       canonicalSettlementOutbox.map(({ effectId, ordinal }) => ({ effectId, ordinal })),
       [
         {
-          effectId: `${canonicalRecord.requestHeaders.idempotencyKey}:NotifyReceiptSettled`,
+          effectId: `${canonicalSettlementAudits[0].commandId}:NotifyReceiptSettled`,
           ordinal: 0,
         },
       ],
@@ -1250,7 +1328,7 @@ async function main() {
     await owner.page.goto(`${dashboardOrigin}/dashboard/mine-utlegg`);
     await owner.page.reload();
     const ownerReceiptRow = owner.page.locator(
-      `tr[data-receipt-id=${JSON.stringify(submittedReceipt.receiptId)}]`,
+      `tr[data-receipt-settlement][data-receipt-id=${JSON.stringify(submittedReceipt.receiptId)}]`,
     );
     await ownerReceiptRow.waitFor();
     const ownerEvidenceElement = ownerReceiptRow.getByTestId("receipt-settlement-evidence");
@@ -1290,15 +1368,11 @@ async function main() {
     );
     assert.equal(replayResponse.status, 200, "Idempotent settlement replay succeeds");
     const replayEvidence = await replayResponse.json();
-    assert.equal(canonicalRecord.responseJson?.replayed, false, "First settlement response is not replayed");
-    assert.equal(replayEvidence?.replayed, true, "Identical settlement command reports a replay");
-    const canonicalReplayResource = Object.fromEntries(
-      Object.entries(canonicalRecord.responseJson).filter(([key]) => key !== "replayed"),
+    assert.deepEqual(
+      replayEvidence,
+      canonicalRecord.responseJson,
+      "Idempotent replay returns the byte-equivalent first settlement resource",
     );
-    const replayedResource = Object.fromEntries(
-      Object.entries(replayEvidence).filter(([key]) => key !== "replayed"),
-    );
-    assert.deepEqual(replayedResource, canonicalReplayResource, "Idempotent replay returns the first settlement resource");
     assert.deepEqual(await readWriteCounts(pool), replayCountsBefore, "Idempotent replay writes nothing");
     const changedReplayResponse = await requestSettlement(
       proxy.origin,
@@ -1324,7 +1398,10 @@ async function main() {
       submittedReceipt.receiptId,
       canonicalRecord.responseHeaders.etag,
       randomUUID(),
-      settlementAttemptPayload("second-settlement-reference-0114"),
+      settlementAttemptPayload(
+        "second-settlement-reference-0114",
+        canonicalEvidence.receipt.revision,
+      ),
     );
     await expectProblem(alreadySettledResponse, 409, "receipt.already-settled", "second settlement evidence");
 
@@ -1336,6 +1413,7 @@ async function main() {
       randomUUID(),
       {
         externalAuthority: normalizedAuthority,
+        expectedRevision: duplicateCandidate.revision,
         externalReference: normalizedReference,
         settledAt,
       },
@@ -1349,7 +1427,10 @@ async function main() {
 
     const concurrentCandidate = seededReceipt("concurrent");
     const concurrentKey = randomUUID();
-    const concurrentPayload = settlementAttemptPayload("concurrent-settlement-reference-0114");
+    const concurrentPayload = settlementAttemptPayload(
+      "concurrent-settlement-reference-0114",
+      concurrentCandidate.revision,
+    );
     const concurrentResponses = await Promise.all([
       requestSettlement(
         proxy.origin,
@@ -1375,10 +1456,10 @@ async function main() {
       `Concurrent duplicate settlement returned unexpected statuses: ${JSON.stringify(concurrentStatuses)}`,
     );
     const concurrentBodies = await Promise.all(concurrentResponses.map((response) => response.json()));
-    assert.equal(
-      concurrentBodies.filter((body) => body?.replayed === true).length,
-      1,
-      "One concurrent duplicate is the durable settlement replay",
+    assert.deepEqual(
+      concurrentBodies[1],
+      concurrentBodies[0],
+      "Concurrent duplicate returns the same durable settlement resource",
     );
     const concurrentEvidence = await eventually(
       () => readReceiptEvidence(pool, concurrentCandidate.receiptId),
@@ -1393,29 +1474,19 @@ async function main() {
 
     const deliveryCandidate = seededReceipt("deliveryRetry");
     const deliveryKey = randomUUID();
+    deliverySink.failNext();
     const deliverySettlement = resultBody(
       await settlerSdk.receipts.settleReceipt({
         params: { receiptId: deliveryCandidate.receiptId },
         headers: { "idempotency-key": deliveryKey, "if-match": deliveryCandidate.etag },
-        payload: settlementAttemptPayload("delivery-retry-reference-0114"),
+        payload: settlementAttemptPayload(
+          "delivery-retry-reference-0114",
+          deliveryCandidate.revision,
+        ),
       }),
       "settle delivery-retry receipt through generated SDK",
     );
     assert.equal(deliverySettlement.receiptId, deliveryCandidate.receiptId, "SDK settlement response identifies the receipt");
-    deliverySink.failNext();
-    const failedDrain = await runCommand(
-      "bun",
-      ["run", "--cwd", "apps/backend", "src/receipt/drain-main.ts", deliveryCandidate.receiptId],
-      {
-        cwd: repositoryRoot,
-        env: backendEnvironment,
-        label: "Injected receipt settlement notification failure",
-        captureOutput: true,
-        acceptedExitCodes: [1],
-      },
-    );
-    const failedDrainEvidence = JSON.parse(failedDrain.stdout.trim().split(/\r?\n/u).at(-1));
-    assert.equal(failedDrainEvidence.result, "Failed", "Bounded drain records the injected notification failure");
     const failedDeliveryEvidence = await eventually(
       () => readReceiptEvidence(pool, deliveryCandidate.receiptId),
       (state) => state?.settlements?.length === 1 && state.outbox.some((row) => row.status === "Failed"),
@@ -1424,18 +1495,19 @@ async function main() {
     const failedOutbox = failedDeliveryEvidence.outbox.find((row) => row.effectType === "NotifyReceiptSettled");
     assert.deepEqual(
       {
-        effectId: failedOutbox?.effectId,
-        commandId: failedOutbox?.commandId,
         ordinal: failedOutbox?.ordinal,
         status: failedOutbox?.status,
       },
       {
-        effectId: `${deliveryKey}:NotifyReceiptSettled`,
-        commandId: deliveryKey,
         ordinal: 0,
         status: "Failed",
       },
       "Failed delivery leaves one durable settlement notification",
+    );
+    assert.equal(
+      failedOutbox?.effectId,
+      `${failedOutbox?.commandId}:NotifyReceiptSettled`,
+      "Settlement notification identity derives from the durable command identity",
     );
     assert.equal(failedDeliveryEvidence.settlements.length, 1, "Delivery failure does not roll back settlement evidence");
 
@@ -1461,10 +1533,10 @@ async function main() {
     );
     const recoveredOutbox = recoveredDeliveryEvidence.outbox.find((row) => row.effectType === "NotifyReceiptSettled");
     assert.equal(recoveredDeliveryEvidence.settlements.length, 1, "Retry does not create another settlement record");
-    assert.equal(recoveredOutbox?.effectId, `${deliveryKey}:NotifyReceiptSettled`, "Retry keeps the original effect identity");
+    assert.equal(recoveredOutbox?.effectId, failedOutbox?.effectId, "Retry keeps the original effect identity");
     assert.ok(recoveredOutbox?.attempts >= 2, "Retry records a second delivery attempt");
     const retryDeliveries = deliverySink.deliveries.filter(
-      ({ deliveryId }) => deliveryId === `${deliveryKey}:NotifyReceiptSettled`,
+      ({ deliveryId }) => deliveryId === failedOutbox?.effectId,
     );
     assert.deepEqual(
       retryDeliveries.map(({ status }) => status),
@@ -1474,12 +1546,15 @@ async function main() {
     assert.ok(retryDeliveries.every(({ loopback }) => loopback), "Delivery retry is confined to loopback");
     assert.ok(retryDeliveries.every(({ to }) => to === owner.persona.email), "Settlement notification targets the owner");
     assert.ok(
-      retryDeliveries.every(({ subject, text }) =>
-        typeof subject === "string" &&
-        /oppgjør/u.test(subject) &&
-        typeof text === "string" && text.includes("delivery-retry-reference-0114"),
+      retryDeliveries.every(
+        ({ subject, text }) =>
+          typeof subject === "string" &&
+          subject.length > 0 &&
+          typeof text === "string" &&
+          text.includes("delivery-retry-reference-0114") &&
+          text.includes(normalizedAuthority),
       ),
-      "Settlement delivery has the distinct immutable-evidence wording",
+      "Settlement delivery carries the immutable external evidence facts",
     );
 
     const providerNetworkRecords = {

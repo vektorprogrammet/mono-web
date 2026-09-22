@@ -24,9 +24,7 @@ const decodeSettlementEvidence = (
 ): Effect.Effect<ReceiptSettlementEvidence, ReceiptPersistenceError> =>
   Schema.decodeUnknownEffect(ReceiptSettlementEvidenceSelectSchema)(row, {
     onExcessProperty: "error",
-  }).pipe(
-    Effect.mapError((cause) => projectionError("decode Receipt settlement evidence", cause)),
-  );
+  }).pipe(Effect.mapError((cause) => projectionError("decode Receipt settlement evidence", cause)));
 const selectSettlementEvidence = (
   sql: DatabaseShape,
   receiptId: string,
@@ -174,15 +172,16 @@ export const listOwnedReceiptProjection = (
         Effect.fail(projectionError("list owned receipt projection", cause)),
       ),
     );
-    return yield* Effect.forEach(rows, (row) =>
-      row.settlement === null
-        ? Effect.succeed({ ...row, settlement: null })
-        : decodeSettlementEvidence(row.settlement).pipe(
-            Effect.map((settlement) => ({ ...row, settlement })),
-          ),
+    return yield* Effect.forEach(
+      rows,
+      (row): Effect.Effect<OwnedReceiptProjectionItem, ReceiptPersistenceError> =>
+        row.settlement === null
+          ? Effect.succeed({ ...row, settlement: null })
+          : decodeSettlementEvidence(row.settlement).pipe(
+              Effect.map((settlement) => ({ ...row, settlement })),
+            ),
     );
   });
-
 
 export interface ReceiptLifecycleFileProjection {
   readonly fileRef: string;

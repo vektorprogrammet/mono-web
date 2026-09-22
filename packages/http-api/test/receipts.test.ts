@@ -1,16 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
+  ApproveReceiptEndpoint,
   InternalReceiptsApi,
   ListReceiptsEndpoint,
   ListReceiptsForApprovalEndpoint,
+  ListReceiptsForSettlementEndpoint,
   ReadReceiptEvidenceEndpoint,
   ReadReceiptFileEndpoint,
   ReadReceiptFileForApprovalEndpoint,
+  ReadReceiptSettlementForFinanceEndpoint,
   ReceiptsApi,
-  RefundReceiptEndpoint,
   RejectReceiptEndpoint,
   ReopenReceiptEndpoint,
   ReviseReceiptEndpoint,
+  SettleReceiptEndpoint,
   SubmitReceiptEndpoint,
   WithdrawReceiptEndpoint,
 } from "../src/receipts.js";
@@ -19,7 +22,7 @@ const outwardPath = (path: string): string =>
   path.replace(/:receiptId(?:\(\[\^:\]\+\))?/u, "{receiptId}").replaceAll("::", ":");
 
 describe("frozen receipt route contract", () => {
-  it("projects the suffix-regex declarations to the exact ten public outward routes", () => {
+  it("projects the suffix-regex declarations to the exact thirteen public outward routes", () => {
     const routes = [
       [ReadReceiptFileEndpoint, "GET", "/api/receipts/{receiptId}/file", "readReceiptFile"],
       [
@@ -38,9 +41,22 @@ describe("frozen receipt route contract", () => {
         "/api/receipt-approval-queue",
         "listReceiptsForApproval",
       ],
-      [RefundReceiptEndpoint, "POST", "/api/receipts/{receiptId}:refund", "refundReceipt"],
+      [ApproveReceiptEndpoint, "POST", "/api/receipts/{receiptId}:approve", "approveReceipt"],
       [RejectReceiptEndpoint, "POST", "/api/receipts/{receiptId}:reject", "rejectReceipt"],
       [ReopenReceiptEndpoint, "POST", "/api/receipts/{receiptId}:reopen", "reopenReceipt"],
+      [
+        ListReceiptsForSettlementEndpoint,
+        "GET",
+        "/api/receipt-settlement-queue",
+        "listReceiptsForSettlement",
+      ],
+      [
+        ReadReceiptSettlementForFinanceEndpoint,
+        "GET",
+        "/api/receipt-settlement-queue/{receiptId}",
+        "readReceiptSettlementForFinance",
+      ],
+      [SettleReceiptEndpoint, "POST", "/api/receipts/{receiptId}:settle", "settleReceipt"],
     ] as const;
 
     expect(routes.map(([endpoint]) => [endpoint.method, outwardPath(endpoint.path)])).toEqual(

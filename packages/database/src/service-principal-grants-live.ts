@@ -53,6 +53,7 @@ type ServiceReceiptGrantRow = PersistedServiceReceiptGrantRow & {
   readonly description: string;
   readonly receipt_date: string;
   readonly receipt_status: string;
+  readonly approved_at: Date | null;
   readonly receipt_revision: number;
 };
 type PersistedServiceRuleRow = {
@@ -243,6 +244,7 @@ const readExactGrantCandidates = async (
        receipt.description,
        receipt.receipt_date::text,
        receipt.status AS receipt_status,
+       receipt.approved_at,
        receipt.revision AS receipt_revision
      FROM public.service_principal_grants AS grant_row
      JOIN public.economy_receipts AS receipt
@@ -279,6 +281,7 @@ const readExactGrantCandidates = async (
         description: row.description,
         receiptDate: row.receipt_date,
         status: row.receipt_status,
+        approvedAt: row.approved_at?.toISOString() ?? null,
         revision: row.receipt_revision,
       },
       { onExcessProperty: "error" },

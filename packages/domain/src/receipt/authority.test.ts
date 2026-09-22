@@ -126,7 +126,12 @@ it.effect("requires an active current settlement grant and conceals its scope", 
       organizationAuthority([membership(departmentOne, true)]),
       [],
       [],
-      [settlementGrant("settlement-department", { _tag: "Department", departmentId: departmentOne })],
+      [
+        settlementGrant("settlement-department", {
+          _tag: "Department",
+          departmentId: departmentOne,
+        }),
+      ],
     );
     const actor = yield* mapExistingReceiptSettlementActor(
       departmentAuthority,
@@ -140,11 +145,7 @@ it.effect("requires an active current settlement grant and conceals its scope", 
     });
 
     const wrongDepartment = yield* Effect.flip(
-      mapExistingReceiptSettlementActor(
-        departmentAuthority,
-        "receipt-settlement-2",
-        departmentTwo,
-      ),
+      mapExistingReceiptSettlementActor(departmentAuthority, "receipt-settlement-2", departmentTwo),
     );
     expect(wrongDepartment._tag).toBe("ReceiptNotFound");
 

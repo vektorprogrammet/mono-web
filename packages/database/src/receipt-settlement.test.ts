@@ -121,7 +121,7 @@ describe("Receipt settlement evidence in PGlite", () => {
           command("settlement-test-command-1", "settlement-test-receipt-1", 0, "reference-1"),
           principal(settlerPersonId),
         );
-        const immutableUpdate = yield* Effect.either(database`
+        const immutableUpdate = yield* Effect.exit(database`
           UPDATE public.economy_receipt_settlements
           SET external_reference = 'mutated-reference'
           WHERE settlement_id = ${recorded.settlement.settlementId}
@@ -169,16 +169,36 @@ describe("Receipt settlement evidence in PGlite", () => {
           [
             economy
               .recordReceiptSettlement(
-                command("settlement-test-command-6a", "settlement-test-receipt-4", 0, "reference-4a"),
+                command(
+                  "settlement-test-command-6a",
+                  "settlement-test-receipt-4",
+                  0,
+                  "reference-4a",
+                ),
                 principal(settlerPersonId),
               )
-              .pipe(Effect.either),
+              .pipe(
+                Effect.match({
+                  onFailure: (error) => ({ _tag: "Failure" as const, error }),
+                  onSuccess: (value) => ({ _tag: "Success" as const, value }),
+                }),
+              ),
             economy
               .recordReceiptSettlement(
-                command("settlement-test-command-6b", "settlement-test-receipt-4", 0, "reference-4b"),
+                command(
+                  "settlement-test-command-6b",
+                  "settlement-test-receipt-4",
+                  0,
+                  "reference-4b",
+                ),
                 principal(settlerPersonId),
               )
-              .pipe(Effect.either),
+              .pipe(
+                Effect.match({
+                  onFailure: (error) => ({ _tag: "Failure" as const, error }),
+                  onSuccess: (value) => ({ _tag: "Success" as const, value }),
+                }),
+              ),
           ],
           { concurrency: "unbounded" },
         );
@@ -218,7 +238,6 @@ describe("Receipt settlement evidence in PGlite", () => {
           WHERE command_id = 'settlement-test-command-1'
         `;
 
-
         return {
           recorded,
           replay,
@@ -229,7 +248,7 @@ describe("Receipt settlement evidence in PGlite", () => {
           unapproved: unapproved._tag,
           concealedAuthority: concealedAuthority._tag,
           concurrent: concurrent.map((result) =>
-            result._tag === "Right" ? "Accepted" : result.left._tag,
+            result._tag === "Success" ? "Accepted" : result.error._tag,
           ),
           queue: queue.map(({ receiptId }) => receiptId),
           ownerSettlement: owned.find(({ receiptId }) => receiptId === "settlement-test-receipt-1")
@@ -263,7 +282,7 @@ describe("Receipt settlement evidence in PGlite", () => {
       outboxCount: 0,
       observation: { receiptId: "settlement-test-receipt-1", revision: 1, replayed: true },
     });
-    expect(evidence.immutableUpdate).toBe("Left");
+    expect(evidence.immutableUpdate).toBe("Failure");
     expect(evidence.changedReplay).toBe("DuplicateReceiptCommandConflict");
     expect(evidence.duplicateReference).toBe("DuplicateExternalSettlementReference");
     expect(evidence.staleRevision).toBe("StaleReceiptRevision");

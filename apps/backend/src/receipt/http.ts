@@ -29,7 +29,7 @@ import {
   executeNativeHttpCommandPostgres,
   type NativeHttpResponseCapsule,
 } from "../http-api/receipt-transaction.js";
-import { Effect, Option } from "effect";
+import { Effect, Option, Schema } from "effect";
 import {
   Economy,
   ReceiptDecodeError,
@@ -59,9 +59,9 @@ import {
   InternalNativeApi,
   ReadReceiptFileEndpoint,
   RecordReceiptSettlementRequest,
+  ReceiptSettlementEvidenceResource,
   type ReceiptListItem,
   type ReceiptResource,
-  type ReceiptSettlementEvidenceResource,
   type ReceiptSettlementQueueItem,
 } from "@vektorprogrammet/http-api";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
@@ -311,7 +311,6 @@ const privateReceiptErrorResponse = (cause: unknown): Response => {
   response.headers.set("vary", "Origin");
   return response;
 };
-
 
 const isSupportedContentType = (value: string): value is SupportedContentType =>
   (SUPPORTED_CONTENT_TYPES as readonly string[]).includes(value);
@@ -883,7 +882,9 @@ const decodeExactEmptyJson = (request: Request) =>
     Effect.flatMap((body) =>
       Object.keys(body).length === 0
         ? Effect.succeed({})
-        : Effect.fail(new ReceiptDecodeError({ message: "request body must be the exact empty object" })),
+        : Effect.fail(
+            new ReceiptDecodeError({ message: "request body must be the exact empty object" }),
+          ),
     ),
   );
 
@@ -1479,7 +1480,7 @@ const approvalCommandV2 = <E, R>(
 
 const settlementV2 = <E, R>(
   request: Request,
-  receiptId: string,
+  receiptId: typeof ReceiptId.Type,
   options: ReceiptApiHttpOptions<E, R>,
   fileStore: ReceiptFileStore,
 ) =>

@@ -1,8 +1,8 @@
 {
   "counts": {
-    "externalOperations": 90,
+    "externalOperations": 93,
     "internalOperations": 1,
-    "operations": 91
+    "operations": 94
   },
   "operations": [
     {
@@ -1727,6 +1727,56 @@
           "BetterAuthCookie",
           "OAuthUserBearer"
         ],
+        "canonicalScopeResolver": "receipts.by-id",
+        "capabilities": {
+          "one": "approveReceipt"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": [
+          {
+            "id": "receipts.pending"
+          },
+          {
+            "id": "receipts.approver-relationship"
+          }
+        ]
+      },
+      "group": "receipts",
+      "method": "POST",
+      "operationId": "receipts.approveReceipt",
+      "path": "/api/receipts/{receiptId}:approve",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Approve receipt",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
         "canonicalScopeResolver": "receipts.owned",
         "capabilities": {
           "one": "receipts.read-owned"
@@ -1801,6 +1851,43 @@
         "503"
       ],
       "summary": "List receipts for approval",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "receipts.approval-queue",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "receipts",
+      "method": "GET",
+      "operationId": "receipts.listReceiptsForSettlement",
+      "path": "/api/receipt-settlement-queue",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "500",
+        "503"
+      ],
+      "summary": "List receipts for settlement",
       "visibility": "external"
     },
     {
@@ -1893,46 +1980,33 @@
         ],
         "canonicalScopeResolver": "receipts.by-id",
         "capabilities": {
-          "one": "approveReceipt"
+          "none": true
         },
         "concealment": {
           "mode": "Reveal",
           "stages": []
         },
-        "decisionTime": "Transaction",
+        "decisionTime": "SnapshotRead",
         "exposure": "External",
         "principalKinds": [
           "Person"
         ],
-        "requirements": [
-          {
-            "id": "receipts.pending"
-          },
-          {
-            "id": "receipts.approver-relationship"
-          }
-        ]
+        "requirements": []
       },
       "group": "receipts",
-      "method": "POST",
-      "operationId": "receipts.refundReceipt",
-      "path": "/api/receipts/{receiptId}:refund",
+      "method": "GET",
+      "operationId": "receipts.readReceiptSettlementForFinance",
+      "path": "/api/receipt-settlement-queue/{receiptId}",
       "statuses": [
         "200",
         "400",
         "401",
         "403",
         "404",
-        "409",
-        "412",
-        "413",
-        "415",
-        "422",
-        "428",
         "500",
         "503"
       ],
-      "summary": "Refund receipt",
+      "summary": "Read receipt settlement for finance",
       "visibility": "external"
     },
     {
@@ -2083,6 +2157,49 @@
         "503"
       ],
       "summary": "Revise receipt",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "receipts.by-id",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "receipts",
+      "method": "POST",
+      "operationId": "receipts.settleReceipt",
+      "path": "/api/receipts/{receiptId}:settle",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Record receipt settlement",
       "visibility": "external"
     },
     {

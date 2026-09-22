@@ -116,6 +116,16 @@ const person = (
     requirements,
     decisionTime,
   });
+const receiptSettlement = (
+  resolver: "receipts.approval-queue" | "receipts.by-id",
+  decisionTime: "SnapshotRead" | "Transaction",
+) =>
+  expectedAccess({
+    credentials: ["BetterAuthCookie", "OAuthUserBearer"],
+    principals: ["Person"],
+    resolver,
+    decisionTime,
+  });
 const surveyAdmin = (
   resolver: string,
   decisionTime: "SnapshotRead" | "Transaction",
@@ -633,14 +643,32 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
   ],
   [
     "POST",
-    "/api/receipts/:receiptId:refund",
-    "receipts.refundReceipt",
+    "/api/receipts/:receiptId:approve",
+    "receipts.approveReceipt",
     person(
       "approveReceipt",
       "receipts.by-id",
       ["receipts.pending", "receipts.approver-relationship"],
       "Transaction",
     ),
+  ],
+  [
+    "GET",
+    "/api/receipt-settlement-queue",
+    "receipts.listReceiptsForSettlement",
+    receiptSettlement("receipts.approval-queue", "SnapshotRead"),
+  ],
+  [
+    "GET",
+    "/api/receipt-settlement-queue/:receiptId",
+    "receipts.readReceiptSettlementForFinance",
+    receiptSettlement("receipts.by-id", "SnapshotRead"),
+  ],
+  [
+    "POST",
+    "/api/receipts/:receiptId:settle",
+    "receipts.settleReceipt",
+    receiptSettlement("receipts.by-id", "Transaction"),
   ],
   [
     "POST",
@@ -849,7 +877,8 @@ const entityMutationOperations = [
   "recruitment.correctInterviewAssessment",
   "receipts.reviseReceipt",
   "receipts.withdrawReceipt",
-  "receipts.refundReceipt",
+  "receipts.approveReceipt",
+  "receipts.settleReceipt",
   "receipts.rejectReceipt",
   "receipts.reopenReceipt",
   "content.reviseArticle",
@@ -897,6 +926,8 @@ const privateReadOperations = [
   "recruitment.readSchedulingBoard",
   "receipts.listReceipts",
   "receipts.listReceiptsForApproval",
+  "receipts.listReceiptsForSettlement",
+  "receipts.readReceiptSettlementForFinance",
   "content.readContentWorkspace",
   "admissions.readApplicantProgress",
   "social-events.readScope",

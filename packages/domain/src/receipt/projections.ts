@@ -17,8 +17,7 @@ export interface ReceiptListItem extends Pick<
 }
 
 /** Approved, unsettled claims visible to the caller's settlement grant. */
-export interface ReceiptSettlementQueueItem
-  extends Omit<ReceiptListItem, "status" | "approvedAt"> {
+export interface ReceiptSettlementQueueItem extends Omit<ReceiptListItem, "status" | "approvedAt"> {
   readonly status: "Approved";
   readonly approvedAt: string;
 }

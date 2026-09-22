@@ -83,6 +83,7 @@ export const ServicePrincipalReceiptCandidateSchema = Schema.Struct({
   description: Schema.String,
   receiptDate: Schema.String,
   status: ReceiptStatusSchema,
+  approvedAt: Schema.NullOr(Schema.String),
   revision: Revision,
 });
 export type ServicePrincipalReceiptCandidate = typeof ServicePrincipalReceiptCandidateSchema.Type;

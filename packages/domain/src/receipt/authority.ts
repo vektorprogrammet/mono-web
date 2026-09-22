@@ -9,12 +9,7 @@ import {
   ReceiptScopeDenied,
   type ReceiptAuthorityMappingError,
 } from "./errors.js";
-import {
-  ReceiptActorSchema,
-  ReceiptSettlementActorSchema,
-  type ReceiptActor,
-  type ReceiptSettlementActor,
-} from "./schema.js";
+import { ReceiptActorSchema, type ReceiptActor, type ReceiptSettlementActor } from "./schema.js";
 
 const NonEmpty = Schema.String.pipe(
   Schema.check(
@@ -152,8 +147,7 @@ export const CreateReceiptSettlementGrantInputSchema = Schema.Struct({
   startAt: ReceiptAuthorityInstantSchema,
   endAt: Schema.NullOr(ReceiptAuthorityInstantSchema),
 }).pipe(Schema.check(orderedAuthorityInterval));
-export type CreateReceiptSettlementGrantInput =
-  typeof CreateReceiptSettlementGrantInputSchema.Type;
+export type CreateReceiptSettlementGrantInput = typeof CreateReceiptSettlementGrantInputSchema.Type;
 
 export const EndReceiptSettlementGrantInputSchema = Schema.Struct({
   settlementGrantId: ReceiptSettlementGrantId,
@@ -299,7 +293,10 @@ export const projectReceiptAuthority = (
   projectedGrants.sort(
     (left, right) =>
       compareText(left.scope._tag, right.scope._tag) ||
-      compareText(left.scope._tag === "Department" ? left.scope.departmentId : "", right.scope._tag === "Department" ? right.scope.departmentId : "") ||
+      compareText(
+        left.scope._tag === "Department" ? left.scope.departmentId : "",
+        right.scope._tag === "Department" ? right.scope.departmentId : "",
+      ) ||
       compareRfc3339Instants(left.startAt, right.startAt) ||
       compareText(left.approvalGrantId, right.approvalGrantId),
   );
@@ -319,7 +316,10 @@ export const projectReceiptAuthority = (
   projectedSettlementGrants.sort(
     (left, right) =>
       compareText(left.scope._tag, right.scope._tag) ||
-      compareText(left.scope._tag === "Department" ? left.scope.departmentId : "", right.scope._tag === "Department" ? right.scope.departmentId : "") ||
+      compareText(
+        left.scope._tag === "Department" ? left.scope.departmentId : "",
+        right.scope._tag === "Department" ? right.scope.departmentId : "",
+      ) ||
       compareRfc3339Instants(left.startAt, right.startAt) ||
       compareText(left.settlementGrantId, right.settlementGrantId),
   );
@@ -436,7 +436,8 @@ export const mapReceiptDepartmentApprovalActor = (
     if (grant.scope._tag !== "Department" || grant.scope.departmentId !== departmentId) continue;
     selected = preferTemporalCandidate(selected, grant, authority.evaluatedAt);
   }
-  if (selected === undefined) return Effect.fail(deny(authority, "DepartmentApproval", departmentId));
+  if (selected === undefined)
+    return Effect.fail(deny(authority, "DepartmentApproval", departmentId));
   return Effect.succeed({
     personId: authority.personId,
     departmentId,
@@ -511,7 +512,8 @@ export const mapReceiptApprovalActor = (
   receiptDepartmentId: DepartmentId,
 ): Effect.Effect<ReceiptActor, ReceiptAuthorityDenied> => {
   const selected = selectReceiptApprovalGrant(authority, receiptDepartmentId);
-  if (selected === undefined) return Effect.fail(deny(authority, "DepartmentApproval", receiptDepartmentId));
+  if (selected === undefined)
+    return Effect.fail(deny(authority, "DepartmentApproval", receiptDepartmentId));
   return Effect.succeed({
     personId: authority.personId,
     departmentId: receiptDepartmentId,

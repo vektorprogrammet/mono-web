@@ -110,7 +110,7 @@ export function SettlementReceiptList({
                 </p>
                 <Link
                   className="text-sm underline underline-offset-4"
-                  to={`/dashboard/utlegg/oppgjor/${encodeURIComponent(actionNotice.settlement.receiptId)}`}
+                  to={`/utlegg/oppgjor/${encodeURIComponent(actionNotice.settlement.receiptId)}`}
                   data-testid="read-receipt-settlement"
                 >
                   Se lagret oppgjørsbevis

@@ -113,7 +113,12 @@ export function SettlementReceiptRow({ receipt, failure, actionErrorId }: Props)
               Registrer oppgjør
             </Button>
           </AlertDialogTrigger>
-          <AlertDialogContent aria-busy={busy} data-receipt-settlement-dialog>
+          <AlertDialogContent
+            aria-busy={busy}
+            aria-labelledby={titleId}
+            aria-describedby={descriptionId}
+            data-receipt-settlement-dialog
+          >
             <AlertDialogHeader>
               <AlertDialogTitle id={titleId}>
                 Registrer oppgjør for utlegg {receipt.visualId}

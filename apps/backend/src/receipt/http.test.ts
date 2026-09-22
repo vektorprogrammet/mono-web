@@ -462,8 +462,7 @@ const harness = (options: HarnessOptions = {}) => {
     authorizeReceiptSettlement,
     executeAuthorizedReceiptSettlement,
     recordReceiptSettlement: () => Effect.die("unexpected direct settlement command"),
-    listReceiptsForSettlement: () =>
-      Effect.succeed((options.settlementRows ?? []) as never),
+    listReceiptsForSettlement: () => Effect.succeed((options.settlementRows ?? []) as never),
     readReceiptSettlementForFinance: (requestedReceiptId, queryPersonId) =>
       Effect.suspend(() => {
         settlementReads.push({ receiptId: requestedReceiptId, personId: queryPersonId });
@@ -472,7 +471,16 @@ const harness = (options: HarnessOptions = {}) => {
           ? Effect.fail(new ReceiptNotFound({ receiptId: requestedReceiptId }))
           : Effect.succeed(evidence);
       }),
-    listOwnedReceipts: () => Effect.succeed((options.ownedRows ?? []) as never),
+    listOwnedReceipts: () =>
+      Effect.succeed(
+        (options.ownedRows ?? []).map((row) => ({
+          ...row,
+          settlement:
+            options.settlementEvidence?.receiptId === row.receiptId
+              ? options.settlementEvidence
+              : null,
+        })) as never,
+      ),
     listReceiptsForApproval: (queryPersonId, authorizationInstant, status) => {
       approvalQueries.push({ personId: queryPersonId, authorizationInstant, status });
       return Effect.succeed((options.approvalRows ?? []) as never);
@@ -840,6 +848,7 @@ describe("receipt v0.2 HTTP contract", () => {
         Schema.decodeUnknownSync(ReceiptListItem)({
           ...pendingReceipt(),
           amountOre: 1200,
+          settlement: null,
           etag: receiptEtag(receiptId, 0),
         }),
       ],
@@ -905,7 +914,13 @@ describe("receipt v0.2 HTTP contract", () => {
       payload,
     );
     const recordedBody = await readJson(recorded);
-    const replay = await actionRequest(state.http, `/api/receipts/${receiptId}:settle`, key, 2, payload);
+    const replay = await actionRequest(
+      state.http,
+      `/api/receipts/${receiptId}:settle`,
+      key,
+      2,
+      payload,
+    );
     const changedReplay = await actionRequest(
       state.http,
       `/api/receipts/${receiptId}:settle`,

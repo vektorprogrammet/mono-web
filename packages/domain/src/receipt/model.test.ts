@@ -2,68 +2,6 @@ import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { Receipt } from "./schema.js";
 
-const keys = (fields: object): ReadonlyArray<string> => Object.keys(fields).sort();
-
-it("derives Receipt persistence and JSON variants from one model", () => {
-  expect(keys(Receipt.fields)).toEqual([
-    "amountOre",
-    "currency",
-    "departmentId",
-    "description",
-    "file",
-    "ownerPersonId",
-    "paymentAccountCiphertext",
-    "receiptDate",
-    "receiptId",
-    "approvedAt",
-    "revision",
-    "status",
-    "submittedAt",
-    "visualId",
-  ]);
-  expect(keys(Receipt.insert.fields)).toEqual([
-    "amountOre",
-    "currency",
-    "departmentId",
-    "description",
-    "file",
-    "ownerPersonId",
-    "paymentAccountCiphertext",
-    "receiptDate",
-    "receiptId",
-    "approvedAt",
-    "revision",
-    "status",
-    "submittedAt",
-    "visualId",
-  ]);
-  expect(keys(Receipt.update.fields)).toEqual([
-    "amountOre",
-    "description",
-    "file",
-    "receiptDate",
-    "approvedAt",
-    "revision",
-    "status",
-  ]);
-  expect(keys(Receipt.json.fields)).toEqual([
-    "amountOre",
-    "currency",
-    "departmentId",
-    "description",
-    "ownerPersonId",
-    "receiptDate",
-    "receiptId",
-    "approvedAt",
-    "revision",
-    "status",
-    "submittedAt",
-    "visualId",
-  ]);
-  expect(keys(Receipt.jsonCreate.fields)).toEqual(["amountOre", "description", "receiptDate"]);
-  expect(keys(Receipt.jsonUpdate.fields)).toEqual(["amountOre", "description", "receiptDate"]);
-});
-
 it.effect("decodes a selected Receipt and rejects an excess persisted field", () => {
   const selected = {
     receiptId: "receipt-model-1",

@@ -260,6 +260,12 @@
     },
     {
       "group": "receipts",
+      "method": "POST",
+      "operationId": "receipts.approveReceipt",
+      "path": "/api/receipts/{receiptId}:approve"
+    },
+    {
+      "group": "receipts",
       "method": "GET",
       "operationId": "receipts.listReceipts",
       "path": "/api/receipts"
@@ -269,6 +275,12 @@
       "method": "GET",
       "operationId": "receipts.listReceiptsForApproval",
       "path": "/api/receipt-approval-queue"
+    },
+    {
+      "group": "receipts",
+      "method": "GET",
+      "operationId": "receipts.listReceiptsForSettlement",
+      "path": "/api/receipt-settlement-queue"
     },
     {
       "group": "receipts",
@@ -284,9 +296,9 @@
     },
     {
       "group": "receipts",
-      "method": "POST",
-      "operationId": "receipts.refundReceipt",
-      "path": "/api/receipts/{receiptId}:refund"
+      "method": "GET",
+      "operationId": "receipts.readReceiptSettlementForFinance",
+      "path": "/api/receipt-settlement-queue/{receiptId}"
     },
     {
       "group": "receipts",
@@ -305,6 +317,12 @@
       "method": "PATCH",
       "operationId": "receipts.reviseReceipt",
       "path": "/api/receipts/{receiptId}"
+    },
+    {
+      "group": "receipts",
+      "method": "POST",
+      "operationId": "receipts.settleReceipt",
+      "path": "/api/receipts/{receiptId}:settle"
     },
     {
       "group": "receipts",

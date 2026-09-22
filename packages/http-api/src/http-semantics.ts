@@ -674,6 +674,12 @@ export const NativeProblemRegistry = {
     status: 429,
     detail: "The request rate limit was exceeded.",
   },
+  "receipt.already-settled": {
+    type: "urn:vektorprogrammet:problem:v0.2:receipt.already-settled",
+    title: "Receipt already settled",
+    status: 409,
+    detail: "Settlement evidence already exists for this receipt.",
+  },
   "receipt.already-exists": {
     type: "urn:vektorprogrammet:problem:v0.2:receipt.already-exists",
     title: "Receipt already exists",
@@ -703,6 +709,18 @@ export const NativeProblemRegistry = {
     title: "Receipts unavailable",
     status: 503,
     detail: "The receipt service is temporarily unavailable.",
+  },
+  "settlement.after-recorded-at": {
+    type: "urn:vektorprogrammet:problem:v0.2:settlement.after-recorded-at",
+    title: "Settlement occurs after recording",
+    status: 422,
+    detail: "The external settlement instant cannot be after the recording instant.",
+  },
+  "settlement.external-reference-conflict": {
+    type: "urn:vektorprogrammet:problem:v0.2:settlement.external-reference-conflict",
+    title: "External settlement reference conflict",
+    status: 409,
+    detail: "The external authority and reference already identify another settlement.",
   },
   "recruitment.admission-period-not-found": {
     type: "urn:vektorprogrammet:problem:v0.2:recruitment.admission-period-not-found",
