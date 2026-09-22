@@ -314,18 +314,18 @@ test("0096 placement and 0110 school-service journeys persist with explicit auth
     });
     for (const checkbox of await staleConfirm.getByRole("checkbox").all()) await checkbox.check();
     await confirm.getByRole("button", { name: "Bekreft og send tjenesteplan" }).click();
-    await saved(confirm);
+    await expect(proposalArticle).toContainText("bekreftet");
     await staleConfirm.getByRole("button", { name: "Bekreft og send tjenesteplan" }).click();
     await expect(staleConfirm.getByRole("alert")).toContainText("Oversikten er endret");
     await expect
       .poll(
         async () => {
           await page.reload();
-          return page.getByText(/Delivered/).count();
+          return proposalArticle.textContent();
         },
         { timeout: 15_000 },
       )
-      .toBe(1);
+      .toContain("Delivered");
     const occurrence = page
       .getByRole("form", { name: /^Undervisning \d+: Skole Beta$/ })
       .filter({ hasText: "Skole Beta — Monday, bolk 2" });
