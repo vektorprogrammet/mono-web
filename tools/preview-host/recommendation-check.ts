@@ -45,13 +45,13 @@ import {
 import { assertInterviewCorrectionIntegrity } from "./interview-correction-integrity.ts";
 import { runCoInterviewerCorrectionJourney } from "./co-interviewer-correction-0106.ts";
 import { DatabaseLive } from "../../packages/database/src/index.js";
-import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
-import { OrganizationLive } from "@vektorprogrammet/database/organization";
-import { ProfileLive } from "@vektorprogrammet/database/profile";
+import { AdmissionsLive } from "../../packages/database/src/admissions/index.js";
+import { OrganizationLive } from "../../packages/database/src/organization/index.js";
+import { ProfileLive } from "../../packages/database/src/profile/index.js";
 import {
   deliverNextRecruitmentInvitation,
   type RecruitmentInvitationDeliveryResult,
-} from "@vektorprogrammet/database/recruitment";
+} from "../../packages/database/src/recruitment/index.js";
 import {
   RecruitmentNotificationDeliveryError,
   RecruitmentNotificationEvidenceSchema,
