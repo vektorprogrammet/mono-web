@@ -1,8 +1,8 @@
 {
   "counts": {
-    "externalOperations": 84,
+    "externalOperations": 90,
     "internalOperations": 1,
-    "operations": 85
+    "operations": 91
   },
   "operations": [
     {
@@ -3134,6 +3134,242 @@
         "500"
       ],
       "summary": "Read substitute pool",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "surveys.admin-close",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "NotFound",
+          "stages": [
+            "Scope"
+          ]
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "surveys",
+      "method": "POST",
+      "operationId": "surveys.closeAdminSurvey",
+      "path": "/api/surveys/admin/{surveyId}/close",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "Close school survey",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "surveys.admin-create",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "surveys",
+      "method": "POST",
+      "operationId": "surveys.createAdminSurvey",
+      "path": "/api/surveys/admin",
+      "statuses": [
+        "201",
+        "400",
+        "401",
+        "403",
+        "409",
+        "413",
+        "415",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "Create school survey",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "surveys.admin-results-export",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "NotFound",
+          "stages": [
+            "Scope"
+          ]
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "surveys",
+      "method": "GET",
+      "operationId": "surveys.exportAdminResults",
+      "path": "/api/surveys/admin/{surveyId}/results.csv",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "500",
+        "503"
+      ],
+      "summary": "Export school survey results",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "surveys.admin-list",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "surveys",
+      "method": "GET",
+      "operationId": "surveys.listAdminSurveys",
+      "path": "/api/surveys/admin",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "List administered school surveys",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "surveys.admin-catalog",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "surveys",
+      "method": "GET",
+      "operationId": "surveys.readAdminCatalog",
+      "path": "/api/surveys/admin/catalog",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "500",
+        "503"
+      ],
+      "summary": "Read school survey administration catalog",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "surveys.admin-results",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "NotFound",
+          "stages": [
+            "Scope"
+          ]
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "surveys",
+      "method": "GET",
+      "operationId": "surveys.readAdminResults",
+      "path": "/api/surveys/admin/{surveyId}/results",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "500",
+        "503"
+      ],
+      "summary": "Read school survey results",
       "visibility": "external"
     },
     {

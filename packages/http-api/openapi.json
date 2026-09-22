@@ -176,6 +176,18 @@
         },
         "type": "array"
       },
+      "Arrays_4": {
+        "items": {
+          "$ref": "#/components/schemas/SchoolSurveyQuestion"
+        },
+        "type": "array"
+      },
+      "Arrays_5": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
       "ArticleMergePatch": {
         "additionalProperties": false,
         "properties": {
@@ -470,6 +482,23 @@
           "cancelledAt",
           "completionState",
           "cancellationState"
+        ],
+        "type": "object"
+      },
+      "CloseSchoolSurveyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expectedRevision": {
+            "allOf": [
+              {
+                "minimum": 0
+              }
+            ],
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expectedRevision"
         ],
         "type": "object"
       },
@@ -1595,6 +1624,41 @@
           "name",
           "shortName",
           "departmentId"
+        ],
+        "type": "object"
+      },
+      "CreateSchoolSurveyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "completionText": {
+            "type": "string"
+          },
+          "departmentId": {
+            "type": "string"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/SchoolSurveyQuestionDraft"
+            },
+            "type": "array"
+          },
+          "resultsVisibility": {
+            "$ref": "#/components/schemas/SurveyResultsVisibility"
+          },
+          "semesterId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "departmentId",
+          "semesterId",
+          "title",
+          "completionText",
+          "resultsVisibility",
+          "questions"
         ],
         "type": "object"
       },
@@ -2927,6 +2991,98 @@
         ],
         "type": "object"
       },
+      "Objects_108": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "request.malformed"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The request is malformed."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              400
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Malformed request"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:request.malformed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_109": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "header.malformed"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "A request header is malformed."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              400
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Malformed header"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:header.malformed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
       "Objects_11": {
         "additionalProperties": false,
         "properties": {
@@ -2960,6 +3116,374 @@
           "type": {
             "enum": [
               "urn:vektorprogrammet:problem:v0.2:authority.denied"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_110": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "credential.missing"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "A credential is required for this operation."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              401
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Credential required"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:credential.missing"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_111": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "credential.invalid"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The supplied credential is invalid."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              401
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Invalid credential"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:credential.invalid"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_112": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "authority.denied"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The authenticated principal is not permitted to perform this operation."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              403
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Authority denied"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:authority.denied"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_113": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "origin.denied"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The browser origin is not trusted for this operation."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              403
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Origin denied"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:origin.denied"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_114": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "resource.not-found"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The requested resource was not found."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              404
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Resource not found"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:resource.not-found"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_115": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "internal.error"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The server encountered an unexpected error."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              500
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Internal error"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:internal.error"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_116": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "dependency.unavailable"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "A required dependency is temporarily unavailable."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              503
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Dependency unavailable"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:dependency.unavailable"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_117": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "organization.unavailable"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The organization service is temporarily unavailable."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              503
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Organization unavailable"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:organization.unavailable"
             ],
             "type": "string"
           }
@@ -9992,6 +10516,299 @@
         ],
         "type": "object"
       },
+      "SchoolSurveyAdminCatalogResource": {
+        "additionalProperties": false,
+        "properties": {
+          "departments": {
+            "items": {
+              "$ref": "#/components/schemas/SchoolSurveyAdminDepartmentResource"
+            },
+            "type": "array"
+          },
+          "semesters": {
+            "items": {
+              "$ref": "#/components/schemas/SchoolSurveyAdminSemesterResource"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "departments",
+          "semesters"
+        ],
+        "type": "object"
+      },
+      "SchoolSurveyAdminDepartmentResource": {
+        "additionalProperties": false,
+        "properties": {
+          "departmentId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "departmentId",
+          "name"
+        ],
+        "type": "object"
+      },
+      "SchoolSurveyAdminListResource": {
+        "additionalProperties": false,
+        "properties": {
+          "departmentId": {
+            "type": "string"
+          },
+          "semesterId": {
+            "type": "string"
+          },
+          "surveys": {
+            "items": {
+              "$ref": "#/components/schemas/SchoolSurveyAdminResource"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "departmentId",
+          "semesterId",
+          "surveys"
+        ],
+        "type": "object"
+      },
+      "SchoolSurveyAdminResource": {
+        "additionalProperties": false,
+        "properties": {
+          "closedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "closedByPersonId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "completionText": {
+            "type": "string"
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdByPersonId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "departmentId": {
+            "type": "string"
+          },
+          "questions": {
+            "$ref": "#/components/schemas/Arrays_4"
+          },
+          "responseCount": {
+            "allOf": [
+              {
+                "minimum": 0
+              }
+            ],
+            "type": "integer"
+          },
+          "resultsVisibility": {
+            "$ref": "#/components/schemas/SurveyResultsVisibility"
+          },
+          "revision": {
+            "allOf": [
+              {
+                "minimum": 0
+              }
+            ],
+            "type": "integer"
+          },
+          "semesterId": {
+            "type": "string"
+          },
+          "semesterLabel": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/SurveyState"
+          },
+          "surveyId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "surveyId",
+          "departmentId",
+          "semesterId",
+          "semesterLabel",
+          "title",
+          "completionText",
+          "resultsVisibility",
+          "state",
+          "revision",
+          "createdAt",
+          "createdByPersonId",
+          "closedAt",
+          "closedByPersonId",
+          "responseCount",
+          "questions"
+        ],
+        "type": "object"
+      },
+      "SchoolSurveyAdminResource_1": {
+        "additionalProperties": false,
+        "properties": {
+          "closedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "closedByPersonId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "completionText": {
+            "type": "string"
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdByPersonId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "departmentId": {
+            "type": "string"
+          },
+          "questions": {
+            "$ref": "#/components/schemas/Arrays_4"
+          },
+          "responseCount": {
+            "allOf": [
+              {
+                "minimum": 0
+              }
+            ],
+            "type": "integer"
+          },
+          "resultsVisibility": {
+            "$ref": "#/components/schemas/SurveyResultsVisibility"
+          },
+          "revision": {
+            "allOf": [
+              {
+                "minimum": 0
+              }
+            ],
+            "type": "integer"
+          },
+          "semesterId": {
+            "type": "string"
+          },
+          "semesterLabel": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/SurveyState"
+          },
+          "surveyId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "surveyId",
+          "departmentId",
+          "semesterId",
+          "semesterLabel",
+          "title",
+          "completionText",
+          "resultsVisibility",
+          "state",
+          "revision",
+          "createdAt",
+          "createdByPersonId",
+          "closedAt",
+          "closedByPersonId",
+          "responseCount",
+          "questions"
+        ],
+        "type": "object"
+      },
+      "SchoolSurveyAdminSemesterResource": {
+        "additionalProperties": false,
+        "properties": {
+          "endAt": {
+            "type": "string"
+          },
+          "semesterId": {
+            "type": "string"
+          },
+          "startAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "semesterId",
+          "startAt",
+          "endAt"
+        ],
+        "type": "object"
+      },
       "SchoolSurveyAnswerInput": {
         "anyOf": [
           {
@@ -10062,6 +10879,37 @@
         "required": [
           "kind",
           "questionId",
+          "label",
+          "help",
+          "required",
+          "alternatives"
+        ],
+        "type": "object"
+      },
+      "SchoolSurveyCheckQuestionDraft": {
+        "additionalProperties": false,
+        "properties": {
+          "alternatives": {
+            "$ref": "#/components/schemas/Arrays_5"
+          },
+          "help": {
+            "$ref": "#/components/schemas/Union_28"
+          },
+          "kind": {
+            "enum": [
+              "Check"
+            ],
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
           "label",
           "help",
           "required",
@@ -10169,6 +11017,37 @@
         ],
         "type": "object"
       },
+      "SchoolSurveyListQuestionDraft": {
+        "additionalProperties": false,
+        "properties": {
+          "alternatives": {
+            "$ref": "#/components/schemas/Arrays_5"
+          },
+          "help": {
+            "$ref": "#/components/schemas/Union_28"
+          },
+          "kind": {
+            "enum": [
+              "List"
+            ],
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "help",
+          "required",
+          "alternatives"
+        ],
+        "type": "object"
+      },
       "SchoolSurveyQuestion": {
         "anyOf": [
           {
@@ -10182,6 +11061,22 @@
           },
           {
             "$ref": "#/components/schemas/SchoolSurveyCheckQuestion"
+          }
+        ]
+      },
+      "SchoolSurveyQuestionDraft": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/SchoolSurveyTextQuestionDraft"
+          },
+          {
+            "$ref": "#/components/schemas/SchoolSurveyListQuestionDraft"
+          },
+          {
+            "$ref": "#/components/schemas/SchoolSurveyRadioQuestionDraft"
+          },
+          {
+            "$ref": "#/components/schemas/SchoolSurveyCheckQuestionDraft"
           }
         ]
       },
@@ -10243,6 +11138,37 @@
         ],
         "type": "object"
       },
+      "SchoolSurveyRadioQuestionDraft": {
+        "additionalProperties": false,
+        "properties": {
+          "alternatives": {
+            "$ref": "#/components/schemas/Arrays_5"
+          },
+          "help": {
+            "$ref": "#/components/schemas/Union_28"
+          },
+          "kind": {
+            "enum": [
+              "Radio"
+            ],
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "help",
+          "required",
+          "alternatives"
+        ],
+        "type": "object"
+      },
       "SchoolSurveyResponseResource": {
         "additionalProperties": false,
         "properties": {
@@ -10260,6 +11186,186 @@
           "responseId",
           "submittedAt",
           "completionText"
+        ],
+        "type": "object"
+      },
+      "SchoolSurveyResultAnswer": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/SchoolSurveyResultTextAnswer"
+          },
+          {
+            "$ref": "#/components/schemas/SchoolSurveyResultListAnswer"
+          },
+          {
+            "$ref": "#/components/schemas/SchoolSurveyResultRadioAnswer"
+          },
+          {
+            "$ref": "#/components/schemas/SchoolSurveyResultCheckAnswer"
+          }
+        ]
+      },
+      "SchoolSurveyResultCheckAnswer": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "Check"
+            ],
+            "type": "string"
+          },
+          "questionId": {
+            "type": "string"
+          },
+          "values": {
+            "$ref": "#/components/schemas/Arrays_3"
+          }
+        },
+        "required": [
+          "kind",
+          "questionId",
+          "values"
+        ],
+        "type": "object"
+      },
+      "SchoolSurveyResultListAnswer": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "List"
+            ],
+            "type": "string"
+          },
+          "questionId": {
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "questionId",
+          "value"
+        ],
+        "type": "object"
+      },
+      "SchoolSurveyResultRadioAnswer": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "Radio"
+            ],
+            "type": "string"
+          },
+          "questionId": {
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "questionId",
+          "value"
+        ],
+        "type": "object"
+      },
+      "SchoolSurveyResultResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/SchoolSurveyResultAnswer"
+            },
+            "type": "array"
+          },
+          "school": {
+            "$ref": "#/components/schemas/EligibleSurveySchool"
+          },
+          "submittedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "school",
+          "submittedAt",
+          "answers"
+        ],
+        "type": "object"
+      },
+      "SchoolSurveyResultsResource": {
+        "additionalProperties": false,
+        "properties": {
+          "responseCount": {
+            "allOf": [
+              {
+                "minimum": 0
+              }
+            ],
+            "type": "integer"
+          },
+          "responses": {
+            "items": {
+              "$ref": "#/components/schemas/SchoolSurveyResultResponse"
+            },
+            "type": "array"
+          },
+          "survey": {
+            "$ref": "#/components/schemas/SchoolSurveyAdminResource"
+          }
+        },
+        "required": [
+          "survey",
+          "responseCount",
+          "responses"
+        ],
+        "type": "object"
+      },
+      "SchoolSurveyResultTextAnswer": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "Text"
+            ],
+            "type": "string"
+          },
+          "questionId": {
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "questionId",
+          "value"
         ],
         "type": "object"
       },
@@ -10311,6 +11417,33 @@
         "required": [
           "kind",
           "questionId",
+          "label",
+          "help",
+          "required"
+        ],
+        "type": "object"
+      },
+      "SchoolSurveyTextQuestionDraft": {
+        "additionalProperties": false,
+        "properties": {
+          "help": {
+            "$ref": "#/components/schemas/Union_28"
+          },
+          "kind": {
+            "enum": [
+              "Text"
+            ],
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
           "label",
           "help",
           "required"
@@ -10897,6 +12030,20 @@
           }
         ]
       },
+      "SurveyResultsVisibility": {
+        "enum": [
+          "DepartmentManagers",
+          "GlobalAdministrators"
+        ],
+        "type": "string"
+      },
+      "SurveyState": {
+        "enum": [
+          "Open",
+          "Closed"
+        ],
+        "type": "string"
+      },
       "TeamInterestResponse": {
         "additionalProperties": false,
         "description": "Scoped team-interest rows.",
@@ -11274,6 +12421,16 @@
         ]
       },
       "Union_27": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "Union_28": {
         "anyOf": [
           {
             "type": "string"
@@ -81580,6 +82737,4513 @@
         }
       }
     },
+    "/api/surveys/admin": {
+      "get": {
+        "description": "Returns school surveys for one authorized department and semester.",
+        "operationId": "surveys.listAdminSurveys",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "departmentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "semesterId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchoolSurveyAdminListResource"
+                }
+              }
+            },
+            "description": "SchoolSurveyAdminListResource",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.malformed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request is malformed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Malformed request"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:request.malformed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "header.malformed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "A request header is malformed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Malformed header"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:header.malformed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "credential.missing"
+                              ],
+                              "type": "string"
+                            },
+                            "detail": {
+                              "enum": [
+                                "A credential is required for this operation."
+                              ],
+                              "type": "string"
+                            },
+                            "instance": {
+                              "$ref": "#/components/schemas/Union_"
+                            },
+                            "status": {
+                              "enum": [
+                                401
+                              ],
+                              "type": "number"
+                            },
+                            "title": {
+                              "enum": [
+                                "Credential required"
+                              ],
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "urn:vektorprogrammet:problem:v0.2:credential.missing"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "detail"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "credential.invalid"
+                              ],
+                              "type": "string"
+                            },
+                            "detail": {
+                              "enum": [
+                                "The supplied credential is invalid."
+                              ],
+                              "type": "string"
+                            },
+                            "instance": {
+                              "$ref": "#/components/schemas/Union_"
+                            },
+                            "status": {
+                              "enum": [
+                                401
+                              ],
+                              "type": "number"
+                            },
+                            "title": {
+                              "enum": [
+                                "Invalid credential"
+                              ],
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "urn:vektorprogrammet:problem:v0.2:credential.invalid"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "detail"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionUnauthorizedProblem"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Closed RFC 9457 error union for SessionUnauthorizedProblem.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_3"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_4"
+                }
+              },
+              "www-authenticate": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "authority.denied"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The authenticated principal is not permitted to perform this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            403
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Authority denied"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:authority.denied"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "origin.denied"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The browser origin is not trusted for this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            403
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Origin denied"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:origin.denied"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "resource.not-found"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The requested resource was not found."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            404
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Resource not found"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:resource.not-found"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "scope.invalid"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The selected department, semester or school is not available in this scope."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            422
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Invalid scope"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:scope.invalid"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "internal.error"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The server encountered an unexpected error."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            500
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Internal error"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:internal.error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "dependency.unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "A required dependency is temporarily unavailable."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            503
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Dependency unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:dependency.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "organization.unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The organization service is temporarily unavailable."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            503
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Organization unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:organization.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "retry-after": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "5"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieHeader": []
+          },
+          {
+            "oauthUserBearer": []
+          }
+        ],
+        "summary": "List administered school surveys",
+        "tags": [
+          "School surveys"
+        ],
+        "x-vektor-access": {
+          "acceptedCredentials": [
+            "BetterAuthCookie",
+            "OAuthUserBearer"
+          ],
+          "canonicalScopeResolver": "surveys.admin-list",
+          "capabilities": {
+            "none": true
+          },
+          "concealment": {
+            "mode": "Reveal",
+            "stages": []
+          },
+          "decisionTime": "SnapshotRead",
+          "exposure": "External",
+          "principalKinds": [
+            "Person"
+          ],
+          "requirements": []
+        },
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      },
+      "post": {
+        "description": "Creates or replays one open School survey.",
+        "operationId": "surveys.createAdminSurvey",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSchoolSurveyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchoolSurveyAdminResource_1"
+                }
+              }
+            },
+            "description": "SchoolSurveyAdminResource",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "etag": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "location": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.malformed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request is malformed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Malformed request"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:request.malformed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "header.malformed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "A request header is malformed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Malformed header"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:header.malformed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency-key.invalid"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The Idempotency-Key header is invalid."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Invalid idempotency key"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency-key.invalid"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "credential.missing"
+                              ],
+                              "type": "string"
+                            },
+                            "detail": {
+                              "enum": [
+                                "A credential is required for this operation."
+                              ],
+                              "type": "string"
+                            },
+                            "instance": {
+                              "$ref": "#/components/schemas/Union_"
+                            },
+                            "status": {
+                              "enum": [
+                                401
+                              ],
+                              "type": "number"
+                            },
+                            "title": {
+                              "enum": [
+                                "Credential required"
+                              ],
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "urn:vektorprogrammet:problem:v0.2:credential.missing"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "detail"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "credential.invalid"
+                              ],
+                              "type": "string"
+                            },
+                            "detail": {
+                              "enum": [
+                                "The supplied credential is invalid."
+                              ],
+                              "type": "string"
+                            },
+                            "instance": {
+                              "$ref": "#/components/schemas/Union_"
+                            },
+                            "status": {
+                              "enum": [
+                                401
+                              ],
+                              "type": "number"
+                            },
+                            "title": {
+                              "enum": [
+                                "Invalid credential"
+                              ],
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "urn:vektorprogrammet:problem:v0.2:credential.invalid"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "detail"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionUnauthorizedProblem"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Closed RFC 9457 error union for SessionUnauthorizedProblem.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_3"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_4"
+                }
+              },
+              "www-authenticate": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "authority.denied"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The authenticated principal is not permitted to perform this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            403
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Authority denied"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:authority.denied"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "origin.denied"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The browser origin is not trusted for this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            403
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Origin denied"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:origin.denied"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency.in-flight"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "A request with this idempotency identity is still in progress."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            409
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Idempotent request in progress"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency.in-flight"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency.digest-conflict"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "This idempotency key identifies a different semantic request."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            409
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Idempotency conflict"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency.digest-conflict"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency.response-expired"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The stored response for this idempotency identity has expired."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            409
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Idempotent response expired"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency.response-expired"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "retry-after": {
+                "required": false,
+                "schema": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "1"
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.too-large"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request body exceeds the permitted size."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            413
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Request too large"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:request.too-large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "media-type.unsupported"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request media type is not supported for this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            415
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Unsupported media type"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:media-type.unsupported"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "scope.invalid"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The selected department, semester or school is not available in this scope."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            422
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Invalid scope"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:scope.invalid"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "validation.failed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request contains invalid semantic values."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            422
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Validation failed"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:validation.failed"
+                          ],
+                          "type": "string"
+                        },
+                        "validation": {
+                          "$ref": "#/components/schemas/Objects_8"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail",
+                        "validation"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "internal.error"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The server encountered an unexpected error."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            500
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Internal error"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:internal.error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "dependency.unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "A required dependency is temporarily unavailable."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            503
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Dependency unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:dependency.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "organization.unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The organization service is temporarily unavailable."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            503
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Organization unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:organization.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency.unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The idempotency receipt store is temporarily unavailable."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            503
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Idempotency unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "retry-after": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "5"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieHeader": []
+          },
+          {
+            "oauthUserBearer": []
+          }
+        ],
+        "summary": "Create school survey",
+        "tags": [
+          "School surveys"
+        ],
+        "x-vektor-access": {
+          "acceptedCredentials": [
+            "BetterAuthCookie",
+            "OAuthUserBearer"
+          ],
+          "canonicalScopeResolver": "surveys.admin-create",
+          "capabilities": {
+            "none": true
+          },
+          "concealment": {
+            "mode": "Reveal",
+            "stages": []
+          },
+          "decisionTime": "Transaction",
+          "exposure": "External",
+          "principalKinds": [
+            "Person"
+          ],
+          "requirements": []
+        },
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      }
+    },
+    "/api/surveys/admin/{surveyId}/close": {
+      "post": {
+        "description": "Closes one School survey at its expected revision.",
+        "operationId": "surveys.closeAdminSurvey",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "surveyId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseSchoolSurveyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchoolSurveyAdminResource"
+                }
+              }
+            },
+            "description": "SchoolSurveyAdminResource",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "etag": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.malformed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request is malformed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Malformed request"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:request.malformed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "header.malformed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "A request header is malformed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Malformed header"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:header.malformed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency-key.invalid"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The Idempotency-Key header is invalid."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Invalid idempotency key"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency-key.invalid"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "credential.missing"
+                              ],
+                              "type": "string"
+                            },
+                            "detail": {
+                              "enum": [
+                                "A credential is required for this operation."
+                              ],
+                              "type": "string"
+                            },
+                            "instance": {
+                              "$ref": "#/components/schemas/Union_"
+                            },
+                            "status": {
+                              "enum": [
+                                401
+                              ],
+                              "type": "number"
+                            },
+                            "title": {
+                              "enum": [
+                                "Credential required"
+                              ],
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "urn:vektorprogrammet:problem:v0.2:credential.missing"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "detail"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "credential.invalid"
+                              ],
+                              "type": "string"
+                            },
+                            "detail": {
+                              "enum": [
+                                "The supplied credential is invalid."
+                              ],
+                              "type": "string"
+                            },
+                            "instance": {
+                              "$ref": "#/components/schemas/Union_"
+                            },
+                            "status": {
+                              "enum": [
+                                401
+                              ],
+                              "type": "number"
+                            },
+                            "title": {
+                              "enum": [
+                                "Invalid credential"
+                              ],
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "urn:vektorprogrammet:problem:v0.2:credential.invalid"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "detail"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionUnauthorizedProblem"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Closed RFC 9457 error union for SessionUnauthorizedProblem.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_3"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_4"
+                }
+              },
+              "www-authenticate": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "authority.denied"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The authenticated principal is not permitted to perform this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            403
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Authority denied"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:authority.denied"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "origin.denied"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The browser origin is not trusted for this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            403
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Origin denied"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:origin.denied"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "resource.not-found"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The requested resource was not found."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            404
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Resource not found"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:resource.not-found"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency.in-flight"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "A request with this idempotency identity is still in progress."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            409
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Idempotent request in progress"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency.in-flight"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency.digest-conflict"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "This idempotency key identifies a different semantic request."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            409
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Idempotency conflict"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency.digest-conflict"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency.response-expired"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The stored response for this idempotency identity has expired."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            409
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Idempotent response expired"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency.response-expired"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "retry-after": {
+                "required": false,
+                "schema": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "1"
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "precondition.failed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The selected representation changed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            412
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Precondition failed"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:precondition.failed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.too-large"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request body exceeds the permitted size."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            413
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Request too large"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:request.too-large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "media-type.unsupported"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request media type is not supported for this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            415
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Unsupported media type"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:media-type.unsupported"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "validation.failed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request contains invalid semantic values."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            422
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Validation failed"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:validation.failed"
+                          ],
+                          "type": "string"
+                        },
+                        "validation": {
+                          "$ref": "#/components/schemas/Objects_8"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail",
+                        "validation"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "internal.error"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The server encountered an unexpected error."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            500
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Internal error"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:internal.error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "dependency.unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "A required dependency is temporarily unavailable."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            503
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Dependency unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:dependency.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "organization.unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The organization service is temporarily unavailable."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            503
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Organization unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:organization.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency.unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The idempotency receipt store is temporarily unavailable."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            503
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Idempotency unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "retry-after": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "5"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieHeader": []
+          },
+          {
+            "oauthUserBearer": []
+          }
+        ],
+        "summary": "Close school survey",
+        "tags": [
+          "School surveys"
+        ],
+        "x-vektor-access": {
+          "acceptedCredentials": [
+            "BetterAuthCookie",
+            "OAuthUserBearer"
+          ],
+          "canonicalScopeResolver": "surveys.admin-close",
+          "capabilities": {
+            "none": true
+          },
+          "concealment": {
+            "mode": "NotFound",
+            "stages": [
+              "Scope"
+            ]
+          },
+          "decisionTime": "Transaction",
+          "exposure": "External",
+          "principalKinds": [
+            "Person"
+          ],
+          "requirements": []
+        },
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      }
+    },
+    "/api/surveys/admin/{surveyId}/results": {
+      "get": {
+        "description": "Returns the authorized anonymous response projection for one School survey.",
+        "operationId": "surveys.readAdminResults",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "surveyId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchoolSurveyResultsResource"
+                }
+              }
+            },
+            "description": "SchoolSurveyResultsResource",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_108"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_109"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/Objects_110"
+                        },
+                        {
+                          "$ref": "#/components/schemas/Objects_111"
+                        }
+                      ]
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionUnauthorizedProblem"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Closed RFC 9457 error union for SessionUnauthorizedProblem.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_3"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_4"
+                }
+              },
+              "www-authenticate": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_112"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_113"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_114"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_115"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_116"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_117"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "retry-after": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "5"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieHeader": []
+          },
+          {
+            "oauthUserBearer": []
+          }
+        ],
+        "summary": "Read school survey results",
+        "tags": [
+          "School surveys"
+        ],
+        "x-vektor-access": {
+          "acceptedCredentials": [
+            "BetterAuthCookie",
+            "OAuthUserBearer"
+          ],
+          "canonicalScopeResolver": "surveys.admin-results",
+          "capabilities": {
+            "none": true
+          },
+          "concealment": {
+            "mode": "NotFound",
+            "stages": [
+              "Scope"
+            ]
+          },
+          "decisionTime": "SnapshotRead",
+          "exposure": "External",
+          "principalKinds": [
+            "Person"
+          ],
+          "requirements": []
+        },
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      }
+    },
+    "/api/surveys/admin/{surveyId}/results.csv": {
+      "get": {
+        "description": "Returns the authorized School-survey result projection as CSV.",
+        "operationId": "surveys.exportAdminResults",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "surveyId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv; charset=utf-8": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "private, no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "content-disposition": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_108"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_109"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/Objects_110"
+                        },
+                        {
+                          "$ref": "#/components/schemas/Objects_111"
+                        }
+                      ]
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionUnauthorizedProblem"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Closed RFC 9457 error union for SessionUnauthorizedProblem.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_3"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_4"
+                }
+              },
+              "www-authenticate": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_112"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_113"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_114"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_115"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Objects_116"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_117"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "retry-after": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "5"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieHeader": []
+          },
+          {
+            "oauthUserBearer": []
+          }
+        ],
+        "summary": "Export school survey results",
+        "tags": [
+          "School surveys"
+        ],
+        "x-vektor-access": {
+          "acceptedCredentials": [
+            "BetterAuthCookie",
+            "OAuthUserBearer"
+          ],
+          "canonicalScopeResolver": "surveys.admin-results-export",
+          "capabilities": {
+            "none": true
+          },
+          "concealment": {
+            "mode": "NotFound",
+            "stages": [
+              "Scope"
+            ]
+          },
+          "decisionTime": "SnapshotRead",
+          "exposure": "External",
+          "principalKinds": [
+            "Person"
+          ],
+          "requirements": []
+        },
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      }
+    },
+    "/api/surveys/admin/catalog": {
+      "get": {
+        "description": "Returns the authorized department and semester catalog for school-survey administration.",
+        "operationId": "surveys.readAdminCatalog",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchoolSurveyAdminCatalogResource"
+                }
+              }
+            },
+            "description": "SchoolSurveyAdminCatalogResource",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.malformed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request is malformed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Malformed request"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:request.malformed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "header.malformed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "A request header is malformed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Malformed header"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:header.malformed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "credential.missing"
+                              ],
+                              "type": "string"
+                            },
+                            "detail": {
+                              "enum": [
+                                "A credential is required for this operation."
+                              ],
+                              "type": "string"
+                            },
+                            "instance": {
+                              "$ref": "#/components/schemas/Union_"
+                            },
+                            "status": {
+                              "enum": [
+                                401
+                              ],
+                              "type": "number"
+                            },
+                            "title": {
+                              "enum": [
+                                "Credential required"
+                              ],
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "urn:vektorprogrammet:problem:v0.2:credential.missing"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "detail"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "credential.invalid"
+                              ],
+                              "type": "string"
+                            },
+                            "detail": {
+                              "enum": [
+                                "The supplied credential is invalid."
+                              ],
+                              "type": "string"
+                            },
+                            "instance": {
+                              "$ref": "#/components/schemas/Union_"
+                            },
+                            "status": {
+                              "enum": [
+                                401
+                              ],
+                              "type": "number"
+                            },
+                            "title": {
+                              "enum": [
+                                "Invalid credential"
+                              ],
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "urn:vektorprogrammet:problem:v0.2:credential.invalid"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "detail"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionUnauthorizedProblem"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Closed RFC 9457 error union for SessionUnauthorizedProblem.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_3"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_4"
+                }
+              },
+              "www-authenticate": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "authority.denied"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The authenticated principal is not permitted to perform this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            403
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Authority denied"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:authority.denied"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "origin.denied"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The browser origin is not trusted for this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            403
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Origin denied"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:origin.denied"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "internal.error"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The server encountered an unexpected error."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            500
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Internal error"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:internal.error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "dependency.unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "A required dependency is temporarily unavailable."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            503
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Dependency unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:dependency.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "organization.unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The organization service is temporarily unavailable."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "$ref": "#/components/schemas/Union_"
+                        },
+                        "status": {
+                          "enum": [
+                            503
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Organization unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:organization.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_2"
+                }
+              },
+              "retry-after": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "5"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_1"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieHeader": []
+          },
+          {
+            "oauthUserBearer": []
+          }
+        ],
+        "summary": "Read school survey administration catalog",
+        "tags": [
+          "School surveys"
+        ],
+        "x-vektor-access": {
+          "acceptedCredentials": [
+            "BetterAuthCookie",
+            "OAuthUserBearer"
+          ],
+          "canonicalScopeResolver": "surveys.admin-catalog",
+          "capabilities": {
+            "none": true
+          },
+          "concealment": {
+            "mode": "Reveal",
+            "stages": []
+          },
+          "decisionTime": "SnapshotRead",
+          "exposure": "External",
+          "principalKinds": [
+            "Person"
+          ],
+          "requirements": []
+        },
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      }
+    },
     "/api/team-interest-registrations": {
       "get": {
         "description": "Returns registrations within the caller's leader scope.",
@@ -84281,7 +89945,7 @@
       "name": "Social events"
     },
     {
-      "description": "Anonymous participation in imported school surveys.",
+      "description": "Anonymous participation and authorized administration of School surveys.",
       "name": "School surveys"
     }
   ],
