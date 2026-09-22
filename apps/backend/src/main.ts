@@ -38,6 +38,7 @@ import {
   makeExternalNativeApiRouterLayer,
   makeInternalBackendHttp,
   makeInternalNativeApiRouterLayer,
+  nativeHttpRouterConfig,
   type BackendAuthHandler,
 } from "./router.js";
 
@@ -101,7 +102,9 @@ const backendServicesLayer = Layer.mergeAll(
   authLayer,
 );
 const httpPlatformLayer = Layer.mergeAll(BunServices.layer, BunHttpPlatform.layer, Etag.layer);
-const httpRouterLayer = HttpRouter.layer;
+const httpRouterLayer = HttpRouter.layer.pipe(
+  Layer.provide(Layer.succeed(HttpRouter.RouterConfig)(nativeHttpRouterConfig)),
+);
 const httpLayer = Layer.merge(httpPlatformLayer, httpRouterLayer);
 const nativeApiLayer = (
   ingress === "external"

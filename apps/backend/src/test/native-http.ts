@@ -34,6 +34,7 @@ import {
   makeBackendHttp,
   makeExternalNativeApiRouterLayer,
   makeInternalNativeApiRouterLayer,
+  nativeHttpRouterConfig,
   type BackendAuthHandler,
   type BackendHttpOptions,
 } from "../router.js";
@@ -94,7 +95,6 @@ const schoolSurveysContract = HttpApi.make("external-native-api")
   .add(SchoolSurveysApi)
   .middleware(RequestSchemaErrorMiddleware);
 
-
 type TestServiceLayer = Layer.Layer<Identity | OAuthCredentialAuthority>;
 
 const provideTestServices = <Output, Error, Requirements>(
@@ -122,7 +122,7 @@ const testRouterFetch = <
   return async (request) => {
     const webHandler = HttpRouter.toWebHandler(
       routerLayer as Layer.Layer<never, never, HttpRouter.HttpRouter>,
-      { disableLogger: true },
+      { disableLogger: true, routerConfig: nativeHttpRouterConfig },
     );
     // Effect's conditional Context type cannot reduce Layer.Success<S> across this
     // generic group helper. The exact service Layer is applied above.
@@ -240,7 +240,6 @@ export const makeSchoolsTestHttp = <S extends TestServiceLayer>(
 export const makeSchoolSurveysTestHttp = <S extends TestServiceLayer>(services: S) => ({
   fetch: testFetch(schoolSurveysContract, SchoolSurveysApiHandlers(), services),
 });
-
 
 export const makeBackendTestHttp = (
   config: BackendConfig,

@@ -15,7 +15,11 @@ import {
   type IdentityEngineError,
   type IdentityRequestContext,
 } from "@vektorprogrammet/domain/identity";
-import { DepartmentId, type Organization } from "@vektorprogrammet/domain/organization";
+import {
+  DepartmentId,
+  SURVEY_IDENTIFIER_MAX_UTF8_BYTES,
+  type Organization,
+} from "@vektorprogrammet/domain";
 import { ExternalNativeApi, InternalNativeApi } from "@vektorprogrammet/http-api";
 import { Effect, Layer } from "effect";
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
@@ -41,6 +45,7 @@ import { SystemApiHandlers } from "./http-api/system.js";
 import { makeNativeHttpApiMiddlewareLayer } from "./http-api/transport.js";
 import { methodNotAllowedResponse, nativeProblemResponse } from "./http-semantics.js";
 import { externalNativePreflightMethodsForPath } from "./native-api-preflight.js";
+
 import { decideNativePreflight } from "./native-preflight.js";
 import { OrganizationApiHandlers } from "./organization/http.js";
 import { ProfileApiHandlers } from "./profile/http.js";
@@ -61,6 +66,10 @@ import {
   withTrustedOriginCors,
   type NativeSessionBoundaryPolicy,
 } from "./session-security.js";
+export const nativeHttpRouterConfig = {
+  // FindMyWay matches the encoded path segment: every accepted UTF-8 byte can occupy "%HH".
+  maxParamLength: SURVEY_IDENTIFIER_MAX_UTF8_BYTES * 3,
+} as const;
 
 export interface BackendHttp {
   readonly fetch: (request: Request) => Promise<Response>;

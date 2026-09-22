@@ -318,6 +318,36 @@ describe("School surveys native HTTP adapter", () => {
     expect(resultReads).toBe(2);
   });
 
+  it("routes every accepted survey ID length", async () => {
+    const maximumLengthSurveyId = SurveyId.make("s".repeat(128));
+    const form = {
+      surveyId: maximumLengthSurveyId,
+      departmentId,
+      semesterId,
+      semesterLabel: "Spring 2032",
+      title: "School survey",
+      schools: [{ schoolId: SchoolId.make(1), name: "Survey School" }],
+      questions: adminSurvey().questions,
+    };
+    const api = makeSchoolSurveysTestHttp(
+      makeServices(authority(), {
+        readForm: (surveyId: SurveyId) => {
+          expect(surveyId).toBe(maximumLengthSurveyId);
+          return Effect.succeed(form);
+        },
+      }),
+    );
+
+    const response = await api.fetch(
+      new Request(`http://backend.test/api/surveys/${maximumLengthSurveyId}`),
+    );
+
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 200,
+      body: form,
+    });
+  });
+
   it("uses receipt-derived commands, generated survey IDs, and revisioned close commands", async () => {
     const createdCommands: Array<Record<string, unknown>> = [];
     const closedCommands: Array<Record<string, unknown>> = [];

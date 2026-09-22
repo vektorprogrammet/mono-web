@@ -64,8 +64,13 @@ const boundedArray = <S extends Schema.Top>(schema: S, maximum: number, message:
     Schema.check(Schema.makeFilter((value) => value.length <= maximum, { message })),
   );
 
+export const SURVEY_IDENTIFIER_MAX_UTF8_BYTES = 128;
+
 /** Opaque imported survey identity. */
-export const SurveyId = boundedIdentifier(128, "a survey ID at most 128 UTF-8 bytes").pipe(
+export const SurveyId = boundedIdentifier(
+  SURVEY_IDENTIFIER_MAX_UTF8_BYTES,
+  "a survey ID at most 128 UTF-8 bytes",
+).pipe(
   Schema.check(
     Schema.makeFilter((value) => value !== "." && value !== "..", {
       message: "a survey ID other than a URL dot segment",
@@ -77,14 +82,14 @@ export type SurveyId = typeof SurveyId.Type;
 
 /** Opaque imported survey-question identity. */
 export const SurveyQuestionId = boundedIdentifier(
-  128,
+  SURVEY_IDENTIFIER_MAX_UTF8_BYTES,
   "a survey question ID at most 128 UTF-8 bytes",
 ).pipe(Schema.brand("SurveyQuestionId"));
 export type SurveyQuestionId = typeof SurveyQuestionId.Type;
 
 /** Opaque server-issued anonymous response identity. */
 export const SurveyResponseId = boundedIdentifier(
-  128,
+  SURVEY_IDENTIFIER_MAX_UTF8_BYTES,
   "a survey response ID at most 128 UTF-8 bytes",
 ).pipe(Schema.brand("SurveyResponseId"));
 export type SurveyResponseId = typeof SurveyResponseId.Type;
@@ -354,11 +359,7 @@ const lifecycleMetadataIsValid = Schema.makeFilter(
     if (survey.state === "Open") {
       return survey.closedAt === null && survey.closedByPersonId === null;
     }
-    return (
-      survey.revision > 0 &&
-      survey.closedAt !== null &&
-      survey.closedByPersonId !== null
-    );
+    return survey.revision > 0 && survey.closedAt !== null && survey.closedByPersonId !== null;
   },
   { message: "consistent School-survey lifecycle metadata" },
 );
@@ -466,7 +467,7 @@ export type SchoolSurveyResultsResource = typeof SchoolSurveyResultsResource.Typ
 
 /** Native HTTP-derived command identity retained by School-survey provenance. */
 export const SchoolSurveyCommandId = boundedIdentifier(
-  128,
+  SURVEY_IDENTIFIER_MAX_UTF8_BYTES,
   "a School-survey command ID at most 128 UTF-8 bytes",
 ).pipe(Schema.brand("SchoolSurveyCommandId"));
 export type SchoolSurveyCommandId = typeof SchoolSurveyCommandId.Type;
