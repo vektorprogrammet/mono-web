@@ -380,13 +380,15 @@ export const NativeProblemRegistry = {
     type: "urn:vektorprogrammet:problem:v0.2:coverage.pending-offer",
     title: "Coverage has a pending offer",
     status: 409,
-    detail: "An offered or accepted substitute offer must be declined, withdrawn or acknowledged before closure.",
+    detail:
+      "An offered or accepted substitute offer must be declined, withdrawn or acknowledged before closure.",
   },
   "coverage.attendance-invalid": {
     type: "urn:vektorprogrammet:problem:v0.2:coverage.attendance-invalid",
     title: "Invalid substituted attendance",
     status: 422,
-    detail: "Attendance must exactly equal the confirmed roster minus absences plus acknowledged substitutes.",
+    detail:
+      "Attendance must exactly equal the confirmed roster minus absences plus acknowledged substitutes.",
   },
   "coverage.occurrence-duplicate": {
     type: "urn:vektorprogrammet:problem:v0.2:coverage.occurrence-duplicate",

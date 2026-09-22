@@ -203,7 +203,8 @@ if (process.exitCode !== 1) {
               workerId: `school-service-dispatch-${randomUUID()}`,
               pollIntervalMilliseconds:
                 config.schoolServiceDispatchNotifications.pollIntervalMilliseconds,
-              staleClaimMilliseconds: config.schoolServiceDispatchNotifications.staleClaimMilliseconds,
+              staleClaimMilliseconds:
+                config.schoolServiceDispatchNotifications.staleClaimMilliseconds,
               now: () => new Date().toISOString(),
             },
           ),

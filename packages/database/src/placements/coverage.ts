@@ -96,7 +96,8 @@ const ensureNoOccurrence = (
         AND block=${input.block}
         AND occurred_on=CAST(${input.serviceDate} AS date)
     `;
-    if (rows.length > 0) return yield* fail(code, code === "coverage.occurrence-duplicate" ? 409 : 422);
+    if (rows.length > 0)
+      return yield* fail(code, code === "coverage.occurrence-duplicate" ? 409 : 422);
   });
 
 const ensureAbsenceTarget = (
@@ -167,8 +168,9 @@ const responseRows = (sql: DatabaseShape, where: Statement.Fragment) =>
       response.responder_person_id AS "responderPersonId",
       to_char(response.responded_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "respondedAt"
     FROM public.school_service_substitute_offer_responses AS response
-    JOIN public.school_service_substitute_offers AS offer USING(offer_id)
-    JOIN public.school_service_absences AS absence USING(absence_id)
+    JOIN public.school_service_substitute_offers AS offer
+      ON offer.offer_id=response.offer_id AND offer.absence_id=response.absence_id
+    JOIN public.school_service_absences AS absence ON absence.absence_id=offer.absence_id
     WHERE ${where}
   `;
 
@@ -181,8 +183,9 @@ const notificationRows = (sql: DatabaseShape, where: Statement.Fragment) =>
         ELSE to_char(notification.delivered_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
       END AS "deliveredAt",notification.last_failure_tag AS "lastFailureTag"
     FROM public.school_service_dispatch_notification_outbox AS notification
-    JOIN public.school_service_substitute_offers AS offer USING(offer_id)
-    JOIN public.school_service_absences AS absence USING(absence_id)
+    JOIN public.school_service_substitute_offers AS offer
+      ON offer.offer_id=notification.offer_id AND offer.absence_id=notification.absence_id
+    JOIN public.school_service_absences AS absence ON absence.absence_id=offer.absence_id
     WHERE ${where}
   `;
 
@@ -277,7 +280,8 @@ const readOfferForUpdate = (sql: DatabaseShape, scope: PlacementScope, offerId: 
 
 const ensureNoClosure = (sql: DatabaseShape, absenceId: string) =>
   Effect.gen(function* () {
-    const rows = yield* sql`SELECT 1 FROM public.school_service_closures WHERE absence_id=${absenceId}`;
+    const rows =
+      yield* sql`SELECT 1 FROM public.school_service_closures WHERE absence_id=${absenceId}`;
     if (rows.length > 0) return yield* fail("absence.closed", 409);
   });
 
@@ -323,11 +327,11 @@ const eligibilitySnapshot = (
           SELECT 1
           FROM public.school_service_proposals AS proposal
           CROSS JOIN LATERAL jsonb_array_elements(proposal.assignment_snapshot) AS assignment
-          WHERE proposal.proposal_id=absence.proposalId
+          WHERE proposal.proposal_id=${absence.proposalId}
             AND assignment->>'personId'=link.person_id
-            AND (assignment->>'schoolId')::bigint=absence.schoolId
-            AND assignment->>'day'=absence.day
-            AND assignment->>'block'=absence.block
+            AND (assignment->>'schoolId')::bigint=${absence.schoolId}
+            AND assignment->>'day'=${absence.day}
+            AND assignment->>'block'=${absence.block}
         )
         AND NOT EXISTS (
           SELECT 1
@@ -480,7 +484,10 @@ export const readCoverageBoard = (scope: PlacementScope) =>
           sql`absence.department_id=${scope.departmentId} AND absence.semester_id=${scope.semesterId}`,
         ),
       );
-      const occurrences = yield* decode(Schema.Array(SchoolServiceOccurrence), yield* occurrenceRows(sql, scope));
+      const occurrences = yield* decode(
+        Schema.Array(SchoolServiceOccurrence),
+        yield* occurrenceRows(sql, scope),
+      );
       const candidates = yield* sql`
         SELECT DISTINCT ON (absence.absence_id,link.person_id)
           absence.absence_id AS "absenceId",application.application_id AS "applicationId",
@@ -650,7 +657,13 @@ const dispatchOffer = (
       FOR UPDATE
     `;
     if (active.length > 0) return yield* fail("offer.unresolved", 409);
-    const snapshot = yield* eligibilitySnapshot(sql, scope, absence, command.candidatePersonId, now);
+    const snapshot = yield* eligibilitySnapshot(
+      sql,
+      scope,
+      absence,
+      command.candidatePersonId,
+      now,
+    );
     yield* sql`
       INSERT INTO public.school_service_substitute_offers(
         offer_id,absence_id,candidate_person_id,dispatcher_person_id,dispatched_at,status,revision,eligibility_snapshot
@@ -708,7 +721,9 @@ const withdrawOffer = (
         offer_id,absence_id,withdrawn_by_person_id,withdrawn_at
       ) VALUES(${offer.offerId},${offer.absenceId},${actor},${now})
     `;
-    yield* writeAudit(sql, scope, actor, "WithdrawSubstituteOffer", now, { offerId: offer.offerId });
+    yield* writeAudit(sql, scope, actor, "WithdrawSubstituteOffer", now, {
+      offerId: offer.offerId,
+    });
   });
 
 const acknowledgeCoverage = (
@@ -852,13 +867,15 @@ const closeCoverage = (
     ) {
       return yield* fail("coverage.acknowledgement-invalid", 409);
     }
-    if (!hasExactSubstitutedSchoolServiceAttendance(proposal, absences, acknowledgements, {
-      schoolId: command.schoolId,
-      day: command.day,
-      block: command.block,
-      serviceDate: command.occurredOn,
-      attendedPersonIds: command.attendedPersonIds,
-    })) {
+    if (
+      !hasExactSubstitutedSchoolServiceAttendance(proposal, absences, acknowledgements, {
+        schoolId: command.schoolId,
+        day: command.day,
+        block: command.block,
+        serviceDate: command.occurredOn,
+        attendedPersonIds: command.attendedPersonIds,
+      })
+    ) {
       return yield* fail("coverage.attendance-invalid");
     }
     yield* sql`
@@ -931,7 +948,14 @@ export const mutateCoverageBoard = (
           yield* withdrawOffer(sql, scope, command.offerId, actor, now);
           break;
         case "AcknowledgeCoverage":
-          yield* acknowledgeCoverage(sql, scope, command.offerId, actor, now, ids.acknowledgementId);
+          yield* acknowledgeCoverage(
+            sql,
+            scope,
+            command.offerId,
+            actor,
+            now,
+            ids.acknowledgementId,
+          );
           break;
         case "CloseCoverage":
           yield* closeCoverage(sql, scope, command, actor, now, ids.occurrenceId);

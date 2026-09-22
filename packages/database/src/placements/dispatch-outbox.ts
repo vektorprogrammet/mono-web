@@ -56,7 +56,8 @@ export type SchoolServiceDispatchNotificationInterpreter = (
 const outboxError = (operation: string, cause?: unknown) =>
   new SchoolServiceDispatchNotificationOutboxError({
     operation,
-    message: cause instanceof Error ? cause.message : "school service dispatch notification outbox failed",
+    message:
+      cause instanceof Error ? cause.message : "school service dispatch notification outbox failed",
   });
 
 const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, value: unknown) =>
@@ -146,7 +147,10 @@ const claimInTransaction = (sql: DatabaseShape, claimId: string, claimedAt: stri
               onSuccess: Effect.succeed,
             }),
           );
-    const request = yield* decode(SchoolServiceDispatchNotificationRequest, decodedRow.payloadJson).pipe(
+    const request = yield* decode(
+      SchoolServiceDispatchNotificationRequest,
+      decodedRow.payloadJson,
+    ).pipe(
       Effect.matchEffect({
         onFailure: () => Effect.succeed(undefined),
         onSuccess: Effect.succeed,

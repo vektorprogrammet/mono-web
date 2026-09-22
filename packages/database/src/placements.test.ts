@@ -337,9 +337,7 @@ describe("canonical placement persistence", () => {
     const rosterPerson = PersonId.make("coverage-roster-person");
     const candidatePerson = PersonId.make("coverage-candidate-person");
     const coverageCoordinator = PersonId.make("coverage-coordinator");
-    const proposalId = SchoolServiceProposalId.make(
-      `school-service-proposal-${"f".repeat(64)}`,
-    );
+    const proposalId = SchoolServiceProposalId.make(`school-service-proposal-${"f".repeat(64)}`);
     const absenceId = SchoolServiceAbsenceId.make(`school-service-absence-${"1".repeat(64)}`);
     const offerId = SchoolServiceSubstituteOfferId.make(
       `school-service-substitute-offer-${"2".repeat(64)}`,
@@ -371,7 +369,7 @@ describe("canonical placement persistence", () => {
             yield* sql`INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES('coverage-invitation','coverage-application','coverage-applicant',${"a".repeat(64)},'2027-01-01T00:00:00Z','Claimed',${coverageCoordinator},${now})`;
             yield* sql`INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES('coverage-applicant',${candidatePerson},${now},'coverage-invitation')`;
             yield* sql`INSERT INTO admission_substitute_preferences(application_id,active,monday,tuesday,wednesday,thursday,friday,language,revision) VALUES('coverage-application',true,true,false,false,false,false,'Norwegian',1)`;
-            yield* sql`INSERT INTO school_service_proposals(proposal_id,department_id,semester_id,status,revision,created_at,created_by_person_id,confirmed_at,confirmed_by_person_id,demand_snapshot,assignment_snapshot,exception_snapshot,reviewed_exception_ids) VALUES(${proposalId},${coverageScope.departmentId},${coverageScope.semesterId},'Confirmed',2,${now},${coverageCoordinator},${now},${coverageCoordinator},${sql.json([])},${sql.json([{ placementId: `placement-${"5".repeat(64)}`, personId: rosterPerson, firstName: 'Rosa', lastName: 'Roster', schoolId, schoolName: 'Coverage school', day: 'Monday', block: '1' }])},${sql.json([])},${sql.json([])})`;
+            yield* sql`INSERT INTO school_service_proposals(proposal_id,department_id,semester_id,status,revision,created_at,created_by_person_id,confirmed_at,confirmed_by_person_id,demand_snapshot,assignment_snapshot,exception_snapshot,reviewed_exception_ids) VALUES(${proposalId},${coverageScope.departmentId},${coverageScope.semesterId},'Confirmed',2,${now},${coverageCoordinator},${now},${coverageCoordinator},${sql.json([])},${sql.json([{ placementId: `placement-${"5".repeat(64)}`, personId: rosterPerson, firstName: "Rosa", lastName: "Roster", schoolId, schoolName: "Coverage school", day: "Monday", block: "1" }])},${sql.json([])},${sql.json([])})`;
             yield* lockPlacementDepartment(coverageScope.departmentId);
             yield* mutateCoverageBoard(
               coverageScope,
@@ -451,7 +449,9 @@ describe("canonical placement persistence", () => {
         "coverage-worker:1",
         "2026-09-06T00:01:00.000Z",
         (request) =>
-          Effect.fail(new SchoolServiceDispatchNotificationDeliveryError({ effectId: request.effectId })),
+          Effect.fail(
+            new SchoolServiceDispatchNotificationDeliveryError({ effectId: request.effectId }),
+          ),
       ),
     );
     let deliveredEffectId = "";

@@ -55,7 +55,9 @@ export const schoolServiceDispatchNotificationConfig = (
     endpoint.username.length > 0 ||
     endpoint.password.length > 0
   ) {
-    throw new Error("SCHOOL_SERVICE_DISPATCH_NOTIFICATION_URL must use HTTPS or fixed loopback HTTP");
+    throw new Error(
+      "SCHOOL_SERVICE_DISPATCH_NOTIFICATION_URL must use HTTPS or fixed loopback HTTP",
+    );
   }
   return {
     endpoint,
@@ -78,10 +80,11 @@ export const schoolServiceDispatchNotificationConfig = (
   };
 };
 
-export const makeHttpSchoolServiceDispatchNotificationInterpreter = (
-  config: SchoolServiceDispatchNotificationConfig,
-  fetchEffect: DeliveryFetch = globalThis.fetch,
-): SchoolServiceDispatchNotificationInterpreter =>
+export const makeHttpSchoolServiceDispatchNotificationInterpreter =
+  (
+    config: SchoolServiceDispatchNotificationConfig,
+    fetchEffect: DeliveryFetch = globalThis.fetch,
+  ): SchoolServiceDispatchNotificationInterpreter =>
   (request: SchoolServiceDispatchNotificationRequest) =>
     deliverJson(request, config, fetchEffect, { "idempotency-key": request.effectId }).pipe(
       Effect.mapError(

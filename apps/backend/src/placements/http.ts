@@ -107,7 +107,11 @@ const query = (request: Request, mode: "affiliation" | "scope") =>
   semantic(() => {
     const parameters = new URL(request.url).searchParams;
     const keys = mode === "affiliation" ? ["departmentId"] : ["departmentId", "semesterId"];
-    if ([...parameters.keys()].some((key) => !keys.includes(key) || parameters.getAll(key).length !== 1)) {
+    if (
+      [...parameters.keys()].some(
+        (key) => !keys.includes(key) || parameters.getAll(key).length !== 1,
+      )
+    ) {
       throw new HttpSemanticFailure("request.malformed", 400);
     }
     return Object.fromEntries(parameters);
@@ -159,14 +163,12 @@ const authorize = (
     return auth;
   });
 
-const sqlField = (value: unknown, field: "code" | "constraint", depth = 0): string | null =>
-  depth < 8 && typeof value === "object" && value !== null
-    ? field in value && typeof value[field] === "string"
-      ? value[field]
-      : "cause" in value
-        ? sqlField(value.cause, field, depth + 1)
-        : null
-    : null;
+const sqlField = (value: unknown, field: "code" | "constraint", depth = 0): string | null => {
+  if (depth >= 8 || typeof value !== "object" || value === null) return null;
+  const candidate = Reflect.get(value, field);
+  if (typeof candidate === "string") return candidate;
+  return "cause" in value ? sqlField(value.cause, field, depth + 1) : null;
+};
 
 const errorResponse = (cause: unknown): Response => {
   if (cause instanceof HttpSemanticFailure || cause instanceof PlacementFailure) {
@@ -323,7 +325,13 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
           }
           const scope = yield* decode(PlacementScope, yield* query(request, "scope"));
           if (mode === "board") {
-            yield* authorize(request, ReadPlacementBoardEndpoint, scope.departmentId, true, input.now);
+            yield* authorize(
+              request,
+              ReadPlacementBoardEndpoint,
+              scope.departmentId,
+              true,
+              input.now,
+            );
             return json(
               yield* decode(PlacementBoardResource, resource(yield* readPlacementBoard(scope))),
             );
@@ -483,7 +491,11 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
           toHttpApiResponse(request, (webRequest) => read(webRequest, "board"), errorResponse),
         )
         .handleRaw("readOwnCoverage", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => read(webRequest, "ownCoverage"), errorResponse),
+          toHttpApiResponse(
+            request,
+            (webRequest) => read(webRequest, "ownCoverage"),
+            errorResponse,
+          ),
         )
         .handleRaw("readCoverageBoard", ({ request }) =>
           toHttpApiResponse(request, (webRequest) => read(webRequest, "coverage"), errorResponse),

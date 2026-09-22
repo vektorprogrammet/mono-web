@@ -49,7 +49,7 @@ CREATE TABLE public.school_service_substitute_offers (
     CHECK (status IN ('Offered','Accepted','Declined','Withdrawn','Acknowledged')),
   revision integer NOT NULL DEFAULT 1 CHECK (revision > 0),
   eligibility_snapshot jsonb NOT NULL CHECK (jsonb_typeof(eligibility_snapshot) = 'object'),
-  UNIQUE (offer_id, absence_id),
+  UNIQUE (offer_id, absence_id)
 );
 -- State values other than Offered, Accepted and Acknowledged may recur; only the
 -- currently unresolved or accepted path is unique per absence.
