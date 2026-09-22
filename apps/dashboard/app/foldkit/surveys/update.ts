@@ -1,3 +1,4 @@
+import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Match as M, Schema as S } from "effect";
 import { Command } from "foldkit";
 import {
@@ -98,6 +99,32 @@ const createCommand = (
     return null;
   }
 };
+
+const sameDraft = (left: SurveyDraft, right: SurveyDraft): boolean =>
+  left.departmentId === right.departmentId &&
+  left.semesterId === right.semesterId &&
+  left.title === right.title &&
+  left.completionText === right.completionText &&
+  left.resultsVisibility === right.resultsVisibility &&
+  left.questions.length === right.questions.length &&
+  left.questions.every((question, index) => {
+    const other = right.questions[index];
+    return (
+      other !== undefined &&
+      question.draftId === other.draftId &&
+      question.kind === other.kind &&
+      question.label === other.label &&
+      question.help === other.help &&
+      question.required === other.required &&
+      question.alternatives.length === other.alternatives.length &&
+      question.alternatives.every(
+        (alternative, alternativeIndex) => alternative === other.alternatives[alternativeIndex],
+      )
+    );
+  });
+
+const generatedCommandId = (model: Model, operation: "create" | "close") =>
+  IdempotencyKey.make(`school-surveys-${operation}-${model.commandSeed}-${model.commandSequence}`);
 
 const updateQuestion = (
   model: Model,
@@ -428,8 +455,13 @@ export const makeUpdate =
           if (!canEditDraft(model) || model.detail === null) return [model, []];
           return makeUpdate(commands)(model, RequestedResults({ surveyId: model.detail.surveyId }));
         },
-        SubmittedCreate: ({ commandId }) => {
+        SubmittedCreate: () => {
           if (!canEditDraft(model) || model.catalog._tag !== "Success") return [model, []];
+          const retry =
+            model.retryCreate !== null && sameDraft(model.retryCreate.draft, model.draft)
+              ? model.retryCreate
+              : null;
+          const commandId = retry?.commandId ?? generatedCommandId(model, "create");
           const command = createCommand(model.draft, commandId);
           if (command === null) {
             return [{ ...model, banner: invalidDraftFailure, successMessage: null }, []];
@@ -439,8 +471,9 @@ export const makeUpdate =
             {
               ...model,
               requestSequence: requestId,
-              commandSequence: model.commandSequence + 1,
+              commandSequence: retry === null ? model.commandSequence + 1 : model.commandSequence,
               pendingCommand: "Create",
+              retryCreate: null,
               banner: null,
               successMessage: null,
             },
@@ -460,6 +493,7 @@ export const makeUpdate =
             {
               ...model,
               pendingCommand: null,
+              retryCreate: null,
               detail: survey,
               selectedSurveyId: survey.surveyId,
               results: { _tag: "Idle" },
@@ -473,11 +507,20 @@ export const makeUpdate =
           );
           return [next, emitted];
         },
-        FailedCreate: ({ requestId, failure }) =>
+        FailedCreate: ({ requestId, commandId, failure }) =>
           model.pendingCommand !== "Create" || model.requestSequence !== requestId
             ? [model, []]
-            : [{ ...model, pendingCommand: null, banner: failure, successMessage: null }, []],
-        SubmittedClose: ({ commandId, surveyId, expectedRevision }) => {
+            : [
+                {
+                  ...model,
+                  pendingCommand: null,
+                  retryCreate: { commandId, draft: model.draft },
+                  banner: failure,
+                  successMessage: null,
+                },
+                [],
+              ],
+        SubmittedClose: ({ surveyId, expectedRevision }) => {
           if (
             !canEditDraft(model) ||
             model.detail === null ||
@@ -486,6 +529,13 @@ export const makeUpdate =
           ) {
             return [model, []];
           }
+          const retry =
+            model.retryClose !== null &&
+            model.retryClose.surveyId === surveyId &&
+            model.retryClose.expectedRevision === expectedRevision
+              ? model.retryClose
+              : null;
+          const commandId = retry?.commandId ?? generatedCommandId(model, "close");
           let command: S.Schema.Type<typeof SchoolSurveyCloseCommand>;
           try {
             command = S.decodeUnknownSync(SchoolSurveyCloseCommand)(
@@ -500,8 +550,9 @@ export const makeUpdate =
             {
               ...model,
               requestSequence: requestId,
-              commandSequence: model.commandSequence + 1,
+              commandSequence: retry === null ? model.commandSequence + 1 : model.commandSequence,
               pendingCommand: "Close",
+              retryClose: null,
               banner: null,
               successMessage: null,
             },
@@ -516,6 +567,7 @@ export const makeUpdate =
             {
               ...model,
               pendingCommand: null,
+              retryClose: null,
               detail: survey,
               selectedSurveyId: survey.surveyId,
               results: { _tag: "Idle" },
@@ -528,10 +580,19 @@ export const makeUpdate =
           );
           return [next, emitted];
         },
-        FailedClose: ({ requestId, failure }) =>
+        FailedClose: ({ requestId, commandId, surveyId, expectedRevision, failure }) =>
           model.pendingCommand !== "Close" || model.requestSequence !== requestId
             ? [model, []]
-            : [{ ...model, pendingCommand: null, banner: failure, successMessage: null }, []],
+            : [
+                {
+                  ...model,
+                  pendingCommand: null,
+                  retryClose: { commandId, surveyId, expectedRevision },
+                  banner: failure,
+                  successMessage: null,
+                },
+                [],
+              ],
         DismissedBanner: () => [{ ...model, banner: null, successMessage: null }, []],
       }),
     );

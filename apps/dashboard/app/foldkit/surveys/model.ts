@@ -1,5 +1,7 @@
+import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 import {
+  CloseSchoolSurveyRequest,
   CreateSchoolSurveyRequest,
   SchoolSurveyAdminCatalogResource,
   SchoolSurveyAdminListResource,
@@ -95,6 +97,17 @@ export type ResultsState = S.Schema.Type<typeof ResultsState>;
 export const PendingCommand = S.Literals(["Create", "Close"]);
 export type PendingCommand = S.Schema.Type<typeof PendingCommand>;
 
+export const RetriableCreate = S.Struct({
+  commandId: IdempotencyKey,
+  draft: SurveyDraft,
+});
+
+export const RetriableClose = S.Struct({
+  commandId: IdempotencyKey,
+  surveyId: SurveyId,
+  expectedRevision: CloseSchoolSurveyRequest.fields.expectedRevision,
+});
+
 export const Model = S.Struct({
   catalog: CatalogState,
   list: ListState,
@@ -107,6 +120,8 @@ export const Model = S.Struct({
   commandSequence: S.Int.check(S.isGreaterThanOrEqualTo(1)),
   commandSeed: S.String,
   pendingCommand: S.NullOr(PendingCommand),
+  retryCreate: S.NullOr(RetriableCreate),
+  retryClose: S.NullOr(RetriableClose),
   banner: S.NullOr(SchoolSurveysFailure),
   successMessage: S.NullOr(S.String),
 });
@@ -142,6 +157,8 @@ export const makeInitialModel = (): Model => ({
   commandSequence: 1,
   commandSeed: globalThis.crypto.randomUUID().replaceAll("-", ""),
   pendingCommand: null,
+  retryCreate: null,
+  retryClose: null,
   banner: null,
   successMessage: null,
 });

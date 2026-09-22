@@ -103,7 +103,9 @@ export const makeSchoolSurveysCommands = (
     effect: client.surveys.createAdminSurvey(command).pipe(
       Effect.map((survey) => SucceededCreate({ requestId, survey })),
       Effect.catch((error) =>
-        Effect.succeed(FailedCreate({ requestId, failure: failureFrom(error) })),
+        Effect.succeed(
+          FailedCreate({ requestId, commandId: command.commandId, failure: failureFrom(error) }),
+        ),
       ),
     ),
   }),
@@ -113,7 +115,15 @@ export const makeSchoolSurveysCommands = (
     effect: client.surveys.closeAdminSurvey(command).pipe(
       Effect.map((survey) => SucceededClose({ requestId, survey })),
       Effect.catch((error) =>
-        Effect.succeed(FailedClose({ requestId, failure: failureFrom(error) })),
+        Effect.succeed(
+          FailedClose({
+            requestId,
+            commandId: command.commandId,
+            surveyId: command.surveyId,
+            expectedRevision: command.expectedRevision,
+            failure: failureFrom(error),
+          }),
+        ),
       ),
     ),
   }),

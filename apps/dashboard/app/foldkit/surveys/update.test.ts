@@ -1,8 +1,16 @@
-import { DepartmentId, IdempotencyKey, SemesterId, SurveyId, SurveyQuestionId } from "@vektorprogrammet/http-api";
+import {
+  DepartmentId,
+  IdempotencyKey,
+  SemesterId,
+  SurveyId,
+  SurveyQuestionId,
+} from "@vektorprogrammet/http-api";
 import { describe, expect, it } from "vitest";
 import type { SchoolSurveysCommandFactories } from "./command";
 import {
+  ChangedTitle,
   FailedClose,
+  FailedCreate,
   LoadedCatalog,
   LoadedList,
   LoadedResults,
@@ -16,21 +24,29 @@ import { makeInitialModel } from "./model";
 import { makeUpdate } from "./update";
 
 const issued: Array<string> = [];
+const createdCommandIds: Array<string> = [];
+const closedCommandIds: Array<string> = [];
 const commands: SchoolSurveysCommandFactories = {
   LoadCatalog: ({ requestId }) => {
     issued.push(`catalog:${requestId}`);
-    return { name: "LoadSchoolSurveyAdminCatalog", args: { requestId }, effect: undefined as never };
+    return {
+      name: "LoadSchoolSurveyAdminCatalog",
+      args: { requestId },
+      effect: undefined as never,
+    };
   },
   LoadList: ({ requestId }) => {
     issued.push(`list:${requestId}`);
     return { name: "ListSchoolSurveys", args: { requestId }, effect: undefined as never };
   },
-  Create: ({ requestId }) => {
+  Create: ({ requestId, command }) => {
     issued.push(`create:${requestId}`);
+    createdCommandIds.push(command.commandId);
     return { name: "CreateSchoolSurvey", args: { requestId }, effect: undefined as never };
   },
-  Close: ({ requestId }) => {
+  Close: ({ requestId, command }) => {
     issued.push(`close:${requestId}`);
+    closedCommandIds.push(command.commandId);
     return { name: "CloseSchoolSurvey", args: { requestId }, effect: undefined as never };
   },
   LoadResults: ({ requestId }) => {
@@ -108,7 +124,14 @@ describe("school-survey Foldkit transitions", () => {
         title: survey.title,
         completionText: survey.completionText,
         questions: [
-          { draftId: 1, kind: "Text" as const, label: "Tekst", help: "", required: true, alternatives: [] },
+          {
+            draftId: 1,
+            kind: "Text" as const,
+            label: "Tekst",
+            help: "",
+            required: true,
+            alternatives: [],
+          },
           {
             draftId: 2,
             kind: "List" as const,
@@ -136,10 +159,7 @@ describe("school-survey Foldkit transitions", () => {
         ],
       },
     };
-    const submitted = update(
-      ready,
-      SubmittedCreate({ commandId: IdempotencyKey.make("school-survey-create-test-command") }),
-    );
+    const submitted = update(ready, SubmittedCreate());
     expect(submitted[0].pendingCommand).toBe("Create");
     expect(issued).toEqual(["list:2", "create:3"]);
 
@@ -157,16 +177,68 @@ describe("school-survey Foldkit transitions", () => {
     expect(refreshed[0].detail).toEqual(survey);
   });
 
+  it("reuses an uncertain create command ID only while its intent is unchanged", () => {
+    issued.length = 0;
+    createdCommandIds.length = 0;
+    const scoped = update(makeInitialModel(), LoadedCatalog({ requestId: 1, catalog }));
+    const loaded = update(scoped[0], LoadedList({ requestId: 2, list: emptyList }));
+    const ready = {
+      ...loaded[0],
+      commandSeed: "survey-retry-seed",
+      draft: {
+        ...loaded[0].draft,
+        title: survey.title,
+        completionText: survey.completionText,
+        questions: [
+          {
+            draftId: 1,
+            kind: "Text" as const,
+            label: "Tekst",
+            help: "",
+            required: true,
+            alternatives: [],
+          },
+        ],
+      },
+    };
+
+    const submitted = update(ready, SubmittedCreate());
+    const firstCommandId = IdempotencyKey.make("school-surveys-create-survey-retry-seed-1");
+    expect(createdCommandIds).toEqual([firstCommandId]);
+    expect(submitted[0].commandSequence).toBe(2);
+
+    const failed = update(
+      submitted[0],
+      FailedCreate({
+        requestId: 3,
+        commandId: firstCommandId,
+        failure: { _tag: "Failed", tag: "Network", message: "Tjenesten er utilgjengelig." },
+      }),
+    );
+    const retried = update(failed[0], SubmittedCreate());
+    expect(createdCommandIds).toEqual([firstCommandId, firstCommandId]);
+    expect(retried[0].commandSequence).toBe(2);
+
+    const edited = update(failed[0], ChangedTitle({ value: "En annen undersøkelse" }));
+    const replaced = update(edited[0], SubmittedCreate());
+    expect(createdCommandIds).toEqual([
+      firstCommandId,
+      firstCommandId,
+      "school-surveys-create-survey-retry-seed-2",
+    ]);
+    expect(replaced[0].commandSequence).toBe(3);
+  });
+
   it("keeps the visible revision after a rejected close and discards stale results", () => {
     issued.length = 0;
     const scoped = update(makeInitialModel(), LoadedCatalog({ requestId: 1, catalog }));
     const listed = update(scoped[0], LoadedList({ requestId: 2, list: listedSurvey }));
     const selected = update(listed[0], SelectedSurvey({ surveyId }));
 
+    closedCommandIds.length = 0;
     const closing = update(
-      selected[0],
+      { ...selected[0], commandSeed: "survey-close-seed" },
       SubmittedClose({
-        commandId: IdempotencyKey.make("school-survey-close-test-command"),
         surveyId,
         expectedRevision: 7,
       }),
@@ -178,6 +250,9 @@ describe("school-survey Foldkit transitions", () => {
       closing[0],
       FailedClose({
         requestId: 3,
+        commandId: IdempotencyKey.make(closedCommandIds[0]!),
+        surveyId,
+        expectedRevision: 7,
         failure: {
           _tag: "Failed",
           tag: "CommandConflict",

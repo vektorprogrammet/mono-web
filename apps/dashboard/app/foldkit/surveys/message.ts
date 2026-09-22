@@ -93,18 +93,18 @@ export const FailedResults = m("FailedResults", {
 });
 export const RetriedResults = m("RetriedResults");
 
-export const SubmittedCreate = m("SubmittedCreate", { commandId: IdempotencyKey });
+export const SubmittedCreate = m("SubmittedCreate");
 export const SucceededCreate = m("SucceededCreate", {
   requestId: SchoolSurveysRequestId,
   survey: SchoolSurveyAdminResource,
 });
 export const FailedCreate = m("FailedCreate", {
   requestId: SchoolSurveysRequestId,
+  commandId: IdempotencyKey,
   failure: SchoolSurveysFailure,
 });
 
 export const SubmittedClose = m("SubmittedClose", {
-  commandId: IdempotencyKey,
   surveyId: SurveyId,
   expectedRevision: CloseSchoolSurveyRequest.fields.expectedRevision,
 });
@@ -114,6 +114,9 @@ export const SucceededClose = m("SucceededClose", {
 });
 export const FailedClose = m("FailedClose", {
   requestId: SchoolSurveysRequestId,
+  commandId: IdempotencyKey,
+  surveyId: SurveyId,
+  expectedRevision: CloseSchoolSurveyRequest.fields.expectedRevision,
   failure: SchoolSurveysFailure,
 });
 

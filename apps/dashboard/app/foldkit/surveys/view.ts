@@ -1,4 +1,3 @@
-import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { schoolSurveyPath } from "../../lib/school-survey-path";
 import { schoolSurveyResultsCsvUrl } from "./browser-client";
@@ -67,7 +66,7 @@ const banner = (model: Model, h: HtmlBuilder<Message>): Html => {
     return h.section(
       [h.Class("school-surveys__banner school-surveys__banner--error"), h.Role("alert")],
       [
-        h.h2([], [model.banner._tag === "Denied" ? "Ingen tilgang" : "Kunne ikke fullføre" ]),
+        h.h2([], [model.banner._tag === "Denied" ? "Ingen tilgang" : "Kunne ikke fullføre"]),
         h.p([], [model.banner.message]),
         h.button(
           [h.Type("button"), h.Class("school-surveys__dismiss"), h.OnClick(DismissedBanner())],
@@ -127,8 +126,7 @@ const questionEditor = (
               h.OnChange((value) =>
                 ChangedQuestionKind({
                   draftId: question.draftId,
-                  kind:
-                    value === "List" || value === "Radio" || value === "Check" ? value : "Text",
+                  kind: value === "List" || value === "Radio" || value === "Check" ? value : "Text",
                 }),
               ),
             ],
@@ -190,9 +188,13 @@ const questionEditor = (
                 h.div(
                   [h.Class("school-surveys__alternative")],
                   [
-                    h.label([h.Class("school-surveys__visually-hidden"), h.For(`${prefix}-alternative-${index}`)], [
-                      `Alternativ ${index + 1}`,
-                    ]),
+                    h.label(
+                      [
+                        h.Class("school-surveys__visually-hidden"),
+                        h.For(`${prefix}-alternative-${index}`),
+                      ],
+                      [`Alternativ ${index + 1}`],
+                    ),
                     h.input([
                       h.Id(`${prefix}-alternative-${index}`),
                       h.Type("text"),
@@ -235,13 +237,10 @@ const createForm = (model: Model, h: HtmlBuilder<Message>): Html => {
   if (model.catalog._tag !== "Success") return h.empty;
   const catalog = model.catalog.data;
   const disabled = model.pendingCommand !== null;
-  const commandId = IdempotencyKey.make(
-    `school-surveys-${model.commandSeed}-${model.commandSequence}`,
-  );
   return h.form(
     [
       h.Class("school-surveys__form"),
-      h.OnSubmit(SubmittedCreate({ commandId })),
+      h.OnSubmit(SubmittedCreate()),
       h.AriaBusy(disabled),
       h.Attribute("novalidate", ""),
     ],
@@ -343,7 +342,10 @@ const createForm = (model: Model, h: HtmlBuilder<Message>): Html => {
               ),
             ],
             [
-              h.option([h.Value("DepartmentManagers")], ["Avdelingsledere og globale administratorer"]),
+              h.option(
+                [h.Value("DepartmentManagers")],
+                ["Avdelingsledere og globale administratorer"],
+              ),
               h.option([h.Value("GlobalAdministrators")], ["Bare globale administratorer"]),
             ],
           ),
@@ -353,7 +355,10 @@ const createForm = (model: Model, h: HtmlBuilder<Message>): Html => {
         [h.Class("school-surveys__questions"), h.AriaLabelledBy("school-surveys-questions-title")],
         [
           h.h2([h.Id("school-surveys-questions-title")], ["Spørsmål"]),
-          h.p([h.Class("school-surveys__hint")], ["Rekkefølgen her blir rekkefølgen i skjemaet og CSV-filen."]),
+          h.p(
+            [h.Class("school-surveys__hint")],
+            ["Rekkefølgen her blir rekkefølgen i skjemaet og CSV-filen."],
+          ),
           ...model.draft.questions.map((question) => questionEditor(question, disabled, h)),
           h.div(
             [h.Class("school-surveys__question-kinds"), h.AriaLabel("Legg til spørsmål")],
@@ -454,10 +459,13 @@ const listView = (model: Model, h: HtmlBuilder<Message>): Html => {
   return h.section(
     [h.Class("school-surveys__results"), h.AriaLabelledBy("school-surveys-list-title")],
     [
-      h.div([h.Class("school-surveys__results-heading")], [
-        h.h2([h.Id("school-surveys-list-title")], ["Undersøkelser"]),
-        h.p([], [surveys.length === 1 ? "1 undersøkelse" : `${surveys.length} undersøkelser`]),
-      ]),
+      h.div(
+        [h.Class("school-surveys__results-heading")],
+        [
+          h.h2([h.Id("school-surveys-list-title")], ["Undersøkelser"]),
+          h.p([], [surveys.length === 1 ? "1 undersøkelse" : `${surveys.length} undersøkelser`]),
+        ],
+      ),
       h.div(
         [
           h.Class("school-surveys__table-scroll"),
@@ -472,13 +480,16 @@ const listView = (model: Model, h: HtmlBuilder<Message>): Html => {
               h.thead(
                 [],
                 [
-                  h.tr([], [
-                    h.th([h.Scope("col")], ["Tittel"]),
-                    h.th([h.Scope("col")], ["Status"]),
-                    h.th([h.Scope("col")], ["Svar"]),
-                    h.th([h.Scope("col")], ["Resultatpolicy"]),
-                    h.th([h.Scope("col")], ["Handling"]),
-                  ]),
+                  h.tr(
+                    [],
+                    [
+                      h.th([h.Scope("col")], ["Tittel"]),
+                      h.th([h.Scope("col")], ["Status"]),
+                      h.th([h.Scope("col")], ["Svar"]),
+                      h.th([h.Scope("col")], ["Resultatpolicy"]),
+                      h.th([h.Scope("col")], ["Handling"]),
+                    ],
+                  ),
                 ],
               ),
               h.tbody(
@@ -521,89 +532,112 @@ const definitionView = (model: Model, h: HtmlBuilder<Message>): Html => {
   const survey = model.detail;
   if (survey === null) return h.empty;
   const disabled = model.pendingCommand !== null;
-  const closeCommandId = IdempotencyKey.make(
-    `school-surveys-close-${model.commandSeed}-${model.commandSequence}`,
-  );
   return h.section(
     [h.Class("school-surveys__detail"), h.AriaLabelledBy("school-surveys-detail-title")],
     [
-      h.div([h.Class("school-surveys__detail-heading")], [
-        h.div([], [
-          h.h2([h.Id("school-surveys-detail-title")], [survey.title]),
-          h.p([], [`${stateLabel(survey.state)} · revisjon ${survey.revision} · ${survey.responseCount} svar`]),
-        ]),
-        h.span([h.Class(`school-surveys__state school-surveys__state--${survey.state.toLowerCase()}`)], [
-          stateLabel(survey.state),
-        ]),
-      ]),
+      h.div(
+        [h.Class("school-surveys__detail-heading")],
+        [
+          h.div(
+            [],
+            [
+              h.h2([h.Id("school-surveys-detail-title")], [survey.title]),
+              h.p(
+                [],
+                [
+                  `${stateLabel(survey.state)} · revisjon ${survey.revision} · ${survey.responseCount} svar`,
+                ],
+              ),
+            ],
+          ),
+          h.span(
+            [h.Class(`school-surveys__state school-surveys__state--${survey.state.toLowerCase()}`)],
+            [stateLabel(survey.state)],
+          ),
+        ],
+      ),
       h.dl(
         [h.Class("school-surveys__metadata")],
         [
           h.div([], [h.dt([], ["Semester"]), h.dd([], [survey.semesterLabel])]),
-          h.div([], [h.dt([], ["Resultatpolicy"]), h.dd([], [visibilityLabel(survey.resultsVisibility)])]),
+          h.div(
+            [],
+            [h.dt([], ["Resultatpolicy"]), h.dd([], [visibilityLabel(survey.resultsVisibility)])],
+          ),
           h.div([], [h.dt([], ["Opprettet"]), h.dd([], [formatInstant(survey.createdAt)])]),
           h.div([], [h.dt([], ["Lukket"]), h.dd([], [formatInstant(survey.closedAt)])]),
         ],
       ),
-      h.div([h.Class("school-surveys__links")], [
-        h.a(
-          [
-            h.Href(schoolSurveyPath(survey.surveyId)),
-            h.Target("_blank"),
-            h.Rel("noopener noreferrer"),
-            h.Class("school-surveys__secondary"),
-          ],
-          ["Åpne offentlig skjema"],
-        ),
-        h.a(
-          [
-            h.Href(schoolSurveyResultsCsvUrl(survey.surveyId)),
-            h.Download(""),
-            h.Class("school-surveys__secondary"),
-          ],
-          ["Last ned CSV"],
-        ),
-        h.button(
-          [
-            h.Type("button"),
-            h.Class("school-surveys__secondary"),
-            h.Disabled(disabled),
-            h.OnClick(RequestedResults({ surveyId: survey.surveyId })),
-          ],
-          ["Vis resultater"],
-        ),
-        survey.state === "Open"
-          ? h.button(
-              [
-                h.Type("button"),
-                h.Class("school-surveys__danger"),
-                h.Disabled(disabled),
-                h.OnClick(
-                  SubmittedClose({
-                    commandId: closeCommandId,
-                    surveyId: survey.surveyId,
-                    expectedRevision: survey.revision,
-                  }),
-                ),
-              ],
-              [disabled ? "Lukker undersøkelse …" : "Lukk undersøkelse"],
-            )
-          : h.empty,
-      ]),
-      h.section([h.Class("school-surveys__definition"), h.AriaLabelledBy("school-surveys-definition-title")], [
-        h.h3([h.Id("school-surveys-definition-title")], ["Spørsmål i rekkefølge"]),
-        h.ol(
-          [],
-          survey.questions.map((question) =>
-            h.li([], [
-              h.strong([], [question.label]),
-              ` (${question.kind}${question.required ? ", påkrevd" : ", valgfritt"})`,
-              question.help === null ? h.empty : h.p([], [question.help]),
-              question.kind === "Text" ? h.empty : h.p([], [question.alternatives.join(" · ")]),
-            ]),
+      h.div(
+        [h.Class("school-surveys__links")],
+        [
+          h.a(
+            [
+              h.Href(schoolSurveyPath(survey.surveyId)),
+              h.Target("_blank"),
+              h.Rel("noopener noreferrer"),
+              h.Class("school-surveys__secondary"),
+            ],
+            ["Åpne offentlig skjema"],
           ),
-        ),
-      ]),
+          h.a(
+            [
+              h.Href(schoolSurveyResultsCsvUrl(survey.surveyId)),
+              h.Download(""),
+              h.Class("school-surveys__secondary"),
+            ],
+            ["Last ned CSV"],
+          ),
+          h.button(
+            [
+              h.Type("button"),
+              h.Class("school-surveys__secondary"),
+              h.Disabled(disabled),
+              h.OnClick(RequestedResults({ surveyId: survey.surveyId })),
+            ],
+            ["Vis resultater"],
+          ),
+          survey.state === "Open"
+            ? h.button(
+                [
+                  h.Type("button"),
+                  h.Class("school-surveys__danger"),
+                  h.Disabled(disabled),
+                  h.OnClick(
+                    SubmittedClose({
+                      surveyId: survey.surveyId,
+                      expectedRevision: survey.revision,
+                    }),
+                  ),
+                ],
+                [disabled ? "Lukker undersøkelse …" : "Lukk undersøkelse"],
+              )
+            : h.empty,
+        ],
+      ),
+      h.section(
+        [
+          h.Class("school-surveys__definition"),
+          h.AriaLabelledBy("school-surveys-definition-title"),
+        ],
+        [
+          h.h3([h.Id("school-surveys-definition-title")], ["Spørsmål i rekkefølge"]),
+          h.ol(
+            [],
+            survey.questions.map((question) =>
+              h.li(
+                [],
+                [
+                  h.strong([], [question.label]),
+                  ` (${question.kind}${question.required ? ", påkrevd" : ", valgfritt"})`,
+                  question.help === null ? h.empty : h.p([], [question.help]),
+                  question.kind === "Text" ? h.empty : h.p([], [question.alternatives.join(" · ")]),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     ],
   );
 };
@@ -634,20 +668,32 @@ const resultsView = (model: Model, h: HtmlBuilder<Message>): Html => {
   if (results.data.responses.length === 0) {
     return h.section(
       [h.Class("school-surveys__empty"), h.Role("status")],
-      [h.h2([], ["Ingen svar ennå"]), h.p([], ["Resultatene oppdateres når en skole sender inn skjemaet."])],
+      [
+        h.h2([], ["Ingen svar ennå"]),
+        h.p([], ["Resultatene oppdateres når en skole sender inn skjemaet."]),
+      ],
     );
   }
   return h.section(
-    [h.Class("school-surveys__results school-surveys__response-results"), h.AriaLabelledBy("school-surveys-results-title")],
     [
-      h.div([h.Class("school-surveys__results-heading")], [
-        h.h2([h.Id("school-surveys-results-title")], ["Anonyme svar"]),
-        h.p([], [
-          results.data.responseCount === 1
-            ? "1 anonymt svar. Svarene vises i spørsmålrekkefølge."
-            : `${results.data.responseCount} anonyme svar. Svarene vises i spørsmålrekkefølge.`,
-        ]),
-      ]),
+      h.Class("school-surveys__results school-surveys__response-results"),
+      h.AriaLabelledBy("school-surveys-results-title"),
+    ],
+    [
+      h.div(
+        [h.Class("school-surveys__results-heading")],
+        [
+          h.h2([h.Id("school-surveys-results-title")], ["Anonyme svar"]),
+          h.p(
+            [],
+            [
+              results.data.responseCount === 1
+                ? "1 anonymt svar. Svarene vises i spørsmålrekkefølge."
+                : `${results.data.responseCount} anonyme svar. Svarene vises i spørsmålrekkefølge.`,
+            ],
+          ),
+        ],
+      ),
       h.div(
         [
           h.Class("school-surveys__table-scroll"),
@@ -661,34 +707,48 @@ const resultsView = (model: Model, h: HtmlBuilder<Message>): Html => {
               h.thead(
                 [],
                 [
-                  h.tr([], [
-                    h.th([h.Scope("col")], ["Innsendt"]),
-                    h.th([h.Scope("col")], ["Skole"]),
-                    ...questions.map((question) => h.th([h.Scope("col")], [question.label])),
-                  ]),
+                  h.tr(
+                    [],
+                    [
+                      h.th([h.Scope("col")], ["Innsendt"]),
+                      h.th([h.Scope("col")], ["Skole"]),
+                      ...questions.map((question) => h.th([h.Scope("col")], [question.label])),
+                    ],
+                  ),
                 ],
               ),
               h.tbody(
                 [],
                 results.data.responses.map((response) =>
-                  h.tr([], [
-                    h.td([], [h.time([h.Datetime(response.submittedAt)], [formatInstant(response.submittedAt)])]),
-                    h.th([h.Scope("row")], [response.school.name]),
-                    ...questions.map((question) => {
-                      const answer = response.answers.find(
-                        (candidate) => candidate.questionId === question.questionId,
-                      );
-                      const value =
-                        answer === undefined
-                          ? "Ikke besvart"
-                          : answer.kind === "Check"
-                            ? answer.values.length === 0
-                              ? "Ikke besvart"
-                              : answer.values.join(" · ")
-                            : (answer.value ?? "Ikke besvart");
-                      return h.td([], [value]);
-                    }),
-                  ]),
+                  h.tr(
+                    [],
+                    [
+                      h.td(
+                        [],
+                        [
+                          h.time(
+                            [h.Datetime(response.submittedAt)],
+                            [formatInstant(response.submittedAt)],
+                          ),
+                        ],
+                      ),
+                      h.th([h.Scope("row")], [response.school.name]),
+                      ...questions.map((question) => {
+                        const answer = response.answers.find(
+                          (candidate) => candidate.questionId === question.questionId,
+                        );
+                        const value =
+                          answer === undefined
+                            ? "Ikke besvart"
+                            : answer.kind === "Check"
+                              ? answer.values.length === 0
+                                ? "Ikke besvart"
+                                : answer.values.join(" · ")
+                              : (answer.value ?? "Ikke besvart");
+                        return h.td([], [value]);
+                      }),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -710,7 +770,14 @@ const catalogState = (model: Model, h: HtmlBuilder<Message>): Html => {
     return h.section(
       [h.Class("school-surveys__error"), h.Role("alert")],
       [
-        h.h2([], [model.catalog.error._tag === "Denied" ? "Ingen tilgang" : "Kunne ikke starte undersøkelsesadministrasjonen"]),
+        h.h2(
+          [],
+          [
+            model.catalog.error._tag === "Denied"
+              ? "Ingen tilgang"
+              : "Kunne ikke starte undersøkelsesadministrasjonen",
+          ],
+        ),
         h.p([], [model.catalog.error.message]),
         h.button(
           [h.Type("button"), h.Class("school-surveys__secondary"), h.OnClick(RetriedCatalog())],
@@ -721,7 +788,13 @@ const catalogState = (model: Model, h: HtmlBuilder<Message>): Html => {
   }
   return h.div(
     [h.Class("school-surveys__workspace")],
-    [banner(model, h), createForm(model, h), listView(model, h), definitionView(model, h), resultsView(model, h)],
+    [
+      banner(model, h),
+      createForm(model, h),
+      listView(model, h),
+      definitionView(model, h),
+      resultsView(model, h),
+    ],
   );
 };
 
@@ -729,11 +802,17 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.section(
     [h.Class("school-surveys"), h.AriaLabelledBy("school-surveys-page-title")],
     [
-      h.header([h.Class("school-surveys__header")], [
-        h.p([h.Class("school-surveys__eyebrow")], ["Skoler"]),
-        h.h1([h.Id("school-surveys-page-title")], ["Undersøkelser"]),
-        h.p([], ["Opprett, følg opp og avslutt anonyme skoleundersøkelser innenfor avdelingen din."]),
-      ]),
+      h.header(
+        [h.Class("school-surveys__header")],
+        [
+          h.p([h.Class("school-surveys__eyebrow")], ["Skoler"]),
+          h.h1([h.Id("school-surveys-page-title")], ["Undersøkelser"]),
+          h.p(
+            [],
+            ["Opprett, følg opp og avslutt anonyme skoleundersøkelser innenfor avdelingen din."],
+          ),
+        ],
+      ),
       catalogState(model, h),
     ],
   );
