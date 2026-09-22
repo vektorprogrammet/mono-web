@@ -503,7 +503,10 @@ const listView = (model: Model, h: HtmlBuilder<Message>): Html => {
                     [
                       h.th([h.Scope("row")], [survey.title]),
                       h.td([], [stateLabel(survey.state)]),
-                      h.td([], [String(survey.responseCount)]),
+                      h.td(
+                        [],
+                        [survey.responseCount === null ? "Skjult" : String(survey.responseCount)],
+                      ),
                       h.td([], [visibilityLabel(survey.resultsVisibility)]),
                       h.td(
                         [],
@@ -548,7 +551,9 @@ const definitionView = (model: Model, h: HtmlBuilder<Message>): Html => {
               h.p(
                 [],
                 [
-                  `${stateLabel(survey.state)} · revisjon ${survey.revision} · ${survey.responseCount} svar`,
+                  `${stateLabel(survey.state)} · revisjon ${survey.revision} · ${
+                    survey.responseCount === null ? "svar skjult" : `${survey.responseCount} svar`
+                  }`,
                 ],
               ),
             ],

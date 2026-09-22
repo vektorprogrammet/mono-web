@@ -415,12 +415,26 @@ describe("School surveys native HTTP adapter", () => {
     expect(closedCommands[0]?.request).toEqual({ expectedRevision: 0 });
   });
 
-  it("conceals confidential results from a current department manager", async () => {
+  it("conceals confidential aggregates from managers but exposes them to global administrators", async () => {
     let resultReads = 0;
     const confidentialSurvey = adminSurvey({ resultsVisibility: "GlobalAdministrators" });
-    const api = makeSchoolSurveysTestHttp(
+    const closedConfidentialSurvey = {
+      ...confidentialSurvey,
+      state: "Closed" as const,
+      revision: 1,
+      closedAt: observedAt,
+      closedByPersonId: personId,
+    };
+    const list = {
+      departmentId,
+      semesterId,
+      surveys: [confidentialSurvey],
+    };
+    const managerApi = makeSchoolSurveysTestHttp(
       makeServices(authority(), {
         readAdminSurvey: () => Effect.succeed(confidentialSurvey),
+        listAdminSurveys: () => Effect.succeed(list),
+        closeAdminSurvey: () => Effect.succeed(closedConfidentialSurvey),
         readAdminResults: () => {
           resultReads += 1;
           return Effect.die("confidential results must not be read");
@@ -428,10 +442,36 @@ describe("School surveys native HTTP adapter", () => {
       }),
     );
 
-    const response = await api.fetch(
+    const listResponse = await managerApi.fetch(
+      sessionRequest(
+        `http://backend.test/api/surveys/admin?departmentId=${departmentId}&semesterId=${semesterId}`,
+      ),
+    );
+    const closeResponse = await managerApi.fetch(
+      sessionRequest(`http://backend.test/api/surveys/admin/${schoolSurveyId}/close`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": "CCCCCCCCCCCCCCCCCCCCCC",
+          origin: "http://127.0.0.1:5174",
+        },
+        body: JSON.stringify({ expectedRevision: 0 }),
+      }),
+    );
+    const resultsResponse = await managerApi.fetch(
       sessionRequest(`http://backend.test/api/surveys/admin/${schoolSurveyId}/results`),
     );
-    expect({ status: response.status, body: await response.json() }).toEqual({
+
+    const listBody = (await listResponse.json()) as {
+      readonly surveys: ReadonlyArray<{ readonly responseCount: unknown }>;
+    };
+    const closeBody = (await closeResponse.json()) as { readonly responseCount: unknown };
+
+    expect({
+      list: listBody.surveys[0]?.responseCount,
+      close: closeBody.responseCount,
+    }).toEqual({ list: null, close: null });
+    expect({ status: resultsResponse.status, body: await resultsResponse.json() }).toEqual({
       status: 404,
       body: nativeProblem(
         "resource.not-found",
@@ -441,6 +481,21 @@ describe("School surveys native HTTP adapter", () => {
       ),
     });
     expect(resultReads).toBe(0);
+
+    const globalApi = makeSchoolSurveysTestHttp(
+      makeServices(authority({ globalAdministrator: "Active", memberships: [] }), {
+        listAdminSurveys: () => Effect.succeed(list),
+      }),
+    );
+    const globalListResponse = await globalApi.fetch(
+      sessionRequest(
+        `http://backend.test/api/surveys/admin?departmentId=${departmentId}&semesterId=${semesterId}`,
+      ),
+    );
+    const globalListBody = (await globalListResponse.json()) as {
+      readonly surveys: ReadonlyArray<{ readonly responseCount: unknown }>;
+    };
+    expect(globalListBody.surveys[0]?.responseCount).toBe(1);
   });
   it("denies ordinary, inactive, and out-of-department survey management before domain reads", async () => {
     let catalogReads = 0;

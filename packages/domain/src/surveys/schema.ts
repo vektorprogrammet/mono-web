@@ -375,7 +375,7 @@ const lifecycleMetadataIsValid = Schema.makeFilter(
   { message: "consistent School-survey lifecycle metadata" },
 );
 
-/** Administrative definition, lifecycle, and response-count projection. */
+/** Administrative definition, lifecycle, and policy-redacted response-count projection. */
 export const SchoolSurveyAdminResource = Schema.Struct({
   surveyId: SurveyId,
   departmentId: DepartmentId,
@@ -390,7 +390,7 @@ export const SchoolSurveyAdminResource = Schema.Struct({
   createdByPersonId: Schema.NullOr(PersonId),
   closedAt: Schema.NullOr(Rfc3339InstantSchema),
   closedByPersonId: Schema.NullOr(PersonId),
-  responseCount: SurveyResponseCount,
+  responseCount: Schema.NullOr(SurveyResponseCount),
   questions: boundedArray(SchoolSurveyQuestion, 100, "at most 100 questions"),
 })
   .pipe(Schema.check(lifecycleMetadataIsValid))
@@ -417,7 +417,7 @@ export const SchoolSurveyAdminCatalogResource = Schema.Struct({
 }).annotate({ identifier: "SchoolSurveyAdminCatalogResource" });
 export type SchoolSurveyAdminCatalogResource = typeof SchoolSurveyAdminCatalogResource.Type;
 
-/** Ordered School-survey definitions and response counts for one owner scope. */
+/** Ordered School-survey definitions with policy-redacted response counts for one owner scope. */
 export const SchoolSurveyAdminListResource = Schema.Struct({
   ...SchoolSurveyAdminScope.fields,
   surveys: Schema.Array(SchoolSurveyAdminResource),

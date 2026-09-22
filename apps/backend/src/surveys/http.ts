@@ -199,13 +199,34 @@ const requireDepartmentManager = (
         ),
       );
 
+const hasResultsAccess = (
+  authority: OrganizationPersonAuthority,
+  survey: typeof SchoolSurveyAdminResource.Type,
+): boolean =>
+  authority.globalAdministrator === "Active" ||
+  (survey.resultsVisibility === "DepartmentManagers" &&
+    managesDepartment(authority, String(survey.departmentId)));
+
+const redactResponseCount = (
+  survey: typeof SchoolSurveyAdminResource.Type,
+): typeof SchoolSurveyAdminResource.Type => ({ ...survey, responseCount: null });
+
+const projectListedSurvey = (
+  authority: OrganizationPersonAuthority,
+  survey: typeof SchoolSurveyAdminResource.Type,
+): typeof SchoolSurveyAdminResource.Type =>
+  hasResultsAccess(authority, survey) ? survey : redactResponseCount(survey);
+
+const projectMutationSurvey = (
+  survey: typeof SchoolSurveyAdminResource.Type,
+): typeof SchoolSurveyAdminResource.Type =>
+  survey.resultsVisibility === "GlobalAdministrators" ? redactResponseCount(survey) : survey;
+
 const requireResultsAccess = (
   authority: OrganizationPersonAuthority,
   survey: typeof SchoolSurveyAdminResource.Type,
 ) =>
-  authority.globalAdministrator === "Active" ||
-  (survey.resultsVisibility === "DepartmentManagers" &&
-    managesDepartment(authority, String(survey.departmentId)))
+  hasResultsAccess(authority, survey)
     ? Effect.void
     : Effect.fail(new HttpSemanticFailure("resource.not-found", 404));
 
@@ -439,7 +460,12 @@ const listAdminSurveys = (request: Request) =>
           const surveys = yield* SchoolSurveys.use(({ listAdminSurveys: list }) => list(scope));
           const decoded = yield* strictDecode(
             SchoolSurveyAdminListResource,
-            surveys,
+            {
+              ...surveys,
+              surveys: surveys.surveys.map((survey) =>
+                projectListedSurvey(authorization.authority, survey),
+              ),
+            },
             "internal.error",
           );
           return privateJsonResponse(decoded);
@@ -499,7 +525,7 @@ const createAdminSurvey = (request: Request) =>
               });
               const decoded = yield* strictDecode(
                 SchoolSurveyAdminResource,
-                survey,
+                projectMutationSurvey(survey),
                 "internal.error",
               );
               return {
@@ -580,7 +606,7 @@ const closeAdminSurvey = (request: Request, surveyId: SurveyId) =>
               });
               const decoded = yield* strictDecode(
                 SchoolSurveyAdminResource,
-                closed,
+                projectMutationSurvey(closed),
                 "internal.error",
               );
               return {

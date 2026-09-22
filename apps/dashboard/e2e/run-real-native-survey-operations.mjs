@@ -429,7 +429,7 @@ const exerciseJourney = async ({ browser, ledger }) => {
   await leader.page
     .locator("#school-surveys-department option")
     .filter({ hasText: "Undersøkelsesavdelingen" })
-    .waitFor();
+    .waitFor({ state: "attached" });
   await leader.page.locator("#school-surveys-department").focus();
   await leader.page.keyboard.press("Tab");
   assert.equal(
