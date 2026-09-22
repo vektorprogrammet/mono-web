@@ -323,9 +323,7 @@ const signIn = async (browser, persona) => {
   const context = await browser.newContext({ baseURL: dashboardOrigin, viewport: { width: 1440, height: 960 } });
   const page = await context.newPage();
   await page.goto("/login");
-  if ((await page.getByRole("heading", { name: "Innlogging", exact: true }).count()) === 0) {
-    await page.goto("/dashboard/login");
-  }
+  await page.getByRole("heading", { name: "Vektorprogrammet", exact: true }).waitFor();
   await page.getByLabel("E-post").fill(persona.email);
   await page.getByLabel("Passord", { exact: true }).fill(persona.password);
   await page.getByRole("button", { name: "Logg inn" }).click({ noWaitAfter: true });
