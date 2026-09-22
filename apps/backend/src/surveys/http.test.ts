@@ -5,12 +5,16 @@ import {
   type DatabaseShape,
 } from "@vektorprogrammet/database";
 import {
+  SchoolId,
   SchoolSurveyNotFound,
   SchoolSurveys,
   SemesterId,
   SurveyId,
   SurveyQuestionId,
   encodeSchoolSurveyResultsCsv,
+  type CloseSchoolSurveyCommand,
+  type CreateSchoolSurveyCommand,
+  type SchoolSurveyResultsResource,
   type SchoolSurveysShape,
 } from "@vektorprogrammet/domain";
 import {
@@ -85,18 +89,17 @@ const adminSurvey = (overrides: Record<string, unknown> = {}) => ({
       label: "What worked?",
       help: null,
       required: true,
-      alternatives: [],
     },
   ],
   ...overrides,
 });
 
-const results = (survey = adminSurvey()) => ({
+const results = (survey = adminSurvey()): SchoolSurveyResultsResource => ({
   survey,
   responseCount: 1,
   responses: [
     {
-      school: { schoolId: 1, name: "Survey School" },
+      school: { schoolId: SchoolId.make(1), name: "Survey School" },
       submittedAt: observedAt,
       answers: [
         {
@@ -217,7 +220,7 @@ const makeServices = (
     readAdminResults: () => Effect.die("unexpected administration results read"),
   };
   const identitySnapshot = IdentitySnapshot.of({
-    resolveSession: (cookieHeader) =>
+    resolveSession: (cookieHeader: string | undefined) =>
       cookieHeader?.includes("school-surveys-test-session")
         ? Effect.succeed(
             new IdentityActor({
@@ -253,7 +256,13 @@ describe("School surveys native HTTP adapter", () => {
           catalogAuthorities += 1;
           return Effect.succeed({
             departments: [{ departmentId, name: "Survey department" }],
-            semesters: [{ semesterId, startAt: "2032-01-01T00:00:00.000Z", endAt: "2032-06-30T23:59:59.000Z" }],
+            semesters: [
+              {
+                semesterId,
+                startAt: "2032-01-01T00:00:00.000Z",
+                endAt: "2032-06-30T23:59:59.000Z",
+              },
+            ],
           });
         },
         readAdminSurvey: () => Effect.succeed(survey),
@@ -316,11 +325,11 @@ describe("School surveys native HTTP adapter", () => {
     const api = makeSchoolSurveysTestHttp(
       makeServices(authority(), {
         readAdminSurvey: () => Effect.succeed(survey),
-        createAdminSurvey: (command: Record<string, unknown>) => {
+        createAdminSurvey: (command: CreateSchoolSurveyCommand) => {
           createdCommands.push(command);
           return Effect.succeed({ ...survey, surveyId: command.surveyId });
         },
-        closeAdminSurvey: (command: Record<string, unknown>) => {
+        closeAdminSurvey: (command: CloseSchoolSurveyCommand) => {
           closedCommands.push(command);
           return Effect.succeed({
             ...survey,
@@ -346,6 +355,7 @@ describe("School surveys native HTTP adapter", () => {
         headers: {
           "content-type": "application/json",
           "idempotency-key": "AAAAAAAAAAAAAAAAAAAAAA",
+          origin: "http://127.0.0.1:5174",
         },
         body: JSON.stringify(createPayload),
       }),
@@ -363,6 +373,7 @@ describe("School surveys native HTTP adapter", () => {
         headers: {
           "content-type": "application/json",
           "idempotency-key": "BBBBBBBBBBBBBBBBBBBBBB",
+          origin: "http://127.0.0.1:5174",
         },
         body: JSON.stringify({ expectedRevision: 0 }),
       }),
@@ -410,9 +421,12 @@ describe("School surveys native HTTP adapter", () => {
       },
     };
     const ordinary = makeSchoolSurveysTestHttp(
-      makeServices(authority({ memberships: [{ ...authority().memberships[0]!, teamLeader: false }] }), {
-        ...catalogService,
-      }),
+      makeServices(
+        authority({ memberships: [{ ...authority().memberships[0]!, teamLeader: false }] }),
+        {
+          ...catalogService,
+        },
+      ),
     );
     const inactive = makeSchoolSurveysTestHttp(
       makeServices(authority({ memberships: [], globalAdministrator: "Inactive" }), {
@@ -438,22 +452,25 @@ describe("School surveys native HTTP adapter", () => {
       }),
     );
 
-
-    const [ordinaryResponse, inactiveResponse, wrongDepartmentResponse, globalAdministratorResponse] =
-      await Promise.all([
-        ordinary.fetch(sessionRequest("http://backend.test/api/surveys/admin/catalog")),
-        inactive.fetch(sessionRequest("http://backend.test/api/surveys/admin/catalog")),
-        wrongDepartment.fetch(
-          sessionRequest(
-            `http://backend.test/api/surveys/admin?departmentId=${otherDepartmentId}&semesterId=${semesterId}`,
-          ),
+    const [
+      ordinaryResponse,
+      inactiveResponse,
+      wrongDepartmentResponse,
+      globalAdministratorResponse,
+    ] = await Promise.all([
+      ordinary.fetch(sessionRequest("http://backend.test/api/surveys/admin/catalog")),
+      inactive.fetch(sessionRequest("http://backend.test/api/surveys/admin/catalog")),
+      wrongDepartment.fetch(
+        sessionRequest(
+          `http://backend.test/api/surveys/admin?departmentId=${otherDepartmentId}&semesterId=${semesterId}`,
         ),
-        globalAdministrator.fetch(
-          sessionRequest(
-            `http://backend.test/api/surveys/admin?departmentId=${otherDepartmentId}&semesterId=${semesterId}`,
-          ),
+      ),
+      globalAdministrator.fetch(
+        sessionRequest(
+          `http://backend.test/api/surveys/admin?departmentId=${otherDepartmentId}&semesterId=${semesterId}`,
         ),
-      ]);
+      ),
+    ]);
 
     expect([
       ordinaryResponse.status,
@@ -511,5 +528,4 @@ describe("School surveys native HTTP adapter", () => {
     });
     expect(persistCalls).toBe(0);
   });
-
 });

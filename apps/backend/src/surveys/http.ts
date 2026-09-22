@@ -13,6 +13,7 @@ import {
   OrganizationAuthorityInstantSchema,
   type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
+import { DomainId } from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/database";
 import {
   resolveOrganizationPersonAuthorityWithSql,
@@ -59,6 +60,7 @@ import {
 } from "../http-semantics.js";
 import {
   authorizeAnonymousNativeOperation,
+  authorizePersonNativeOperation,
   genericContext,
   nativeCommandOutcomeResponse,
 } from "../native-operation.js";
@@ -76,8 +78,16 @@ const AdminListScope = Schema.Struct({
   semesterId: SemesterId,
 });
 
-
-type AnonymousEndpoint = typeof ReadSchoolSurveyEndpoint | typeof SubmitSchoolSurveyResponseEndpoint;
+type AnonymousEndpoint =
+  | typeof ReadSchoolSurveyEndpoint
+  | typeof SubmitSchoolSurveyResponseEndpoint;
+type AdminEndpoint =
+  | typeof ReadAdminCatalogEndpoint
+  | typeof ListAdminSurveysEndpoint
+  | typeof CreateAdminSurveyEndpoint
+  | typeof CloseAdminSurveyEndpoint
+  | typeof ReadAdminResultsEndpoint
+  | typeof ExportAdminResultsEndpoint;
 
 const semantic = <A>(operation: () => A) =>
   Effect.try({
@@ -151,13 +161,14 @@ const resolveSurveyAuthority = (
     const authenticated = yield* resolveRequestCredentialInTransaction(request, "OAuthUserBearer", {
       now: () => observedAt,
     });
-    if (authenticated.credential.principal._tag !== "Person") {
+    const principal = authenticated.credential.principal;
+    if (principal._tag !== "Person") {
       return yield* Effect.fail(new HttpSemanticFailure("credential.invalid", 401));
     }
     const authority = yield* Database.use((sql) =>
       resolveOrganizationPersonAuthorityWithSql(
         sql,
-        authenticated.credential.principal.personId,
+        principal.personId,
         OrganizationAuthorityInstantSchema.make(observedAt),
         lockMode,
       ),
@@ -165,14 +176,13 @@ const resolveSurveyAuthority = (
     return { ...authenticated, authority };
   });
 
-const managesDepartment = (
-  authority: OrganizationPersonAuthority,
-  departmentId: string,
-): boolean =>
+const managesDepartment = (authority: OrganizationPersonAuthority, departmentId: string): boolean =>
   authority.globalAdministrator === "Active" ||
   authority.memberships.some(
     (membership) =>
-      membership.active && membership.teamLeader && String(membership.departmentId) === departmentId,
+      membership.active &&
+      membership.teamLeader &&
+      String(membership.departmentId) === departmentId,
   );
 
 const requireDepartmentManager = (
@@ -183,7 +193,10 @@ const requireDepartmentManager = (
   managesDepartment(authority, departmentId)
     ? Effect.void
     : Effect.fail(
-        new HttpSemanticFailure(conceal ? "resource.not-found" : "authority.denied", conceal ? 404 : 403),
+        new HttpSemanticFailure(
+          conceal ? "resource.not-found" : "authority.denied",
+          conceal ? 404 : 403,
+        ),
       );
 
 const requireResultsAccess = (
@@ -231,6 +244,34 @@ const authorizeAnonymous = (endpoint: AnonymousEndpoint, surveyId: SurveyId, now
     },
     now,
   );
+
+const authorizeAdmin = (
+  credential: Parameters<typeof authorizePersonNativeOperation>[0]["credential"],
+  endpoint: AdminEndpoint,
+  authority: OrganizationPersonAuthority,
+  now: string,
+  departmentId: DepartmentId | null,
+) =>
+  authorizePersonNativeOperation({
+    spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
+    credential,
+    personId: authority.personId,
+    resolution: {
+      selection: "ExactlyOne",
+      contexts: [
+        genericContext({
+          domainId: "surveys",
+          ...(departmentId === null ? {} : { departmentId }),
+          authorityVersion: now,
+        }),
+      ],
+    },
+    grantScopes:
+      departmentId === null
+        ? [{ _tag: "Domain", domainId: DomainId.make("surveys") }]
+        : [{ _tag: "Department", departmentId }],
+    now,
+  });
 
 /** Uses the service's position-normalized representation for idempotency semantics. */
 const canonicalRequest = (prepared: PreparedSchoolSurveyResponse) => ({
@@ -365,6 +406,13 @@ const readAdminCatalog = (request: Request) =>
           ) {
             return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
           }
+          yield* authorizeAdmin(
+            authorization.credential,
+            ReadAdminCatalogEndpoint,
+            authorization.authority,
+            now,
+            null,
+          );
           const catalog = yield* SchoolSurveys.use(({ readAdminCatalog: read }) =>
             read(authorization.authority),
           );
@@ -388,7 +436,18 @@ const listAdminSurveys = (request: Request) =>
           yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`;
           const now = yield* transactionInstant();
           const authorization = yield* resolveSurveyAuthority(request, now, "None");
-          yield* requireDepartmentManager(authorization.authority, String(scope.departmentId), false);
+          yield* requireDepartmentManager(
+            authorization.authority,
+            String(scope.departmentId),
+            false,
+          );
+          yield* authorizeAdmin(
+            authorization.credential,
+            ListAdminSurveysEndpoint,
+            authorization.authority,
+            now,
+            scope.departmentId,
+          );
           const surveys = yield* SchoolSurveys.use(({ listAdminSurveys: list }) => list(scope));
           const decoded = yield* strictDecode(
             SchoolSurveyAdminListResource,
@@ -420,6 +479,13 @@ const createAdminSurvey = (request: Request) =>
         const now = yield* transactionInstant();
         const authorization = yield* resolveSurveyAuthority(request, now, "ForShare");
         yield* requireDepartmentManager(authorization.authority, String(body.departmentId), false);
+        yield* authorizeAdmin(
+          authorization.credential,
+          CreateAdminSurveyEndpoint,
+          authorization.authority,
+          now,
+          body.departmentId,
+        );
         const identity = yield* semantic(() =>
           deriveHttpIdentity({
             credentialSubject: `Person:${authorization.authority.personId}`,
@@ -443,7 +509,11 @@ const createAdminSurvey = (request: Request) =>
                 occurredAt: OrganizationAuthorityInstantSchema.make(now),
                 request: body,
               });
-              const decoded = yield* strictDecode(SchoolSurveyAdminResource, survey, "internal.error");
+              const decoded = yield* strictDecode(
+                SchoolSurveyAdminResource,
+                survey,
+                "internal.error",
+              );
               return {
                 status: 201,
                 mediaType: "application/json",
@@ -489,10 +559,13 @@ const closeAdminSurvey = (request: Request, surveyId: SurveyId) =>
         const now = yield* transactionInstant();
         const authorization = yield* resolveSurveyAuthority(request, now, "ForShare");
         const survey = yield* readAdminSurvey(surveyId);
-        yield* requireDepartmentManager(
+        yield* requireDepartmentManager(authorization.authority, String(survey.departmentId), true);
+        yield* authorizeAdmin(
+          authorization.credential,
+          CloseAdminSurveyEndpoint,
           authorization.authority,
-          String(survey.departmentId),
-          true,
+          now,
+          survey.departmentId,
         );
         const identity = yield* semantic(() =>
           deriveHttpIdentity({
@@ -558,6 +631,13 @@ const readAdminResults = (request: Request, surveyId: SurveyId) =>
           const authorization = yield* resolveSurveyAuthority(request, now, "None");
           const survey = yield* readAdminSurvey(surveyId);
           yield* requireResultsAccess(authorization.authority, survey);
+          yield* authorizeAdmin(
+            authorization.credential,
+            ReadAdminResultsEndpoint,
+            authorization.authority,
+            now,
+            survey.departmentId,
+          );
           const results = yield* SchoolSurveys.use(({ readAdminResults: read }) => read(surveyId));
           const decoded = yield* strictDecode(
             SchoolSurveyResultsResource,
@@ -581,6 +661,13 @@ const exportAdminResults = (request: Request, surveyId: SurveyId) =>
           const authorization = yield* resolveSurveyAuthority(request, now, "None");
           const survey = yield* readAdminSurvey(surveyId);
           yield* requireResultsAccess(authorization.authority, survey);
+          yield* authorizeAdmin(
+            authorization.credential,
+            ExportAdminResultsEndpoint,
+            authorization.authority,
+            now,
+            survey.departmentId,
+          );
           const results = yield* SchoolSurveys.use(({ readAdminResults: read }) => read(surveyId));
           const decoded = yield* strictDecode(
             SchoolSurveyResultsResource,
