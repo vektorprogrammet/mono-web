@@ -30,13 +30,19 @@ const selectScope = async (page: Page) => {
 };
 const axe = async (page: Page, state: string) => {
   const result = await new AxeBuilder({ page }).analyze();
+  const landmarks = await page.locator("form[aria-label]").evaluateAll((forms) =>
+    forms.map((form) => ({
+      label: form.getAttribute("aria-label"),
+      action: form.getAttribute("action"),
+    })),
+  );
   expect(
     result.violations.map(({ id, impact, nodes }) => ({
       id,
       impact,
       nodes: nodes.map(({ target, failureSummary }) => ({ target, failureSummary })),
     })),
-    state,
+    `${state}; form landmarks: ${JSON.stringify(landmarks)}`,
   ).toEqual([]);
 };
 const fillPlacement = async (form: Locator, block: string, day = "Monday", workdays = "4") => {
