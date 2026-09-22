@@ -36,9 +36,12 @@ The native architecture now uses one Effect backend runtime, one PostgreSQL
 ownership layer, generated HTTP and SDK contracts, transaction-bound authority,
 atomic audit/outbox/receipt writes, and Foldkit dashboard workflows.
 
-The synthetic local Person reconciliation path now creates or explicitly links
+The synthetic local Person reconciliation path creates or explicitly links
 Person/profile records before credentials and historical operations can depend on
-those identities. Real cohort mapping and production import remain unperformed.
+those identities. The reconciled Account path accepts only matching immutable
+Person evidence, imports one supported credential, quarantines unsupported aliases
+and conflicts, preserves replay, and exercises native sign-in, recovery, and
+restore. Real cohort mapping and production import remain unperformed.
 
 ## Next
 

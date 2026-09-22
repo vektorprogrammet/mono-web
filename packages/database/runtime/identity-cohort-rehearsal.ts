@@ -47,7 +47,7 @@ for (const key of [
   "IDENTITY_COHORT_PG_URL",
 ])
   assert.ok(!process.env[key], "ambient external configuration prohibited");
-const artifacts = await mkdtemp(join(tmpdir(), "vektor-cohort-0100-"));
+const artifacts = await mkdtemp(join(tmpdir(), "vektor-account-cohort-0107-"));
 const pgdata = join(artifacts, "postgres"),
   backup = join(artifacts, "cohort.dump"),
   inputFile = join(artifacts, "source.json");
@@ -122,7 +122,7 @@ try {
   );
   const php = process.env.IDENTITY_COHORT_PHP ?? "php";
   const values = [
-    "Synthetic-Å-0100-password",
+    "Synthetic-Å-0107-password",
     "a".repeat(72) + "legacy-tail",
     "a".repeat(71) + "é-legacy-tail",
   ];
@@ -582,7 +582,7 @@ try {
   assert.equal(redirect.status, 302);
   const resetToken = new URL(redirect.headers.get("location")!).searchParams.get("token")!;
   secrets.push(resetToken);
-  const newPassword = "Native-Cohort-Reset-0100-Å";
+  const newPassword = "Native-Account-Cohort-Reset-0107-Å";
   secrets.push(newPassword);
   assert.equal(
     (await post("/api/auth/reset-password", { token: resetToken, newPassword })).status,

@@ -61,6 +61,15 @@ Inactive, ambiguous, stale, conflicting, or unattested mappings are quarantined
 without partial Person writes. Legacy username and company-email aliases do not
 become native login identities. Credential import is a separate Account operation.
 
+A supported legacy credential creates an Account only when its source repository,
+source user, and target Person match immutable accepted Person-reconciliation
+evidence. The canonical private email requires explicit ownership evidence, and
+the Account name is projected from the reconciled Person profile. Existing Account
+targets, conflicting emails, unsupported credentials, and unsupported aliases are
+quarantined without partial authentication writes. Exact replay preserves one
+Account and one evidence chain; password recovery replaces the retained legacy
+hash with a native credential and revokes older sessions.
+
 ## Core lifecycles
 
 ### Recruitment and affiliation
