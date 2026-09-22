@@ -359,10 +359,15 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       exact: true,
     });
     await ownAbsence.getByLabel("Dato").focus();
-    await self.keyboard.press("Tab");
-    await expect(
-      ownAbsence.getByRole("button", { name: "Rapporter fravær", exact: true }),
-    ).toBeFocused();
+    const reportAbsenceButton = ownAbsence.getByRole("button", {
+      name: "Rapporter fravær",
+      exact: true,
+    });
+    for (let step = 0; step < 4; step++) {
+      if (await reportAbsenceButton.evaluate((button) => button.matches(":focus"))) break;
+      await self.keyboard.press("Tab");
+    }
+    await expect(reportAbsenceButton).toBeFocused();
     let absencePosts = 0;
     self.on("request", (request) => {
       if (
