@@ -586,7 +586,10 @@ const exerciseJourney = async ({ browser, ledger }) => {
   await leader.page
     .getByText("Undersøkelsen er lukket. Oversikten oppdateres fra serveren.")
     .waitFor();
-  await leader.page.getByText("Lukket", { exact: true }).waitFor();
+  await leader.page
+    .locator(".school-surveys__detail .school-surveys__state")
+    .filter({ hasText: /^Lukket$/u })
+    .waitFor();
 
   const beforeClosedPublicWrite = await counts();
   assert.equal(beforeClosedPublicWrite.audit, 2);
