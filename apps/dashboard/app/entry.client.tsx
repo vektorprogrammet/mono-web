@@ -8,6 +8,7 @@ import { registerOrganizationCatalogElement } from "./foldkit/organization/eleme
 import { registerSchoolsDirectoryElement } from "./foldkit/schools/elements";
 import { registerContentWorkspaceElement } from "./foldkit/content/elements";
 import { registerSocialEventsElement } from "./foldkit/social-events/elements";
+import { registerSchoolSurveysElement } from "./foldkit/surveys/elements";
 
 function HydrationSafeRouter() {
   useEffect(() => {
@@ -16,6 +17,7 @@ function HydrationSafeRouter() {
     registerSchoolsDirectoryElement();
     registerContentWorkspaceElement();
     registerSocialEventsElement();
+    registerSchoolSurveysElement();
     registerProfileEditorElement();
 
     // Preview devtools (design spec 0074): production registers the ordinary

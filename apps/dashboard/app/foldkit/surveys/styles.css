@@ -1,0 +1,482 @@
+vektor-school-surveys-workspace {
+  display: block;
+  inline-size: 100%;
+}
+
+.school-surveys {
+  --school-surveys-background: var(--background);
+  --school-surveys-foreground: var(--foreground);
+  --school-surveys-muted: var(--muted);
+  --school-surveys-muted-foreground: var(--muted-foreground);
+  --school-surveys-border: var(--border);
+  --school-surveys-accent: var(--accent);
+  --school-surveys-accent-foreground: var(--accent-foreground);
+  --school-surveys-destructive: var(--destructive);
+  --school-surveys-ring: var(--ring);
+  --school-surveys-radius: var(--radius-md);
+  --school-surveys-small-radius: var(--radius-sm);
+  --school-surveys-space-1: 0.25rem;
+  --school-surveys-space-2: 0.5rem;
+  --school-surveys-space-3: 0.75rem;
+  --school-surveys-space-4: 1rem;
+  --school-surveys-space-6: 1.5rem;
+  --school-surveys-space-8: 2rem;
+  --school-surveys-border-width: 0.0625rem;
+  --school-surveys-control-height: 2.75rem;
+  --school-surveys-focus-width: 0.1875rem;
+
+  color: var(--school-surveys-foreground);
+  display: grid;
+  gap: var(--school-surveys-space-6);
+  inline-size: 100%;
+  margin-inline: auto;
+  max-inline-size: 88rem;
+  min-inline-size: 0;
+  padding: var(--school-surveys-space-4);
+}
+
+.school-surveys__header {
+  border-block-end: var(--school-surveys-border-width) solid var(--school-surveys-border);
+  display: grid;
+  gap: var(--school-surveys-space-2);
+  padding-block: var(--school-surveys-space-4) var(--school-surveys-space-6);
+}
+
+.school-surveys__header h1,
+.school-surveys__header p,
+.school-surveys__form h2,
+.school-surveys__questions h2,
+.school-surveys__question h3,
+.school-surveys__results-heading h2,
+.school-surveys__results-heading p,
+.school-surveys__detail-heading h2,
+.school-surveys__detail-heading p,
+.school-surveys__banner h2,
+.school-surveys__banner p,
+.school-surveys__empty h2,
+.school-surveys__empty p,
+.school-surveys__error h2,
+.school-surveys__error p,
+.school-surveys__definition h3,
+.school-surveys__definition p {
+  margin: 0;
+}
+
+.school-surveys__header h1 {
+  font-size: 2rem;
+  line-height: 1.2;
+}
+
+.school-surveys__header > p:last-child,
+.school-surveys__hint {
+  color: var(--school-surveys-muted-foreground);
+  line-height: 1.5;
+  max-inline-size: 68ch;
+}
+
+.school-surveys__eyebrow {
+  color: var(--school-surveys-muted-foreground);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.school-surveys__workspace {
+  display: grid;
+  gap: var(--school-surveys-space-6);
+  min-inline-size: 0;
+}
+
+.school-surveys__form,
+.school-surveys__questions,
+.school-surveys__results,
+.school-surveys__detail,
+.school-surveys__banner,
+.school-surveys__empty,
+.school-surveys__error,
+.school-surveys__loading {
+  border: var(--school-surveys-border-width) solid var(--school-surveys-border);
+  border-radius: var(--school-surveys-radius);
+}
+
+.school-surveys__form {
+  display: grid;
+  gap: var(--school-surveys-space-4);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-inline-size: 0;
+  padding: var(--school-surveys-space-6);
+}
+
+.school-surveys__form > h2,
+.school-surveys__form > .school-surveys__hint,
+.school-surveys__form > .school-surveys__questions,
+.school-surveys__form > .school-surveys__submit,
+.school-surveys__field--wide {
+  grid-column: 1 / -1;
+}
+
+.school-surveys__field {
+  display: grid;
+  gap: var(--school-surveys-space-2);
+  min-inline-size: 0;
+}
+
+.school-surveys__field label,
+.school-surveys__question legend,
+.school-surveys__check label {
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.school-surveys__field input,
+.school-surveys__field select,
+.school-surveys__field textarea,
+.school-surveys__alternative input,
+.school-surveys__question select,
+.school-surveys__question textarea {
+  background: var(--school-surveys-background);
+  border: var(--school-surveys-border-width) solid var(--school-surveys-border);
+  border-radius: var(--school-surveys-small-radius);
+  box-sizing: border-box;
+  color: var(--school-surveys-foreground);
+  font: inherit;
+  inline-size: 100%;
+  min-block-size: var(--school-surveys-control-height);
+  min-inline-size: 0;
+  padding: var(--school-surveys-space-2) var(--school-surveys-space-3);
+}
+
+.school-surveys__field textarea,
+.school-surveys__question textarea {
+  min-block-size: 6rem;
+  resize: block;
+}
+
+.school-surveys__questions {
+  display: grid;
+  gap: var(--school-surveys-space-4);
+  min-inline-size: 0;
+  padding: var(--school-surveys-space-4);
+}
+
+.school-surveys__question {
+  border: var(--school-surveys-border-width) solid var(--school-surveys-border);
+  border-radius: var(--school-surveys-small-radius);
+  display: grid;
+  gap: var(--school-surveys-space-4);
+  margin: 0;
+  min-inline-size: 0;
+  padding: var(--school-surveys-space-4);
+}
+
+.school-surveys__question legend {
+  padding-inline: var(--school-surveys-space-1);
+}
+
+.school-surveys__question-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.school-surveys__check {
+  align-items: center;
+  display: flex;
+  gap: var(--school-surveys-space-2);
+  min-block-size: var(--school-surveys-control-height);
+}
+
+.school-surveys__check input {
+  block-size: 1.125rem;
+  inline-size: 1.125rem;
+}
+
+.school-surveys__alternatives {
+  border-block-start: var(--school-surveys-border-width) solid var(--school-surveys-border);
+  display: grid;
+  gap: var(--school-surveys-space-3);
+  padding-block-start: var(--school-surveys-space-4);
+}
+
+.school-surveys__alternatives h3 {
+  font-size: 1rem;
+}
+
+.school-surveys__alternative {
+  align-items: center;
+  display: grid;
+  gap: var(--school-surveys-space-2);
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-inline-size: 0;
+}
+
+.school-surveys__question-kinds,
+.school-surveys__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--school-surveys-space-2);
+}
+
+.school-surveys__submit,
+.school-surveys__secondary,
+.school-surveys__danger,
+.school-surveys__dismiss,
+.school-surveys__remove {
+  align-items: center;
+  border-radius: var(--school-surveys-small-radius);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-weight: 700;
+  justify-content: center;
+  min-block-size: var(--school-surveys-control-height);
+  padding: var(--school-surveys-space-2) var(--school-surveys-space-4);
+  text-decoration: none;
+}
+
+.school-surveys__submit {
+  background: var(--school-surveys-foreground);
+  border: 0;
+  color: var(--school-surveys-background);
+  justify-self: start;
+}
+
+.school-surveys__secondary {
+  background: var(--school-surveys-background);
+  border: var(--school-surveys-border-width) solid var(--school-surveys-border);
+  color: var(--school-surveys-foreground);
+}
+
+.school-surveys__danger,
+.school-surveys__remove {
+  background: transparent;
+  border: var(--school-surveys-border-width) solid var(--school-surveys-destructive);
+  color: var(--school-surveys-destructive);
+}
+
+.school-surveys__dismiss {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  justify-self: start;
+  padding-inline: 0;
+  text-decoration: underline;
+}
+
+.school-surveys__submit:disabled,
+.school-surveys__secondary:disabled,
+.school-surveys__danger:disabled,
+.school-surveys__remove:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.school-surveys__results,
+.school-surveys__detail {
+  min-inline-size: 0;
+  overflow: hidden;
+}
+
+.school-surveys__results-heading,
+.school-surveys__detail-heading {
+  align-items: start;
+  background: var(--school-surveys-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--school-surveys-space-3);
+  justify-content: space-between;
+  padding: var(--school-surveys-space-4);
+}
+
+.school-surveys__results-heading p,
+.school-surveys__detail-heading p {
+  color: var(--school-surveys-muted-foreground);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.school-surveys__table-scroll {
+  max-inline-size: 100%;
+  overflow-x: auto;
+}
+
+.school-surveys__table {
+  border-collapse: collapse;
+  inline-size: 100%;
+  min-inline-size: 48rem;
+}
+
+.school-surveys__answers-table {
+  min-inline-size: 56rem;
+}
+
+.school-surveys__table th,
+.school-surveys__table td {
+  border-block-end: var(--school-surveys-border-width) solid var(--school-surveys-border);
+  line-height: 1.5;
+  padding: var(--school-surveys-space-3) var(--school-surveys-space-4);
+  text-align: start;
+  vertical-align: top;
+}
+
+.school-surveys__table thead th {
+  color: var(--school-surveys-muted-foreground);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.school-surveys__table tbody th {
+  font-weight: 650;
+}
+
+.school-surveys__table tbody tr:last-child > * {
+  border-block-end: 0;
+}
+
+.school-surveys__table tbody tr:hover {
+  background: var(--school-surveys-accent);
+  color: var(--school-surveys-accent-foreground);
+}
+
+.school-surveys__detail {
+  display: grid;
+  gap: var(--school-surveys-space-4);
+  padding-block-end: var(--school-surveys-space-4);
+}
+
+.school-surveys__state {
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 700;
+  padding: var(--school-surveys-space-1) var(--school-surveys-space-2);
+  white-space: nowrap;
+}
+
+.school-surveys__state--open {
+  background: var(--school-surveys-background);
+}
+
+.school-surveys__state--closed {
+  background: var(--school-surveys-destructive);
+  color: var(--school-surveys-background);
+}
+
+.school-surveys__metadata {
+  display: grid;
+  gap: var(--school-surveys-space-3);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  padding-inline: var(--school-surveys-space-4);
+}
+
+.school-surveys__metadata div {
+  display: grid;
+  gap: var(--school-surveys-space-1);
+  min-inline-size: 0;
+}
+
+.school-surveys__metadata dt {
+  color: var(--school-surveys-muted-foreground);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.school-surveys__metadata dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.school-surveys__links,
+.school-surveys__definition {
+  padding-inline: var(--school-surveys-space-4);
+}
+
+.school-surveys__definition {
+  display: grid;
+  gap: var(--school-surveys-space-3);
+}
+
+.school-surveys__definition ol {
+  display: grid;
+  gap: var(--school-surveys-space-3);
+  margin: 0;
+  padding-inline-start: 1.5rem;
+}
+
+.school-surveys__definition li {
+  overflow-wrap: anywhere;
+}
+
+.school-surveys__banner,
+.school-surveys__empty,
+.school-surveys__error,
+.school-surveys__loading {
+  display: grid;
+  gap: var(--school-surveys-space-3);
+  min-inline-size: 0;
+  padding: var(--school-surveys-space-6);
+}
+
+.school-surveys__banner--error,
+.school-surveys__error {
+  border-color: var(--school-surveys-destructive);
+}
+
+.school-surveys__banner--success {
+  border-color: var(--school-surveys-foreground);
+}
+
+.school-surveys__loading {
+  color: var(--school-surveys-muted-foreground);
+}
+
+.school-surveys__visually-hidden {
+  block-size: 1px;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  inline-size: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+}
+
+.school-surveys__field input:focus-visible,
+.school-surveys__field select:focus-visible,
+.school-surveys__field textarea:focus-visible,
+.school-surveys__question select:focus-visible,
+.school-surveys__question textarea:focus-visible,
+.school-surveys__alternative input:focus-visible,
+.school-surveys__table-scroll:focus-visible,
+.school-surveys__submit:focus-visible,
+.school-surveys__secondary:focus-visible,
+.school-surveys__danger:focus-visible,
+.school-surveys__remove:focus-visible,
+.school-surveys__dismiss:focus-visible {
+  outline: var(--school-surveys-focus-width) solid var(--school-surveys-ring);
+  outline-offset: var(--school-surveys-focus-width);
+}
+
+@media (max-width: 48rem) {
+  .school-surveys {
+    padding: var(--school-surveys-space-3);
+  }
+
+  .school-surveys__form {
+    grid-template-columns: minmax(0, 1fr);
+    padding: var(--school-surveys-space-4);
+  }
+
+  .school-surveys__metadata {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 30rem) {
+  .school-surveys__alternative {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .school-surveys__alternative .school-surveys__remove {
+    justify-self: start;
+  }
+}
