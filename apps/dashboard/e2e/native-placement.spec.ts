@@ -48,6 +48,7 @@ const fillPlacement = async (form: Locator, block: string, day = "Monday", workd
   await form.getByRole("combobox", { name: "Bolk", exact: true }).selectOption(block);
 };
 const saved = async (form: Locator) => {
+  await expect(form).toHaveAttribute("data-pending", "true");
   await expect(form).toHaveAttribute("data-pending", "false");
   await expect(form.getByRole("status")).toHaveText("Endringen er lagret.");
 };
