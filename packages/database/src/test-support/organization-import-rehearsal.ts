@@ -716,7 +716,7 @@ const NativeBrowserPathObservationsSchema = Schema.Array(NativeBrowserPathObserv
             observation !== undefined &&
             observation.path === requirement.path &&
             observation.status === 200 &&
-            observation.sessionCookieAuth === (requirement.access === "BoundedSession") &&
+            observation.sessionCookieAuth &&
             observation.access === requirement.access &&
             observation.requestSource === requirement.requestSource
           );

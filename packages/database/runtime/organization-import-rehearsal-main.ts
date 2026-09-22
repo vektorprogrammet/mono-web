@@ -272,7 +272,7 @@ export const isExpectedNativeBrowserJourneyObservation = (input: {
     input.method === "GET" &&
     input.status === 200 &&
     requirement !== undefined &&
-    input.sessionCookieAuth === (requirement.access === "BoundedSession") &&
+    input.sessionCookieAuth &&
     input.requestSource === requirement.requestSource
   );
 };

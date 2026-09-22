@@ -188,7 +188,7 @@ describe("spec 0067 runtime capability contracts", () => {
         method: "GET",
         path: "/api/departments",
         status: 200,
-        sessionCookieAuth: false,
+        sessionCookieAuth: true,
         requestSource: "BrowserSameOrigin",
       }),
     ).toBe(true);
@@ -197,7 +197,7 @@ describe("spec 0067 runtime capability contracts", () => {
         method: "GET",
         path: "/api/teams",
         status: 200,
-        sessionCookieAuth: true,
+        sessionCookieAuth: false,
         requestSource: "BrowserSameOrigin",
       }),
     ).toBe(false);
@@ -805,7 +805,7 @@ describe("spec 0067 artifact boundary", () => {
     const nativePathObservations = NATIVE_BROWSER_JOURNEY_REQUIREMENTS.map((requirement) => ({
       ...requirement,
       status: 200,
-      sessionCookieAuth: requirement.access === "BoundedSession",
+      sessionCookieAuth: true,
     }));
     const backendProxyRequests = nativePathObservations.map(
       ({ path, status, sessionCookieAuth, requestSource }) => ({
