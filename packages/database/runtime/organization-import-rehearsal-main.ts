@@ -2451,7 +2451,13 @@ if (import.meta.main) {
       process.stdout.write(`${canonicalJson({ evidencePath, evidenceSha256 })}\n`);
     })
     .catch((cause: unknown) => {
-      process.stderr.write(`spec 0067 Organization import rehearsal failed: ${String(cause)}\n`);
+      const detail =
+        cause instanceof Error
+          ? `${cause.stack ?? cause.message}${
+              cause.cause === undefined ? "" : `\nCaused by: ${String(cause.cause)}`
+            }`
+          : String(cause);
+      process.stderr.write(`spec 0067 Organization import rehearsal failed:\n${detail}\n`);
       process.exitCode = 1;
     });
 }
