@@ -58,6 +58,10 @@ const saved = async (form: Locator) => {
   await expect(form).toHaveAttribute("data-pending", "false");
   await expect(form.getByRole("status")).toHaveText("Endringen er lagret.");
 };
+const submittedAndRemoved = async (form: Locator) => {
+  await expect(form).toHaveAttribute("data-pending", "true");
+  await expect(form).toHaveCount(0);
+};
 const readBoard = async (page: Page) => {
   const response = await page.request.get(
     `${manifest.backendOrigin}/api/placements?${new URLSearchParams({ departmentId: manifest.departmentId, semesterId: manifest.semesterId })}`,
@@ -414,7 +418,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       .getByRole("combobox", { name: "Kvalifisert vikar", exact: true })
       .selectOption(manifest.coverage.candidateId);
     await dispatchCovered.getByRole("button", { name: "Send vikartilbud", exact: true }).click();
-    await saved(dispatchCovered);
+    await submittedAndRemoved(dispatchCovered);
     await wrongPage.reload();
     await expect(
       wrongPage.getByRole("form", {
@@ -448,7 +452,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await candidatePage.reload();
     await expect(candidateOffer).toContainText("Levering: Levert");
     await candidateOffer.getByRole("button", { name: "Aksepter tilbud", exact: true }).click();
-    await saved(candidateOffer);
+    await submittedAndRemoved(candidateOffer);
     await candidatePage.reload();
     await expect(candidatePage.getByText("Endelig svar: Akseptert", { exact: true })).toBeVisible();
     await axe(candidatePage, "addressed substitute offer on mobile");
@@ -469,7 +473,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     });
     await expect(acknowledgeCoverage).toContainText("Tilbudstatus: Akseptert");
     await acknowledgeCoverage.getByRole("button", { name: "Bekreft dekning", exact: true }).click();
-    await saved(acknowledgeCoverage);
+    await submittedAndRemoved(acknowledgeCoverage);
     await staleAcknowledgement
       .getByRole("button", { name: "Bekreft dekning", exact: true })
       .click();
@@ -493,7 +497,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       closeCovered.getByLabel("Kari Kandidat (vikar) møtte", { exact: true }),
     ).toBeChecked();
     await closeCovered.getByRole("button", { name: "Lukk tjeneste", exact: true }).click();
-    await saved(closeCovered);
+    await submittedAndRemoved(closeCovered);
     await page.reload();
     await expect(page.getByText("Utfallet: Dekket", { exact: true })).toBeVisible();
     const leaderAbsence = page.getByRole("form", {
@@ -520,7 +524,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       .getByRole("combobox", { name: "Kvalifisert vikar", exact: true })
       .selectOption(manifest.coverage.candidateId);
     await dispatchUncovered.getByRole("button", { name: "Send vikartilbud", exact: true }).click();
-    await saved(dispatchUncovered);
+    await submittedAndRemoved(dispatchUncovered);
     await expect
       .poll(
         async () => {
@@ -542,7 +546,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       exact: true,
     });
     await declinedOffer.getByRole("button", { name: "Avslå tilbud", exact: true }).click();
-    await saved(declinedOffer);
+    await submittedAndRemoved(declinedOffer);
     await page.reload();
     const redispatch = page.getByRole("form", {
       name: `Vikardispatch: ${uncoveredAbsence.absenceId}`,
@@ -552,7 +556,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       .getByRole("combobox", { name: "Kvalifisert vikar", exact: true })
       .selectOption(manifest.coverage.candidateId);
     await redispatch.getByRole("button", { name: "Send vikartilbud", exact: true }).click();
-    await saved(redispatch);
+    await submittedAndRemoved(redispatch);
     await expect
       .poll(
         async () => {
@@ -576,7 +580,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       })
       .filter({ has: page.getByRole("button", { name: "Trekk tilbake tilbud", exact: true }) });
     await withdrawOffer.getByRole("button", { name: "Trekk tilbake tilbud", exact: true }).click();
-    await saved(withdrawOffer);
+    await submittedAndRemoved(withdrawOffer);
     await page.reload();
     const closeUncovered = page.getByRole("form", {
       name: `Tjenestelukking: Skole Beta, ${manifest.coverage.secondServiceDate}, bolk 2, tjenesteplan ${serviceProposalId.slice(-8)}`,
@@ -586,7 +590,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       closeUncovered.getByLabel("Irene Intervjuer møtte", { exact: true }),
     ).toBeChecked();
     await closeUncovered.getByRole("button", { name: "Lukk tjeneste", exact: true }).click();
-    await saved(closeUncovered);
+    await submittedAndRemoved(closeUncovered);
     await page.reload();
     await expect(page.getByText("Utfallet: Ikke dekket", { exact: true })).toBeVisible();
     const finalCoverage = await readCoverageBoard(page);
