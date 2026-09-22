@@ -1,12 +1,14 @@
 import {
   AffiliationScope,
+  CoverageCommand,
+  IdempotencyIfMatchHeaders,
   OwnAffiliationCommand,
+  OwnCoverageCommand,
   PlacementCommand,
   PlacementScope,
-} from "@vektorprogrammet/http-api";
-import {
-  IdempotencyIfMatchHeaders,
+  type CoverageBoardResource,
   type OwnAffiliationResource,
+  type OwnCoverageResource,
   type PlacementBoardResource,
 } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
@@ -31,23 +33,30 @@ export async function loader({ request }: Route.LoaderArgs) {
     const scopes = (await client.placements.listScopes()).body;
     let own: typeof OwnAffiliationResource.Type | null = null;
     let board: typeof PlacementBoardResource.Type | null = null;
+    let ownCoverage: typeof OwnCoverageResource.Type | null = null;
+    let coverage: typeof CoverageBoardResource.Type | null = null;
     if (departmentId) {
       const scope = Schema.decodeUnknownSync(AffiliationScope)({ departmentId });
       own = (await client.placements.readOwnAffiliation({ query: scope })).body;
-      if (
-        semesterId &&
-        scopes.departments.some((d) => d.departmentId === departmentId && d.canManage)
-      )
-        board = (
-          await client.placements.readBoard({
-            query: Schema.decodeUnknownSync(PlacementScope)({ departmentId, semesterId }),
-          })
-        ).body;
+    }
+    if (departmentId && semesterId) {
+      const scope = Schema.decodeUnknownSync(PlacementScope)({ departmentId, semesterId });
+      ownCoverage = (await client.placements.readOwnCoverage({ query: scope })).body;
+      if (scopes.departments.some((department) => department.departmentId === departmentId && department.canManage)) {
+        const [placement, coverageBoard] = await Promise.all([
+          client.placements.readBoard({ query: scope }),
+          client.placements.readCoverageBoard({ query: scope }),
+        ]);
+        board = placement.body;
+        coverage = coverageBoard.body;
+      }
     }
     return privateData({
       scopes,
       own,
       board,
+      ownCoverage,
+      coverage,
       departmentId,
       semesterId,
       error: null as string | null,
@@ -57,6 +66,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       scopes: null,
       own: null,
       board: null,
+      ownCoverage: null,
+      coverage: null,
       departmentId,
       semesterId,
       error: "Oversikten kunne ikke lastes. Kontroller avdeling og semester, og prøv igjen.",
@@ -74,13 +85,81 @@ export async function action({ request }: Route.ActionArgs) {
     });
     const departmentId = form.get("departmentId");
     const action = form.get("action");
-    if (action === "Request" || action === "Withdraw")
+    if (action === "Request" || action === "Withdraw") {
       await client.placements.commandOwnAffiliation({
         query: Schema.decodeUnknownSync(AffiliationScope)({ departmentId }),
         headers,
-        payload: Schema.decodeUnknownSync(OwnAffiliationCommand)({ action }),
+        payload: Schema.decodeUnknownSync(OwnAffiliationCommand)({ action }, { onExcessProperty: "error" }),
       });
-    else {
+    } else if (action === "ReportAbsence" || action === "RespondToOffer") {
+      const query = Schema.decodeUnknownSync(PlacementScope)({
+        departmentId,
+        semesterId: form.get("semesterId"),
+      });
+      const payload = Schema.decodeUnknownSync(OwnCoverageCommand)(
+        action === "ReportAbsence"
+          ? {
+              action,
+              proposalId: form.get("proposalId"),
+              schoolId: Number(form.get("schoolId")),
+              day: form.get("day"),
+              block: form.get("block"),
+              serviceDate: form.get("serviceDate"),
+            }
+          : {
+              action,
+              offerId: form.get("offerId"),
+              response: form.get("response"),
+            },
+        { onExcessProperty: "error" },
+      );
+      await client.placements.commandOwnCoverage({ query, headers, payload });
+    } else if (
+      action === "ReportAbsenceForVolunteer" ||
+      action === "DispatchSubstituteOffer" ||
+      action === "WithdrawSubstituteOffer" ||
+      action === "AcknowledgeCoverage" ||
+      action === "CloseCoverage"
+    ) {
+      const query = Schema.decodeUnknownSync(PlacementScope)({
+        departmentId,
+        semesterId: form.get("semesterId"),
+      });
+      const payload = Schema.decodeUnknownSync(CoverageCommand)(
+        action === "ReportAbsenceForVolunteer"
+          ? {
+              action,
+              personId: form.get("personId"),
+              proposalId: form.get("proposalId"),
+              schoolId: Number(form.get("schoolId")),
+              day: form.get("day"),
+              block: form.get("block"),
+              serviceDate: form.get("serviceDate"),
+            }
+          : action === "DispatchSubstituteOffer"
+            ? {
+                action,
+                absenceId: form.get("absenceId"),
+                candidatePersonId: form.get("candidatePersonId"),
+              }
+            : action === "WithdrawSubstituteOffer" || action === "AcknowledgeCoverage"
+              ? {
+                  action,
+                  offerId: form.get("offerId"),
+                }
+              : {
+                  action,
+                  proposalId: form.get("proposalId"),
+                  schoolId: Number(form.get("schoolId")),
+                  day: form.get("day"),
+                  block: form.get("block"),
+                  occurredOn: form.get("occurredOn"),
+                  attendedPersonIds: form.getAll("attendedPersonId"),
+                },
+        { onExcessProperty: "error" },
+      );
+      await client.placements.commandCoverageBoard({ query, headers, payload });
+    } else {
       const query = Schema.decodeUnknownSync(PlacementScope)({
         departmentId,
         semesterId: form.get("semesterId"),
@@ -165,6 +244,8 @@ export async function action({ request }: Route.ActionArgs) {
     const problem = nativeProblemFrom(cause);
     const messages: Record<string, string> = {
       "authority.denied": "Du har ikke lenger tilgang til denne avdelingen.",
+      "resource.not-found":
+        "Den valgte fraværssaken eller det valgte vikartilbudet finnes ikke lenger. Hent oppdatert oversikt.",
       "placement.overlap":
         "Denne personen har allerede en plassering ved skolen i samme semester og bolk.",
       "affiliation.inactive": "Personen har ikke aktiv frivilligtilknytning. Utkastet er beholdt.",
@@ -182,6 +263,28 @@ export async function action({ request }: Route.ActionArgs) {
         "Oppmøtet må samsvare nøyaktig med den bekreftede planen for skole, dag og bolk.",
       "school-service.occurrence-duplicate":
         "Undervisningen er allerede registrert for denne datoen og bolken.",
+      "absence.target-invalid":
+        "Fravær kan bare meldes for et bekreftet oppmøte på riktig dato.",
+      "absence.duplicate":
+        "Fravær er allerede meldt for dette oppmøtet. Hent oppdatert oversikt.",
+      "absence.closed": "Denne fraværssaken er allerede avsluttet og kan ikke endres.",
+      "offer.candidate-ineligible":
+        "Vikaren er ikke lenger kvalifisert for dette oppmøtet. Hent oppdatert oversikt.",
+      "offer.unresolved":
+        "Det finnes allerede et uavklart eller bekreftet vikartilbud for dette fraværet.",
+      "offer.owner-invalid": "Dette vikartilbudet er adressert til en annen person.",
+      "offer.response-invalid":
+        "Tilbudet kan ikke besvares fordi det allerede er avsluttet eller trukket tilbake.",
+      "offer.withdraw-invalid":
+        "Bare et sendt eller akseptert tilbud kan trekkes tilbake før dekningen er bekreftet.",
+      "coverage.acknowledgement-invalid":
+        "Bare det gjeldende aksepterte tilbudet kan bekreftes som dekning.",
+      "coverage.pending-offer":
+        "Et sendt eller akseptert tilbud må avslås, trekkes tilbake eller bekreftes før tjenesten kan lukkes.",
+      "coverage.attendance-invalid":
+        "Oppmøtet må være nøyaktig den bekreftede planen minus fravær pluss bekreftede vikarer.",
+      "coverage.occurrence-duplicate":
+        "Tjenesten er allerede lukket for denne datoen og bolken.",
     };
     const conflict = problem?.status === 412 || problem?.code === "transaction.conflict";
     return privateData(
@@ -205,15 +308,16 @@ const statusLabel = {
   Active: "Aktiv",
   Inactive: "Inaktiv",
 };
+type RefreshResource = "own" | "board" | "ownCoverage" | "coverage";
 function CommandForm({
   etag,
-  own = false,
+  refreshResource = "board",
   children,
   label,
   hidden,
 }: {
   etag: string;
-  own?: boolean;
+  refreshResource?: RefreshResource;
   children: ReactNode;
   label: string;
   hidden: Record<string, string>;
@@ -238,7 +342,23 @@ function CommandForm({
     setCommandId("");
     setSignature("");
   }
-  const refreshed = own ? refresh.data?.own : refresh.data?.board;
+  const refreshed = refresh.data?.[refreshResource] ?? null;
+  const refreshedSummary =
+    refreshed === null
+      ? null
+      : "placements" in refreshed
+        ? `Oppdatert oversikt: ${refreshed.placements.filter((placement) => placement.active).length} aktive plasseringer. ${refreshed.placements
+            .filter((placement) => placement.active)
+            .map(
+              (placement) =>
+                `${placement.firstName} ${placement.lastName}: ${placement.schoolName}, ${placement.day}, bolk ${placement.block}, ${placement.workdays} dager`,
+            )
+            .join("; ")}`
+        : "rosterSlots" in refreshed
+          ? `Oppdatert egen dekning: ${refreshed.rosterSlots.length} planlagte oppmøter, ${refreshed.absences.length} registrerte fravær og ${refreshed.offers.length} vikartilbud.`
+          : "candidates" in refreshed
+            ? `Oppdatert dekningsoversikt: ${refreshed.absences.length} fravær, ${refreshed.offers.length} tilbud og ${refreshed.closures.length} avsluttede dekninger.`
+            : `Oppdatert status: ${statusLabel[refreshed.status]}`;
   return (
     <fetcher.Form
       aria-label={label}
@@ -294,19 +414,7 @@ function CommandForm({
               >
                 Hent oppdatert oversikt
               </Button>
-              {refreshed && (
-                <p>
-                  {"placements" in refreshed
-                    ? `Oppdatert oversikt: ${refreshed.placements.filter((p) => p.active).length} aktive plasseringer. ${refreshed.placements
-                        .filter((p) => p.active)
-                        .map(
-                          (p) =>
-                            `${p.firstName} ${p.lastName}: ${p.schoolName}, ${p.day}, bolk ${p.block}, ${p.workdays} dager`,
-                        )
-                        .join("; ")}`
-                    : `Oppdatert status: ${statusLabel[refreshed.status]}`}
-                </p>
-              )}
+              {refreshedSummary && <p className="min-w-0 break-words">{refreshedSummary}</p>}
               {refreshed && (
                 <Button
                   type="button"
@@ -417,6 +525,45 @@ function PlacementFields({
     </div>
   );
 }
+type PlacementProposal = NonNullable<(typeof PlacementBoardResource.Type)["proposal"]>;
+type PlacementAssignment = PlacementProposal["assignments"][number];
+type ConfirmedSlot = Pick<
+  PlacementAssignment,
+  "schoolId" | "schoolName" | "day" | "block"
+> & {
+  readonly assignments: ReadonlyArray<PlacementAssignment>;
+};
+type ConfirmedSlotBuilder = Pick<
+  PlacementAssignment,
+  "schoolId" | "schoolName" | "day" | "block"
+> & {
+  readonly assignments: Map<PlacementAssignment["personId"], PlacementAssignment>;
+};
+function confirmedSlots(
+  proposal: (typeof PlacementBoardResource.Type)["proposal"],
+): ReadonlyArray<ConfirmedSlot> {
+  if (proposal?.status !== "Confirmed") return [];
+  const slots = new Map<string, ConfirmedSlotBuilder>();
+  for (const assignment of proposal.assignments) {
+    const key = `${assignment.schoolId}:${assignment.day}:${assignment.block}`;
+    let slot = slots.get(key);
+    if (slot === undefined) {
+      slot = {
+        schoolId: assignment.schoolId,
+        schoolName: assignment.schoolName,
+        day: assignment.day,
+        block: assignment.block,
+        assignments: new Map(),
+      };
+      slots.set(key, slot);
+    }
+    slot.assignments.set(assignment.personId, assignment);
+  }
+  return [...slots.values()].map(({ assignments, ...slot }) => ({
+    ...slot,
+    assignments: [...assignments.values()],
+  }));
+}
 function SchoolServicePanel({
   board,
   scope,
@@ -425,34 +572,7 @@ function SchoolServicePanel({
   scope: { readonly departmentId: string; readonly semesterId: string };
 }) {
   const proposal = board.proposal;
-  const slots =
-    proposal?.status === "Confirmed"
-      ? [
-          ...new Map(
-            proposal.assignments.map((assignment) => [
-              `${assignment.schoolId}:${assignment.day}:${assignment.block}`,
-              {
-                schoolId: assignment.schoolId,
-                schoolName: assignment.schoolName,
-                day: assignment.day,
-                block: assignment.block,
-                assignments: [
-                  ...new Map(
-                    proposal.assignments
-                      .filter(
-                        (candidate) =>
-                          candidate.schoolId === assignment.schoolId &&
-                          candidate.day === assignment.day &&
-                          candidate.block === assignment.block,
-                      )
-                      .map((candidate) => [candidate.personId, candidate]),
-                  ).values(),
-                ],
-              },
-            ]),
-          ).values(),
-        ]
-      : [];
+  const slots = confirmedSlots(proposal);
   return (
     <section className="space-y-4" aria-labelledby="school-service-title">
       <div>
@@ -663,13 +783,622 @@ function SchoolServicePanel({
     </section>
   );
 }
+const deliveryStatusLabel = {
+  Pending: "Venter på levering",
+  Processing: "Leveres",
+  Delivered: "Levert",
+  Failed: "Levering feilet",
+  Quarantined: "Levering stoppet",
+} as const;
+const offerStatusLabel = {
+  Offered: "Sendt og venter på svar",
+  Accepted: "Akseptert",
+  Declined: "Avslått",
+  Withdrawn: "Trukket tilbake",
+  Acknowledged: "Bekreftet som dekning",
+} as const;
+const responseStatusLabel = {
+  Accept: "Akseptert",
+  Decline: "Avslått",
+} as const;
+const closureOutcomeLabel = {
+  Covered: "Dekket",
+  Uncovered: "Ikke dekket",
+} as const;
+type CoverageAbsence = (typeof CoverageBoardResource.Type)["absences"][number];
+type CoverageOffer = (typeof CoverageBoardResource.Type)["offers"][number];
+type CoverageResponse = (typeof CoverageBoardResource.Type)["responses"][number];
+type CoverageAcknowledgement = (typeof CoverageBoardResource.Type)["acknowledgements"][number];
+type CoverageClosure = (typeof CoverageBoardResource.Type)["closures"][number];
+type CoverageCandidate = (typeof CoverageBoardResource.Type)["candidates"][number];
+type CoverageNotification = (typeof CoverageBoardResource.Type)["dispatchNotifications"][number];
+type CoverageSlotIdentity = Pick<CoverageAbsence, "proposalId" | "schoolId" | "day" | "block">;
+function deliverySummary(notification: CoverageNotification | undefined): string {
+  if (notification === undefined) return "Venter på leveringsstatus";
+  const attempts = notification.attempts === 1 ? "1 forsøk" : `${notification.attempts} forsøk`;
+  const failure =
+    notification.lastFailureTag === null ? "" : `, siste feil: ${notification.lastFailureTag}`;
+  return `${deliveryStatusLabel[notification.status]} (${attempts}${failure})`;
+}
+function OfferLifecycle({
+  offer,
+  response,
+  notification,
+  acknowledgement,
+  showCandidate = false,
+}: {
+  offer: CoverageOffer;
+  response: CoverageResponse | undefined;
+  notification: CoverageNotification | undefined;
+  acknowledgement: CoverageAcknowledgement | undefined;
+  showCandidate?: boolean;
+}) {
+  return (
+    <div className="min-w-0 space-y-1 break-words text-sm">
+      {showCandidate && (
+        <p>
+          Vikar: {offer.candidateFirstName} {offer.candidateLastName}
+        </p>
+      )}
+      <p>Tilbudstatus: {offerStatusLabel[offer.status]}</p>
+      <p>Levering: {deliverySummary(notification)}</p>
+      {response && <p>Endelig svar: {responseStatusLabel[response.response]}</p>}
+      {acknowledgement && <p>Dekningen er bekreftet av koordinator.</p>}
+    </div>
+  );
+}
+function OwnCoveragePanel({
+  coverage,
+  scope,
+}: {
+  coverage: typeof OwnCoverageResource.Type;
+  scope: { readonly departmentId: string; readonly semesterId: string };
+}) {
+  const responsesByOfferId = new Map<string, CoverageResponse>();
+  for (const response of coverage.responses) responsesByOfferId.set(response.offerId, response);
+  const notificationsByOfferId = new Map<string, CoverageNotification>();
+  for (const notification of coverage.dispatchNotifications)
+    notificationsByOfferId.set(notification.offerId, notification);
+  return (
+    <section className="min-w-0 space-y-5 rounded-lg border p-4 sm:p-6" aria-labelledby="own-coverage-title">
+      <header>
+        <h2 id="own-coverage-title" className="text-xl font-semibold">
+          Min fravær og vikardekning
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Her vises bare dine bekreftede oppmøter, fravær og vikartilbud som er adressert til deg.
+        </p>
+      </header>
+      <section className="space-y-3" aria-labelledby="own-roster-title">
+        <h3 id="own-roster-title" className="font-semibold">
+          Bekreftede oppmøter
+        </h3>
+        {coverage.rosterSlots.length === 0 && <p>Du har ingen bekreftede oppmøter i valgt semester.</p>}
+        {coverage.rosterSlots.map((slot) => {
+          const slotId = `${slot.proposalId}-${slot.schoolId}-${slot.day}-${slot.block}`;
+          return (
+            <article key={slotId} className="min-w-0 space-y-3 rounded-md border p-4">
+              <h4 className="break-words font-medium">
+                {slot.schoolName} — {slot.day}, bolk {slot.block}
+              </h4>
+              <CommandForm
+                etag={coverage.etag}
+                refreshResource="ownCoverage"
+                hidden={{
+                  ...scope,
+                  action: "ReportAbsence",
+                  proposalId: slot.proposalId,
+                  schoolId: String(slot.schoolId),
+                  day: slot.day,
+                  block: slot.block,
+                }}
+                label={`Fravær: ${slot.schoolName}, ${slot.day}, bolk ${slot.block}`}
+              >
+                <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                  <label htmlFor={`own-absence-date-${slotId}`} className="min-w-0">
+                    Dato
+                    <Input
+                      id={`own-absence-date-${slotId}`}
+                      name="serviceDate"
+                      type="date"
+                      required
+                    />
+                  </label>
+                </div>
+                <Button type="submit">Rapporter fravær</Button>
+              </CommandForm>
+            </article>
+          );
+        })}
+      </section>
+      <section className="space-y-3" aria-labelledby="own-absences-title">
+        <h3 id="own-absences-title" className="font-semibold">
+          Registrerte fravær
+        </h3>
+        {coverage.absences.length === 0 && <p>Du har ikke registrert fravær i valgt semester.</p>}
+        {coverage.absences.map((absence) => (
+          <article key={absence.absenceId} className="min-w-0 rounded-md border p-4">
+            <p className="break-words">
+              {absence.schoolName}, {absence.serviceDate} — {absence.day}, bolk {absence.block}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">Fraværet er registrert.</p>
+          </article>
+        ))}
+      </section>
+      <section className="space-y-3" aria-labelledby="own-offers-title">
+        <h3 id="own-offers-title" className="font-semibold">
+          Mine vikartilbud
+        </h3>
+        {coverage.offers.length === 0 && <p>Du har ingen vikartilbud i valgt semester.</p>}
+        {coverage.offers.map((offer) => {
+          const response = responsesByOfferId.get(offer.offerId);
+          const notification = notificationsByOfferId.get(offer.offerId);
+          return (
+            <article key={offer.offerId} className="min-w-0 space-y-3 rounded-md border p-4">
+              <h4 className="break-words font-medium">
+                {offer.schoolName}, {offer.serviceDate} — {offer.day}, bolk {offer.block}
+              </h4>
+              <OfferLifecycle
+                offer={offer}
+                response={response}
+                notification={notification}
+                acknowledgement={undefined}
+              />
+              {offer.status === "Offered" && (
+                <CommandForm
+                  etag={coverage.etag}
+                  refreshResource="ownCoverage"
+                  hidden={{ ...scope, action: "RespondToOffer", offerId: offer.offerId }}
+                  label={`Vikartilbud: ${offer.schoolName}, ${offer.serviceDate}, bolk ${offer.block}`}
+                >
+                  <div className="flex flex-wrap gap-3">
+                    <Button type="submit" name="response" value="Accept">
+                      Aksepter tilbud
+                    </Button>
+                    <Button type="submit" name="response" value="Decline" variant="outline">
+                      Avslå tilbud
+                    </Button>
+                  </div>
+                </CommandForm>
+              )}
+            </article>
+          );
+        })}
+      </section>
+    </section>
+  );
+}
+function CoverageCloseForm({
+  coverage,
+  scope,
+  proposalId,
+  slot,
+  absences,
+  offersById,
+  closuresByAbsenceId,
+}: {
+  coverage: typeof CoverageBoardResource.Type;
+  scope: { readonly departmentId: string; readonly semesterId: string };
+  proposalId: CoverageAbsence["proposalId"];
+  slot: ConfirmedSlot;
+  absences: ReadonlyArray<CoverageAbsence>;
+  offersById: ReadonlyMap<string, CoverageOffer>;
+  closuresByAbsenceId: ReadonlyMap<string, CoverageClosure>;
+}) {
+  const serviceDate = absences[0]?.serviceDate;
+  if (serviceDate === undefined || absences.some((absence) => closuresByAbsenceId.has(absence.absenceId))) {
+    return null;
+  }
+  const absenceIds = new Set(absences.map((absence) => absence.absenceId));
+  const absentPeople = new Set(absences.map((absence) => absence.personId));
+  const expectedByPersonId = new Map<string, { readonly personId: string; readonly label: string }>();
+  for (const assignment of slot.assignments) {
+    if (!absentPeople.has(assignment.personId)) {
+      expectedByPersonId.set(assignment.personId, {
+        personId: assignment.personId,
+        label: `${assignment.firstName} ${assignment.lastName}`,
+      });
+    }
+  }
+  for (const acknowledgement of coverage.acknowledgements) {
+    if (!absenceIds.has(acknowledgement.absenceId)) continue;
+    const offer = offersById.get(acknowledgement.offerId);
+    expectedByPersonId.set(acknowledgement.candidatePersonId, {
+      personId: acknowledgement.candidatePersonId,
+      label:
+        offer === undefined
+          ? "Bekreftet vikar"
+          : `${offer.candidateFirstName} ${offer.candidateLastName} (vikar)`,
+    });
+  }
+  const pendingOffer = coverage.offers.some(
+    (offer) =>
+      absenceIds.has(offer.absenceId) &&
+      (offer.status === "Offered" || offer.status === "Accepted"),
+  );
+  const attendance = [...expectedByPersonId.values()];
+  const formId = `${slot.schoolId}-${slot.day}-${slot.block}-${serviceDate}`;
+  return (
+    <article className="min-w-0 space-y-3 rounded-md border p-4">
+      <h4 className="break-words font-medium">
+        {slot.schoolName}, {serviceDate} — {slot.day}, bolk {slot.block}
+      </h4>
+      {pendingOffer ? (
+        <p role="status">
+          Et sendt eller akseptert vikartilbud må avslås, trekkes tilbake eller bekreftes før
+          tjenesten kan lukkes.
+        </p>
+      ) : (
+        <CommandForm
+          etag={coverage.etag}
+          refreshResource="coverage"
+          hidden={{
+            ...scope,
+            action: "CloseCoverage",
+            proposalId,
+            schoolId: String(slot.schoolId),
+            day: slot.day,
+            block: slot.block,
+            occurredOn: serviceDate,
+          }}
+          label={`Tjenestelukking: ${slot.schoolName}, ${serviceDate}, bolk ${slot.block}`}
+        >
+          <p className="text-sm text-muted-foreground">
+            Valgene er beregnet fra den bekreftede planen, registrert fravær og bekreftet
+            vikardekning. Oppmøtet må være nøyaktig likt disse valgene.
+          </p>
+          {attendance.length === 0 ? (
+            <p>Ingen skal registreres som møtt for denne tjenesten.</p>
+          ) : (
+            <div className="space-y-2">
+              {attendance.map((person) => (
+                <label
+                  key={person.personId}
+                  htmlFor={`coverage-attendance-${formId}-${person.personId}`}
+                  className="flex min-w-0 items-start gap-2"
+                >
+                  <input
+                    id={`coverage-attendance-${formId}-${person.personId}`}
+                    type="checkbox"
+                    name="attendedPersonId"
+                    value={person.personId}
+                    defaultChecked
+                  />
+                  <span className="min-w-0 break-words">{person.label} møtte</span>
+                </label>
+              ))}
+            </div>
+          )}
+          <Button type="submit">Lukk tjeneste</Button>
+        </CommandForm>
+      )}
+    </article>
+  );
+}
+function CoordinatorCoveragePanel({
+  coverage,
+  board,
+  scope,
+}: {
+  coverage: typeof CoverageBoardResource.Type;
+  board: typeof PlacementBoardResource.Type | null;
+  scope: { readonly departmentId: string; readonly semesterId: string };
+}) {
+  const proposal = board?.proposal;
+  const confirmedProposal = proposal?.status === "Confirmed" ? proposal : null;
+  const slots = confirmedSlots(confirmedProposal);
+  const offersById = new Map<string, CoverageOffer>();
+  const offersByAbsenceId = new Map<string, Array<CoverageOffer>>();
+  for (const offer of coverage.offers) {
+    offersById.set(offer.offerId, offer);
+    const offers = offersByAbsenceId.get(offer.absenceId);
+    if (offers === undefined) offersByAbsenceId.set(offer.absenceId, [offer]);
+    else offers.push(offer);
+  }
+  const responsesByOfferId = new Map<string, CoverageResponse>();
+  for (const response of coverage.responses) responsesByOfferId.set(response.offerId, response);
+  const notificationsByOfferId = new Map<string, CoverageNotification>();
+  for (const notification of coverage.dispatchNotifications)
+    notificationsByOfferId.set(notification.offerId, notification);
+  const acknowledgementsByOfferId = new Map<string, CoverageAcknowledgement>();
+  for (const acknowledgement of coverage.acknowledgements)
+    acknowledgementsByOfferId.set(acknowledgement.offerId, acknowledgement);
+  const closuresByAbsenceId = new Map<string, CoverageClosure>();
+  for (const closure of coverage.closures) closuresByAbsenceId.set(closure.absenceId, closure);
+  const candidatesByAbsenceId = new Map<string, Array<CoverageCandidate>>();
+  for (const candidate of coverage.candidates) {
+    const candidates = candidatesByAbsenceId.get(candidate.absenceId);
+    if (candidates === undefined) candidatesByAbsenceId.set(candidate.absenceId, [candidate]);
+    else candidates.push(candidate);
+  }
+  const slotsByKey = new Map<string, ConfirmedSlot>();
+  if (confirmedProposal !== null) {
+    for (const slot of slots) {
+      slotsByKey.set(
+        coverageSlotKey({
+          proposalId: confirmedProposal.proposalId,
+          schoolId: slot.schoolId,
+          day: slot.day,
+          block: slot.block,
+        }),
+        slot,
+      );
+    }
+  }
+  const closureGroups = new Map<
+    string,
+    {
+      readonly proposalId: CoverageAbsence["proposalId"];
+      readonly serviceDate: CoverageAbsence["serviceDate"];
+      readonly slot: ConfirmedSlot;
+      readonly absences: CoverageAbsence[];
+    }
+  >();
+  for (const absence of coverage.absences) {
+    const slot = slotsByKey.get(coverageSlotKey(absence));
+    if (slot === undefined) continue;
+    const key = `${coverageSlotKey(absence)}:${absence.serviceDate}`;
+    const group = closureGroups.get(key);
+    if (group === undefined) {
+      closureGroups.set(key, {
+        proposalId: absence.proposalId,
+        serviceDate: absence.serviceDate,
+        slot,
+        absences: [absence],
+      });
+    } else {
+      group.absences.push(absence);
+    }
+  }
+  const openClosureGroups = [...closureGroups.values()].filter((group) =>
+    group.absences.every((absence) => !closuresByAbsenceId.has(absence.absenceId)),
+  );
+  return (
+    <section
+      className="min-w-0 space-y-5 rounded-lg border p-4 sm:p-6"
+      aria-labelledby="coverage-board-title"
+    >
+      <header>
+        <h2 id="coverage-board-title" className="text-xl font-semibold">
+          Fravær og vikardekning
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Koordinatorer kan velge kvalifiserte vikarer, følge leveringen og lukke en tjeneste med
+          nøyaktig oppmøte.
+        </p>
+      </header>
+      <section className="space-y-3" aria-labelledby="coordinator-absence-title">
+        <h3 id="coordinator-absence-title" className="font-semibold">
+          Rapporter fravær for frivillig
+        </h3>
+        {confirmedProposal === null ? (
+          <p>En bekreftet tjenesteplan må være tilgjengelig før fravær kan rapporteres.</p>
+        ) : (
+          <>
+            {slots.length === 0 && <p>Den bekreftede tjenesteplanen har ingen oppmøter.</p>}
+            {slots.map((slot) => {
+              const slotId = `${slot.schoolId}-${slot.day}-${slot.block}`;
+              return (
+                <CommandForm
+                  key={slotId}
+                  etag={coverage.etag}
+                  refreshResource="coverage"
+                  hidden={{
+                    ...scope,
+                    action: "ReportAbsenceForVolunteer",
+                    proposalId: confirmedProposal.proposalId,
+                    schoolId: String(slot.schoolId),
+                    day: slot.day,
+                    block: slot.block,
+                  }}
+                  label={`Fravær: ${slot.schoolName}, ${slot.day}, bolk ${slot.block}`}
+                >
+                  <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                    <label htmlFor={`coordinator-absence-person-${slotId}`} className="min-w-0">
+                      Frivillig
+                      <select
+                        id={`coordinator-absence-person-${slotId}`}
+                        name="personId"
+                        required
+                        defaultValue=""
+                        className={selectClass}
+                      >
+                        <option value="" disabled>
+                          Velg frivillig
+                        </option>
+                        {slot.assignments.map((assignment) => (
+                          <option key={assignment.personId} value={assignment.personId}>
+                            {assignment.firstName} {assignment.lastName}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label htmlFor={`coordinator-absence-date-${slotId}`} className="min-w-0">
+                      Dato
+                      <Input
+                        id={`coordinator-absence-date-${slotId}`}
+                        name="serviceDate"
+                        type="date"
+                        required
+                      />
+                    </label>
+                  </div>
+                  <Button type="submit">Rapporter fravær</Button>
+                </CommandForm>
+              );
+            })}
+          </>
+        )}
+      </section>
+      <section className="space-y-3" aria-labelledby="coverage-absences-title">
+        <h3 id="coverage-absences-title" className="font-semibold">
+          Registrert fravær og kvalifiserte vikarer
+        </h3>
+        {coverage.absences.length === 0 && <p>Det er ikke registrert fravær i valgt semester.</p>}
+        {coverage.absences.map((absence) => {
+          const candidates = candidatesByAbsenceId.get(absence.absenceId) ?? [];
+          const offers = offersByAbsenceId.get(absence.absenceId) ?? [];
+          const activeOffer = offers.find(
+            (offer) =>
+              offer.status === "Offered" ||
+              offer.status === "Accepted" ||
+              offer.status === "Acknowledged",
+          );
+          const closure = closuresByAbsenceId.get(absence.absenceId);
+          const absenceId = absence.absenceId;
+          return (
+            <article key={absenceId} className="min-w-0 space-y-3 rounded-md border p-4">
+              <h4 className="break-words font-medium">
+                {absence.schoolName}, {absence.serviceDate} — {absence.day}, bolk {absence.block}
+              </h4>
+              {closure ? (
+                <p>
+                  Utfallet: {closureOutcomeLabel[closure.outcome]}
+                </p>
+              ) : activeOffer ? (
+                <p>
+                  {activeOffer.status === "Acknowledged"
+                    ? "Vikardekningen er bekreftet."
+                    : "Det finnes allerede et aktivt vikartilbud for dette fraværet."}
+                </p>
+              ) : candidates.length === 0 ? (
+                <p>Ingen kvalifiserte vikarer er tilgjengelige for dette fraværet.</p>
+              ) : (
+                <CommandForm
+                  etag={coverage.etag}
+                  refreshResource="coverage"
+                  hidden={{ ...scope, action: "DispatchSubstituteOffer", absenceId }}
+                  label={`Vikardispatch: ${absenceId}`}
+                >
+                  <label htmlFor={`coverage-candidate-${absenceId}`} className="min-w-0">
+                    Kvalifisert vikar
+                    <select
+                      id={`coverage-candidate-${absenceId}`}
+                      name="candidatePersonId"
+                      required
+                      defaultValue=""
+                      className={selectClass}
+                    >
+                      <option value="" disabled>
+                        Velg kvalifisert vikar
+                      </option>
+                      {candidates.map((candidate) => (
+                        <option key={candidate.personId} value={candidate.personId}>
+                          {candidate.firstName} {candidate.lastName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Button type="submit">Send vikartilbud</Button>
+                </CommandForm>
+              )}
+            </article>
+          );
+        })}
+      </section>
+      <section className="space-y-3" aria-labelledby="coverage-offers-title">
+        <h3 id="coverage-offers-title" className="font-semibold">
+          Vikartilbud og dekning
+        </h3>
+        {coverage.offers.length === 0 && <p>Det er ikke sendt vikartilbud i valgt semester.</p>}
+        {coverage.offers.map((offer) => {
+          const response = responsesByOfferId.get(offer.offerId);
+          const notification = notificationsByOfferId.get(offer.offerId);
+          const acknowledgement = acknowledgementsByOfferId.get(offer.offerId);
+          return (
+            <article key={offer.offerId} className="min-w-0 space-y-3 rounded-md border p-4">
+              <h4 className="break-words font-medium">
+                {offer.schoolName}, {offer.serviceDate} — {offer.day}, bolk {offer.block}
+              </h4>
+              <OfferLifecycle
+                offer={offer}
+                response={response}
+                notification={notification}
+                acknowledgement={acknowledgement}
+                showCandidate
+              />
+              {(offer.status === "Offered" || offer.status === "Accepted") && (
+                <CommandForm
+                  etag={coverage.etag}
+                  refreshResource="coverage"
+                  hidden={{ ...scope, offerId: offer.offerId }}
+                  label={`Dekningstilbud: ${offer.candidateFirstName} ${offer.candidateLastName}, ${offer.serviceDate}`}
+                >
+                  <div className="flex flex-wrap gap-3">
+                    {offer.status === "Accepted" && (
+                      <Button type="submit" name="action" value="AcknowledgeCoverage">
+                        Bekreft dekning
+                      </Button>
+                    )}
+                    <Button
+                      type="submit"
+                      name="action"
+                      value="WithdrawSubstituteOffer"
+                      variant="outline"
+                    >
+                      Trekk tilbake tilbud
+                    </Button>
+                  </div>
+                </CommandForm>
+              )}
+            </article>
+          );
+        })}
+      </section>
+      <section className="space-y-3" aria-labelledby="coverage-closure-title">
+        <h3 id="coverage-closure-title" className="font-semibold">
+          Tjenestelukking
+        </h3>
+        {confirmedProposal === null ? (
+          <p>Oppmøtet kan ikke beregnes uten den bekreftede tjenesteplanen.</p>
+        ) : openClosureGroups.length === 0 ? (
+          <p>Det er ingen åpne tjenester med registrert fravær å lukke.</p>
+        ) : (
+          openClosureGroups.map((group) => (
+            <CoverageCloseForm
+              key={`${group.proposalId}:${group.slot.schoolId}:${group.slot.day}:${group.slot.block}:${group.serviceDate}`}
+              coverage={coverage}
+              scope={scope}
+              proposalId={group.proposalId}
+              slot={group.slot}
+              absences={group.absences}
+              offersById={offersById}
+              closuresByAbsenceId={closuresByAbsenceId}
+            />
+          ))
+        )}
+        {coverage.closures.length > 0 && (
+          <div className="space-y-2">
+            <h4 className="font-medium">Avsluttede tjenester</h4>
+            <ul className="space-y-1">
+              {coverage.closures.map((closure) => {
+                const absence = coverage.absences.find(
+                  (candidate) => candidate.absenceId === closure.absenceId,
+                );
+                return (
+                  <li key={closure.closureId} className="break-words">
+                    {absence === undefined
+                      ? "Fraværssak"
+                      : `${absence.schoolName}, ${absence.serviceDate}, bolk ${absence.block}`}
+                    : {closureOutcomeLabel[closure.outcome]}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+      </section>
+    </section>
+  );
+}
 export default function Assistenter() {
-  const { scopes, own, board, departmentId, semesterId, error } = useLoaderData<typeof loader>();
+  const { scopes, own, board, ownCoverage, coverage, departmentId, semesterId, error } =
+    useLoaderData<typeof loader>();
   const scope = { departmentId, semesterId };
   return (
     <section
       aria-labelledby="placement-title"
-      className="mx-auto w-full max-w-5xl space-y-6 p-4 sm:p-6"
+      className="mx-auto w-full min-w-0 max-w-5xl space-y-6 p-4 sm:p-6"
     >
       <h1 id="placement-title" className="text-2xl font-semibold">
         Frivilligtilknytning og skoleplassering
@@ -732,7 +1461,7 @@ export default function Assistenter() {
           <CommandForm
             key={`own-${departmentId}`}
             etag={own.etag}
-            own
+            refreshResource="own"
             hidden={{ departmentId }}
             label="Min tilknytning"
           >
@@ -749,6 +1478,7 @@ export default function Assistenter() {
           </CommandForm>
         </section>
       )}
+      {ownCoverage && <OwnCoveragePanel coverage={ownCoverage} scope={scope} />}
       {board && (
         <div key={`${departmentId}-${semesterId}`} className="space-y-6">
           <section className="space-y-4">
@@ -858,6 +1588,7 @@ export default function Assistenter() {
           <SchoolServicePanel board={board} scope={scope} />
         </div>
       )}
+      {coverage && <CoordinatorCoveragePanel coverage={coverage} board={board} scope={scope} />}
     </section>
   );
 }
