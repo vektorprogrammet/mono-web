@@ -35,6 +35,7 @@ const loadSelectedList = (
   model: Model,
   commands: SchoolSurveysCommandFactories,
   draft: SurveyDraft = model.draft,
+  preserveSelection = false,
 ): UpdateResult => {
   const query = listQuery(draft);
   if (query === null) {
@@ -57,8 +58,8 @@ const loadSelectedList = (
       draft,
       requestSequence: requestId,
       list: { _tag: "Loading", requestId },
-      detail: null,
-      selectedSurveyId: null,
+      detail: preserveSelection ? model.detail : null,
+      selectedSurveyId: preserveSelection ? model.selectedSurveyId : null,
       results: { _tag: "Idle" },
     },
     [commands.LoadList({ requestId, query })],
@@ -150,7 +151,10 @@ export const makeUpdate =
         FailedCatalog: ({ requestId, failure }) =>
           model.catalog._tag !== "Loading" || model.catalog.requestId !== requestId
             ? [model, []]
-            : [{ ...model, catalog: { _tag: "Failure", error: failure }, list: { _tag: "Idle" } }, []],
+            : [
+                { ...model, catalog: { _tag: "Failure", error: failure }, list: { _tag: "Idle" } },
+                [],
+              ],
         RetriedCatalog: () => {
           if (!canEditDraft(model)) return [model, []];
           const requestId = nextRequestId(model);
@@ -192,7 +196,9 @@ export const makeUpdate =
             !canEditDraft(model) ||
             model.catalog._tag !== "Success" ||
             (semesterId !== null &&
-              !model.catalog.data.semesters.some((semester) => semester.semesterId === semesterId)) ||
+              !model.catalog.data.semesters.some(
+                (semester) => semester.semesterId === semesterId,
+              )) ||
             semesterId === model.draft.semesterId
           ) {
             return [model, []];
@@ -280,7 +286,12 @@ export const makeUpdate =
                 updateQuestion(model, draftId, (question) => ({
                   ...question,
                   kind,
-                  alternatives: kind === "Text" ? [] : question.alternatives.length === 0 ? ["", ""] : question.alternatives,
+                  alternatives:
+                    kind === "Text"
+                      ? []
+                      : question.alternatives.length === 0
+                        ? ["", ""]
+                        : question.alternatives,
                 })),
                 [],
               ],
@@ -349,8 +360,9 @@ export const makeUpdate =
                   detail:
                     model.selectedSurveyId === null
                       ? null
-                      : (list.surveys.find((survey) => survey.surveyId === model.selectedSurveyId) ??
-                        null),
+                      : (list.surveys.find(
+                          (survey) => survey.surveyId === model.selectedSurveyId,
+                        ) ?? null),
                 },
                 [],
               ],
@@ -439,7 +451,11 @@ export const makeUpdate =
           if (model.pendingCommand !== "Create" || model.requestSequence !== requestId) {
             return [model, []];
           }
-          const draft = { ...makeDraft(), departmentId: model.draft.departmentId, semesterId: model.draft.semesterId };
+          const draft = {
+            ...makeDraft(),
+            departmentId: model.draft.departmentId,
+            semesterId: model.draft.semesterId,
+          };
           const [next, emitted] = loadSelectedList(
             {
               ...model,
@@ -453,6 +469,7 @@ export const makeUpdate =
             },
             commands,
             draft,
+            true,
           );
           return [next, emitted];
         },
@@ -506,6 +523,8 @@ export const makeUpdate =
               successMessage: "Undersøkelsen er lukket. Oversikten oppdateres fra serveren.",
             },
             commands,
+            model.draft,
+            true,
           );
           return [next, emitted];
         },
