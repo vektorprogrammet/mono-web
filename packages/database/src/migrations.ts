@@ -427,6 +427,11 @@ export const databaseMigrationDefinitions = [
     name: "current-assignment-reconciliation",
     url: new URL("../migrations/0052-current-assignment-reconciliation.sql", import.meta.url),
   },
+  {
+    id: "53_password-reset-provider-reference",
+    name: "password-reset-provider-reference",
+    url: new URL("../migrations/0053-password-reset-provider-reference.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

@@ -49,7 +49,7 @@ export default Alchemy.Stack(
     const stage = yield* Alchemy.Stage;
     stageGuard(stage);
     if (stage === "development") {
-      return yield* cloudflareDevelopmentStack;
+      return yield* cloudflareDevelopmentStack.pipe(Alchemy.remote());
     }
     const domain =
       stage === APEX_IDENTITY.stage ? APEX_IDENTITY.hostname : PREVIEW_IDENTITY.hostname;

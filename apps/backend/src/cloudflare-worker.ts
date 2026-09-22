@@ -43,6 +43,7 @@ export interface CloudflareBackendEnv {
   readonly RECEIPT_FILES?: R2Bucket;
   readonly MAIL?: CloudflareSendEmailBinding;
   readonly MAIL_SENDER?: string;
+  readonly MAIL_RECIPIENT_OVERRIDE?: string;
   readonly MAIL_TIMEOUT_MS?: string;
 }
 
@@ -131,6 +132,7 @@ export const makeCloudflareBackend = async (env: CloudflareBackendEnv): Promise<
   );
   const mailLayer = CloudflareMailLive({
     binding: bindings.mail,
+    recipientOverride: env.MAIL_RECIPIENT_OVERRIDE,
     deliveryTimeoutMilliseconds: timeout,
   });
   const services = Layer.mergeAll(

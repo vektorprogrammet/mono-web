@@ -9,7 +9,7 @@ const completeEnv = (): CloudflareBackendEnv => ({
   HYPERDRIVE: { connectionString: "postgres://worker-bound" },
   RECEIPT_FILES: {
     get: async () => null,
-    put: async () => undefined,
+    put: async () => null,
     delete: async () => undefined,
   },
   MAIL: { send: async () => ({ messageId: "mail-1" }) },

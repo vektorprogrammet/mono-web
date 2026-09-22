@@ -13,8 +13,14 @@ import type { ReceiptFileStore, StagedReceiptFile } from "./filesystem.js";
 
 export interface R2Object {
   readonly size: number;
+  readonly etag?: string;
   readonly httpMetadata?: { readonly contentType?: string };
   readonly arrayBuffer: () => Promise<ArrayBuffer>;
+}
+
+export interface R2PutOptions {
+  readonly httpMetadata?: { readonly contentType?: string };
+  readonly onlyIf?: Headers | { readonly etagDoesNotMatch: string };
 }
 
 /** The subset of the Workers R2 binding used by the private receipt store. */
@@ -22,9 +28,9 @@ export interface R2Bucket {
   readonly get: (key: string) => Promise<R2Object | null>;
   readonly put: (
     key: string,
-    value: ArrayBuffer | Uint8Array | string,
-    options?: { readonly httpMetadata?: { readonly contentType?: string } },
-  ) => Promise<unknown>;
+    value: Uint8Array | ArrayBuffer | string,
+    options?: R2PutOptions,
+  ) => Promise<R2Object | null>;
   readonly delete: (key: string) => Promise<void>;
 }
 
@@ -98,6 +104,33 @@ const readMatching = async (
 const encodedRequest = (request: ReceiptFileRequest): string => JSON.stringify(request);
 const markerKeyFor = async (effectId: string): Promise<string> =>
   `effects/${await hexDigest(encoder.encode(effectId))}`;
+const decoder = new TextDecoder();
+
+const markerRequest = async (bucket: R2Bucket, key: string): Promise<string | null> => {
+  const marker = await bucket.get(key);
+  return marker === null ? null : decoder.decode(await marker.arrayBuffer());
+};
+
+const claimEffect = async (
+  bucket: R2Bucket,
+  markerKey: string,
+  request: ReceiptFileRequest,
+): Promise<void> => {
+  const requestJson = encodedRequest(request);
+  const existing = await markerRequest(bucket, markerKey);
+  if (existing !== null) {
+    if (existing !== requestJson)
+      throw new ReceiptFileEffectConflict({ effectId: request.effectId });
+    return;
+  }
+  const claimed = await bucket.put(markerKey, requestJson, {
+    httpMetadata: { contentType: "application/json" },
+    onlyIf: new Headers({ "if-none-match": "*" }),
+  });
+  if (claimed !== null) return;
+  const winner = await markerRequest(bucket, markerKey);
+  if (winner !== requestJson) throw new ReceiptFileEffectConflict({ effectId: request.effectId });
+};
 
 const ensureFileIdentity = (file: ReceiptFile): void => {
   if (!keyIsSafe(file.fileRef) || !keyIsSafe(file.objectKey)) {
@@ -164,14 +197,6 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
         try: async () => {
           ensureFileIdentity(request.file);
           const markerKey = await markerKeyFor(request.effectId);
-          const marker = await config.bucket.get(markerKey);
-          const requestJson = encodedRequest(request);
-          if (marker !== null) {
-            const previous = new TextDecoder().decode(await marker.arrayBuffer());
-            if (previous !== requestJson)
-              throw new ReceiptFileEffectConflict({ effectId: request.effectId });
-            return;
-          }
           if (request._tag === "PromoteReceiptFile") {
             if (failNextPromotionEffectId === request.effectId) {
               failNextPromotionEffectId = undefined;
@@ -188,10 +213,11 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
                 objectKey: request.file.objectKey,
               });
             }
+            let bytes: Uint8Array | undefined;
             if (committed === "missing") {
               const staged = await config.bucket.get(request.file.fileRef);
               if (staged === null) throw notStaged(request.effectId, request.file.fileRef);
-              const bytes = new Uint8Array(await staged.arrayBuffer());
+              bytes = new Uint8Array(await staged.arrayBuffer());
               const digest = await digestBytes(bytes);
               if (
                 digest.byteLength !== request.file.byteLength ||
@@ -200,6 +226,9 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
               ) {
                 throw notStaged(request.effectId, request.file.fileRef);
               }
+            }
+            await claimEffect(config.bucket, markerKey, request);
+            if (bytes !== undefined) {
               await config.bucket.put(request.file.objectKey, bytes, {
                 httpMetadata: { contentType: request.file.contentType },
               });
@@ -217,11 +246,9 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
                 objectKey: request.file.objectKey,
               });
             }
+            await claimEffect(config.bucket, markerKey, request);
             if (committed === "matching") await config.bucket.delete(request.file.objectKey);
           }
-          await config.bucket.put(markerKey, requestJson, {
-            httpMetadata: { contentType: "application/json" },
-          });
         },
         catch: (cause) => {
           if (

@@ -12,6 +12,7 @@ export interface CloudflareEmailMessage {
   readonly replyTo?: string;
   readonly subject: string;
   readonly text: string;
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
 /** Structural type of the Cloudflare Workers `send_email` binding acknowledgement. */
@@ -27,8 +28,8 @@ export interface CloudflareSendEmailBinding {
 export interface CloudflareMailConfig {
   readonly binding: CloudflareSendEmailBinding;
   readonly deliveryTimeoutMilliseconds: number;
+  readonly recipientOverride?: string;
 }
-
 export class CloudflareMailConfigurationError extends Schema.TaggedError<CloudflareMailConfigurationError>()(
   "CloudflareMailConfigurationError",
   {},
@@ -95,20 +96,26 @@ const validateRequest = (request: MailDeliveryRequest): void => {
   }
 };
 
-const messageFor = (request: MailDeliveryRequest): CloudflareEmailMessage => ({
+const messageFor = (
+  request: MailDeliveryRequest,
+  recipientOverride: string | undefined,
+): CloudflareEmailMessage => ({
   from: request.sender,
-  to: request.recipient,
+  to: recipientOverride ?? request.recipient,
   ...(request.replyTo === undefined ? {} : { replyTo: request.replyTo }),
   subject: request.subject,
   text: request.text,
+  headers: {
+    "Message-ID": `<${encodeURIComponent(request.deliveryId)}@delivery.vektorprogrammet.no>`,
+  },
 });
 
-const makeService = (config: CloudflareMailConfig): MailShape => ({
+export const makeCloudflareMail = (config: CloudflareMailConfig): MailShape => ({
   deliver: (request) =>
     Effect.gen(function* () {
       yield* Effect.try({ try: () => validateRequest(request), catch: () => permanent() });
       const acknowledgement = yield* Effect.tryPromise({
-        try: () => config.binding.send(messageFor(request)),
+        try: () => config.binding.send(messageFor(request, config.recipientOverride)),
         catch: classifyCloudflareMailError,
       }).pipe(
         Effect.timeout(Duration.millis(config.deliveryTimeoutMilliseconds)),
@@ -137,13 +144,14 @@ export const CloudflareMailLive = (
         if (
           !Predicate.isObject(config.binding) ||
           typeof config.binding.send !== "function" ||
+          (config.recipientOverride !== undefined && !validMailbox(config.recipientOverride)) ||
           !Number.isSafeInteger(config.deliveryTimeoutMilliseconds) ||
           config.deliveryTimeoutMilliseconds < 1 ||
           config.deliveryTimeoutMilliseconds > 60_000
         ) {
           throw new Error("invalid Cloudflare mail binding");
         }
-        return Mail.of(makeService(config));
+        return Mail.of(makeCloudflareMail(config));
       },
       catch: () => new CloudflareMailConfigurationError(),
     }),

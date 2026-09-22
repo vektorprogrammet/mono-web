@@ -5,19 +5,25 @@ import { makeR2ReceiptFileStore, type R2Bucket, type R2Object } from "./r2.js";
 
 const memoryBucket = (): R2Bucket & { readonly keys: () => ReadonlyArray<string> } => {
   const entries = new Map<string, { readonly bytes: Uint8Array; readonly contentType?: string }>();
+  const objectFor = (key: string): R2Object | null => {
+    const entry = entries.get(key);
+    if (entry === undefined) return null;
+    return {
+      size: entry.bytes.byteLength,
+      ...(entry.contentType === undefined
+        ? {}
+        : { httpMetadata: { contentType: entry.contentType } }),
+      arrayBuffer: async () => entry.bytes.slice().buffer,
+    };
+  };
   return {
-    get: async (key): Promise<R2Object | null> => {
-      const entry = entries.get(key);
-      if (entry === undefined) return null;
-      return {
-        size: entry.bytes.byteLength,
-        ...(entry.contentType === undefined
-          ? {}
-          : { httpMetadata: { contentType: entry.contentType } }),
-        arrayBuffer: async () => entry.bytes.slice().buffer,
-      };
-    },
+    get: async (key) => objectFor(key),
     put: async (key, value, options) => {
+      const ifNoneMatch =
+        options?.onlyIf instanceof Headers
+          ? options.onlyIf.get("if-none-match")
+          : options?.onlyIf?.etagDoesNotMatch;
+      if (ifNoneMatch === "*" && entries.has(key)) return null;
       const bytes =
         typeof value === "string"
           ? new TextEncoder().encode(value)
@@ -25,6 +31,7 @@ const memoryBucket = (): R2Bucket & { readonly keys: () => ReadonlyArray<string>
             ? value.slice()
             : new Uint8Array(value.slice(0));
       entries.set(key, { bytes, contentType: options?.httpMetadata?.contentType });
+      return objectFor(key);
     },
     delete: async (key) => {
       entries.delete(key);
@@ -74,5 +81,35 @@ describe("makeR2ReceiptFileStore", () => {
     await expect(restarted.readCommitted(staged.file, 64)).resolves.toEqual(
       new Uint8Array([1, 2, 3, 4]),
     );
+  });
+
+  it("allows only one payload to claim a concurrent effect id", async () => {
+    const bucket = memoryBucket();
+    const store = makeR2ReceiptFileStore({ bucket });
+    const staged = await store.stageBytes(
+      new File([new Uint8Array([5, 6, 7])], "receipt.pdf", { type: "application/pdf" }),
+      "winning-command",
+      "application/pdf",
+      64,
+    );
+    const promotion: ReceiptFileRequest = {
+      _tag: "PromoteReceiptFile",
+      effectId: "contended-effect",
+      receiptId: "receipt-2",
+      commandId: "winning-command",
+      file: staged.file,
+    };
+
+    const results = await Promise.allSettled([
+      apply(store, promotion),
+      apply(store, { ...promotion, commandId: "conflicting-command" }),
+    ]);
+
+    expect(results.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
+    expect(results.find(({ status }) => status === "rejected")).toMatchObject({
+      status: "rejected",
+      reason: { _tag: "ReceiptFileEffectConflict", effectId: "contended-effect" },
+    });
+    await expect(store.readCommitted(staged.file, 64)).resolves.toEqual(new Uint8Array([5, 6, 7]));
   });
 });

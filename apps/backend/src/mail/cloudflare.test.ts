@@ -54,7 +54,22 @@ describe("CloudflareMailLive", () => {
       replyTo: request.replyTo,
       subject: request.subject,
       text: request.text,
+      headers: {
+        "Message-ID": "<password-reset%3Aaccount-123@delivery.vektorprogrammet.no>",
+      },
     });
+  });
+
+  it("confines development delivery to the configured Cloudflare recipient", async () => {
+    const send = vi.fn(async () => ({ messageId: "cloudflare-message-1" }));
+    await deliver({
+      binding: { send },
+      deliveryTimeoutMilliseconds: 1_000,
+      recipientOverride: "development-mailbox@example.invalid",
+    });
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "development-mailbox@example.invalid" }),
+    );
   });
 
   it("records deterministic test deliveries without selecting a provider", async () => {
