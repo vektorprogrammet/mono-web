@@ -298,15 +298,10 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
             }),
           };
         }),
+        { retry: "serialization-once" },
       );
       return nativeCommandOutcomeResponse(outcome);
-    }).pipe(
-      Effect.tapError((cause) =>
-        Effect.sync(() => {
-          console.error(cause);
-        }),
-      ),
-    );
+    });
   return HttpApiBuilder.group(ExternalNativeApi, "placements", (handlers) =>
     Effect.succeed(
       handlers
