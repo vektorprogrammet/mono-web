@@ -32,7 +32,7 @@ const deploymentState = Layer.unwrap(
   Alchemy.Stage.pipe(
     Effect.map((stage) =>
       stage === "development"
-        ? Cloudflare.state()
+        ? Alchemy.localState()
         : stateBackendForStage(stage) === "local"
           ? Alchemy.localState()
           : Cloudflare.state(),
