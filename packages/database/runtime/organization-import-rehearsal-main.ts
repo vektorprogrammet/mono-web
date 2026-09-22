@@ -1890,12 +1890,14 @@ const runRehearsal = async (
       "current",
       "expiresAt",
       "ipAddress",
+      "personId",
       "sessionId",
       "updatedAt",
       "userAgent",
     ]);
     assert.equal(sessionProjection.current, true);
     assert.equal(sessionProjection.expiresAt, SPEC_0067.sessionExpiresAt);
+    assert.equal(sessionProjection.personId, SPEC_0067.administratorPersonId);
     assert.ok(
       typeof sessionProjection.sessionId === "string" && sessionProjection.sessionId !== "",
     );
