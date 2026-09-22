@@ -30,11 +30,11 @@ export const SchoolSurveysLive = Layer.effect(
           Effect.provideService(Database, database),
         ),
       readAdminSurvey: (surveyId) =>
-        readSchoolSurveyAdminSurveyPostgres(surveyId).pipe(Effect.provideService(Database, database)),
-      listAdminSurveys: (scope) =>
-        listSchoolSurveyAdminSurveysPostgres(scope).pipe(
+        readSchoolSurveyAdminSurveyPostgres(surveyId).pipe(
           Effect.provideService(Database, database),
         ),
+      listAdminSurveys: (scope) =>
+        listSchoolSurveyAdminSurveysPostgres(scope).pipe(Effect.provideService(Database, database)),
       createAdminSurvey: (command) =>
         createSchoolSurveyAdminSurveyPostgres(command).pipe(
           Effect.provideService(Database, database),

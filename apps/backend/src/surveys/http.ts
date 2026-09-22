@@ -40,6 +40,7 @@ import {
   SubmitSchoolSurveyResponseEndpoint,
   SubmitSchoolSurveyResponseRequest,
   makeNativeValidationError,
+  schoolSurveyResultsCsvContentDisposition,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { Effect, Option, Schema } from "effect";
@@ -339,7 +340,7 @@ const submit = (request: Request, surveyId: SurveyId) =>
           deriveHttpIdentity({
             credentialSubject: "Anonymous",
             qualifiedOperationId: operationId,
-            normalizedTarget: `/api/surveys/${encodePathIdentity(surveyId)}/responses`,
+            normalizedTarget: `/api/surveys/public/${encodePathIdentity(surveyId)}/responses`,
             idempotencyKey,
           }),
         );
@@ -373,7 +374,7 @@ const submit = (request: Request, surveyId: SurveyId) =>
                     resourceIdentity: decoded.responseId,
                     version: decoded.submittedAt,
                   }),
-                  location: `/api/surveys/${encodePathIdentity(surveyId)}/responses/${encodePathIdentity(decoded.responseId)}`,
+                  location: `/api/surveys/public/${encodePathIdentity(surveyId)}/responses/${encodePathIdentity(decoded.responseId)}`,
                 },
                 bodyBytes: jsonBodyBytes(decoded),
               };
@@ -524,7 +525,7 @@ const createAdminSurvey = (request: Request) =>
                     resourceIdentity: String(decoded.surveyId),
                     version: decoded.revision,
                   }),
-                  location: `/api/surveys/${encodePathIdentity(decoded.surveyId)}`,
+                  location: `/api/surveys/public/${encodePathIdentity(decoded.surveyId)}`,
                 },
                 bodyBytes: jsonBodyBytes(decoded),
               };
@@ -674,14 +675,11 @@ const exportAdminResults = (request: Request, surveyId: SurveyId) =>
             results,
             "internal.error",
           );
-          const safeSurveyId = encodeURIComponent(String(surveyId)).replace(
-            /[!'()*]/gu,
-            (character) => `%${character.codePointAt(0)!.toString(16).toUpperCase()}`,
-          );
+          const contentDisposition = schoolSurveyResultsCsvContentDisposition(surveyId);
           return new Response(encodeSchoolSurveyResultsCsv(decoded), {
             headers: {
               "content-type": "text/csv; charset=utf-8",
-              "content-disposition": `attachment; filename="school-survey-${safeSurveyId}-results.csv"`,
+              "content-disposition": contentDisposition,
               "cache-control": "private, no-store",
               vary: "Origin",
             },

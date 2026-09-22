@@ -490,13 +490,13 @@
       "group": "surveys",
       "method": "GET",
       "operationId": "surveys.readSchoolSurvey",
-      "path": "/api/surveys/{surveyId}"
+      "path": "/api/surveys/public/{surveyId}"
     },
     {
       "group": "surveys",
       "method": "POST",
       "operationId": "surveys.submitSchoolSurveyResponse",
-      "path": "/api/surveys/{surveyId}/responses"
+      "path": "/api/surveys/public/{surveyId}/responses"
     },
     {
       "group": "system",

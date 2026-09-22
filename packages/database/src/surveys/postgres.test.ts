@@ -24,14 +24,13 @@ import {
 const runtime = makeControlledTestRuntime(DatabaseTest());
 
 const departmentId = DepartmentId.make("school-survey-postgres-department");
-const semesterId = SemesterId.make("school-survey-postgres-semester");
+const semesterId = SemesterId.make(`school-survey-postgres-semester-${"s".repeat(101)}`);
 const managerPersonId = PersonId.make("school-survey-postgres-manager");
 const volunteerPersonId = PersonId.make("school-survey-postgres-volunteer");
 const surveyId = SurveyId.make("survey_123e4567-e89b-12d3-a456-426614174000");
 const createdAt = "2035-09-22T10:00:00.000Z";
 
-const questionId = (position: number) =>
-  SurveyQuestionId.make(`${surveyId}_q_${position}`);
+const questionId = (position: number) => SurveyQuestionId.make(`${surveyId}_q_${position}`);
 
 const createCommand = {
   commandId: SchoolSurveyCommandId.make("school-survey-postgres-create"),
@@ -131,14 +130,22 @@ describe("School-survey PostgreSQL administration", () => {
             `;
             const schoolRows = yield* sql<{ readonly schoolId: number }>`
               INSERT INTO public.schools_directory_schools (
-                name, contact_person, email, phone, language, active
-              ) VALUES (
-                'Survey school', 'Contact', 'school@example.invalid', '12345678', 'Norwegian', TRUE
+                school_id, name, contact_person, email, phone, language, active
+              ) OVERRIDING SYSTEM VALUE
+              VALUES (
+                2147483648,
+                'Survey school',
+                'Contact',
+                'school@example.invalid',
+                '12345678',
+                'Norwegian',
+                TRUE
               )
-              RETURNING school_id::integer AS "schoolId"
+              RETURNING school_id::double precision AS "schoolId"
             `;
             const schoolId = schoolRows[0]?.schoolId;
-            if (schoolId === undefined) return yield* Effect.die("school seed did not return an ID");
+            if (schoolId === undefined)
+              return yield* Effect.die("school seed did not return an ID");
             yield* sql`
               INSERT INTO public.schools_directory_departments (school_id, department_id)
               VALUES (${schoolId}, ${departmentId})
@@ -263,12 +270,11 @@ describe("School-survey PostgreSQL administration", () => {
       ),
     );
 
-    expect(evidence.catalog.departments).toEqual([
-      { departmentId, name: "Survey department" },
-    ]);
+    expect(evidence.catalog.departments).toEqual([{ departmentId, name: "Survey department" }]);
     expect(evidence.catalog.semesters.map((semester) => semester.semesterId)).toEqual([semesterId]);
     expect(evidence.created).toMatchObject({
       surveyId,
+      semesterLabel: "2035-08-01 – 2035-12-31",
       state: "Open",
       revision: 0,
       responseCount: 0,
@@ -283,7 +289,11 @@ describe("School-survey PostgreSQL administration", () => {
     expect(evidence.replayed).toEqual(evidence.created);
     expect(evidence.listed.surveys).toHaveLength(1);
     expect(evidence.stale).toMatchObject({ _tag: "SchoolSurveyStaleRevision", actualRevision: 0 });
-    expect(evidence.closed).toMatchObject({ state: "Closed", revision: 1, closedByPersonId: managerPersonId });
+    expect(evidence.closed).toMatchObject({
+      state: "Closed",
+      revision: 1,
+      closedByPersonId: managerPersonId,
+    });
     expect(evidence.repeated).toMatchObject({ _tag: "SchoolSurveyInvalidState", state: "Closed" });
     expect(evidence.closedForm).toMatchObject({ _tag: "SchoolSurveyNotFound" });
     expect(evidence.closedPrepare).toMatchObject({ _tag: "SchoolSurveyNotFound" });
@@ -294,6 +304,7 @@ describe("School-survey PostgreSQL administration", () => {
       { action: "Closed", surveyRevision: 1 },
     ]);
     expect(evidence.results.responseCount).toBe(2);
+    expect(evidence.results.responses[0]?.school.schoolId).toBe(2147483648);
     expect(evidence.results.responses.map((response) => response.answers[0])).toEqual([
       { kind: "Text", questionId: questionId(0), value: "first response" },
       { kind: "Text", questionId: questionId(0), value: "second response" },

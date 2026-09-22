@@ -172,8 +172,11 @@ const questionEditor = (
             h.Type("checkbox"),
             h.Checked(question.required),
             h.Disabled(disabled),
-            h.OnChange((value) =>
-              ChangedQuestionRequired({ draftId: question.draftId, required: value === "on" }),
+            h.OnClick(
+              ChangedQuestionRequired({
+                draftId: question.draftId,
+                required: !question.required,
+              }),
             ),
           ]),
           h.label([h.For(`${prefix}-required`)], ["Svar er påkrevd"]),
@@ -539,7 +542,7 @@ const definitionView = (model: Model, h: HtmlBuilder<Message>): Html => {
         [h.Class("school-surveys__detail-heading")],
         [
           h.div(
-            [],
+            [h.Class("school-surveys__detail-summary")],
             [
               h.h2([h.Id("school-surveys-detail-title")], [survey.title]),
               h.p(

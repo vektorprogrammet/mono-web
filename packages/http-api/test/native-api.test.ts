@@ -735,10 +735,10 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     "social-events.create",
     person("social-events.create", "social-events.create", [], "Transaction"),
   ],
-  ["GET", "/api/surveys/:surveyId", "surveys.readSchoolSurvey", anonymous("surveys.form")],
+  ["GET", "/api/surveys/public/:surveyId", "surveys.readSchoolSurvey", anonymous("surveys.form")],
   [
     "POST",
-    "/api/surveys/:surveyId/responses",
+    "/api/surveys/public/:surveyId/responses",
     "surveys.submitSchoolSurveyResponse",
     anonymous("surveys.response-create", "Transaction"),
   ],
@@ -778,7 +778,6 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     "surveys.exportAdminResults",
     surveyAdmin("surveys.admin-results-export", "SnapshotRead", ["Scope"]),
   ],
-
 
   [
     "GET",
@@ -831,7 +830,6 @@ const createdMutationOperations = [
   "social-events.create",
   "surveys.submitSchoolSurveyResponse",
   "surveys.createAdminSurvey",
-
 ];
 
 const entityMutationOperations = [
@@ -860,7 +858,6 @@ const entityMutationOperations = [
 ] as const;
 const bodyPreconditionMutationOperations = ["surveys.closeAdminSurvey"] as const;
 
-
 const taggedNoContentMutationOperations = [
   "recruitment.confirmInvitation",
   "recruitment.rejectInvitation",
@@ -878,7 +875,6 @@ const privateBinaryReadOperations = [
   "receipts.readReceiptFileForApproval",
 ] as const;
 const privateTextReadOperations = ["surveys.exportAdminResults"] as const;
-
 
 const privateReadOperations = [
   "onboarding.readBoard",
@@ -1273,7 +1269,6 @@ describe("native API reflection", () => {
       ...taggedNoContentMutationOperations,
       ...plainNoContentMutationOperations,
       ...bodyPreconditionMutationOperations,
-
     ]);
     for (const operationId of categories) {
       const headerParameters = (operation(operationId).parameters ?? [])

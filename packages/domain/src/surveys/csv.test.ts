@@ -68,4 +68,31 @@ describe("School-survey CSV", () => {
         '2026-09-22T10:30:00.000Z,"Alpha ""School"", Oslo","line one\nline two",First; Second\r\n',
     );
   });
+
+  it("neutralizes spreadsheet formulas in every user-controlled cell", () => {
+    const formulaResult = Schema.decodeSync(SchoolSurveyResultsResource)(
+      {
+        ...result,
+        survey: {
+          ...result.survey,
+          questions: result.survey.questions.map((question) =>
+            question.kind === "Text" ? { ...question, label: "=question" } : question,
+          ),
+        },
+        responses: result.responses.map((response) => ({
+          ...response,
+          school: { ...response.school, name: "+school" },
+          answers: response.answers.map((answer) =>
+            answer.kind === "Text" ? { ...answer, value: "@answer" } : answer,
+          ),
+        })),
+      },
+      { onExcessProperty: "error" },
+    );
+
+    expect(encodeSchoolSurveyResultsCsv(formulaResult)).toBe(
+      "submittedAt,school,'=question,Check question\r\n" +
+        "2026-09-22T10:30:00.000Z,'+school,'@answer,First; Second\r\n",
+    );
+  });
 });

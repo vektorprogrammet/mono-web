@@ -88,7 +88,9 @@ describe("authenticated School-survey Foldkit bridge", () => {
       },
     });
     mocks.readAdminCatalog.mockResolvedValue({ body: catalog });
-    mocks.listAdminSurveys.mockResolvedValue({ body: { departmentId, semesterId, surveys: [survey] } });
+    mocks.listAdminSurveys.mockResolvedValue({
+      body: { departmentId, semesterId, surveys: [survey] },
+    });
     mocks.createAdminSurvey.mockResolvedValue({ body: survey });
     mocks.closeAdminSurvey.mockResolvedValue({
       body: {
@@ -203,6 +205,35 @@ describe("authenticated School-survey Foldkit bridge", () => {
     expect(stale.data).toEqual({ error: { tag: "CommandConflict" } });
   });
 
+  it("preserves special survey IDs in CSV filenames and rejects malformed export IDs", async () => {
+    const specialSurveyId = "survey!route'(test)*";
+    const encodedDisposition =
+      'attachment; filename="school-survey-survey%21route%27%28test%29%2A-results.csv"';
+    mocks.exportAdminResults.mockResolvedValueOnce({
+      body: "submittedAt,school,Hva fungerte?\n",
+      headers: {
+        "cache-control": "private, no-store",
+        "content-disposition": encodedDisposition,
+        "content-type": "text/csv; charset=utf-8",
+        vary: "Origin",
+      },
+    });
+
+    const csv = await load(`/surveys?${new URLSearchParams({ export: specialSurveyId })}`);
+    if (!(csv instanceof Response)) throw new Error("Expected a CSV response");
+    expect(csv.headers.get("content-disposition")).toBe(encodedDisposition);
+    expect(mocks.exportAdminResults).toHaveBeenCalledWith({
+      params: { surveyId: specialSurveyId },
+    });
+
+    mocks.exportAdminResults.mockClear();
+    const malformed = bridgeData<{ readonly error: { readonly tag: string } }>(
+      await load("/surveys?export=%20"),
+    );
+    expect(malformed.init?.status).toBe(422);
+    expect(malformed.data).toEqual({ error: { tag: "SurveyDecodeError" } });
+    expect(mocks.exportAdminResults).not.toHaveBeenCalled();
+  });
   it("does not construct an SDK client for an expired dashboard session", async () => {
     mocks.requireAuth.mockRejectedValueOnce(new Response(null, { status: 302 }));
 

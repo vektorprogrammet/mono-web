@@ -318,34 +318,33 @@ describe("School surveys native HTTP adapter", () => {
     expect(resultReads).toBe(2);
   });
 
-  it("routes every accepted survey ID length", async () => {
+  it("routes maximum-length and administration-named public survey IDs", async () => {
     const maximumLengthSurveyId = SurveyId.make("s".repeat(128));
-    const form = {
-      surveyId: maximumLengthSurveyId,
+    const administrationNamedSurveyId = SurveyId.make("admin");
+    const form = (surveyId: SurveyId) => ({
+      surveyId,
       departmentId,
       semesterId,
       semesterLabel: "Spring 2032",
       title: "School survey",
       schools: [{ schoolId: SchoolId.make(1), name: "Survey School" }],
       questions: adminSurvey().questions,
-    };
+    });
     const api = makeSchoolSurveysTestHttp(
       makeServices(authority(), {
-        readForm: (surveyId: SurveyId) => {
-          expect(surveyId).toBe(maximumLengthSurveyId);
-          return Effect.succeed(form);
-        },
+        readForm: (surveyId: SurveyId) => Effect.succeed(form(surveyId)),
       }),
     );
 
-    const response = await api.fetch(
-      new Request(`http://backend.test/api/surveys/${maximumLengthSurveyId}`),
-    );
-
-    expect({ status: response.status, body: await response.json() }).toEqual({
-      status: 200,
-      body: form,
-    });
+    for (const surveyId of [maximumLengthSurveyId, administrationNamedSurveyId]) {
+      const response = await api.fetch(
+        new Request(`http://backend.test/api/surveys/public/${surveyId}`),
+      );
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status: 200,
+        body: form(surveyId),
+      });
+    }
   });
 
   it("uses receipt-derived commands, generated survey IDs, and revisioned close commands", async () => {
@@ -391,7 +390,9 @@ describe("School surveys native HTTP adapter", () => {
       }),
     );
     expect(createResponse.status).toBe(201);
-    expect(createResponse.headers.get("location")).toMatch(/^\/api\/surveys\/survey_[0-9a-f-]+$/u);
+    expect(createResponse.headers.get("location")).toMatch(
+      /^\/api\/surveys\/public\/survey_[0-9a-f-]+$/u,
+    );
     expect(createdCommands).toHaveLength(1);
     expect(String(createdCommands[0]?.commandId)).toMatch(/^httpv2_[A-Za-z0-9_-]{43}$/u);
     expect(String(createdCommands[0]?.surveyId)).toMatch(/^survey_[0-9a-f-]{36}$/u);
@@ -530,12 +531,12 @@ describe("School surveys native HTTP adapter", () => {
     );
 
     const formResponse = await api.fetch(
-      new Request(`http://backend.test/api/surveys/${schoolSurveyId}`),
+      new Request(`http://backend.test/api/surveys/public/${schoolSurveyId}`),
     );
     expect(formResponse.status).toBe(404);
 
     const submitResponse = await api.fetch(
-      new Request(`http://backend.test/api/surveys/${schoolSurveyId}/responses`, {
+      new Request(`http://backend.test/api/surveys/public/${schoolSurveyId}/responses`, {
         method: "POST",
         headers: {
           "content-type": "application/json",

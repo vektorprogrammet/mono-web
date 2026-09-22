@@ -147,6 +147,14 @@ export const SchoolSurveyAdminResultsProblem = problemUnion("SchoolSurveyAdminRe
   ...schoolSurveyAdminReadProblems,
 ]);
 
+export const schoolSurveyResultsCsvContentDisposition = (surveyId: SurveyId): string => {
+  const encodedSurveyId = encodeURIComponent(String(surveyId)).replace(
+    /[!'()*]/gu,
+    (character) => `%${character.codePointAt(0)!.toString(16).toUpperCase()}`,
+  );
+  return `attachment; filename="school-survey-${encodedSurveyId}-results.csv"`;
+};
+
 const SchoolSurveyResultsCsvContentDisposition = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter(
@@ -162,6 +170,7 @@ const SchoolSurveyResultsCsvResponse = HttpApiSchema.WithHeaders(
     "cache-control": Schema.Literal("private, no-store"),
     vary: Schema.Literal("Origin"),
     "content-disposition": SchoolSurveyResultsCsvContentDisposition,
+    "content-type": Schema.Literal("text/csv; charset=utf-8"),
   },
 );
 
@@ -190,7 +199,7 @@ const schoolSurveyAdminAccess = (
 /** @since 0.2.0 @category Endpoints */
 export const ReadSchoolSurveyEndpoint = HttpApiEndpoint.get(
   "readSchoolSurvey",
-  "/api/surveys/:surveyId",
+  "/api/surveys/public/:surveyId",
   {
     params: { surveyId: SurveyId },
     success: noStoreReadResponse(SchoolSurveyFormResource),
@@ -205,7 +214,7 @@ export const ReadSchoolSurveyEndpoint = HttpApiEndpoint.get(
 /** @since 0.2.0 @category Endpoints */
 export const SubmitSchoolSurveyResponseEndpoint = HttpApiEndpoint.post(
   "submitSchoolSurveyResponse",
-  "/api/surveys/:surveyId/responses",
+  "/api/surveys/public/:surveyId/responses",
   {
     params: { surveyId: SurveyId },
     headers: IdempotencyHeaders,

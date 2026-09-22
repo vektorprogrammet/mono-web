@@ -288,6 +288,14 @@ vektor-school-surveys-workspace {
   padding: var(--school-surveys-space-4);
 }
 
+.school-surveys__detail-summary {
+  min-inline-size: 0;
+}
+
+.school-surveys__detail-summary h2 {
+  overflow-wrap: anywhere;
+}
+
 .school-surveys__results-heading p,
 .school-surveys__detail-heading p {
   color: var(--school-surveys-muted-foreground);

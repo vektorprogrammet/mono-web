@@ -105,6 +105,13 @@ const SemesterLabel = boundedImportedText(100, "a semester label at most 100 UTF
 const SurveyTitle = boundedImportedText(255, "a title at most 255 UTF-8 bytes");
 const CompletionText = boundedDatabaseText(4_096, "completion text at most 4096 UTF-8 bytes");
 const AnswerText = boundedTrimmedText(4_096, "an answer at most 4096 UTF-8 bytes");
+const CreateCompletionText = CompletionText.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => databaseTrim(value).length > 0 && databaseTrim(value) === value, {
+      message: "a database-trimmed non-empty completion text",
+    }),
+  ),
+);
 const Alternatives = boundedArray(Alternative, 100, "at most 100 alternatives");
 
 const QuestionBase = {
@@ -257,9 +264,13 @@ const SurveyRevision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualT
 const SurveyResponseCount = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 const RequiredAlternatives = Alternatives.pipe(
   Schema.check(
-    Schema.makeFilter((alternatives) => alternatives.length > 0, {
-      message: "at least one alternative",
-    }),
+    Schema.makeFilter(
+      (alternatives) =>
+        alternatives.length > 0 &&
+        new Set(alternatives).size === alternatives.length &&
+        alternatives.every((alternative) => alternative.trim() === alternative),
+      { message: "unique, whitespace-trimmed alternatives" },
+    ),
   ),
 );
 
@@ -325,7 +336,7 @@ export const CreateSchoolSurveyRequest = Schema.Struct({
   departmentId: DepartmentId,
   semesterId: SemesterId,
   title: SurveyTitle,
-  completionText: CompletionText,
+  completionText: CreateCompletionText,
   resultsVisibility: SurveyResultsVisibility,
   questions: SchoolSurveyQuestionDrafts,
 }).annotate({ identifier: "CreateSchoolSurveyRequest" });

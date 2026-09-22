@@ -11,7 +11,13 @@ import AxeBuilder from "@axe-core/playwright";
 import { chromium } from "@playwright/test";
 import pg from "pg";
 import { schoolSurveyPath } from "../app/lib/school-survey-path.ts";
-import { createSurveyBody, identitySeedPersons, ids, personas, seedSql } from "./fixtures/survey-operations.mjs";
+import {
+  createSurveyBody,
+  identitySeedPersons,
+  ids,
+  personas,
+  seedSql,
+} from "./fixtures/survey-operations.mjs";
 
 const { Client } = pg;
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -35,16 +41,9 @@ const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 const betterAuthSecret = randomBytes(32).toString("base64url");
 const commandTimeoutMs = 600_000;
 const adminPath = "/api/surveys/admin";
+const readinessTimeoutMs = 60_000;
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-
-const withTimeout = (promise, milliseconds, label) =>
-  Promise.race([
-    promise,
-    delay(milliseconds).then(() => {
-      throw new Error(`${label} timed out after ${milliseconds}ms`);
-    }),
-  ]);
 
 const run = (command, args, { cwd = repositoryRoot, env = process.env, label }) => {
   const result = spawnSync(command, args, {
@@ -70,17 +69,33 @@ const start = (command, args, { cwd, env, label }) => {
     detached: true,
   });
   const output = [];
+  const handle = { child, label, output, startupError: null };
   const capture = (chunk) => {
     output.push(String(chunk));
     if (output.length > 400) output.shift();
   };
   child.stdout.on("data", capture);
   child.stderr.on("data", capture);
-  return { child, label, output };
+  child.once("error", (cause) => {
+    handle.startupError = cause;
+    capture(`${label} failed to start: ${cause instanceof Error ? cause.stack : String(cause)}\n`);
+  });
+  return handle;
+};
+const assertProcessStarting = (handle) => {
+  if (handle === undefined) return;
+  if (handle.startupError !== null) throw handle.startupError;
+  if (handle.child.exitCode !== null || handle.child.signalCode !== null) {
+    throw new Error(
+      `${handle.label} exited before readiness (code=${String(handle.child.exitCode)}, signal=${String(handle.child.signalCode)}):\n${handle.output.join("")}`,
+    );
+  }
 };
 
 const stop = async (handle) => {
-  if (handle === undefined || handle.child.exitCode !== null) return;
+  if (handle === undefined || handle.child.exitCode !== null || handle.child.signalCode !== null) {
+    return;
+  }
   try {
     process.kill(-handle.child.pid, "SIGTERM");
   } catch (cause) {
@@ -105,42 +120,41 @@ const assertPortAvailable = (port) =>
     server.listen(port, "127.0.0.1", () => server.close(resolve));
   });
 
-const waitForPort = (port, label) =>
-  withTimeout(
-    (async () => {
-      while (true) {
-        const ready = await new Promise((resolve) => {
-          const socket = createConnection({ host: "127.0.0.1", port });
-          socket.once("connect", () => {
-            socket.destroy();
-            resolve(true);
-          });
-          socket.once("error", () => resolve(false));
-        });
-        if (ready) return;
-        await delay(100);
-      }
-    })(),
-    60_000,
-    label,
-  );
+const waitForPort = async (port, label, handle) => {
+  const deadline = Date.now() + readinessTimeoutMs;
+  while (Date.now() < deadline) {
+    assertProcessStarting(handle);
+    const ready = await new Promise((resolve) => {
+      const socket = createConnection({ host: "127.0.0.1", port });
+      socket.once("connect", () => {
+        socket.destroy();
+        resolve(true);
+      });
+      socket.once("error", () => {
+        socket.destroy();
+        resolve(false);
+      });
+    });
+    if (ready) return;
+    await delay(100);
+  }
+  throw new Error(`${label} timed out after ${readinessTimeoutMs}ms`);
+};
 
-const waitForHttp = (url, label, init) =>
-  withTimeout(
-    (async () => {
-      while (true) {
-        try {
-          const response = await fetch(url, init);
-          if (response.ok) return;
-        } catch {
-          // The owned process is still starting.
-        }
-        await delay(150);
-      }
-    })(),
-    60_000,
-    label,
-  );
+const waitForHttp = async (url, label, handle) => {
+  const deadline = Date.now() + readinessTimeoutMs;
+  while (Date.now() < deadline) {
+    assertProcessStarting(handle);
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(1_000) });
+      if (response.ok) return;
+    } catch {
+      // The owned process is still starting.
+    }
+    await delay(150);
+  }
+  throw new Error(`${label} timed out after ${readinessTimeoutMs}ms`);
+};
 
 const readRequestBody = async (request) => {
   const chunks = [];
@@ -210,9 +224,13 @@ const startRecordingProxy = async (ledger) => {
       const forwardedHeaders = {};
       for (const [name, value] of upstream.headers) {
         if (
-          ["connection", "content-encoding", "content-length", "set-cookie", "transfer-encoding"].includes(
-            name,
-          )
+          [
+            "connection",
+            "content-encoding",
+            "content-length",
+            "set-cookie",
+            "transfer-encoding",
+          ].includes(name)
         ) {
           continue;
         }
@@ -320,7 +338,10 @@ const counts = async () => {
 };
 
 const signIn = async (browser, persona) => {
-  const context = await browser.newContext({ baseURL: dashboardOrigin, viewport: { width: 1440, height: 960 } });
+  const context = await browser.newContext({
+    baseURL: dashboardOrigin,
+    viewport: { width: 1440, height: 960 },
+  });
   const page = await context.newPage();
   await page.goto("/login");
   await page.getByRole("heading", { name: "Vektorprogrammet", exact: true }).waitFor();
@@ -328,7 +349,8 @@ const signIn = async (browser, persona) => {
   await page.getByLabel("Passord", { exact: true }).fill(persona.password);
   await page.getByRole("button", { name: "Logg inn" }).click({ noWaitAfter: true });
   await page.waitForURL(
-    (url) => url.pathname === "/dashboard" || url.pathname === "/dashboard/" || url.pathname === "/",
+    (url) =>
+      url.pathname === "/dashboard" || url.pathname === "/dashboard/" || url.pathname === "/",
     { timeout: 15_000 },
   );
   const cookies = (await context.cookies(dashboardOrigin)).filter(({ name }) =>
@@ -351,7 +373,7 @@ const streamToText = async (stream) => {
 const closeSurveyPath = (surveyId) => `${adminPath}/${encodeURIComponent(surveyId)}/close`;
 const resultsPath = (surveyId) => `${adminPath}/${encodeURIComponent(surveyId)}/results`;
 const resultsCsvPath = (surveyId) => `${resultsPath(surveyId)}.csv`;
-const publicSurveyPath = (surveyId) => `/api/surveys/${encodeURIComponent(surveyId)}`;
+const publicSurveyPath = (surveyId) => `/api/surveys/public/${encodeURIComponent(surveyId)}`;
 const publicResponsePath = (surveyId) => `${publicSurveyPath(surveyId)}/responses`;
 
 const exerciseJourney = async ({ browser, ledger }) => {
@@ -373,14 +395,24 @@ const exerciseJourney = async ({ browser, ledger }) => {
     "inactive leader catalog",
   );
   assertDenied(
-    await api(foreignLeader.cookie, "GET", `${adminPath}?departmentId=${ids.department}&semesterId=${ids.semester}`),
+    await api(
+      foreignLeader.cookie,
+      "GET",
+      `${adminPath}?departmentId=${ids.department}&semesterId=${ids.semester}`,
+    ),
     "wrong-department list",
   );
 
   const catalog = await api(leader.cookie, "GET", `${adminPath}/catalog`);
   assert.equal(catalog.status, 200);
-  assert.deepEqual(catalog.body.departments.map(({ departmentId }) => departmentId), [ids.department]);
-  assert.equal(catalog.body.semesters.some(({ semesterId }) => semesterId === ids.semester), true);
+  assert.deepEqual(
+    catalog.body.departments.map(({ departmentId }) => departmentId),
+    [ids.department],
+  );
+  assert.equal(
+    catalog.body.semesters.some(({ semesterId }) => semesterId === ids.semester),
+    true,
+  );
 
   await leader.page.goto("/dashboard/undersokelser");
   await leader.page.getByRole("heading", { name: "Undersøkelser" }).waitFor();
@@ -388,11 +420,16 @@ const exerciseJourney = async ({ browser, ledger }) => {
     (await leader.page.getByRole("link", { name: "Undersøkelser", exact: true }).count()) > 0,
     "dashboard navigation exposes surveys",
   );
-  await leader.page.locator("#school-surveys-department option").filter({ hasText: "Undersøkelsesavdelingen" }).waitFor();
+  await leader.page
+    .locator("#school-surveys-department option")
+    .filter({ hasText: "Undersøkelsesavdelingen" })
+    .waitFor();
   await leader.page.locator("#school-surveys-department").focus();
   await leader.page.keyboard.press("Tab");
   assert.equal(
-    await leader.page.locator("#school-surveys-semester").evaluate((node) => node === document.activeElement),
+    await leader.page
+      .locator("#school-surveys-semester")
+      .evaluate((node) => node === document.activeElement),
     true,
   );
   await leader.page.selectOption("#school-surveys-department", ids.department);
@@ -400,13 +437,19 @@ const exerciseJourney = async ({ browser, ledger }) => {
   await leader.page.getByRole("heading", { name: "Ingen undersøkelser" }).waitFor();
 
   await leader.page.fill("#school-surveys-title", "Skolenes tilbakemelding 0113");
-  await leader.page.fill("#school-surveys-completion", "Takk for at skolen delte erfaringene sine.");
+  await leader.page.fill(
+    "#school-surveys-completion",
+    "Takk for at skolen delte erfaringene sine.",
+  );
   await leader.page.getByRole("button", { name: "Legg til tekstspørsmål" }).click();
   await leader.page.getByRole("button", { name: "Legg til listespørsmål" }).click();
   await leader.page.getByRole("button", { name: "Legg til ettvalgs-spørsmål" }).click();
   await leader.page.getByRole("button", { name: "Legg til flervalgsspørsmål" }).click();
   await leader.page.fill("#school-survey-question-1-label", "Hva fungerte best?");
   await leader.page.fill("#school-survey-question-1-help", "Beskriv en konkret erfaring.");
+  await leader.page.check("#school-survey-question-1-required");
+  await leader.page.uncheck("#school-survey-question-1-required");
+  assert.equal(await leader.page.isChecked("#school-survey-question-1-required"), false);
   await leader.page.check("#school-survey-question-1-required");
   await leader.page.fill("#school-survey-question-2-label", "Vil skolen delta igjen?");
   await leader.page.fill("#school-survey-question-2-alternative-0", "Ja");
@@ -420,7 +463,9 @@ const exerciseJourney = async ({ browser, ledger }) => {
   await leader.page.getByRole("button", { name: "Legg til alternativ" }).last().click();
   await leader.page.fill("#school-survey-question-4-alternative-2", "Materiell");
   await leader.page.getByRole("button", { name: "Opprett undersøkelse" }).click();
-  await leader.page.getByText("Undersøkelsen er opprettet. Oversikten oppdateres fra serveren.").waitFor();
+  await leader.page
+    .getByText("Undersøkelsen er opprettet. Oversikten oppdateres fra serveren.")
+    .waitFor();
 
   const browserCreate = ledger.find(
     (entry) =>
@@ -432,11 +477,11 @@ const exerciseJourney = async ({ browser, ledger }) => {
   assert.ok(browserCreate, "dashboard create reached the generated SDK backend path");
   const surveyId = browserCreate.responseJson?.surveyId;
   assert.equal(typeof surveyId, "string");
-  assert.deepEqual(browserCreate.requestJson.questions.map(({ kind }) => kind), ["Text", "List", "Radio", "Check"]);
-  await leader.page.locator(`tr[data-survey-id="${surveyId}"]`).waitFor();
-  assert.match(
-    await leader.page.locator(`tr[data-survey-id="${surveyId}"]`).innerText(),
-    /0/u,
+  const createdRow = leader.page.locator(`tr[data-survey-id="${surveyId}"]`);
+  await createdRow.waitFor();
+  assert.equal(
+    (await createdRow.locator("td").nth(1).innerText()).trim(),
+    "0",
     "created survey lists zero responses",
   );
 
@@ -465,7 +510,10 @@ const exerciseJourney = async ({ browser, ledger }) => {
   await leader.page.goto("/dashboard/undersokelser");
   await leader.page.getByRole("heading", { name: "Undersøkelser" }).waitFor();
   await leader.page.locator(`tr[data-survey-id="${surveyId}"]`).waitFor();
-  await leader.page.locator(`tr[data-survey-id="${surveyId}"]`).getByRole("button", { name: "Åpne" }).click();
+  await leader.page
+    .locator(`tr[data-survey-id="${surveyId}"]`)
+    .getByRole("button", { name: "Åpne" })
+    .click();
   assert.equal(
     await leader.page.getByRole("link", { name: "Åpne offentlig skjema" }).getAttribute("href"),
     schoolSurveyPath(surveyId),
@@ -484,9 +532,17 @@ const exerciseJourney = async ({ browser, ledger }) => {
   const projectedResponse = resultProjection.body.responses[0];
   assert.equal(projectedResponse.school.schoolId, ids.school);
   assert.deepEqual(projectedResponse.answers, [
-    { kind: "Text", questionId: browserCreate.responseJson.questions[0].questionId, value: "Et konkret svar fra skolen" },
+    {
+      kind: "Text",
+      questionId: browserCreate.responseJson.questions[0].questionId,
+      value: "Et konkret svar fra skolen",
+    },
     { kind: "List", questionId: browserCreate.responseJson.questions[1].questionId, value: "Ja" },
-    { kind: "Radio", questionId: browserCreate.responseJson.questions[2].questionId, value: "Godt" },
+    {
+      kind: "Radio",
+      questionId: browserCreate.responseJson.questions[2].questionId,
+      value: "Godt",
+    },
     {
       kind: "Check",
       questionId: browserCreate.responseJson.questions[3].questionId,
@@ -500,18 +556,17 @@ const exerciseJourney = async ({ browser, ledger }) => {
   const csvStream = await download.createReadStream();
   assert.notEqual(csvStream, null);
   const csv = await streamToText(csvStream);
-  assert.match(csv, /submission|innsendt/i);
-  assert.match(csv, /Alfa skole/u);
-  assert.match(csv, /Et konkret svar fra skolen/u);
-  assert.match(csv, /Besøk/u);
-  assert.match(csv, /Hva fungerte best\?/u);
-  assert.match(csv, /Vil skolen delta igjen\?/u);
-  assert.match(csv, /Hvordan opplevdes samarbeidet\?/u);
-  assert.match(csv, /Hva ønsker skolen mer av\?/u);
-  assert.ok(csv.includes(projectedResponse.submittedAt));
-  assert.equal(csv.split(/\r?\n/u).filter(Boolean).length, 2);
+  assert.equal(
+    csv,
+    [
+      "submittedAt,school,Hva fungerte best?,Vil skolen delta igjen?,Hvordan opplevdes samarbeidet?,Hva ønsker skolen mer av?",
+      `${projectedResponse.submittedAt},Alfa skole,Et konkret svar fra skolen,Ja,Godt,Besøk; Materiell`,
+      "",
+    ].join("\r\n"),
+  );
   const csvApi = ledger.find(
-    (entry) => entry.method === "GET" && entry.path === resultsCsvPath(surveyId) && entry.status === 200,
+    (entry) =>
+      entry.method === "GET" && entry.path === resultsCsvPath(surveyId) && entry.status === 200,
   );
   assert.ok(csvApi, "download traversed the server SDK bridge to CSV export");
   assert.match(csvApi.responseHeaders["cache-control"] ?? "", /private, no-store/u);
@@ -522,7 +577,9 @@ const exerciseJourney = async ({ browser, ledger }) => {
   const createdRevision = browserCreate.responseJson.revision;
   assert.equal(typeof createdRevision, "number");
   await leader.page.getByRole("button", { name: "Lukk undersøkelse" }).click();
-  await leader.page.getByText("Undersøkelsen er lukket. Oversikten oppdateres fra serveren.").waitFor();
+  await leader.page
+    .getByText("Undersøkelsen er lukket. Oversikten oppdateres fra serveren.")
+    .waitFor();
   await leader.page.getByText("Lukket", { exact: true }).waitFor();
 
   const beforeClosedPublicWrite = await counts();
@@ -564,14 +621,16 @@ const exerciseJourney = async ({ browser, ledger }) => {
   );
   assert.deepEqual(await counts(), beforeInvalid);
 
+  const unbrokenTitle = "U".repeat(255);
   const confidential = await api(administrator.cookie, "POST", adminPath, {
     key: "survey-operations-confidential-0113",
     body: createSurveyBody({
-      title: "Konfidensiell skoleundersøkelse",
+      title: unbrokenTitle,
       resultsVisibility: "GlobalAdministrators",
     }),
   });
   assert.equal(confidential.status, 201);
+  assert.equal(typeof confidential.body?.surveyId, "string");
   assertDenied(
     await api(leader.cookie, "GET", resultsPath(confidential.body.surveyId)),
     "department leader confidential results",
@@ -584,15 +643,24 @@ const exerciseJourney = async ({ browser, ledger }) => {
   const beforeReplay = await counts();
   const replayBody = createSurveyBody({ title: "Idempotent skoleundersøkelse" });
   const replayKey = "survey-operations-idempotent-create-0113";
-  const firstReplay = await api(leader.cookie, "POST", adminPath, { key: replayKey, body: replayBody });
-  const secondReplay = await api(leader.cookie, "POST", adminPath, { key: replayKey, body: replayBody });
+  const firstReplay = await api(leader.cookie, "POST", adminPath, {
+    key: replayKey,
+    body: replayBody,
+  });
+  const secondReplay = await api(leader.cookie, "POST", adminPath, {
+    key: replayKey,
+    body: replayBody,
+  });
   assert.equal(firstReplay.status, 201);
   assert.equal(secondReplay.status, 201);
   assert.deepEqual(secondReplay.body, firstReplay.body);
   const afterReplay = await counts();
-  assert.equal(afterReplay.surveys, beforeReplay.surveys + 1);
-  assert.equal(afterReplay.audit, beforeReplay.audit + 1);
-
+  assert.deepEqual(afterReplay, {
+    ...beforeReplay,
+    surveys: beforeReplay.surveys + 1,
+    audit: beforeReplay.audit + 1,
+    receipts: beforeReplay.receipts + 1,
+  });
 
   const beforeConcurrent = await counts();
   const concurrentBody = createSurveyBody({ title: "Samtidig skoleundersøkelse" });
@@ -614,11 +682,20 @@ const exerciseJourney = async ({ browser, ledger }) => {
   });
   assert.equal(recoveredConcurrent.status, 201);
   const afterConcurrent = await counts();
-  assert.equal(afterConcurrent.surveys, beforeConcurrent.surveys + 1);
-  assert.equal(afterConcurrent.audit, beforeConcurrent.audit + 1);
+  assert.deepEqual(afterConcurrent, {
+    ...beforeConcurrent,
+    surveys: beforeConcurrent.surveys + 1,
+    audit: beforeConcurrent.audit + 1,
+    receipts: beforeConcurrent.receipts + 1,
+  });
 
   await leader.page.reload();
   await leader.page.getByRole("heading", { name: "Undersøkelser" }).waitFor();
+  await leader.page
+    .locator(`tr[data-survey-id="${confidential.body.surveyId}"]`)
+    .getByRole("button", { name: "Åpne" })
+    .click();
+  await leader.page.getByRole("heading", { name: unbrokenTitle }).waitFor();
   await leader.page.locator(`tr[data-survey-id="${surveyId}"]`).waitFor();
   const desktopAxe = await new AxeBuilder({ page: leader.page })
     .include('section[aria-labelledby="school-surveys-page-title"]')
@@ -629,6 +706,13 @@ const exerciseJourney = async ({ browser, ledger }) => {
   );
   assert.ok(desktopOverflow <= 0, `desktop horizontal overflow: ${desktopOverflow}`);
   await leader.page.setViewportSize({ width: 390, height: 844 });
+  const mobileTitleOverflow = await leader.page
+    .locator("#school-surveys-detail-title")
+    .evaluate((element) => element.scrollWidth - element.clientWidth);
+  assert.ok(
+    mobileTitleOverflow <= 0,
+    `390px unbroken survey title overflow: ${mobileTitleOverflow}`,
+  );
   const mobileOverflow = await leader.page.evaluate(
     () => document.documentElement.scrollWidth - window.innerWidth,
   );
@@ -653,7 +737,13 @@ const exerciseJourney = async ({ browser, ledger }) => {
     validationReplayAndConcurrency: true,
     staleAndRepeatedClose: true,
     reload: true,
-    accessibility: { keyboard: true, violations: desktopAxe.violations.length, desktopOverflow, mobileOverflow },
+    accessibility: {
+      keyboard: true,
+      violations: desktopAxe.violations.length,
+      desktopOverflow,
+      mobileOverflow,
+      mobileTitleOverflow,
+    },
     finalCounts: await counts(),
     pageErrors,
   };
@@ -681,6 +771,50 @@ let journey;
 let version;
 let primaryError;
 let cleanupError;
+let cleanupPromise;
+const cleanupRuntime = () => {
+  if (cleanupPromise !== undefined) return cleanupPromise;
+  cleanupPromise = (async () => {
+    const cleanupFailures = [];
+    const cleanup = async (operation) => {
+      try {
+        await operation();
+      } catch (cause) {
+        cleanupFailures.push(cause);
+      }
+    };
+    await cleanup(async () => {
+      if (browser !== undefined) await browser.close();
+    });
+    await cleanup(() => stop(dashboard));
+    await cleanup(() => closeServer(proxy));
+    await cleanup(() => stop(backend));
+    await cleanup(() => stop(postgres));
+    await cleanup(() => rm(temporaryRoot, { recursive: true, force: true }));
+    await cleanup(() =>
+      Promise.all([postgresPort, backendPort, proxyPort, dashboardPort].map(assertPortAvailable)),
+    );
+    if (cleanupFailures.length > 0) {
+      cleanupError =
+        cleanupFailures.length === 1
+          ? cleanupFailures[0]
+          : new AggregateError(cleanupFailures, "0113 cleanup failed");
+    }
+  })();
+  return cleanupPromise;
+};
+let terminationStarted = false;
+const terminateAfterCleanup = (signal) => {
+  if (terminationStarted) return;
+  terminationStarted = true;
+  process.removeListener("SIGINT", onSigint);
+  process.removeListener("SIGTERM", onSigterm);
+  void cleanupRuntime().finally(() => process.kill(process.pid, signal));
+};
+const onSigint = () => terminateAfterCleanup("SIGINT");
+const onSigterm = () => terminateAfterCleanup("SIGTERM");
+process.once("SIGINT", onSigint);
+process.once("SIGTERM", onSigterm);
 
 try {
   await Promise.all([postgresPort, backendPort, proxyPort, dashboardPort].map(assertPortAvailable));
@@ -694,7 +828,7 @@ try {
     ["-D", postgresData, "-p", String(postgresPort), "-h", "127.0.0.1", "-k", temporaryRoot],
     { cwd: repositoryRoot, env: process.env, label: "0113 PostgreSQL" },
   );
-  await waitForPort(postgresPort, "0113 PostgreSQL startup");
+  await waitForPort(postgresPort, "0113 PostgreSQL startup", postgres);
   run(
     "createdb",
     ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres", "survey_operations_e2e_0113"],
@@ -722,7 +856,7 @@ try {
     env: backendEnvironment,
     label: "0113 native backend",
   });
-  await waitForHttp(`${backendOrigin}/health`, "0113 native backend startup");
+  await waitForHttp(`${backendOrigin}/health`, "0113 native backend startup", backend);
   run("bun", ["run", "identity:seed"], {
     cwd: databaseRoot,
     env: {
@@ -762,7 +896,7 @@ try {
     env: dashboardEnvironment,
     label: "0113 dashboard",
   });
-  await waitForHttp(`${dashboardOrigin}/login`, "0113 dashboard startup");
+  await waitForHttp(`${dashboardOrigin}/login`, "0113 dashboard startup", dashboard);
   browser = await chromium.launch({
     headless: true,
     executablePath:
@@ -777,31 +911,9 @@ try {
   if (dashboard !== undefined)
     process.stderr.write(`Dashboard tail:\n${dashboard.output.join("")}\n`);
 } finally {
-  const cleanupFailures = [];
-  const cleanup = async (operation) => {
-    try {
-      await operation();
-    } catch (cause) {
-      cleanupFailures.push(cause);
-    }
-  };
-  await cleanup(async () => {
-    if (browser !== undefined) await browser.close();
-  });
-  await cleanup(() => stop(dashboard));
-  await cleanup(() => closeServer(proxy));
-  await cleanup(() => stop(backend));
-  await cleanup(() => stop(postgres));
-  await cleanup(() => rm(temporaryRoot, { recursive: true, force: true }));
-  await cleanup(() =>
-    Promise.all([postgresPort, backendPort, proxyPort, dashboardPort].map(assertPortAvailable)),
-  );
-  if (cleanupFailures.length > 0) {
-    cleanupError =
-      cleanupFailures.length === 1
-        ? cleanupFailures[0]
-        : new AggregateError(cleanupFailures, "0113 cleanup failed");
-  }
+  process.removeListener("SIGINT", onSigint);
+  process.removeListener("SIGTERM", onSigterm);
+  await cleanupRuntime();
 }
 
 if (primaryError !== undefined && cleanupError !== undefined) {

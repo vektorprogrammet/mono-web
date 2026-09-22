@@ -588,7 +588,9 @@ const readAdminSurveyWithSql = (
     return yield* Schema.decodeUnknownEffect(SchoolSurveyAdminResource)(
       { ...survey, questions },
       { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => decodeError("decode School-survey administration row", cause)));
+    ).pipe(
+      Effect.mapError((cause) => decodeError("decode School-survey administration row", cause)),
+    );
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read School-survey administration", cause)),
@@ -602,7 +604,9 @@ const validateAdminScopeWithSql = (
   Effect.gen(function* () {
     const scope = yield* Schema.decodeUnknownEffect(SchoolSurveyAdminScope)(input, {
       onExcessProperty: "error",
-    }).pipe(Effect.mapError((cause) => decodeError("decode School-survey administration scope", cause)));
+    }).pipe(
+      Effect.mapError((cause) => decodeError("decode School-survey administration scope", cause)),
+    );
     const rows = yield* sql<ScopeExistsRow>`
       SELECT EXISTS (
         SELECT 1
@@ -689,7 +693,11 @@ export const readSchoolSurveyAdminCatalogPostgres = (
           })),
         },
         { onExcessProperty: "error" },
-      ).pipe(Effect.mapError((cause) => decodeError("decode School-survey administration catalog", cause)));
+      ).pipe(
+        Effect.mapError((cause) =>
+          decodeError("decode School-survey administration catalog", cause),
+        ),
+      );
     }).pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("read School-survey administration catalog", cause)),
@@ -727,7 +735,9 @@ export const listSchoolSurveyAdminSurveysPostgres = (
       return yield* Schema.decodeUnknownEffect(SchoolSurveyAdminListResource)(
         { ...scope, surveys },
         { onExcessProperty: "error" },
-      ).pipe(Effect.mapError((cause) => decodeError("decode School-survey administration list", cause)));
+      ).pipe(
+        Effect.mapError((cause) => decodeError("decode School-survey administration list", cause)),
+      );
     }).pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("list School-survey administration", cause)),
@@ -743,7 +753,9 @@ export const createSchoolSurveyAdminSurveyPostgres = (
     Effect.gen(function* () {
       const command = yield* Schema.decodeUnknownEffect(CreateSchoolSurveyCommand)(input, {
         onExcessProperty: "error",
-      }).pipe(Effect.mapError((cause) => decodeError("decode School-survey create command", cause)));
+      }).pipe(
+        Effect.mapError((cause) => decodeError("decode School-survey create command", cause)),
+      );
       const scope = yield* validateAdminScopeWithSql(sql, {
         departmentId: command.request.departmentId,
         semesterId: command.request.semesterId,
@@ -784,7 +796,14 @@ export const createSchoolSurveyAdminSurveyPostgres = (
           ${command.surveyId},
           ${scope.departmentId},
           ${scope.semesterId},
-          ${String(scope.semesterId)},
+          (
+            SELECT
+              to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD')
+              || ' – '
+              || to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD')
+            FROM public.admission_period_semesters
+            WHERE semester_id = ${scope.semesterId}
+          ),
           ${command.request.title},
           ${command.request.completionText},
           'School',
@@ -822,8 +841,10 @@ export const createSchoolSurveyAdminSurveyPostgres = (
             )
           `;
           if (question.kind === "Text") return;
-          yield* Effect.forEach(question.alternatives, (value, alternativeIndex) =>
-            sql`
+          yield* Effect.forEach(
+            question.alternatives,
+            (value, alternativeIndex) =>
+              sql`
               INSERT INTO public.school_survey_question_alternatives (
                 alternative_id,
                 question_id,
@@ -915,7 +936,9 @@ export const closeSchoolSurveyAdminSurveyPostgres = (
         `;
         const current = currentRows[0];
         if (current === undefined) {
-          return yield* Effect.fail(new SchoolSurveyNotFound({ surveyId: String(command.surveyId) }));
+          return yield* Effect.fail(
+            new SchoolSurveyNotFound({ surveyId: String(command.surveyId) }),
+          );
         }
         if (current.state === "Closed") {
           return yield* Effect.fail(
@@ -973,7 +996,7 @@ export const readSchoolSurveyAdminResultsPostgres = (
       const responseRows = yield* sql<SurveyResultResponseRow>`
         SELECT
           response.response_id AS "responseId",
-          school.school_id::integer AS "schoolId",
+          school.school_id::double precision AS "schoolId",
           school.name,
           to_char(
             response.submitted_at AT TIME ZONE 'UTC',
@@ -1001,7 +1024,10 @@ export const readSchoolSurveyAdminResultsPostgres = (
       `;
       const answersByResponse = new Map<
         string,
-        Map<string, { readonly answerValue: string | null; readonly answerValues: ReadonlyArray<string> }>
+        Map<
+          string,
+          { readonly answerValue: string | null; readonly answerValues: ReadonlyArray<string> }
+        >
       >();
       for (const answer of answerRows) {
         const answerValues =
@@ -1052,7 +1078,11 @@ export const readSchoolSurveyAdminResultsPostgres = (
           responses,
         },
         { onExcessProperty: "error" },
-      ).pipe(Effect.mapError((cause) => decodeError("decode School-survey administration results", cause)));
+      ).pipe(
+        Effect.mapError((cause) =>
+          decodeError("decode School-survey administration results", cause),
+        ),
+      );
     }).pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("read School-survey administration results", cause)),

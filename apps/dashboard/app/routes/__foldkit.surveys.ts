@@ -1,3 +1,4 @@
+import { schoolSurveyResultsCsvContentDisposition } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 import { data } from "react-router";
 import {
@@ -98,7 +99,7 @@ type SchoolSurveyCsvHeaders = {
 };
 
 const csvResponse = (
-  surveyId: string,
+  surveyId: S.Schema.Type<typeof SurveyId>,
   body: string,
   sourceHeaders: SchoolSurveyCsvHeaders,
 ): Response => {
@@ -106,7 +107,7 @@ const csvResponse = (
   const contentDisposition = sourceHeaders["content-disposition"];
   const contentType = sourceHeaders["content-type"];
   const vary = sourceHeaders.vary;
-  const expectedDisposition = `attachment; filename="school-survey-${encodeURIComponent(surveyId)}-results.csv"`;
+  const expectedDisposition = schoolSurveyResultsCsvContentDisposition(surveyId);
   if (
     cacheControl !== "private, no-store" ||
     contentDisposition !== expectedDisposition ||
@@ -138,9 +139,16 @@ export async function loader({ request }: Route.LoaderArgs) {
   try {
     const surveys = createAuthenticatedClient(cookie, request).surveys;
     if (exportValue !== null) {
-      const surveyId = S.decodeUnknownSync(SurveyId)(exportValue);
+      let surveyId: S.Schema.Type<typeof SurveyId>;
+      try {
+        surveyId = S.decodeUnknownSync(SurveyId)(exportValue);
+      } catch {
+        return failure("SurveyDecodeError");
+      }
       const result = await surveys.exportAdminResults({ params: { surveyId } });
-      if (result.body === undefined) throw new Error("School-survey CSV response did not include a body");
+      if (result.body === undefined) {
+        throw new Error("School-survey CSV response did not include a body");
+      }
       return csvResponse(surveyId, result.body, result.headers);
     }
 

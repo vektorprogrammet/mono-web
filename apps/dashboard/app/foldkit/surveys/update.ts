@@ -377,22 +377,40 @@ export const makeUpdate =
                 ),
                 [],
               ],
-        LoadedList: ({ requestId, list }) =>
-          model.list._tag !== "Loading" || model.list.requestId !== requestId
-            ? [model, []]
-            : [
-                {
-                  ...model,
-                  list: { _tag: "Success", data: list },
-                  detail:
-                    model.selectedSurveyId === null
-                      ? null
-                      : (list.surveys.find(
-                          (survey) => survey.surveyId === model.selectedSurveyId,
-                        ) ?? null),
-                },
-                [],
-              ],
+        LoadedList: ({ requestId, list }) => {
+          if (model.list._tag !== "Loading" || model.list.requestId !== requestId) {
+            return [model, []];
+          }
+          const selectedSurveyId = model.selectedSurveyId;
+          const refreshedSurvey =
+            selectedSurveyId !== null &&
+            model.results._tag === "Success" &&
+            model.results.data.survey.surveyId === selectedSurveyId
+              ? model.results.data.survey
+              : null;
+          const reconciledList =
+            refreshedSurvey === null
+              ? list
+              : {
+                  ...list,
+                  surveys: list.surveys.map((survey) =>
+                    survey.surveyId === refreshedSurvey.surveyId ? refreshedSurvey : survey,
+                  ),
+                };
+          return [
+            {
+              ...model,
+              list: { _tag: "Success", data: reconciledList },
+              detail:
+                selectedSurveyId === null
+                  ? null
+                  : (reconciledList.surveys.find(
+                      (survey) => survey.surveyId === selectedSurveyId,
+                    ) ?? null),
+            },
+            [],
+          ];
+        },
         FailedList: ({ requestId, failure }) =>
           model.list._tag !== "Loading" || model.list.requestId !== requestId
             ? [model, []]

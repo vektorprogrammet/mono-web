@@ -3,6 +3,12 @@ import type { SchoolSurveyResultsResource } from "./schema.js";
 /** Stable in-cell separator for ordered Check-question selections. */
 export const SCHOOL_SURVEY_CSV_CHECK_SEPARATOR = "; ";
 
+const encodeCsvCell = (value: string): string => {
+  const formulaSafe = /^[=+\-@\t\r\n]/u.test(value) ? `'${value}` : value;
+  const escaped = formulaSafe.replaceAll('"', '""');
+  return /[",\r\n]/u.test(escaped) ? `"${escaped}"` : escaped;
+};
+
 /**
  * Encodes only the already authorized result projection. It performs no lookup,
  * filtering, or inference, so an exported row always corresponds to one result row.
@@ -27,14 +33,5 @@ export const encodeSchoolSurveyResultsCsv = (results: SchoolSurveyResultsResourc
       ];
     }),
   ];
-  return `${rows
-    .map((row) =>
-      row
-        .map((value) => {
-          const escaped = value.replaceAll('"', '""');
-          return /[",\r\n]/u.test(escaped) ? `"${escaped}"` : escaped;
-        })
-        .join(","),
-    )
-    .join("\r\n")}\r\n`;
+  return `${rows.map((row) => row.map(encodeCsvCell).join(",")).join("\r\n")}\r\n`;
 };

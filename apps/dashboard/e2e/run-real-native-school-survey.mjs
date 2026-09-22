@@ -465,7 +465,7 @@ const replayableHeaders = (headers) =>
     ),
   );
 
-const submitPath = `/api/surveys/${ids.survey}/responses`;
+const submitPath = `/api/surveys/public/${ids.survey}/responses`;
 const assertProblem = (result, status, code) => {
   assert.equal(result.status, status);
   assert.equal(result.body?.code, code);
@@ -602,7 +602,7 @@ const checksum = async (path) =>
     .digest("hex");
 
 const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
-  const initialForm = await api("GET", `/api/surveys/${ids.survey}`);
+  const initialForm = await api("GET", `/api/surveys/public/${ids.survey}`);
   assert.equal(initialForm.status, 200);
   assert.equal(initialForm.headers["cache-control"], "no-store");
   for (const opaqueId of ["survey.data", "survey/%/æ"]) {
@@ -703,7 +703,7 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
     ledger.some(
       (entry) =>
         entry.method === "GET" &&
-        entry.path === `/api/surveys/${ids.survey}` &&
+        entry.path === `/api/surveys/public/${ids.survey}` &&
         entry.status === 503,
     ),
     true,
@@ -1143,10 +1143,18 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
     trimmedBoundaryValue,
   );
 
-  assertProblem(await api("GET", "/api/surveys/unknown-survey-0111"), 404, "resource.not-found");
-  assertProblem(await api("GET", `/api/surveys/${ids.teamSurvey}`), 404, "resource.not-found");
   assertProblem(
-    await api("POST", "/api/surveys/unknown-survey-0111/responses", {
+    await api("GET", "/api/surveys/public/unknown-survey-0111"),
+    404,
+    "resource.not-found",
+  );
+  assertProblem(
+    await api("GET", `/api/surveys/public/${ids.teamSurvey}`),
+    404,
+    "resource.not-found",
+  );
+  assertProblem(
+    await api("POST", "/api/surveys/public/unknown-survey-0111/responses", {
       body: validBody(ids.eligible),
       key: "school-survey-unknown-post-0111",
     }),
@@ -1154,7 +1162,7 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
     "resource.not-found",
   );
   assertProblem(
-    await api("POST", `/api/surveys/${ids.teamSurvey}/responses`, {
+    await api("POST", `/api/surveys/public/${ids.teamSurvey}/responses`, {
       body: validBody(ids.eligible),
       key: "school-survey-non-school-post-0111",
     }),
