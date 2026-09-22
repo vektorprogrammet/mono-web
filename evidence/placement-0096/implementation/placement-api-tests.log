@@ -1,9 +1,0 @@
-
- RUN  v4.1.0 /srv/share/projects/vektorprogrammet/mono-web-placement-0906/packages/http-api
-
-
- Test Files  2 passed (2)
-      Tests  14 passed (14)
-   Start at  03:14:51
-   Duration  1.14s (transform 767ms, setup 0ms, import 1.72s, tests 147ms, environment 0ms)
-

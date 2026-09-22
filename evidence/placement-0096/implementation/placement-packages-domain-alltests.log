@@ -1,9 +1,0 @@
-
- RUN  v4.1.0 /srv/share/projects/vektorprogrammet/mono-web-placement-0906/packages/domain
-
-
- Test Files  44 passed (44)
-      Tests  235 passed (235)
-   Start at  03:13:37
-   Duration  10.02s (transform 76.97s, setup 0ms, import 174.23s, tests 7.99s, environment 6ms)
-

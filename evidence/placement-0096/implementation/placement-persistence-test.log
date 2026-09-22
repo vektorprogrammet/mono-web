@@ -1,9 +1,0 @@
-
- RUN  v4.1.0 /srv/share/projects/vektorprogrammet/mono-web-placement-0906/packages/database
-
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  03:18:14
-   Duration  2.25s (transform 144ms, setup 0ms, import 370ms, tests 1.79s, environment 0ms)
-

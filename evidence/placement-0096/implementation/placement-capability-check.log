@@ -1,2 +1,0 @@
-$ bun run packages/parity-inventory/capability-verify-cli.ts -- --legacy-openapi packages/sdk/legacy-symfony-openapi.snapshot.json --native-openapi packages/http-api/openapi.json --intent-register evidence/capability-parity/accepted-intent-v2.json --evidence-register evidence/capability-parity/capability-runtime-evidence-v2.json --output evidence/capability-parity --migration-candidate evidence/capability-parity/accepted-intent-v2-migration-candidate.json --mode check
-capability_parity_current

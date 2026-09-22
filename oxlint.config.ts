@@ -119,7 +119,6 @@ export default defineConfig({
     },
     {
       files: [
-        "infra/alchemy/scripts/docs-cli.test.ts",
         "tools/parity/tests/claim-evidence.test.ts",
         "tools/parity/tests/cli-contract.test.ts",
         "tools/parity/tests/convention-alias.test.ts",

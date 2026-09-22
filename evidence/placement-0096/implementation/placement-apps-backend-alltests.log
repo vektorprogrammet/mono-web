@@ -1,9 +1,0 @@
-
- RUN  v4.1.0 /srv/share/projects/vektorprogrammet/mono-web-placement-0906/apps/backend
-
-
- Test Files  20 passed (20)
-      Tests  151 passed (151)
-   Start at  03:13:37
-   Duration  11.51s (transform 29.05s, setup 0ms, import 127.19s, tests 9.17s, environment 3ms)
-
