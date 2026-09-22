@@ -162,6 +162,7 @@ export async function action({ request }: Route.ActionArgs) {
       commandId: String(form.get("commandId")),
     });
   } catch (cause) {
+    console.error("dashboard-placement-failure", cause);
     const problem = nativeProblemFrom(cause);
     const messages: Record<string, string> = {
       "authority.denied": "Du har ikke lenger tilgang til denne avdelingen.",
