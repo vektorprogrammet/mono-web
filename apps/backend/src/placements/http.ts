@@ -128,6 +128,7 @@ const authorize = (
     return auth;
   });
 const errorResponse = (cause: unknown): Response => {
+  console.error("placement-error-response", cause);
   if (cause instanceof HttpSemanticFailure || cause instanceof PlacementFailure)
     return nativeProblemResponse(cause.code, cause.status);
   if (
