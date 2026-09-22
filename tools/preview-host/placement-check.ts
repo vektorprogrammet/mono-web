@@ -1,11 +1,14 @@
 import { createPromiseClient } from "../../packages/sdk/src/promise.js";
 import {
+  CoverageCommand,
+  OwnCoverageCommand,
   PlacementCommand,
   PlacementScope,
+  SchoolServiceDispatchNotificationRequest,
   SchoolServiceNotificationRequest,
 } from "../../packages/domain/src/placements/schema.js";
 import { IdempotencyIfMatchHeaders } from "../../packages/http-api/src/http-semantics.js";
-/** 0096 real local API + browser acceptance. Reuses native identity seed and owned process lifecycle. */
+/** 0096/0110/0111 real local API + browser acceptance with an owned process lifecycle. */
 import assert from "node:assert/strict";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:net";
@@ -66,14 +69,33 @@ const port = async (requested = 0): Promise<number> => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   return value;
 };
+const eventually = async <T>(
+  description: string,
+  inspect: () => Promise<T | undefined>,
+  timeout = 20_000,
+): Promise<T> => {
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    const value = await inspect();
+    if (value !== undefined) return value;
+    if (Date.now() >= deadline) throw Error(`Timed out waiting for ${description}`);
+    await delay(50);
+  }
+};
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 let pool: InstanceType<typeof Pool> | undefined;
 let evidence: Record<string, unknown> | undefined;
 let notificationServer: HttpServer | undefined;
+let dispatchProviderFails = true;
 const notificationRequests: Array<{
   readonly authorization: string | undefined;
   readonly idempotencyKey: string | undefined;
   readonly body: typeof SchoolServiceNotificationRequest.Type;
+}> = [];
+const dispatchNotificationRequests: Array<{
+  readonly authorization: string | undefined;
+  readonly idempotencyKey: string | undefined;
+  readonly body: typeof SchoolServiceDispatchNotificationRequest.Type;
 }> = [];
 try {
   const pgPort = await port();
@@ -84,14 +106,24 @@ try {
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const idempotencyKeyHeader = request.headers["idempotency-key"];
+    const idempotencyKey = Array.isArray(idempotencyKeyHeader)
+      ? idempotencyKeyHeader[0]
+      : idempotencyKeyHeader;
+    const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    if (payload._tag === "NotifySchoolServiceSubstituteOffer") {
+      dispatchNotificationRequests.push({
+        authorization: request.headers.authorization,
+        idempotencyKey,
+        body: Schema.decodeUnknownSync(SchoolServiceDispatchNotificationRequest)(payload),
+      });
+      response.statusCode = dispatchProviderFails ? 503 : 204;
+      response.end();
+      return;
+    }
     notificationRequests.push({
       authorization: request.headers.authorization,
-      idempotencyKey: Array.isArray(idempotencyKeyHeader)
-        ? idempotencyKeyHeader[0]
-        : idempotencyKeyHeader,
-      body: Schema.decodeUnknownSync(SchoolServiceNotificationRequest)(
-        JSON.parse(Buffer.concat(chunks).toString("utf8")),
-      ),
+      idempotencyKey,
+      body: Schema.decodeUnknownSync(SchoolServiceNotificationRequest)(payload),
     });
     response.statusCode = 204;
     response.end();
@@ -136,6 +168,12 @@ try {
     SCHOOL_SERVICE_NOTIFICATION_POLL_MS: "25",
     SCHOOL_SERVICE_NOTIFICATION_STALE_MS: "1000",
     SCHOOL_SERVICE_NOTIFICATION_TIMEOUT_MS: "2000",
+    SCHOOL_SERVICE_DISPATCH_NOTIFICATION_MODE: "http",
+    SCHOOL_SERVICE_DISPATCH_NOTIFICATION_URL: `http://127.0.0.1:${notificationPort}/school-service`,
+    SCHOOL_SERVICE_DISPATCH_NOTIFICATION_TOKEN: "synthetic-school-service-dispatch-token",
+    SCHOOL_SERVICE_DISPATCH_NOTIFICATION_POLL_MS: "25",
+    SCHOOL_SERVICE_DISPATCH_NOTIFICATION_STALE_MS: "1000",
+    SCHOOL_SERVICE_DISPATCH_NOTIFICATION_TIMEOUT_MS: "2000",
   };
   for (const key of Object.keys(environment))
     if (
@@ -143,7 +181,23 @@ try {
       (key.startsWith("PUBLIC_APPLICATION_EFFECT_") && key !== "PUBLIC_APPLICATION_EFFECT_MODE")
     )
       delete environment[key as keyof typeof environment];
+  const substitute = {
+    personId: "journey-coverage-substitute-0111",
+    firstName: "Kari",
+    lastName: "Kandidat",
+    email: "kari.kandidat@example.invalid",
+    password: "journey-secret-0123456789abcdef",
+  };
   run("bun", ["apps/dashboard/e2e/native-recruitment-journey-seed.mjs"], environment);
+  run(
+    "bun",
+    ["run", "--cwd", "packages/database", "identity:seed"],
+    {
+      ...environment,
+      IDENTITY_SEED_PG_URL: postgresUrl,
+      IDENTITY_SEED_PERSONS: JSON.stringify([substitute]),
+    },
+  );
   const departmentId = "department-native-journey-0049";
   const semesterId = "semester-historical-0096";
   const secondSemesterId = "semester-native-journey-0049";
@@ -153,6 +207,20 @@ try {
   const wrongId = "journey-rec-interviewer-b-0049";
   await pool.query(`
     INSERT INTO admission_period_semesters(semester_id,start_at,end_at) VALUES ('${semesterId}','2024-01-01','2024-07-01');
+    INSERT INTO admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,revision,last_command_id) VALUES
+      ('admission-period-coverage-0111','${departmentId}','${semesterId}','2024-01-01','2024-07-01',0,'coverage-seed-0111');
+    INSERT INTO admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study,activation_digest) VALUES
+      ('applicant-coverage-0111','${substitute.email}','${substitute.email}','${substitute.firstName}','${substitute.lastName}','90000111',0,'field-native-journey-0049',3,NULL);
+    INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at,revision) VALUES
+      ('application-coverage-0111','applicant-coverage-0111','admission-period-coverage-0111','${departmentId}','field-native-journey-0049',3,'2024-02-01T10:00:00.000Z',0);
+    INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES
+      ('invitation-coverage-0111','application-coverage-0111','applicant-coverage-0111','${"c".repeat(64)}','2027-01-01T00:00:00.000Z','Claimed','${leaderId}','2024-02-01T10:00:00.000Z');
+    INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES
+      ('applicant-coverage-0111','${substitute.personId}','2024-02-01T10:00:00.000Z','invitation-coverage-0111');
+    INSERT INTO admission_substitute_preferences(application_id,active,monday,tuesday,wednesday,thursday,friday,language,revision) VALUES
+      ('application-coverage-0111',true,true,true,false,false,false,'Norwegian',1);
+    INSERT INTO person_contact_profiles(person_id,email,phone,revision) VALUES
+      ('${substitute.personId}','${substitute.email}','+47 900 00 111',0);
     INSERT INTO organization_departments(department_id,name,short_name,email,city,active,revision) VALUES ('${wrongDepartmentId}','Annen avdeling','Annen','wrong@example.invalid','Annen',true,0);
     INSERT INTO organization_teams(team_id,department_id,name,active,revision) VALUES ('team-wrong-0096','${wrongDepartmentId}','Annet team',true,0);
     UPDATE organization_memberships SET team_id='team-wrong-0096',is_team_leader=true WHERE person_id='${wrongId}';
@@ -197,6 +265,7 @@ try {
       email: "ida.intervjuer@example.invalid",
       password: "journey-secret-0123456789abcdef",
     },
+    candidate: { email: substitute.email, password: substitute.password },
   };
   const login = async (person: { email: string; password: string }) => {
     const response = await fetch(`${backendOrigin}/api/auth/sign-in/email`, {
@@ -211,11 +280,23 @@ try {
   };
   const leader = await login(persons.leader),
     volunteer = await login(persons.volunteer),
-    wrong = await login(persons.wrongDepartment);
+    wrong = await login(persons.wrongDepartment),
+    candidate = await login(persons.candidate);
   const sdk = createPromiseClient(backendOrigin, { cookie: leader, origin: dashboardOrigin });
+  const volunteerSdk = createPromiseClient(backendOrigin, {
+    cookie: volunteer,
+    origin: dashboardOrigin,
+  });
+  const wrongSdk = createPromiseClient(backendOrigin, { cookie: wrong, origin: dashboardOrigin });
+  const candidateSdk = createPromiseClient(backendOrigin, {
+    cookie: candidate,
+    origin: dashboardOrigin,
+  });
   const query = Schema.decodeUnknownSync(PlacementScope)({ departmentId, semesterId });
   const boardPath = `/api/placements?${new URLSearchParams(query)}`;
   const ownPath = `/api/placements/affiliation?departmentId=${departmentId}`;
+  const coverageBoardPath = `/api/placements/coverage?${new URLSearchParams(query)}`;
+  const ownCoveragePath = `/api/placements/coverage/own?${new URLSearchParams(query)}`;
   const request = async (
     path: string,
     cookie?: string,
@@ -244,17 +325,47 @@ try {
     if (code) assert.equal(body.code, code);
     return body;
   };
+  const idempotencyHeaders = (etag: string, key = randomBytes(18).toString("base64url")) =>
+    Schema.decodeUnknownSync(IdempotencyIfMatchHeaders)({
+      "if-match": etag,
+      "idempotency-key": key,
+    });
   const readBoard = async () => (await sdk.placements.readBoard({ query })).body;
   const command = async (payload: unknown) => {
     const board = await readBoard();
     return (
       await sdk.placements.commandBoard({
         query,
-        headers: Schema.decodeUnknownSync(IdempotencyIfMatchHeaders)({
-          "if-match": board.etag,
-          "idempotency-key": randomBytes(18).toString("base64url"),
-        }),
+        headers: idempotencyHeaders(board.etag),
         payload: Schema.decodeUnknownSync(PlacementCommand)(payload),
+      })
+    ).body;
+  };
+  const readOwnCoverage = async (client: typeof sdk) =>
+    (await client.placements.readOwnCoverage({ query })).body;
+  const readCoverageBoard = async () => (await sdk.placements.readCoverageBoard({ query })).body;
+  const commandOwnCoverage = async (
+    client: typeof sdk,
+    payload: unknown,
+    etag?: string,
+    key?: string,
+  ) => {
+    const resource = etag === undefined ? await readOwnCoverage(client) : undefined;
+    return (
+      await client.placements.commandOwnCoverage({
+        query,
+        headers: idempotencyHeaders(etag ?? resource!.etag, key),
+        payload: Schema.decodeUnknownSync(OwnCoverageCommand)(payload),
+      })
+    ).body;
+  };
+  const commandCoverage = async (payload: unknown, etag?: string, key?: string) => {
+    const resource = etag === undefined ? await readCoverageBoard() : undefined;
+    return (
+      await sdk.placements.commandCoverageBoard({
+        query,
+        headers: idempotencyHeaders(etag ?? resource!.etag, key),
+        payload: Schema.decodeUnknownSync(CoverageCommand)(payload),
       })
     ).body;
   };
@@ -468,6 +579,649 @@ try {
   ))
     await command({ action: "Remove", placementId: placement.placementId });
   assert.equal((await expectStatus(await request(otherPath, leader), 200)).placements.length, 0);
+  // 0111 begins from a canonical confirmed roster. The browser later produces a
+  // separate two-person roster through the existing placement/service journey.
+  const candidateAffiliation = await expectStatus(await request(ownPath, candidate), 200);
+  assert.equal(candidateAffiliation.status, "Absent");
+  assert.equal(
+    (
+      await expectStatus(
+        await request(
+          ownPath,
+          candidate,
+          { action: "Request" },
+          candidateAffiliation.etag,
+        ),
+        200,
+      )
+    ).status,
+    "Pending",
+  );
+  const wrongAffiliation = await expectStatus(await request(ownPath, wrong), 200);
+  assert.equal(wrongAffiliation.status, "Absent");
+  assert.equal(
+    (
+      await expectStatus(
+        await request(ownPath, wrong, { action: "Request" }, wrongAffiliation.etag),
+        200,
+      )
+    ).status,
+    "Pending",
+  );
+  const leaderAffiliation = await expectStatus(await request(ownPath, leader), 200);
+  assert.equal(leaderAffiliation.status, "Inactive");
+  assert.equal(
+    (
+      await expectStatus(
+        await request(ownPath, leader, { action: "Request" }, leaderAffiliation.etag),
+        200,
+      )
+    ).status,
+    "Pending",
+  );
+  await command({ action: "Affiliation", personId: substitute.personId, transition: "Establish" });
+  await command({ action: "Affiliation", personId: wrongId, transition: "Establish" });
+  await command({ action: "Affiliation", personId: leaderId, transition: "Establish" });
+  const apiCoverageProposalId = `school-service-proposal-${"a".repeat(64)}`;
+  await pool.query(
+    `INSERT INTO school_service_proposals(
+       proposal_id,department_id,semester_id,status,revision,created_at,created_by_person_id,
+       confirmed_at,confirmed_by_person_id,demand_snapshot,assignment_snapshot,exception_snapshot,
+       reviewed_exception_ids
+     ) VALUES($1,$2,$3,'Confirmed',2,'2024-02-01T10:00:00.000Z',$4,
+       '2024-02-01T10:00:00.000Z',$4,$5::jsonb,$6::jsonb,$5::jsonb,$5::jsonb)`,
+    [
+      apiCoverageProposalId,
+      departmentId,
+      semesterId,
+      leaderId,
+      JSON.stringify([]),
+      JSON.stringify([
+        {
+          placementId: `placement-${"b".repeat(64)}`,
+          personId: volunteerId,
+          firstName: "Irene",
+          lastName: "Intervjuer",
+          schoolId: 961,
+          schoolName: "Skole Alfa",
+          day: "Monday",
+          block: "1",
+        },
+        {
+          placementId: `placement-${"d".repeat(64)}`,
+          personId: leaderId,
+          firstName: "Lina",
+          lastName: "Lagleder",
+          schoolId: 961,
+          schoolName: "Skole Alfa",
+          day: "Tuesday",
+          block: "1",
+        },
+      ]),
+    ],
+  );
+  assert.equal((await request(ownCoveragePath)).status, 401);
+  assert.equal((await request(coverageBoardPath)).status, 401);
+  await expectStatus(await request(coverageBoardPath, volunteer), 403, "authority.denied");
+  await expectStatus(await request(coverageBoardPath, wrong), 403, "authority.denied");
+  await expectStatus(
+    await request(
+      `/api/placements/coverage?${new URLSearchParams({
+        departmentId: wrongDepartmentId,
+        semesterId,
+      })}`,
+      leader,
+    ),
+    403,
+    "authority.denied",
+  );
+  const ownCoverageResponse = await request(ownCoveragePath, volunteer);
+  assert.equal(ownCoverageResponse.headers.get("cache-control"), "private, no-store");
+  await expectStatus(ownCoverageResponse, 200);
+  const initialOwnCoverage = await readOwnCoverage(volunteerSdk);
+  assert.deepEqual(
+    initialOwnCoverage.rosterSlots.filter((slot) => slot.proposalId === apiCoverageProposalId),
+    [
+      {
+        proposalId: apiCoverageProposalId,
+        schoolId: 961,
+        schoolName: "Skole Alfa",
+        day: "Monday",
+        block: "1",
+      },
+    ],
+  );
+  const invalidRosterAbsence = {
+    action: "ReportAbsence",
+    proposalId: apiCoverageProposalId,
+    schoolId: 961,
+    day: "Monday",
+    block: "2",
+    serviceDate: "2024-03-04",
+  };
+  await expectStatus(
+    await request(ownCoveragePath, volunteer, invalidRosterAbsence, initialOwnCoverage.etag),
+    422,
+    "absence.target-invalid",
+  );
+  const invalidDateAbsence = {
+    ...invalidRosterAbsence,
+    block: "1",
+    serviceDate: "2024-03-05",
+  };
+  await expectStatus(
+    await request(ownCoveragePath, volunteer, invalidDateAbsence, initialOwnCoverage.etag),
+    422,
+    "absence.target-invalid",
+  );
+  const coveredAbsenceCommand = {
+    action: "ReportAbsence",
+    proposalId: apiCoverageProposalId,
+    schoolId: 961,
+    day: "Monday",
+    block: "1",
+    serviceDate: "2024-03-04",
+  };
+  const reportAbsenceKey = randomBytes(18).toString("base64url");
+  const reportedOwnCoverage = await commandOwnCoverage(
+    volunteerSdk,
+    coveredAbsenceCommand,
+    initialOwnCoverage.etag,
+    reportAbsenceKey,
+  );
+  const coveredAbsence = reportedOwnCoverage.absences.find(
+    (absence) =>
+      absence.proposalId === apiCoverageProposalId &&
+      absence.personId === volunteerId &&
+      absence.serviceDate === "2024-03-04",
+  );
+  assert.ok(coveredAbsence);
+  assert.deepEqual(
+    await expectStatus(
+      await request(
+        ownCoveragePath,
+        volunteer,
+        coveredAbsenceCommand,
+        initialOwnCoverage.etag,
+        reportAbsenceKey,
+      ),
+      200,
+    ),
+    reportedOwnCoverage,
+  );
+  await expectStatus(
+    await request(
+      ownCoveragePath,
+      volunteer,
+      { ...coveredAbsenceCommand, serviceDate: "2024-03-11" },
+      initialOwnCoverage.etag,
+      reportAbsenceKey,
+    ),
+    409,
+    "idempotency.digest-conflict",
+  );
+  const overlapBoard = await command({
+    action: "Create",
+    personId: substitute.personId,
+    schoolId: 961,
+    day: "Monday",
+    workdays: 4,
+    block: "1",
+  });
+  const overlapPlacement = overlapBoard.placements.find(
+    (placement) =>
+      placement.personId === substitute.personId &&
+      placement.day === "Monday" &&
+      placement.block === "1" &&
+      placement.active,
+  );
+  assert.ok(overlapPlacement);
+  let coverageBoard = await readCoverageBoard();
+  const dispatch = (candidatePersonId: string) => ({
+    action: "DispatchSubstituteOffer",
+    absenceId: coveredAbsence.absenceId,
+    candidatePersonId,
+  });
+  await expectStatus(
+    await request(coverageBoardPath, leader, dispatch(volunteerId), coverageBoard.etag),
+    422,
+    "offer.candidate-ineligible",
+  );
+  await expectStatus(
+    await request(coverageBoardPath, leader, dispatch(wrongId), coverageBoard.etag),
+    422,
+    "offer.candidate-ineligible",
+  );
+  await expectStatus(
+    await request(coverageBoardPath, leader, dispatch(substitute.personId), coverageBoard.etag),
+    422,
+    "offer.candidate-ineligible",
+  );
+  await command({ action: "Remove", placementId: overlapPlacement.placementId });
+  coverageBoard = await readCoverageBoard();
+  assert.deepEqual(
+    coverageBoard.candidates.filter((candidate) => candidate.absenceId === coveredAbsence.absenceId),
+    [
+      {
+        absenceId: coveredAbsence.absenceId,
+        applicationId: "application-coverage-0111",
+        personId: substitute.personId,
+        firstName: substitute.firstName,
+        lastName: substitute.lastName,
+      },
+    ],
+  );
+  const dispatchedCoverage = await commandCoverage(
+    dispatch(substitute.personId),
+    coverageBoard.etag,
+  );
+  const coveredOffer = dispatchedCoverage.offers.find(
+    (offer) => offer.absenceId === coveredAbsence.absenceId,
+  );
+  assert.ok(coveredOffer);
+  assert.equal(coveredOffer.status, "Offered");
+  const failedDelivery = await eventually("failed substitute-offer delivery", async () => {
+    const row = (
+      await pool.query(
+        `SELECT effect_id AS "effectId",status,attempts,last_failure_tag AS "lastFailureTag",
+           payload_json AS payload
+         FROM school_service_dispatch_notification_outbox WHERE offer_id=$1`,
+        [coveredOffer.offerId],
+      )
+    ).rows[0];
+    return row?.status === "Failed" && row.attempts >= 1 ? row : undefined;
+  });
+  assert.ok(failedDelivery.lastFailureTag);
+  dispatchProviderFails = false;
+  const deliveredDispatch = await eventually("retried substitute-offer delivery", async () => {
+    const row = (
+      await pool.query(
+        `SELECT effect_id AS "effectId",status,attempts,last_failure_tag AS "lastFailureTag",
+           payload_json AS payload
+         FROM school_service_dispatch_notification_outbox WHERE offer_id=$1`,
+        [coveredOffer.offerId],
+      )
+    ).rows[0];
+    return row?.status === "Delivered" && row.attempts >= 2 ? row : undefined;
+  });
+  const deliveredDispatchRequests = dispatchNotificationRequests.filter(
+    (request) => request.body.offerId === coveredOffer.offerId,
+  );
+  assert.ok(deliveredDispatchRequests.length >= 2);
+  assert.equal(
+    new Set(deliveredDispatchRequests.map((request) => request.body.effectId)).size,
+    1,
+  );
+  assert.equal(
+    new Set(deliveredDispatchRequests.map((request) => request.idempotencyKey)).size,
+    1,
+  );
+  for (const request of deliveredDispatchRequests) {
+    assert.equal(request.authorization, "Bearer synthetic-school-service-dispatch-token");
+    assert.deepEqual(request.body, deliveredDispatchRequests[0]?.body);
+  }
+  assert.deepEqual(deliveredDispatch.payload, deliveredDispatchRequests[0]?.body);
+  const deliveredCoverage = await readCoverageBoard();
+  assert.equal(
+    deliveredCoverage.offers.find((offer) => offer.offerId === coveredOffer.offerId)?.status,
+    "Offered",
+    "delivery is not an acceptance",
+  );
+  assert.equal(
+    deliveredCoverage.responses.filter((response) => response.offerId === coveredOffer.offerId)
+      .length,
+    0,
+  );
+  assert.equal(
+    deliveredCoverage.acknowledgements.filter(
+      (acknowledgement) => acknowledgement.offerId === coveredOffer.offerId,
+    ).length,
+    0,
+  );
+  await expectStatus(
+    await request(
+      coverageBoardPath,
+      leader,
+      dispatch(substitute.personId),
+      deliveredCoverage.etag,
+    ),
+    409,
+    "offer.unresolved",
+  );
+  const wrongCoverage = await readOwnCoverage(wrongSdk);
+  const wrongResponseFactsBefore = (
+    await pool.query(
+      `SELECT
+         (SELECT count(*)::integer FROM school_service_substitute_offer_responses WHERE offer_id=$1) AS responses,
+         (SELECT count(*)::integer FROM school_service_coverage_audit WHERE snapshot->>'offerId'=$1) AS audit`,
+      [coveredOffer.offerId],
+    )
+  ).rows;
+  await expectStatus(
+    await request(
+      ownCoveragePath,
+      wrong,
+      { action: "RespondToOffer", offerId: coveredOffer.offerId, response: "Accept" },
+      wrongCoverage.etag,
+    ),
+    403,
+    "offer.owner-invalid",
+  );
+  assert.deepEqual(
+    (
+      await pool.query(
+        `SELECT
+           (SELECT count(*)::integer FROM school_service_substitute_offer_responses WHERE offer_id=$1) AS responses,
+           (SELECT count(*)::integer FROM school_service_coverage_audit WHERE snapshot->>'offerId'=$1) AS audit`,
+        [coveredOffer.offerId],
+      )
+    ).rows,
+    wrongResponseFactsBefore,
+    "a wrong Person cannot produce an offer response or audit fact",
+  );
+  const candidateCoverage = await readOwnCoverage(candidateSdk);
+  const acceptOffer = {
+    action: "RespondToOffer",
+    offerId: coveredOffer.offerId,
+    response: "Accept",
+  };
+  const acceptanceRace = await Promise.all(
+    [0, 1].map(() =>
+      request(
+        ownCoveragePath,
+        candidate,
+        acceptOffer,
+        candidateCoverage.etag,
+        randomBytes(18).toString("base64url"),
+      ),
+    ),
+  );
+  const acceptanceResults = await Promise.all(
+    acceptanceRace.map(async (response) => ({ status: response.status, body: await response.json() })),
+  );
+  assert.equal(acceptanceResults.filter((result) => result.status === 200).length, 1);
+  const losingAcceptance = acceptanceResults.find((result) => result.status !== 200);
+  assert.ok(losingAcceptance);
+  assert.ok([409, 412].includes(losingAcceptance.status));
+  assert.ok(
+    ["offer.response-invalid", "precondition.failed", "transaction.conflict"].includes(
+      losingAcceptance.body.code,
+    ),
+  );
+  const acceptedCoverage = await readCoverageBoard();
+  assert.equal(
+    acceptedCoverage.responses.filter(
+      (response) => response.offerId === coveredOffer.offerId && response.response === "Accept",
+    ).length,
+    1,
+  );
+  assert.equal(
+    acceptedCoverage.offers.find((offer) => offer.offerId === coveredOffer.offerId)?.status,
+    "Accepted",
+  );
+  const acknowledgementSnapshot = await readCoverageBoard();
+  const staleAcknowledgementSnapshot = await readCoverageBoard();
+  assert.equal(acknowledgementSnapshot.etag, staleAcknowledgementSnapshot.etag);
+  const acknowledgeOffer = { action: "AcknowledgeCoverage", offerId: coveredOffer.offerId };
+  const acknowledgedCoverage = await commandCoverage(
+    acknowledgeOffer,
+    acknowledgementSnapshot.etag,
+  );
+  const acknowledgement = acknowledgedCoverage.acknowledgements.find(
+    (item) => item.offerId === coveredOffer.offerId,
+  );
+  assert.ok(acknowledgement);
+  const acknowledgementFacts = (
+    await pool.query(
+      `SELECT count(*)::integer AS acknowledgements,
+         (SELECT count(*)::integer FROM school_service_coverage_audit
+          WHERE action='AcknowledgeCoverage' AND snapshot->>'offerId'=$1) AS audit
+       FROM school_service_coverage_acknowledgements WHERE offer_id=$1`,
+      [coveredOffer.offerId],
+    )
+  ).rows;
+  await expectStatus(
+    await request(
+      coverageBoardPath,
+      leader,
+      acknowledgeOffer,
+      staleAcknowledgementSnapshot.etag,
+    ),
+    412,
+    "precondition.failed",
+  );
+  assert.deepEqual(
+    (
+      await pool.query(
+        `SELECT count(*)::integer AS acknowledgements,
+           (SELECT count(*)::integer FROM school_service_coverage_audit
+            WHERE action='AcknowledgeCoverage' AND snapshot->>'offerId'=$1) AS audit
+         FROM school_service_coverage_acknowledgements WHERE offer_id=$1`,
+        [coveredOffer.offerId],
+      )
+    ).rows,
+    acknowledgementFacts,
+    "a stale acknowledgement does not write another acknowledgement or audit fact",
+  );
+  const closeCovered = {
+    action: "CloseCoverage",
+    proposalId: apiCoverageProposalId,
+    schoolId: 961,
+    day: "Monday",
+    block: "1",
+    occurredOn: "2024-03-04",
+    attendedPersonIds: [substitute.personId],
+  };
+  let closeCoverageBoard = await readCoverageBoard();
+  await expectStatus(
+    await request(
+      coverageBoardPath,
+      leader,
+      { ...closeCovered, attendedPersonIds: [volunteerId] },
+      closeCoverageBoard.etag,
+    ),
+    422,
+    "coverage.attendance-invalid",
+  );
+  const coveredClosure = await commandCoverage(closeCovered, closeCoverageBoard.etag);
+  assert.deepEqual(
+    coveredClosure.closures.filter((closure) => closure.absenceId === coveredAbsence.absenceId),
+    [
+      {
+        closureId: coveredAbsence.absenceId.replace(
+          "school-service-absence-",
+          "school-service-closure-",
+        ),
+        absenceId: coveredAbsence.absenceId,
+        occurrenceId: coveredClosure.occurrences.find(
+          (occurrence) =>
+            occurrence.proposalId === apiCoverageProposalId &&
+            occurrence.occurredOn === "2024-03-04",
+        )?.occurrenceId,
+        scheduledPersonId: volunteerId,
+        outcome: "Covered",
+        acknowledgementId: acknowledgement.acknowledgementId,
+        substitutePersonId: substitute.personId,
+        closedByPersonId: leaderId,
+        closedAt: coveredClosure.closures.find(
+          (closure) => closure.absenceId === coveredAbsence.absenceId,
+        )?.closedAt,
+      },
+    ],
+  );
+  closeCoverageBoard = await readCoverageBoard();
+  await expectStatus(
+    await request(coverageBoardPath, leader, closeCovered, closeCoverageBoard.etag),
+    409,
+    "coverage.occurrence-duplicate",
+  );
+  const coordinatorAbsence = {
+    action: "ReportAbsenceForVolunteer",
+    personId: leaderId,
+    proposalId: apiCoverageProposalId,
+    schoolId: 961,
+    day: "Tuesday",
+    block: "1",
+    serviceDate: "2024-03-05",
+  };
+  const coordinatorAbsenceBoard = await commandCoverage(
+    coordinatorAbsence,
+    closeCoverageBoard.etag,
+  );
+  const uncoveredAbsence = coordinatorAbsenceBoard.absences.find(
+    (absence) =>
+      absence.proposalId === apiCoverageProposalId &&
+      absence.personId === leaderId &&
+      absence.serviceDate === "2024-03-05",
+  );
+  assert.ok(uncoveredAbsence);
+  const declinedDispatchBoard = await commandCoverage(
+    { action: "DispatchSubstituteOffer", absenceId: uncoveredAbsence.absenceId, candidatePersonId: substitute.personId },
+    coordinatorAbsenceBoard.etag,
+  );
+  const declinedOffer = declinedDispatchBoard.offers.find(
+    (offer) => offer.absenceId === uncoveredAbsence.absenceId,
+  );
+  assert.ok(declinedOffer);
+  await eventually("sequential declined-offer delivery", async () => {
+    const row = (
+      await pool.query(
+        `SELECT status FROM school_service_dispatch_notification_outbox WHERE offer_id=$1`,
+        [declinedOffer.offerId],
+      )
+    ).rows[0];
+    return row?.status === "Delivered" ? row : undefined;
+  });
+  const candidateDeclineCoverage = await readOwnCoverage(candidateSdk);
+  const declinedCoverage = await commandOwnCoverage(
+    candidateSdk,
+    { action: "RespondToOffer", offerId: declinedOffer.offerId, response: "Decline" },
+    candidateDeclineCoverage.etag,
+  );
+  assert.equal(
+    declinedCoverage.responses.find((response) => response.offerId === declinedOffer.offerId)
+      ?.response,
+    "Decline",
+  );
+  const redispatchBoard = await commandCoverage(
+    {
+      action: "DispatchSubstituteOffer",
+      absenceId: uncoveredAbsence.absenceId,
+      candidatePersonId: substitute.personId,
+    },
+    (await readCoverageBoard()).etag,
+  );
+  const withdrawnOffer = redispatchBoard.offers.find(
+    (offer) =>
+      offer.absenceId === uncoveredAbsence.absenceId && offer.offerId !== declinedOffer.offerId,
+  );
+  assert.ok(withdrawnOffer);
+  await eventually("sequential withdrawn-offer delivery", async () => {
+    const row = (
+      await pool.query(
+        `SELECT status FROM school_service_dispatch_notification_outbox WHERE offer_id=$1`,
+        [withdrawnOffer.offerId],
+      )
+    ).rows[0];
+    return row?.status === "Delivered" ? row : undefined;
+  });
+  const withdrawnBoard = await commandCoverage(
+    { action: "WithdrawSubstituteOffer", offerId: withdrawnOffer.offerId },
+    (await readCoverageBoard()).etag,
+  );
+  assert.equal(
+    withdrawnBoard.offers.find((offer) => offer.offerId === withdrawnOffer.offerId)?.status,
+    "Withdrawn",
+  );
+  const closeUncovered = {
+    action: "CloseCoverage",
+    proposalId: apiCoverageProposalId,
+    schoolId: 961,
+    day: "Tuesday",
+    block: "1",
+    occurredOn: "2024-03-05",
+    attendedPersonIds: [],
+  };
+  closeCoverageBoard = await readCoverageBoard();
+  await expectStatus(
+    await request(
+      coverageBoardPath,
+      leader,
+      { ...closeUncovered, attendedPersonIds: [substitute.personId] },
+      closeCoverageBoard.etag,
+    ),
+    422,
+    "coverage.attendance-invalid",
+  );
+  const uncoveredClosure = await commandCoverage(closeUncovered, closeCoverageBoard.etag);
+  assert.equal(
+    uncoveredClosure.closures.find((closure) => closure.absenceId === uncoveredAbsence.absenceId)
+      ?.outcome,
+    "Uncovered",
+  );
+  const apiCoverageAudit = (
+    await pool.query(
+      `SELECT action,actor_person_id AS "actorPersonId"
+       FROM school_service_coverage_audit ORDER BY audit_id`,
+    )
+  ).rows;
+  assert.deepEqual(
+    apiCoverageAudit,
+    [
+      { action: "ReportAbsence", actorPersonId: volunteerId },
+      { action: "DispatchSubstituteOffer", actorPersonId: leaderId },
+      { action: "RespondToOffer", actorPersonId: substitute.personId },
+      { action: "AcknowledgeCoverage", actorPersonId: leaderId },
+      { action: "CloseCoverage", actorPersonId: leaderId },
+      { action: "ReportAbsence", actorPersonId: leaderId },
+      { action: "DispatchSubstituteOffer", actorPersonId: leaderId },
+      { action: "RespondToOffer", actorPersonId: substitute.personId },
+      { action: "DispatchSubstituteOffer", actorPersonId: leaderId },
+      { action: "WithdrawSubstituteOffer", actorPersonId: leaderId },
+      { action: "CloseCoverage", actorPersonId: leaderId },
+    ],
+  );
+  const apiCoverageAuditCount = apiCoverageAudit.length;
+  assert.deepEqual(
+    (
+      await pool.query(
+        `SELECT response,responder_person_id AS "responderPersonId"
+         FROM school_service_substitute_offer_responses ORDER BY responded_at,offer_id`,
+      )
+    ).rows,
+    [
+      { response: "Accept", responderPersonId: substitute.personId },
+      { response: "Decline", responderPersonId: substitute.personId },
+    ],
+  );
+  const apiCoverageEvidence = {
+    proposalId: apiCoverageProposalId,
+    coveredAbsenceId: coveredAbsence.absenceId,
+    uncoveredAbsenceId: uncoveredAbsence.absenceId,
+    coveredOfferId: coveredOffer.offerId,
+    acknowledgementId: acknowledgement.acknowledgementId,
+    deliveredEffectId: deliveredDispatch.effectId,
+    deliveredAttempts: deliveredDispatch.attempts,
+    auditActions: apiCoverageAudit.map((entry: { action: string }) => entry.action),
+  };
+  const browserLeaderBoard = await command({
+    action: "Create",
+    personId: leaderId,
+    schoolId: 962,
+    day: "Monday",
+    workdays: 4,
+    block: "2",
+  });
+  assert.ok(
+    browserLeaderBoard.placements.some(
+      (placement) =>
+        placement.personId === leaderId &&
+        placement.schoolId === 962 &&
+        placement.day === "Monday" &&
+        placement.block === "2" &&
+        placement.active,
+    ),
+  );
   const apiHistoryBeforeBrowser = (
     await pool.query(
       "SELECT * FROM assistant_placements WHERE person_id=$1 ORDER BY placement_id",
@@ -486,6 +1240,15 @@ try {
     volunteerId,
     schoolId: 962,
     persons,
+    leaderId,
+    coverage: {
+      candidateId: substitute.personId,
+      candidateFirstName: substitute.firstName,
+      candidateLastName: substitute.lastName,
+      serviceDate: "2024-03-04",
+      secondServiceDate: "2024-03-11",
+      api: apiCoverageEvidence,
+    },
   };
   const manifestPath = join(artifacts, "manifest.json");
   await writeFile(manifestPath, JSON.stringify(manifest), { mode: 0o600 });
@@ -500,6 +1263,36 @@ try {
     browserEvidence = JSON.parse(await readFile(join(artifacts, "browser-evidence.json"), "utf8"));
     assert.equal(browserEvidence?.passed, true);
     assert.equal(browserEvidence?.revision, revision);
+    const browserCoverageExpected = browserEvidence?.coverageExpected as
+      | {
+          readonly duplicateSuppressionPosts: number;
+          readonly proposalId: string;
+          readonly coveredAbsenceId: string;
+          readonly uncoveredAbsenceId: string;
+          readonly coveredOfferId: string;
+          readonly declinedOfferId: string;
+          readonly withdrawnOfferId: string;
+          readonly coveredAcknowledgementId: string;
+          readonly occurrenceId: string;
+          readonly uncoveredOccurrenceId: string;
+        }
+      | undefined;
+    assert.ok(browserCoverageExpected);
+    assert.equal(browserCoverageExpected.duplicateSuppressionPosts, 1);
+    const browserDispatches = await eventually("browser substitute-offer delivery", async () => {
+      const rows = (
+        await pool.query(
+          `SELECT notification.effect_id AS "effectId",notification.offer_id AS "offerId",
+             notification.person_id AS "personId",notification.status,notification.attempts
+           FROM school_service_dispatch_notification_outbox AS notification
+           JOIN school_service_substitute_offers AS offer USING(offer_id)
+           JOIN school_service_absences AS absence USING(absence_id)
+           WHERE absence.proposal_id=$1 ORDER BY absence.service_date,notification.effect_id`,
+          [browserCoverageExpected.proposalId],
+        )
+      ).rows;
+      return rows.length === 3 && rows.every((row) => row.status === "Delivered") ? rows : undefined;
+    });
     const actual = (
       await pool.query(
         'SELECT placement_id AS "placementId",person_id AS "personId",school_id::integer AS "schoolId",semester_id AS "semesterId",day,workdays,block,active,revision FROM assistant_placements WHERE person_id=$1 ORDER BY block,placement_id',
@@ -535,7 +1328,12 @@ try {
     );
     const serviceProposal = (
       await pool.query(
-        `SELECT proposal_id AS "proposalId",status,revision,jsonb_array_length(exception_snapshot) AS "exceptionCount" FROM school_service_proposals WHERE department_id=$1 AND semester_id=$2 ORDER BY created_at DESC LIMIT 1`,
+        `SELECT proposal_id AS "proposalId",status,revision,
+           jsonb_array_length(exception_snapshot) AS "exceptionCount",
+           jsonb_array_length(assignment_snapshot) AS "assignmentCount"
+         FROM school_service_proposals
+         WHERE department_id=$1 AND semester_id=$2
+         ORDER BY created_at DESC LIMIT 1`,
         [departmentId, semesterId],
       )
     ).rows[0];
@@ -544,11 +1342,16 @@ try {
       status: "Confirmed",
       revision: 2,
       exceptionCount: 1,
+      assignmentCount: 2,
     });
+    assert.equal(browserCoverageExpected.proposalId, serviceProposal.proposalId);
     assert.deepEqual(
       (
         await pool.query(
-          `SELECT required_volunteers AS "requiredVolunteers" FROM school_service_demand WHERE department_id=$1 AND semester_id=$2 AND school_id=$3 AND day='Monday' AND block='2'`,
+          `SELECT required_volunteers AS "requiredVolunteers"
+           FROM school_service_demand
+           WHERE department_id=$1 AND semester_id=$2 AND school_id=$3
+             AND day='Monday' AND block='2'`,
           [departmentId, semesterId, 962],
         )
       ).rows,
@@ -557,22 +1360,234 @@ try {
     assert.deepEqual(
       (
         await pool.query(
-          `SELECT status,attempts FROM school_service_notification_outbox WHERE proposal_id=$1 ORDER BY person_id`,
+          `SELECT person_id AS "personId",status,attempts
+           FROM school_service_notification_outbox
+           WHERE proposal_id=$1 ORDER BY person_id`,
           [serviceProposal.proposalId],
         )
       ).rows,
-      [{ status: "Delivered", attempts: 1 }],
+      [
+        { personId: volunteerId, status: "Delivered", attempts: 1 },
+        { personId: leaderId, status: "Delivered", attempts: 1 },
+      ],
+    );
+    const browserAbsences = (
+      await pool.query(
+        `SELECT absence_id AS "absenceId",person_id AS "personId",
+           reporter_person_id AS "reporterPersonId",service_date::text AS "serviceDate"
+         FROM school_service_absences
+         WHERE proposal_id=$1 ORDER BY service_date,absence_id`,
+        [browserCoverageExpected.proposalId],
+      )
+    ).rows;
+    assert.deepEqual(browserAbsences, [
+      {
+        absenceId: browserCoverageExpected.coveredAbsenceId,
+        personId: volunteerId,
+        reporterPersonId: volunteerId,
+        serviceDate: "2024-03-04",
+      },
+      {
+        absenceId: browserCoverageExpected.uncoveredAbsenceId,
+        personId: leaderId,
+        reporterPersonId: leaderId,
+        serviceDate: "2024-03-11",
+      },
+    ]);
+    const browserOffers = (
+      await pool.query(
+        `SELECT offer.offer_id AS "offerId",offer.absence_id AS "absenceId",
+           offer.candidate_person_id AS "candidatePersonId",offer.status
+         FROM school_service_substitute_offers AS offer
+         JOIN school_service_absences AS absence USING(absence_id)
+         WHERE absence.proposal_id=$1
+         ORDER BY absence.service_date,offer.dispatched_at,offer.offer_id`,
+        [browserCoverageExpected.proposalId],
+      )
+    ).rows;
+    assert.equal(browserOffers.length, 3);
+    assert.deepEqual(
+      browserOffers.map(
+        (offer: {
+          readonly offerId: string;
+          readonly absenceId: string;
+          readonly candidatePersonId: string;
+          readonly status: string;
+        }) => ({
+          offerId: offer.offerId,
+          absenceId: offer.absenceId,
+          candidatePersonId: offer.candidatePersonId,
+          status: offer.status,
+        }),
+      ),
+      [
+        {
+          offerId: browserCoverageExpected.coveredOfferId,
+          absenceId: browserCoverageExpected.coveredAbsenceId,
+          candidatePersonId: substitute.personId,
+          status: "Acknowledged",
+        },
+        {
+          offerId: browserCoverageExpected.declinedOfferId,
+          absenceId: browserCoverageExpected.uncoveredAbsenceId,
+          candidatePersonId: substitute.personId,
+          status: "Declined",
+        },
+        {
+          offerId: browserCoverageExpected.withdrawnOfferId,
+          absenceId: browserCoverageExpected.uncoveredAbsenceId,
+          candidatePersonId: substitute.personId,
+          status: "Withdrawn",
+        },
+      ],
     );
     assert.deepEqual(
       (
         await pool.query(
-          `SELECT occurred_on::text AS "occurredOn",jsonb_array_length(attended_person_ids) AS "attendeeCount" FROM school_service_occurrences WHERE proposal_id=$1`,
-          [serviceProposal.proposalId],
+          `SELECT response.offer_id AS "offerId",response.response,
+             response.responder_person_id AS "responderPersonId"
+           FROM school_service_substitute_offer_responses AS response
+           JOIN school_service_substitute_offers AS offer
+             ON offer.offer_id=response.offer_id
+           JOIN school_service_absences AS absence ON absence.absence_id=offer.absence_id
+           WHERE absence.proposal_id=$1
+           ORDER BY absence.service_date,response.responded_at,response.offer_id`,
+          [browserCoverageExpected.proposalId],
         )
       ).rows,
-      [{ occurredOn: "2024-03-04", attendeeCount: 1 }],
+      [
+        {
+          offerId: browserCoverageExpected.coveredOfferId,
+          response: "Accept",
+          responderPersonId: substitute.personId,
+        },
+        {
+          offerId: browserCoverageExpected.declinedOfferId,
+          response: "Decline",
+          responderPersonId: substitute.personId,
+        },
+      ],
     );
-    assert.equal(notificationRequests.length, 1);
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT acknowledgement_id AS "acknowledgementId",offer_id AS "offerId",
+             absence_id AS "absenceId",candidate_person_id AS "candidatePersonId",
+             acknowledged_by_person_id AS "acknowledgedByPersonId"
+           FROM school_service_coverage_acknowledgements
+           WHERE absence_id=$1`,
+          [browserCoverageExpected.coveredAbsenceId],
+        )
+      ).rows,
+      [
+        {
+          acknowledgementId: browserCoverageExpected.coveredAcknowledgementId,
+          offerId: browserCoverageExpected.coveredOfferId,
+          absenceId: browserCoverageExpected.coveredAbsenceId,
+          candidatePersonId: substitute.personId,
+          acknowledgedByPersonId: leaderId,
+        },
+      ],
+    );
+    const browserOccurrences = (
+      await pool.query(
+        `SELECT occurrence_id AS "occurrenceId",occurred_on::text AS "occurredOn",
+           attended_person_ids AS "attendedPersonIds",recorded_by_person_id AS "recordedByPersonId"
+         FROM school_service_occurrences
+         WHERE proposal_id=$1 ORDER BY occurred_on,occurrence_id`,
+        [browserCoverageExpected.proposalId],
+      )
+    ).rows;
+    assert.deepEqual(
+      browserOccurrences.map(
+        (occurrence: {
+          readonly occurrenceId: string;
+          readonly occurredOn: string;
+          readonly attendedPersonIds: ReadonlyArray<string>;
+          readonly recordedByPersonId: string;
+        }) => ({
+          ...occurrence,
+          attendedPersonIds: [...occurrence.attendedPersonIds].sort(),
+        }),
+      ),
+      [
+        {
+          occurrenceId: browserCoverageExpected.occurrenceId,
+          occurredOn: "2024-03-04",
+          attendedPersonIds: [leaderId, substitute.personId].sort(),
+          recordedByPersonId: leaderId,
+        },
+        {
+          occurrenceId: browserCoverageExpected.uncoveredOccurrenceId,
+          occurredOn: "2024-03-11",
+          attendedPersonIds: [volunteerId],
+          recordedByPersonId: leaderId,
+        },
+      ],
+    );
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT closure.absence_id AS "absenceId",closure.outcome,
+             closure.acknowledgement_id AS "acknowledgementId",
+             closure.substitute_person_id AS "substitutePersonId",
+             closure.scheduled_person_id AS "scheduledPersonId",
+             closure.closed_by_person_id AS "closedByPersonId"
+           FROM school_service_closures AS closure
+           JOIN school_service_absences AS absence USING(absence_id)
+           WHERE absence.proposal_id=$1 ORDER BY absence.service_date,closure.closure_id`,
+          [browserCoverageExpected.proposalId],
+        )
+      ).rows,
+      [
+        {
+          absenceId: browserCoverageExpected.coveredAbsenceId,
+          outcome: "Covered",
+          acknowledgementId: browserCoverageExpected.coveredAcknowledgementId,
+          substitutePersonId: substitute.personId,
+          scheduledPersonId: volunteerId,
+          closedByPersonId: leaderId,
+        },
+        {
+          absenceId: browserCoverageExpected.uncoveredAbsenceId,
+          outcome: "Uncovered",
+          acknowledgementId: null,
+          substitutePersonId: null,
+          scheduledPersonId: leaderId,
+          closedByPersonId: leaderId,
+        },
+      ],
+    );
+    assert.ok(
+      browserDispatches.every(
+        (dispatch: { readonly personId: string; readonly attempts: number }) =>
+          dispatch.personId === substitute.personId && dispatch.attempts === 1,
+      ),
+    );
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT action,actor_person_id AS "actorPersonId"
+           FROM school_service_coverage_audit
+           ORDER BY audit_id OFFSET $1`,
+          [apiCoverageAuditCount],
+        )
+      ).rows,
+      [
+        { action: "ReportAbsence", actorPersonId: volunteerId },
+        { action: "DispatchSubstituteOffer", actorPersonId: leaderId },
+        { action: "RespondToOffer", actorPersonId: substitute.personId },
+        { action: "AcknowledgeCoverage", actorPersonId: leaderId },
+        { action: "CloseCoverage", actorPersonId: leaderId },
+        { action: "ReportAbsence", actorPersonId: leaderId },
+        { action: "DispatchSubstituteOffer", actorPersonId: leaderId },
+        { action: "RespondToOffer", actorPersonId: substitute.personId },
+        { action: "DispatchSubstituteOffer", actorPersonId: leaderId },
+        { action: "WithdrawSubstituteOffer", actorPersonId: leaderId },
+        { action: "CloseCoverage", actorPersonId: leaderId },
+      ],
+    );
+    assert.equal(notificationRequests.length, 2);
     for (const delivered of notificationRequests) {
       assert.equal(delivered.authorization, "Bearer synthetic-school-service-token");
       assert.equal(delivered.idempotencyKey, delivered.body.effectId);
@@ -592,11 +1607,35 @@ try {
     revision,
     apiPassed: true,
     browserEvidence,
+    apiCoverage: apiCoverageEvidence,
     notificationRequests,
+    dispatchNotificationRequests,
     runtime: {
       bun: process.versions.bun,
       postgres: (await pool.query("SELECT version() AS version")).rows[0].version,
     },
+    implementation: {
+      generatedCoverageOperations: [
+        "placements.readOwnCoverage",
+        "placements.commandOwnCoverage",
+        "placements.readCoverageBoard",
+        "placements.commandCoverageBoard",
+      ],
+      coverageGates: [
+        "anonymous, wrong-scope, owner, roster/date, candidate, ETag, and idempotency boundaries",
+        "sequential offers, wrong-person response, acceptance race, stale acknowledgement, exact and duplicate closure",
+        "immutable absence, response, acknowledgement, occurrence, closure, delivery, and audit history",
+      ],
+    },
+    localRuntime: {
+      mode,
+      postgres: "disposable loopback PostgreSQL",
+      backend: backendOrigin,
+      dashboard: mode === "--browser" ? dashboardOrigin : null,
+      notificationProvider: "owned loopback HTTP provider with forced failure then recovery",
+    },
+    productionBoundary:
+      "No production data, provider, credentials, deployment, or cutover is contacted or changed.",
     apiGates: [
       "real generated SDK read/write decoding",
       "private self discovery and no-team/regular-member privacy",
@@ -610,9 +1649,10 @@ try {
       "Create/Edit/Remove same row and audit retained",
       "inactive affiliation preserves history and rejects new placement",
       "fresh authority before exact replay",
+      "coverage roster/date, candidate eligibility, offer, response, acknowledgement, and closure gates",
+      "retry keeps one substitute dispatch effect identity and payload while delivery stays distinct from acceptance",
       "canonical Person and account credentials unchanged",
     ],
-    scope: "owned synthetic loopback runtime; no production/provider effects",
   };
 } catch (error) {
   process.stderr.write(outputs.join("").slice(-12000));
