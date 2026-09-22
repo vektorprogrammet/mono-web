@@ -64,6 +64,7 @@ export type CohortReason =
   | "DuplicateEmail"
   | "DuplicateTarget"
   | "PersonMissing"
+  | "PersonReconciliationMissing"
   | "TargetConflict"
   | "EmailConflict";
 export interface CohortOccurrence {
@@ -231,11 +232,17 @@ export const importIdentityCohort = async (pool: Pool, input: unknown): Promise<
         } else {
           person = (
             await tx.query<{ first_name: string; last_name: string }>(
-              "SELECT first_name,last_name FROM public.person_profiles WHERE person_id=$1 FOR SHARE",
-              [mapping.personId],
+              `SELECT p.first_name, p.last_name
+                 FROM public.person_cohort_imports i
+                 JOIN public.person_profiles p ON p.person_id = i.person_id
+                WHERE i.source_repository = $1
+                  AND i.source_user_id = $2
+                  AND i.person_id = $3
+                  FOR SHARE OF i, p`,
+              [snapshot.sourceRepository, row.sourceUserId, mapping.personId],
             )
           ).rows[0];
-          if (!person) reason = "PersonMissing";
+          if (!person) reason = "PersonReconciliationMissing";
           else if (
             (await tx.query('SELECT 1 FROM auth."user" WHERE id=$1', [mapping.personId])).rowCount
           )

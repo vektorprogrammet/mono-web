@@ -1,4 +1,4 @@
-/** 0100 owned synthetic PostgreSQL / real Better Auth / recovery / restore journey. */
+/** 0107 owned Person-to-Account reconciliation / Better Auth / recovery / restore journey. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { randomBytes, createHash } from "node:crypto";
@@ -19,6 +19,7 @@ import {
   passwordResetDeliveryConfig,
 } from "../../../apps/backend/src/password-recovery/http-delivery.js";
 import { importIdentityCohort, IdentityCohortFailure } from "../src/identity-cohort.js";
+import { importPersonCohort } from "../src/person-cohort.js";
 import { isNativePasswordHash, verifyNativeOrLegacyPassword } from "../src/password-codec.js";
 declare const Bun: {
   version: string;
@@ -154,6 +155,7 @@ try {
     email: string;
     passwordHash: string | null;
     username?: string;
+    companyEmail?: string;
   };
   const occurrences: Array<{ occurrenceId: string; row: unknown }> = [];
   const mappings: Array<{
@@ -168,6 +170,7 @@ try {
       email: `cohort-${id}@example.invalid`,
       passwordHash: hashes[0]!,
       username: `legacy-${id}`,
+      companyEmail: `${id}@vektorprogrammet.invalid`,
       ...overrides,
     };
     occurrences.push({ occurrenceId: `occ-${id}`, row });
@@ -183,7 +186,7 @@ try {
       });
     return row;
   };
-  for (let i = 0; i < 3; i++) add(`accepted-${i}`, { passwordHash: hashes[i]! });
+  const acceptedRows = values.map((_, i) => add(`accepted-${i}`, { passwordHash: hashes[i]! }));
   add("inactive", { active: false });
   add("missing-password", { passwordHash: null });
   add("unsupported", { passwordHash: hashes[0]!.replace("$2y$", "$2b$") });
@@ -202,30 +205,81 @@ try {
   add("duplicate-target-b");
   mappings.at(-1)!.personId = "person-duplicate-target-a";
   add("person-missing");
-  add("target-conflict");
-  add("email-conflict");
+  const targetConflictRow = add("target-conflict");
+  const emailConflictRow = add("email-conflict");
   occurrences.push({
     occurrenceId: "occ-invalid",
     row: { sourceUserId: "invalid", unexpected: true },
   });
   const snapshot = {
     sourceRepository: "synthetic-legacy",
-    sourceRevision: "synthetic-source-0100",
-    snapshotId: "cohort-0100",
-    transformationRevision: "0100-v1",
+    sourceRevision: "synthetic-source-0107",
+    snapshotId: "cohort-0107",
+    transformationRevision: "0107-v1",
     synthetic: true,
     occurrences,
     mappings,
   };
-  for (const personId of new Set(
-    mappings.map((m) => m.personId).filter((p) => p !== "person-person-missing"),
-  ))
-    await pool.query(
-      "INSERT INTO person_profiles(person_id,first_name,last_name) VALUES($1,'Synthetic','Cohort')",
-      [personId],
-    );
+  const reconcilePerson = async (
+    source: Row,
+    mode: "create" | "link" = "create",
+    personId = `person-${source.sourceUserId}`,
+  ) => {
+    const personMapping =
+      mode === "create"
+        ? {
+            _tag: "CreatePerson" as const,
+            sourceUserId: source.sourceUserId,
+            personId,
+            emailOwnership: {
+              email: source.email,
+              attestedBy: "synthetic-operator",
+              evidenceRef: `person-attestation-${source.sourceUserId}`,
+            },
+          }
+        : {
+            _tag: "LinkExistingPerson" as const,
+            sourceUserId: source.sourceUserId,
+            personId,
+            emailOwnership: {
+              email: source.email,
+              attestedBy: "synthetic-operator",
+              evidenceRef: `person-attestation-${source.sourceUserId}`,
+            },
+            expectedNameRevision: 0,
+            expectedContactRevision: 0,
+          };
+    const result = await importPersonCohort(pool!, {
+      sourceRepository: snapshot.sourceRepository,
+      sourceRevision: `person-source-${source.sourceUserId}`,
+      snapshotId: `person-${source.sourceUserId}`,
+      transformationRevision: "0107-v1",
+      synthetic: true,
+      occurrences: [
+        {
+          occurrenceId: `person-${source.sourceUserId}`,
+          row: {
+            sourceUserId: source.sourceUserId,
+            active: true,
+            firstName: "Synthetic",
+            lastName: "Cohort",
+            email: source.email,
+            phone: "+47 999 00 000",
+          },
+        },
+      ],
+      mappings: [personMapping],
+    });
+    assert.equal(result.accepted, 1);
+  };
   await pool.query(
-    "INSERT INTO person_profiles(person_id,first_name,last_name) VALUES('existing-email-owner','Synthetic','Existing')",
+    "INSERT INTO person_profiles(person_id,first_name,last_name) VALUES('person-accepted-2','Synthetic','Cohort'); INSERT INTO person_contact_profiles(person_id,email,phone) VALUES('person-accepted-2','cohort-accepted-2@example.invalid','+47 999 00 000')",
+  );
+  for (const [index, source] of acceptedRows.entries())
+    await reconcilePerson(source, index === 2 ? "link" : "create");
+  for (const source of [targetConflictRow, emailConflictRow]) await reconcilePerson(source);
+  await pool.query(
+    "INSERT INTO person_profiles(person_id,first_name,last_name) VALUES('person-person-missing','Synthetic','ProfileOnly'),('existing-email-owner','Synthetic','Existing')",
   );
   await pool.query(
     "INSERT INTO auth.\"user\"(id,name,email,\"emailVerified\") VALUES('person-target-conflict','Existing','target-existing@example.invalid',false),('existing-email-owner','Existing','cohort-email-conflict@example.invalid',false)",
@@ -245,6 +299,22 @@ try {
   assert.equal(report.accepted, 3);
   assert.equal(report.input, occurrences.length);
   assert.equal(report.quarantined, occurrences.length - 3);
+  assert.deepEqual(
+    report.occurrences.find((entry) => entry.occurrenceId === "occ-person-missing"),
+    {
+      occurrenceId: "occ-person-missing",
+      disposition: "Quarantined",
+      reason: "PersonReconciliationMissing",
+    },
+  );
+  assert.equal(
+    report.occurrences.find((entry) => entry.occurrenceId === "occ-target-conflict")?.reason,
+    "TargetConflict",
+  );
+  assert.equal(
+    report.occurrences.find((entry) => entry.occurrenceId === "occ-email-conflict")?.reason,
+    "EmailConflict",
+  );
   assert.deepEqual(
     (await pool.query('SELECT "userId" FROM auth."account" ORDER BY "userId"')).rows.map(
       (r) => r.userId,
@@ -277,21 +347,20 @@ try {
     (e) => e instanceof IdentityCohortFailure && e.code === "SourceIdentityConflict",
   );
   assert.equal(await facts(), initialFacts);
-  await pool.query(
-    "INSERT INTO person_profiles(person_id,first_name,last_name) VALUES('person-failure','Synthetic','Failure')",
-  );
+  const failedRow: Row = {
+    sourceUserId: "failure",
+    active: true,
+    email: "failure@example.invalid",
+    passwordHash: hashes[0]!,
+  };
+  await reconcilePerson(failedRow);
   const failedSnapshot = {
     ...snapshot,
     snapshotId: "failure",
     occurrences: [
       {
         occurrenceId: "failure",
-        row: {
-          sourceUserId: "failure",
-          active: true,
-          email: "failure@example.invalid",
-          passwordHash: hashes[0]!,
-        },
+        row: failedRow,
       },
     ],
     mappings: [
@@ -307,7 +376,7 @@ try {
     ],
   };
   await pool.query(
-    "CREATE FUNCTION auth.fail_cohort_0100() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Synthetic failure'; END $$; CREATE TRIGGER fail_cohort_0100 BEFORE INSERT ON auth.credential_cohort_imports FOR EACH ROW EXECUTE FUNCTION auth.fail_cohort_0100()",
+    "CREATE FUNCTION auth.fail_cohort_0107() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Synthetic failure'; END $$; CREATE TRIGGER fail_cohort_0107 BEFORE INSERT ON auth.credential_cohort_imports FOR EACH ROW EXECUTE FUNCTION auth.fail_cohort_0107()",
   );
   await assert.rejects(importIdentityCohort(pool, failedSnapshot));
   assert.equal(
@@ -316,7 +385,7 @@ try {
   );
   assert.equal(await facts(), initialFacts);
   await pool.query(
-    "DROP TRIGGER fail_cohort_0100 ON auth.credential_cohort_imports; DROP FUNCTION auth.fail_cohort_0100()",
+    "DROP TRIGGER fail_cohort_0107 ON auth.credential_cohort_imports; DROP FUNCTION auth.fail_cohort_0107()",
   );
   await assert.rejects(
     pool.query("UPDATE auth.credential_cohort_imports SET source_digest=repeat('f',64)"),
@@ -336,6 +405,49 @@ try {
   children.push(cli);
   assert.equal(await new Promise<number | null>((r) => cli.once("exit", r)), 0);
   assert.equal(await facts(), initialFacts);
+  const concurrentRow: Row = {
+    sourceUserId: "concurrent-initial",
+    active: true,
+    email: "concurrent-initial@example.invalid",
+    passwordHash: hashes[0]!,
+    username: "legacy-concurrent-initial",
+    companyEmail: "concurrent-initial@vektorprogrammet.invalid",
+  };
+  await reconcilePerson(concurrentRow);
+  const concurrentSnapshot = {
+    ...snapshot,
+    sourceRevision: "synthetic-source-0107-concurrent",
+    snapshotId: "cohort-0107-concurrent",
+    occurrences: [{ occurrenceId: "concurrent-initial", row: concurrentRow }],
+    mappings: [
+      {
+        sourceUserId: concurrentRow.sourceUserId,
+        personId: "person-concurrent-initial",
+        emailOwnership: {
+          email: concurrentRow.email,
+          attestedBy: "synthetic-operator",
+          evidenceRef: "concurrent-initial",
+        },
+      },
+    ],
+  };
+  const concurrentInitial = await Promise.all([
+    importIdentityCohort(pool, concurrentSnapshot),
+    importIdentityCohort(pool, concurrentSnapshot),
+  ]);
+  assert.deepEqual(concurrentInitial, [concurrentInitial[0], concurrentInitial[0]]);
+  assert.equal(concurrentInitial[0]!.accepted, 1);
+  assert.deepEqual(
+    (
+      await pool.query(
+        `SELECT
+           (SELECT count(*)::int FROM auth."user" WHERE id='person-concurrent-initial') AS users,
+           (SELECT count(*)::int FROM auth."account" WHERE "userId"='person-concurrent-initial') AS accounts,
+           (SELECT count(*)::int FROM auth.credential_cohort_imports WHERE source_user_id='concurrent-initial') AS imports`,
+      )
+    ).rows[0],
+    { users: 1, accounts: 1, imports: 1 },
+  );
   const authPort = await freePort(),
     origin = `http://127.0.0.1:${authPort}`;
   const config: AuthEngineConfig = {
@@ -394,12 +506,23 @@ try {
       secrets.push(oldCookie);
     }
   }
+  assert.equal(
+    (await pool.query('SELECT name FROM auth."user" WHERE id=$1', ["person-accepted-0"])).rows[0]
+      ?.name,
+    "Synthetic Cohort",
+    "Account name is projected from the reconciled Person profile",
+  );
   assert.equal((await login("cohort-accepted-0@example.invalid", "wrong-password")).status, 401);
   assert.equal((await login("cohort-inactive@example.invalid", values[0]!)).status, 401);
   assert.equal(
     (await login("legacy-accepted-0", values[0]!)).status,
     400,
     "username alias remains unsupported",
+  );
+  assert.equal(
+    (await login("accepted-0@vektorprogrammet.invalid", values[0]!)).status,
+    401,
+    "company-email alias remains unsupported",
   );
   assert.equal(
     (
@@ -507,7 +630,7 @@ try {
     "actual restored legacy hash login",
   );
   evidence = {
-    specId: "0100",
+    specId: "0107",
     revision,
     report,
     passed: true,
@@ -520,9 +643,11 @@ try {
       legacyNoNormalization: true,
       legacyNulRejected: true,
     },
+    existingPersonLinked: true,
     replay: {
       exact: true,
       concurrent: true,
+      concurrentInitial: true,
       changedSnapshotRejected: true,
       changedInactiveSourceRejected: true,
       resetPreserved: true,
@@ -533,6 +658,8 @@ try {
     emailVerificationNotInvented: true,
     disabledLoginDenied: true,
     legacyAliasUnsupported: true,
+    personReconciliationRequired: true,
+    reconciledProfileNameUsed: true,
     recovery: {
       acknowledgedAttempts: deliveryAttempts,
       oldPasswordDenied: true,
@@ -541,7 +668,7 @@ try {
     },
     restore: { nonemptyBackupSha256: backupDigest, nativeHashLogin: true, legacyHashLogin: true },
     scope:
-      "Synthetic mapped/attested cohort; actual BetterAuth HTTP and canonical recovery wrapper/ACK adapter; no provider, production, real attestation or full legacy cohort claim",
+      "Synthetic Person-reconciled/attested cohort; actual BetterAuth HTTP and canonical recovery wrapper/ACK adapter; legacy aliases quarantined; no real source, provider, production, real attestation or full legacy cohort claim",
   };
 } catch (cause) {
   await writeFile(
@@ -587,4 +714,4 @@ const output = JSON.stringify(
 for (const secret of secrets)
   if (secret) assert.ok(!output.includes(secret), "private material prohibited in evidence");
 await writeFile(join(artifacts, "evidence.json"), output);
-console.log(`0100 passed: ${artifacts}/evidence.json`);
+console.log(`0107 passed: ${artifacts}/evidence.json`);

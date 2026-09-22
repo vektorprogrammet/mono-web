@@ -412,6 +412,11 @@ export const databaseMigrationDefinitions = [
     name: "native-person-reconciliation",
     url: new URL("../migrations/0049-native-person-reconciliation.sql", import.meta.url),
   },
+  {
+    id: "50_reconciled-account-import",
+    name: "reconciled-account-import",
+    url: new URL("../migrations/0050-reconciled-account-import.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>
