@@ -465,7 +465,7 @@ const listView = (model: Model, h: HtmlBuilder<Message>): Html => {
       h.div(
         [h.Class("school-surveys__results-heading")],
         [
-          h.h2([h.Id("school-surveys-list-title")], ["Undersøkelser"]),
+          h.h2([h.Id("school-surveys-list-title")], ["Undersøkelsesoversikt"]),
           h.p([], [surveys.length === 1 ? "1 undersøkelse" : `${surveys.length} undersøkelser`]),
         ],
       ),

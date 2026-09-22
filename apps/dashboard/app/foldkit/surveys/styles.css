@@ -298,7 +298,7 @@ vektor-school-surveys-workspace {
 
 .school-surveys__results-heading p,
 .school-surveys__detail-heading p {
-  color: var(--school-surveys-muted-foreground);
+  color: var(--school-surveys-foreground);
   font-size: 0.875rem;
   line-height: 1.5;
 }
