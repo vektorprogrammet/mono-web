@@ -38,6 +38,7 @@ class FakeElement {
 
 interface OrganizationElementLifecycle {
   connectedCallback(): void;
+  attributeChangedCallback(name: string, previous: string | null, next: string | null): void;
   disconnectedCallback(): void;
 }
 
@@ -102,5 +103,32 @@ describe("Organization catalog custom element", () => {
     element.connectedCallback();
     expect(mocks.createClient).toHaveBeenCalledTimes(2);
     expect(mocks.embed).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts when hydration supplies the catalog kind after connection", async () => {
+    // Dynamic import is required so module evaluation sees the per-test custom-element registry.
+    const {
+      ORGANIZATION_CATALOG_ELEMENT,
+      ORGANIZATION_CATALOG_KIND_ATTRIBUTE,
+      registerOrganizationCatalogElement,
+    } = await import("./elements");
+    registerOrganizationCatalogElement();
+
+    const ElementConstructor = registry.get(ORGANIZATION_CATALOG_ELEMENT);
+    if (ElementConstructor === undefined)
+      throw new Error("organization element was not registered");
+    const element = new ElementConstructor() as HTMLElement & OrganizationElementLifecycle;
+
+    element.connectedCallback();
+    expect(mocks.embed).not.toHaveBeenCalled();
+
+    element.setAttribute(ORGANIZATION_CATALOG_KIND_ATTRIBUTE, "Team");
+    element.attributeChangedCallback(ORGANIZATION_CATALOG_KIND_ATTRIBUTE, null, "Team");
+
+    expect(mocks.createClient).toHaveBeenCalledTimes(1);
+    expect(mocks.embed).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "foldkit-organization-catalog" }),
+      { catalogKind: "Team", client: mocks.client },
+    );
   });
 });

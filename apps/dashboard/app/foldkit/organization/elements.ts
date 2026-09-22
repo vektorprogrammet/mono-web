@@ -13,11 +13,15 @@ export const registerOrganizationCatalogElement = (): void => {
   customElements.define(
     ORGANIZATION_CATALOG_ELEMENT,
     class extends HTMLElement {
+      static readonly observedAttributes = [ORGANIZATION_CATALOG_KIND_ATTRIBUTE];
+
       readonly #container = document.createElement("div");
+      #connected = false;
       #dispose: (() => void) | undefined;
 
-      connectedCallback(): void {
-        if (this.#dispose !== undefined) return;
+      #start(): void {
+        this.#dispose?.();
+        this.#dispose = undefined;
         this.#container.id = "foldkit-organization-catalog";
         this.replaceChildren(this.#container);
 
@@ -43,7 +47,21 @@ export const registerOrganizationCatalogElement = (): void => {
         }
       }
 
+      connectedCallback(): void {
+        if (this.#connected) return;
+        this.#connected = true;
+        this.#start();
+      }
+
+      attributeChangedCallback(name: string, previous: string | null, next: string | null): void {
+        if (name !== ORGANIZATION_CATALOG_KIND_ATTRIBUTE || previous === next || !this.#connected) {
+          return;
+        }
+        this.#start();
+      }
+
       disconnectedCallback(): void {
+        this.#connected = false;
         this.#dispose?.();
         this.#dispose = undefined;
       }
