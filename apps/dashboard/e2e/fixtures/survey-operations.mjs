@@ -160,7 +160,7 @@ VALUES
 INSERT INTO public.assistant_placements
   (placement_id, person_id, department_id, semester_id, school_id, day, workdays, block, active, revision)
 VALUES
-  ('placement-survey-operations-0113-a', '${ids.volunteer}', '${ids.department}', '${ids.semester}', ${ids.school}, 'Monday', 1, '1', TRUE, 0),
-  ('placement-survey-operations-0113-b', '${ids.volunteer}', '${ids.department}', '${ids.semester}', ${ids.schoolSecond}, 'Tuesday', 1, '1', TRUE, 0);
+  ('placement-${"b".repeat(64)}', '${ids.volunteer}', '${ids.department}', '${ids.semester}', ${ids.school}, 'Monday', 1, '1', TRUE, 1),
+  ('placement-${"c".repeat(64)}', '${ids.volunteer}', '${ids.department}', '${ids.semester}', ${ids.schoolSecond}, 'Tuesday', 1, '1', TRUE, 1);
 COMMIT;
 `;
