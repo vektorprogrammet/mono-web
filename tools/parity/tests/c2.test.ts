@@ -413,7 +413,7 @@ test("projection reads reject a symlinked parent even when the target is missing
   try {
     const outside = join(root, "outside");
     mkdirSync(outside, { recursive: true });
-    symlinkSync(outside, join(root, "evidence"));
+    symlinkSync(outside, join(root, "artifacts"));
     const reads = [
       readProjectionDirectoryEffect(root, PROJECTION_DIRECTORY),
       readProjectionSetEffect(root, PROJECTION_DIRECTORY, COMMITTED_PROJECTIONS),

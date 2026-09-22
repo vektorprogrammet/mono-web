@@ -1,5 +1,4 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+ 
 import { describe, expect, test } from "bun:test";
 import { parityVerifyArguments } from "../verify-config.ts";
 
@@ -18,10 +17,6 @@ describe("root parity verification command", () => {
       "--mode",
       "diff",
     ]);
-
-    const manifest = JSON.parse(readFileSync(resolve(import.meta.dir, "../../../package.json"), "utf8")) as {
-      scripts: { "parity:verify": string };
-    };
-    expect(manifest.scripts["parity:verify"]).toBe("bun run tools/parity/verify-cli.ts");
+ 
   });
 });

@@ -2148,7 +2148,7 @@ describe("source safety boundary", () => {
     });
 
     test("allows the real migration DDL and rejects literal SQL data", () => {
-      const migrationPath = "packages/domain/src/tutor/migrations/0001-tutor-event-store.sql";
+      const migrationPath = "packages/database/migrations/tutor/0001-tutor-event-store.sql";
       const migration = readFileSync(join(repoRoot, migrationPath));
       expect(sourceTextSafetyReason(migrationPath, migration)).toBeNull();
       expect(unsafeSqlSourceTextReason(new TextDecoder().decode(migration))).toBeNull();
