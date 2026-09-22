@@ -29,7 +29,7 @@ import {
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { DomainId } from "@vektorprogrammet/domain/authz";
-import { Effect, Option, Schema } from "effect";
+import { Cause, Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { resolveRequestPersonAuthorityInTransaction } from "../authority.js";
 import { readBoundedJson } from "../http-api/read-json.js";
@@ -306,7 +306,7 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
     }).pipe(
       Effect.tapCause((cause) =>
         Effect.sync(() => {
-          console.error("placement-command-failure", cause);
+          console.error("placement-command-failure", Cause.pretty(cause));
         }),
       ),
     );
