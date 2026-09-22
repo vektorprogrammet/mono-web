@@ -522,6 +522,9 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       name: coordinatorAbsenceFormName,
       exact: true,
     });
+    await leaderAbsence
+      .getByRole("combobox", { name: "Frivillig", exact: true })
+      .selectOption(manifest.leaderId);
     await leaderAbsence.getByLabel("Dato").fill(manifest.coverage.secondServiceDate);
     await leaderAbsence.getByRole("button", { name: "Rapporter fravær", exact: true }).click();
     await expect
