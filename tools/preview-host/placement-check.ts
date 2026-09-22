@@ -27,12 +27,7 @@ const { Pool } = requireDatabase("pg");
 const run = (command: string, args: string[], env = process.env, timeout = 60_000) =>
   execFileSync(command, args, { cwd: root, env, encoding: "utf8", timeout });
 const execFileAsync = promisify(execFile);
-const runAsync = async (
-  command: string,
-  args: string[],
-  env = process.env,
-  timeout = 60_000,
-) =>
+const runAsync = async (command: string, args: string[], env = process.env, timeout = 60_000) =>
   (
     await execFileAsync(command, args, {
       cwd: root,

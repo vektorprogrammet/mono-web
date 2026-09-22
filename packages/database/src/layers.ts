@@ -115,11 +115,7 @@ const DatabaseFromPg = (observer?: DatabaseLayerObserver) =>
     Effect.gen(function* () {
       const client = yield* PgClient.PgClient;
       const json = client.json;
-      return yield* makeDatabase(
-        executeWithSql,
-        (value) => json(JSON.stringify(value)),
-        observer,
-      );
+      return yield* makeDatabase(executeWithSql, (value) => json(JSON.stringify(value)), observer);
     }),
   );
 
