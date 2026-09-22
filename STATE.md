@@ -8,7 +8,7 @@ The native replacement has substantial local functionality. Production still
 runs the legacy PHP application.
 
 The latest observed native runtime architecture is revision
-`9b923ed42c40e2b7c62f938af217e89aacd80c47`.
+`bf7064e65cfae99ba6a59edd769a110e107fb25d`.
 
 Implemented native journeys include:
 
@@ -18,9 +18,10 @@ Implemented native journeys include:
   registration, interview assignment, scheduling, response, conduct,
   recommendation, reporting, and immutable completed-assessment corrections;
 - onboarding invitation, account claim or link, volunteer-affiliation request
-  and establishment, manual school placement, and coordinator-confirmed school
-  service from demand through acknowledged notification and recorded attendance;
-- substitute preferences and scoped pool administration;
+  and establishment, manual school placement, coordinator-confirmed school
+  service, own and coordinator absence reporting, sequential substitute dispatch,
+  addressed acceptance or decline, coordinator acknowledgement, delivery
+  recovery, exact attendance, and immutable Covered or Uncovered closure;
 - expense submission, private-file custody, scoped approval, rejection,
   reopening, refund, and acknowledged notification delivery;
 - content publication, contact messages, social-event creation, and anonymous
@@ -37,14 +38,12 @@ atomic audit/outbox/receipt writes, and Foldkit dashboard workflows.
 
 Close complete operating outcomes in this order:
 
-1. Add absence reporting, substitute dispatch, acceptance, acknowledgement, and
-   service-history closure.
-2. Close remaining recruitment outcomes. Add a coordinator admission decision
+1. Close remaining recruitment outcomes. Add a coordinator admission decision
    only if the organization defines it as a separate fact and authority.
-3. Complete survey administration, audience rules, results, and exports.
-4. Define the wider finance workflow, payment authority, and settlement evidence.
-5. Reconcile real identity, credentials, files, affiliation, and placement data.
-6. Rehearse production writer transfer, recovery, and rollback.
+2. Complete survey administration, audience rules, results, and exports.
+3. Define the wider finance workflow, payment authority, and settlement evidence.
+4. Reconcile real identity, credentials, files, affiliation, and placement data.
+5. Rehearse production writer transfer, recovery, and rollback.
 
 Create one active file under `docs/specs/` for the next journey. Remove it when
 the accepted behavior is represented by [docs/system.md](docs/system.md), code,

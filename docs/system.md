@@ -92,16 +92,29 @@ A proposal snapshots that demand and the current active placements. Every mismat
 is explicit, and confirmation requires an exact review of those exceptions.
 
 Confirmation creates one durable notification for each unique assigned volunteer.
-After acknowledged delivery, the coordinator can record one teaching occurrence
-whose attendees exactly match the confirmed roster for that slot. Proposal
-generation never creates or changes a placement, and placement history remains
-after edits or removal.
+Without an absence, the coordinator records an occurrence with the exact confirmed
+roster. Proposal generation never changes a placement, and placement history
+remains after edits or removal.
 
 ### Substitute coverage
 
-An affiliated volunteer can opt into the substitute pool. Authorized coordinators
-can find eligible substitutes for an absence and record the operational outcome.
-Pool membership alone does not mean dispatch, school placement, or delivered work.
+An affiliated volunteer can opt into the substitute pool. A scheduled volunteer or
+scoped coordinator can report an absence for a confirmed slot and service date.
+The report stores no medical reason or free text.
+
+A scoped coordinator dispatches one eligible substitute at a time. Eligibility
+requires linked Person identity, active affiliation, active pool membership,
+weekday availability, and no placement or acknowledged-coverage conflict. The
+dispatch keeps the eligibility and school-name snapshots.
+
+Only the addressed substitute can accept or decline. A coordinator can withdraw an
+unacknowledged offer or acknowledge one accepted offer. Provider failure does not
+roll back the offer. Retry uses the same immutable envelope and effect identity.
+
+Service closure records one occurrence with the confirmed roster minus absent
+people plus acknowledged substitutes. Each absence closes as `Covered` or
+`Uncovered`. Absence, offer, response, acknowledgement, delivery, occurrence, and
+closure remain separate durable facts. Pool membership alone implies none of them.
 
 ### Expense reimbursement
 

@@ -180,16 +180,18 @@ flowchart LR
   BP15["BP-15 Notify participants"]
   BP16["BP-16 Record teaching occurrence"]
   BP17["BP-17 Resolve absence or substitution"]
-  BP18["BP-18 Close history, feedback, and certificate"]
+  BP18["BP-18 Close service history"]
+  BP19["BP-19 Publish feedback and certificate"]
 
   BP10 --> BP12
   BP11 --> BP12
-  BP12 --> BP13 --> BP14 --> BP15 --> BP16 --> BP17 --> BP18
+  BP12 --> BP13 --> BP14 --> BP15 --> BP17 --> BP16 --> BP18 --> BP19
 ```
 
-This is the target core process for `CAP-SVC` and `CAP-SUB`. The migration map marks
-roster closure, teaching occurrences, attendance, and full substitute dispatch as
-gaps.
+This is the target core process for `CAP-SVC` and `CAP-SUB`. The native system now
+closes demand, roster, notification, occurrence, absence, sequential substitute
+dispatch, acknowledgement, and Covered or Uncovered service history. No-show,
+correction, certificate, and complete reporting remain open.
 
 #### Reimburse an expense
 
