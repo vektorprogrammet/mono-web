@@ -385,7 +385,7 @@ const exerciseJourney = async ({ browser, ledger }) => {
   const pageErrors = [];
   leader.page.on("pageerror", (error) => pageErrors.push(error.message));
 
-  assertProblem(await api(undefined, "GET", `${adminPath}/catalog`), 401, "credential.missing");
+  assertProblem(await api(undefined, "GET", `${adminPath}/catalog`), 401, "credential.invalid");
   assertDenied(
     await api(ordinary.cookie, "GET", `${adminPath}/catalog`),
     "ordinary member catalog",
