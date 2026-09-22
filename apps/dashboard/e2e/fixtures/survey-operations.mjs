@@ -146,7 +146,7 @@ VALUES
 INSERT INTO public.person_profiles (person_id, first_name, last_name, revision)
 VALUES ('${ids.volunteer}', 'Vera', 'Vikar', 0);
 INSERT INTO public.organization_volunteer_affiliations (person_id, department_id, status, revision)
-VALUES ('${ids.volunteer}', '${ids.department}', 'Active', 0);
+VALUES ('${ids.volunteer}', '${ids.department}', 'Active', 1);
 INSERT INTO public.schools_directory_schools
   (school_id, name, contact_person, email, phone, language, active, revision)
 OVERRIDING SYSTEM VALUE
