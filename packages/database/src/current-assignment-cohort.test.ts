@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   disposableCurrentAssignmentDatabaseUrl,
   runCurrentAssignmentCohortCli,
@@ -61,13 +61,25 @@ describe("synthetic current assignment boundary", () => {
       ["RECEIPT_DELIVERY_URL", "https://provider.example.invalid/delivery"],
       ["RECEIPT_DELIVERY_TOKEN", "synthetic-provider-configuration"],
     ] as const) {
-      vi.stubEnv("CURRENT_ASSIGNMENT_MODE", "synthetic");
-      vi.stubEnv("NATIVE_IDENTITY_DEPLOYMENT", "local");
-      vi.stubEnv(key, value);
+      const previous = {
+        mode: process.env.CURRENT_ASSIGNMENT_MODE,
+        deployment: process.env.NATIVE_IDENTITY_DEPLOYMENT,
+        provider: process.env[key],
+      };
+      process.env.CURRENT_ASSIGNMENT_MODE = "synthetic";
+      process.env.NATIVE_IDENTITY_DEPLOYMENT = "local";
+      process.env[key] = value;
       try {
         await expect(runCurrentAssignmentCohortCli()).rejects.toThrow("InvalidSnapshot");
       } finally {
-        vi.unstubAllEnvs();
+        for (const [environmentKey, previousValue] of [
+          ["CURRENT_ASSIGNMENT_MODE", previous.mode],
+          ["NATIVE_IDENTITY_DEPLOYMENT", previous.deployment],
+          [key, previous.provider],
+        ] as const) {
+          if (previousValue === undefined) delete process.env[environmentKey];
+          else process.env[environmentKey] = previousValue;
+        }
       }
     }
   });
