@@ -60,7 +60,7 @@ const readBoard = async (page: Page) => {
   return response.json();
 };
 
-test("0096 existing volunteer requests affiliation and coordinator places them with preserved history", async ({
+test("0096 placement and 0110 school-service journeys persist with explicit authority", async ({
   browser,
 }) => {
   test.skip(!manifest, "Requires the isolated native placement driver");
@@ -276,6 +276,66 @@ test("0096 existing volunteer requests affiliation and coordinator places them w
       expect(
         actual.find((p: { placementId: string }) => p.placementId === expected.placementId),
       ).toMatchObject(expected);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.reload();
+    const demand = page.getByRole("form", { name: "Nytt skolebehov", exact: true });
+    await demand
+      .getByRole("combobox", { name: "Skole", exact: true })
+      .selectOption(String(manifest.schoolId));
+    await demand.getByRole("combobox", { name: "Ukedag", exact: true }).selectOption("Monday");
+    await demand.getByRole("combobox", { name: "Bolk", exact: true }).selectOption("2");
+    await demand.getByLabel("Frivillige som trengs").fill("4");
+    await demand.getByRole("button", { name: "Legg til skolebehov" }).click();
+    await saved(demand);
+    await page.reload();
+    const generate = page.getByRole("form", { name: "Lag nytt tjenesteforslag", exact: true });
+    await generate.getByRole("button", { name: "Lag forslag fra aktive plasseringer" }).click();
+    await saved(generate);
+    await page.reload();
+    const proposalArticle = page.locator("[data-proposal-id]");
+    const serviceProposalId = await proposalArticle.getAttribute("data-proposal-id");
+    expect(serviceProposalId).toMatch(/^school-service-proposal-/);
+    await expect(proposalArticle).toContainText("3 av 4 frivillige");
+    const confirm = page.getByRole("form", { name: "Bekreft tjenesteforslag", exact: true });
+    await confirm.getByRole("button", { name: "Bekreft og send tjenesteplan" }).click();
+    await expect(confirm.getByRole("alert")).toContainText("Alle avvik må gjennomgås");
+    for (const checkbox of await confirm.getByRole("checkbox").all()) await checkbox.check();
+    await other.reload();
+    const staleConfirm = other.getByRole("form", {
+      name: "Bekreft tjenesteforslag",
+      exact: true,
+    });
+    for (const checkbox of await staleConfirm.getByRole("checkbox").all()) await checkbox.check();
+    await confirm.getByRole("button", { name: "Bekreft og send tjenesteplan" }).click();
+    await saved(confirm);
+    await staleConfirm.getByRole("button", { name: "Bekreft og send tjenesteplan" }).click();
+    await expect(staleConfirm.getByRole("alert")).toContainText("Oversikten er endret");
+    await expect
+      .poll(
+        async () => {
+          await page.reload();
+          return page.getByText(/Delivered/).count();
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(2);
+    const occurrence = page
+      .getByRole("form", { name: /^Undervisning \d+: Skole Beta$/ })
+      .filter({ hasText: "Skole Beta — Monday, bolk 2" });
+    await occurrence.getByLabel("Dato").fill("2024-03-04");
+    for (const checkbox of await occurrence.getByRole("checkbox").all()) await checkbox.check();
+    await occurrence.getByRole("button", { name: "Registrer undervisning" }).click();
+    await saved(occurrence);
+    await page.reload();
+    await expect(page.getByText(/Skole Beta, 2024-03-04, bolk 2:/)).toContainText("2 møtte");
+    await axe(page, "confirmed school service with delivered notifications and occurrence");
+    await page.screenshot({
+      path: join(manifest.artifacts, "school-service-desktop.png"),
+      fullPage: true,
+    });
+    gates.push(
+      "school demand, unfilled exception, exact review, stale confirmation rejection, acknowledged delivery, exact attendance and reload",
+    );
     expect(errors).toEqual([]);
     gates.push(
       "remove retains audited row; affiliation revoke preserves other placement; keyboard/mobile/Axe",
@@ -283,7 +343,14 @@ test("0096 existing volunteer requests affiliation and coordinator places them w
     await writeFile(
       join(manifest.artifacts, "browser-evidence.json"),
       JSON.stringify(
-        { passed: true, revision: manifest.revision, gates, finalExpected, pageErrors: errors },
+        {
+          passed: true,
+          revision: manifest.revision,
+          gates,
+          finalExpected,
+          serviceProposalId,
+          pageErrors: errors,
+        },
         null,
         2,
       ),

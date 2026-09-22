@@ -7,14 +7,20 @@ import {
   PlacementBoard,
   PlacementFailure,
   PlacementScopes,
+  SchoolServiceProposal,
+  buildSchoolServiceProposal,
   canManagePlacements,
+  hasExactSchoolServiceAttendance,
+  hasExactSchoolServiceExceptionReview,
   nextAffiliationStatus,
   type PlacementScope,
   type PlacementCommand,
   type OwnAffiliationCommand,
 } from "@vektorprogrammet/domain/placements";
+
 const fail = (code: PlacementFailure["code"], status: PlacementFailure["status"] = 422) =>
   Effect.fail(new PlacementFailure({ code, status }));
+
 export const readPlacementScopes = (authority: OrganizationPersonAuthority) =>
   Database.use((sql) =>
     Effect.gen(function* () {
@@ -25,14 +31,15 @@ export const readPlacementScopes = (authority: OrganizationPersonAuthority) =>
       const semesters =
         yield* sql`SELECT semester_id AS "semesterId",to_char(start_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startAt",to_char(end_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "endAt" FROM public.admission_period_semesters ORDER BY start_at DESC,semester_id`;
       return yield* Schema.decodeUnknownEffect(PlacementScopes)({
-        departments: departments.map((d) => ({
-          ...d,
-          canManage: canManagePlacements(authority, d.departmentId),
+        departments: departments.map((department) => ({
+          ...department,
+          canManage: canManagePlacements(authority, department.departmentId),
         })),
         semesters,
       });
     }),
   );
+
 export const lockPlacementDepartment = (departmentId: DepartmentId) =>
   Database.use((sql) =>
     Effect.gen(function* () {
@@ -41,6 +48,7 @@ export const lockPlacementDepartment = (departmentId: DepartmentId) =>
       if (!rows.length) return yield* fail("scope.invalid");
     }),
   );
+
 export const readOwnAffiliation = (personId: PersonId, departmentId: DepartmentId) =>
   Database.use((sql) =>
     Effect.gen(function* () {
@@ -56,6 +64,7 @@ export const readOwnAffiliation = (personId: PersonId, departmentId: DepartmentI
       });
     }),
   );
+
 export const mutateAffiliation = (
   current: Affiliation,
   action: OwnAffiliationCommand["action"] | "Establish" | "Reject" | "Revoke",
@@ -72,6 +81,7 @@ export const mutateAffiliation = (
       return yield* readOwnAffiliation(current.personId, current.departmentId);
     }),
   );
+
 export const readPlacementBoard = (scope: PlacementScope) =>
   Database.use((sql) =>
     Effect.gen(function* () {
@@ -84,15 +94,45 @@ export const readPlacementBoard = (scope: PlacementScope) =>
         yield* sql`SELECT x.placement_id AS "placementId",x.person_id AS "personId",x.department_id AS "departmentId",x.semester_id AS "semesterId",x.school_id::double precision AS "schoolId",x.day,x.workdays,x.block,x.active,x.revision,p.first_name AS "firstName",p.last_name AS "lastName",s.name AS "schoolName" FROM public.assistant_placements x JOIN public.person_profiles p USING(person_id) JOIN public.schools_directory_schools s USING(school_id) WHERE x.department_id=${scope.departmentId} AND x.semester_id=${scope.semesterId} ORDER BY x.placement_id`;
       const schools =
         yield* sql`SELECT s.school_id::double precision AS "schoolId",s.name FROM public.schools_directory_schools s JOIN public.schools_directory_departments d USING(school_id) WHERE d.department_id=${scope.departmentId} AND s.active ORDER BY s.name,s.school_id`;
+      const demands =
+        yield* sql`SELECT school_id::double precision AS "schoolId",day,block,required_volunteers AS "requiredVolunteers",revision FROM public.school_service_demand WHERE department_id=${scope.departmentId} AND semester_id=${scope.semesterId} ORDER BY school_id,day,block`;
+      const proposalRows = yield* sql<{
+        proposalId: string;
+        status: string;
+        revision: number;
+        createdAt: string;
+        createdBy: string;
+        confirmedAt: string | null;
+        confirmedBy: string | null;
+        demands: unknown;
+        assignments: unknown;
+        exceptions: unknown;
+        reviewedExceptionIds: unknown;
+      }>`SELECT proposal_id AS "proposalId",status,revision,to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",created_by_person_id AS "createdBy",CASE WHEN confirmed_at IS NULL THEN NULL ELSE to_char(confirmed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') END AS "confirmedAt",confirmed_by_person_id AS "confirmedBy",demand_snapshot AS demands,assignment_snapshot AS assignments,exception_snapshot AS exceptions,reviewed_exception_ids AS "reviewedExceptionIds" FROM public.school_service_proposals WHERE department_id=${scope.departmentId} AND semester_id=${scope.semesterId} ORDER BY created_at DESC,proposal_id DESC LIMIT 1`;
+      const proposal =
+        proposalRows.length === 0
+          ? null
+          : yield* Schema.decodeUnknownEffect(SchoolServiceProposal)(proposalRows[0]);
+      const notifications =
+        proposal === null
+          ? []
+          : yield* sql`SELECT effect_id AS "effectId",proposal_id AS "proposalId",person_id AS "personId",status,attempts,CASE WHEN delivered_at IS NULL THEN NULL ELSE to_char(delivered_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') END AS "deliveredAt",last_failure_tag AS "lastFailureTag" FROM public.school_service_notification_outbox WHERE proposal_id=${proposal.proposalId} ORDER BY person_id`;
+      const occurrences =
+        yield* sql`SELECT o.occurrence_id AS "occurrenceId",o.proposal_id AS "proposalId",o.school_id::double precision AS "schoolId",s.name AS "schoolName",o.day,o.block,to_char(o.occurred_on,'YYYY-MM-DD') AS "occurredOn",o.attended_person_ids AS "attendedPersonIds",to_char(o.recorded_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "recordedAt",o.recorded_by_person_id AS "recordedBy" FROM public.school_service_occurrences o JOIN public.schools_directory_schools s USING(school_id) WHERE o.department_id=${scope.departmentId} AND o.semester_id=${scope.semesterId} ORDER BY o.occurred_on,o.occurrence_id`;
       return yield* Schema.decodeUnknownEffect(PlacementBoard)({
         ...scope,
         affiliations,
         placements,
         schools,
+        demands,
+        proposal,
+        notifications,
+        occurrences,
       });
     }),
   );
-/** Caller holds department lock and HTTP receipt transaction. Exact legacy block uniqueness is shared across department associations. */
+
+/** Caller holds the department lock and HTTP receipt transaction. */
 export const mutatePlacementBoard = (
   scope: PlacementScope,
   command: PlacementCommand,
@@ -109,10 +149,100 @@ export const mutatePlacementBoard = (
         return yield* readPlacementBoard(scope);
       }
       const board = yield* readPlacementBoard(scope);
+      if (command.action === "SetDemand") {
+        if (!board.schools.some((school) => school.schoolId === command.schoolId)) {
+          return yield* fail("scope.invalid");
+        }
+        const current = board.demands.find(
+          (demand) =>
+            demand.schoolId === command.schoolId &&
+            demand.day === command.day &&
+            demand.block === command.block,
+        );
+        if (command.requiredVolunteers === 0) {
+          if (current !== undefined) {
+            yield* sql`DELETE FROM public.school_service_demand WHERE department_id=${scope.departmentId} AND semester_id=${scope.semesterId} AND school_id=${command.schoolId} AND day=${command.day} AND block=${command.block}`;
+            yield* sql`INSERT INTO public.school_service_audit(department_id,semester_id,actor_person_id,action,occurred_at,snapshot) VALUES(${scope.departmentId},${scope.semesterId},${actor},'RemoveDemand',${now},${sql.json(command)})`;
+          }
+        } else {
+          const revision = (current?.revision ?? 0) + 1;
+          yield* sql`INSERT INTO public.school_service_demand(department_id,semester_id,school_id,day,block,required_volunteers,revision) VALUES(${scope.departmentId},${scope.semesterId},${command.schoolId},${command.day},${command.block},${command.requiredVolunteers},${revision}) ON CONFLICT(department_id,semester_id,school_id,day,block) DO UPDATE SET required_volunteers=EXCLUDED.required_volunteers,revision=EXCLUDED.revision`;
+          yield* sql`INSERT INTO public.school_service_audit(department_id,semester_id,actor_person_id,action,occurred_at,snapshot) VALUES(${scope.departmentId},${scope.semesterId},${actor},'SetDemand',${now},${sql.json({ ...command, revision })})`;
+        }
+        return yield* readPlacementBoard(scope);
+      }
+      if (command.action === "GenerateProposal") {
+        if (board.demands.length === 0 && !board.placements.some((placement) => placement.active)) {
+          return yield* fail("school-service.proposal-empty");
+        }
+        const proposal = buildSchoolServiceProposal({
+          proposalId: newId as (typeof SchoolServiceProposal.Type)["proposalId"],
+          board,
+          actor,
+          now,
+        });
+        yield* sql`INSERT INTO public.school_service_proposals(proposal_id,department_id,semester_id,status,revision,created_at,created_by_person_id,demand_snapshot,assignment_snapshot,exception_snapshot,reviewed_exception_ids) VALUES(${proposal.proposalId},${scope.departmentId},${scope.semesterId},${proposal.status},${proposal.revision},${proposal.createdAt},${proposal.createdBy},${sql.json(proposal.demands)},${sql.json(proposal.assignments)},${sql.json(proposal.exceptions)},${sql.json(proposal.reviewedExceptionIds)})`;
+        yield* sql`INSERT INTO public.school_service_audit(department_id,semester_id,actor_person_id,action,occurred_at,snapshot) VALUES(${scope.departmentId},${scope.semesterId},${actor},'GenerateProposal',${now},${sql.json({ proposalId: proposal.proposalId, exceptionIds: proposal.exceptions.map((exception) => exception.exceptionId) })})`;
+        return yield* readPlacementBoard(scope);
+      }
+      if (command.action === "ConfirmProposal") {
+        const proposal = board.proposal;
+        if (proposal === null || proposal.proposalId !== command.proposalId) {
+          return yield* fail("resource.not-found", 404);
+        }
+        if (proposal.status !== "Draft") return yield* fail("school-service.proposal-inactive");
+        if (!hasExactSchoolServiceExceptionReview(proposal, command.reviewedExceptionIds)) {
+          return yield* fail("school-service.exception-review-invalid");
+        }
+        yield* sql`UPDATE public.school_service_proposals SET status='Confirmed',revision=revision+1,confirmed_at=${now},confirmed_by_person_id=${actor},reviewed_exception_ids=${sql.json(command.reviewedExceptionIds)} WHERE proposal_id=${proposal.proposalId}`;
+        const personIds = [
+          ...new Set(proposal.assignments.map((assignment) => assignment.personId)),
+        ].sort();
+        yield* Effect.forEach(
+          personIds,
+          (personId) => {
+            const effectId = `school-service-notification:${proposal.proposalId}:${personId}`;
+            const payload = {
+              _tag: "NotifySchoolServiceRosterConfirmed",
+              effectId,
+              proposalId: proposal.proposalId,
+              personId,
+              departmentId: scope.departmentId,
+              semesterId: scope.semesterId,
+              assignments: proposal.assignments.filter(
+                (assignment) => assignment.personId === personId,
+              ),
+              confirmedAt: now,
+            };
+            return sql`INSERT INTO public.school_service_notification_outbox(effect_id,proposal_id,person_id,payload_json) VALUES(${effectId},${proposal.proposalId},${personId},${sql.json(payload)})`;
+          },
+          { discard: true },
+        );
+        yield* sql`INSERT INTO public.school_service_audit(department_id,semester_id,actor_person_id,action,occurred_at,snapshot) VALUES(${scope.departmentId},${scope.semesterId},${actor},'ConfirmProposal',${now},${sql.json(command)})`;
+        return yield* readPlacementBoard(scope);
+      }
+      if (command.action === "RecordOccurrence") {
+        const proposal = board.proposal;
+        if (proposal === null || proposal.proposalId !== command.proposalId) {
+          return yield* fail("resource.not-found", 404);
+        }
+        if (!hasExactSchoolServiceAttendance(proposal, command)) {
+          return yield* fail("school-service.occurrence-invalid");
+        }
+        const validDate =
+          yield* sql`SELECT 1 FROM public.admission_period_semesters WHERE semester_id=${scope.semesterId} AND CAST(${command.occurredOn} AS date) BETWEEN start_at::date AND end_at::date`;
+        if (validDate.length === 0) return yield* fail("school-service.occurrence-invalid");
+        const duplicate =
+          yield* sql`SELECT 1 FROM public.school_service_occurrences WHERE proposal_id=${proposal.proposalId} AND school_id=${command.schoolId} AND day=${command.day} AND block=${command.block} AND occurred_on=CAST(${command.occurredOn} AS date)`;
+        if (duplicate.length > 0) return yield* fail("school-service.occurrence-duplicate", 409);
+        yield* sql`INSERT INTO public.school_service_occurrences(occurrence_id,proposal_id,department_id,semester_id,school_id,day,block,occurred_on,attended_person_ids,recorded_at,recorded_by_person_id) VALUES(${newId},${proposal.proposalId},${scope.departmentId},${scope.semesterId},${command.schoolId},${command.day},${command.block},CAST(${command.occurredOn} AS date),${sql.json(command.attendedPersonIds)},${now},${actor})`;
+        yield* sql`INSERT INTO public.school_service_audit(department_id,semester_id,actor_person_id,action,occurred_at,snapshot) VALUES(${scope.departmentId},${scope.semesterId},${actor},'RecordOccurrence',${now},${sql.json({ ...command, occurrenceId: newId })})`;
+        return yield* readPlacementBoard(scope);
+      }
       const existing =
         command.action === "Create"
           ? undefined
-          : board.placements.find((p) => p.placementId === command.placementId);
+          : board.placements.find((placement) => placement.placementId === command.placementId);
       if (command.action !== "Create" && !existing) return yield* fail("resource.not-found", 404);
       if (existing && !existing.active) return yield* fail("placement.inactive");
       const personId = command.action === "Create" ? command.personId : existing!.personId;
@@ -121,8 +251,9 @@ export const mutatePlacementBoard = (
       if (command.action !== "Remove") {
         const affiliation = yield* readOwnAffiliation(personId, scope.departmentId);
         if (affiliation.status !== "Active") return yield* fail("affiliation.inactive");
-        if (!board.schools.some((s) => s.schoolId === command.schoolId))
+        if (!board.schools.some((school) => school.schoolId === command.schoolId)) {
           return yield* fail("scope.invalid");
+        }
         const overlaps =
           yield* sql`SELECT placement_id FROM public.assistant_placements WHERE active AND person_id=${personId} AND school_id=${command.schoolId} AND semester_id=${scope.semesterId} AND placement_id<>${placementId} AND block=${command.block}`;
         if (overlaps.length) return yield* fail("placement.overlap", 409);
@@ -130,7 +261,7 @@ export const mutatePlacementBoard = (
       } else {
         yield* sql`UPDATE public.assistant_placements SET active=false,revision=${revision} WHERE placement_id=${placementId}`;
       }
-      yield* sql`INSERT INTO public.assistant_placement_audit(placement_id,revision,actor_person_id,occurred_at,action,snapshot) SELECT placement_id,revision,${actor},${now},${command.action},to_jsonb(p) FROM public.assistant_placements p WHERE placement_id=${placementId}`;
+      yield* sql`INSERT INTO public.assistant_placement_audit(placement_id,revision,actor_person_id,occurred_at,action,snapshot) SELECT placement_id,revision,${actor},${now},${command.action},to_jsonb(placement) FROM public.assistant_placements placement WHERE placement_id=${placementId}`;
       return yield* readPlacementBoard(scope);
     }),
   );

@@ -1,3 +1,7 @@
+import {
+  schoolServiceNotificationConfig,
+  type SchoolServiceNotificationConfig,
+} from "./placements/notification.js";
 import { onboardingDeliveryConfig, type OnboardingDeliveryConfig } from "./onboarding/delivery.js";
 import {
   OAUTH_NATIVE_API_RESOURCE,
@@ -45,6 +49,7 @@ export interface BackendConfig {
   readonly recruitment: RecruitmentApiConfig;
   readonly organization: OrganizationApiConfig;
   readonly publicApplicationEffects?: PublicApplicationEffectConfig;
+  readonly schoolServiceNotifications?: SchoolServiceNotificationConfig;
 }
 
 const nonEmpty = (value: unknown, field: string): string => {
@@ -213,6 +218,7 @@ export const makeBackendConfig = (
   const receipt = makeReceiptApiConfig(env);
   const sessionBoundary = makeNativeSessionBoundaryPolicy(env);
   const effects = publicApplicationEffectConfig(env);
+  const schoolServiceNotifications = schoolServiceNotificationConfig(env);
   const postgresUrl = nonEmpty(env.BACKEND_PG_URL, "BACKEND_PG_URL");
   const secret = nonEmpty(env.BETTER_AUTH_SECRET, "BETTER_AUTH_SECRET");
   if (secret.length < 32) {
@@ -238,5 +244,6 @@ export const makeBackendConfig = (
     recruitment: makeRecruitmentApiConfig(admission),
     organization: makeOrganizationApiConfig(env),
     ...(effects === undefined ? {} : { publicApplicationEffects: effects }),
+    ...(schoolServiceNotifications === undefined ? {} : { schoolServiceNotifications }),
   };
 };

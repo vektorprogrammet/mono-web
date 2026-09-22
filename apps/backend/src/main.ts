@@ -26,6 +26,10 @@ import { Etag, HttpEffect, HttpRouter } from "effect/unstable/http";
 import { makeHttpPublicApplicationEffectInterpreter } from "./application/effects.js";
 import { makeBackendConfig } from "./config.js";
 import {
+  makeHttpSchoolServiceNotificationInterpreter,
+  runSchoolServiceNotificationWorker,
+} from "./placements/notification.js";
+import {
   makeBackendHttp,
   makeExternalNativeApiRouterLayer,
   makeInternalBackendHttp,
@@ -169,8 +173,25 @@ if (process.exitCode !== 1) {
             },
           ),
         );
+  const schoolServiceWorkerFiber =
+    ingress === "internal" || config.schoolServiceNotifications === undefined
+      ? undefined
+      : runtime.runFork(
+          runSchoolServiceNotificationWorker(
+            makeHttpSchoolServiceNotificationInterpreter(config.schoolServiceNotifications),
+            {
+              workerId: `school-service-${randomUUID()}`,
+              pollIntervalMilliseconds: config.schoolServiceNotifications.pollIntervalMilliseconds,
+              staleClaimMilliseconds: config.schoolServiceNotifications.staleClaimMilliseconds,
+              now: () => new Date().toISOString(),
+            },
+          ),
+        );
   if (ingress === "external" && workerFiber === undefined) {
     process.stderr.write("public application effect worker is not configured\n");
+  }
+  if (ingress === "external" && schoolServiceWorkerFiber === undefined) {
+    process.stderr.write("school service notification worker is not configured\n");
   }
   process.stdout.write(`${ingress} backend listening on ${config.host}:${config.port}\n`);
   let shutdownPromise: Promise<void> | undefined;
@@ -196,6 +217,13 @@ if (process.exitCode !== 1) {
           exitCode = 1;
         }
       }
+      if (schoolServiceWorkerFiber !== undefined) {
+        try {
+          await runtime.runPromise(Fiber.interrupt(schoolServiceWorkerFiber));
+        } catch {
+          exitCode = 1;
+        }
+      }
       try {
         await runtime.dispose();
       } catch {
@@ -217,6 +245,14 @@ if (process.exitCode !== 1) {
     void runtime.runPromise(Fiber.await(workerFiber)).then((exit) => {
       if (Exit.isFailure(exit) && shutdownPromise === undefined) {
         process.stderr.write("public application effect worker failed\n");
+        shutdown(true);
+      }
+    });
+  }
+  if (schoolServiceWorkerFiber !== undefined) {
+    void runtime.runPromise(Fiber.await(schoolServiceWorkerFiber)).then((exit) => {
+      if (Exit.isFailure(exit) && shutdownPromise === undefined) {
+        process.stderr.write("school service notification worker failed\n");
         shutdown(true);
       }
     });

@@ -7,7 +7,6 @@ import { Schema } from "effect";
 import { HttpApiSchema } from "effect/unstable/httpapi";
 export { parseJsonWithUniqueMembers } from "@vektorprogrammet/domain/http-semantics";
 
-
 const idempotencyKeyPattern = /^[A-Za-z0-9_-]{22,128}$/u;
 const strongETagPattern = /^"vkr2\.[A-Za-z0-9_-]{43}"$/u;
 const sha256HexPattern = /^[a-f0-9]{64}$/u;
@@ -292,6 +291,36 @@ export const NativeProblemRegistry = {
     title: "Removed placement",
     status: 422,
     detail: "The placement has already been removed.",
+  },
+  "school-service.proposal-empty": {
+    type: "urn:vektorprogrammet:problem:v0.2:school-service.proposal-empty",
+    title: "Empty school-service proposal",
+    status: 422,
+    detail: "No active volunteer assignments are available for this proposal.",
+  },
+  "school-service.proposal-inactive": {
+    type: "urn:vektorprogrammet:problem:v0.2:school-service.proposal-inactive",
+    title: "Inactive school-service proposal",
+    status: 422,
+    detail: "The proposal is not available for this transition.",
+  },
+  "school-service.exception-review-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:school-service.exception-review-invalid",
+    title: "Incomplete proposal review",
+    status: 422,
+    detail: "Every proposal exception must be acknowledged exactly once.",
+  },
+  "school-service.occurrence-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:school-service.occurrence-invalid",
+    title: "Invalid teaching occurrence",
+    status: 422,
+    detail: "Attendance must match one confirmed school, day and block roster exactly.",
+  },
+  "school-service.occurrence-duplicate": {
+    type: "urn:vektorprogrammet:problem:v0.2:school-service.occurrence-duplicate",
+    title: "Duplicate teaching occurrence",
+    status: 409,
+    detail: "This confirmed roster already has a teaching occurrence for the date and slot.",
   },
 
   "scope.invalid": {

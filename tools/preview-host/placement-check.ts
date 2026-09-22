@@ -1,9 +1,15 @@
 import { createPromiseClient } from "../../packages/sdk/src/promise.js";
-import { PlacementScope, PlacementCommand } from "../../packages/domain/src/placements/schema.js";
+import {
+  PlacementCommand,
+  PlacementScope,
+  SchoolServiceNotificationRequest,
+} from "../../packages/domain/src/placements/schema.js";
+import { IdempotencyIfMatchHeaders } from "../../packages/http-api/src/http-semantics.js";
 /** 0096 real local API + browser acceptance. Reuses native identity seed and owned process lifecycle. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:net";
+import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { randomBytes, createHash } from "node:crypto";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -51,10 +57,38 @@ const port = async (requested = 0): Promise<number> => {
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 let pool: InstanceType<typeof Pool> | undefined;
 let evidence: Record<string, unknown> | undefined;
+let notificationServer: HttpServer | undefined;
+const notificationRequests: Array<{
+  readonly authorization: string | undefined;
+  readonly idempotencyKey: string | undefined;
+  readonly body: typeof SchoolServiceNotificationRequest.Type;
+}> = [];
 try {
   const pgPort = await port();
   const backendPort = await port();
   const dashboardPort = await port(5174);
+  const notificationPort = await port();
+  const server = createHttpServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const idempotencyKeyHeader = request.headers["idempotency-key"];
+    notificationRequests.push({
+      authorization: request.headers.authorization,
+      idempotencyKey: Array.isArray(idempotencyKeyHeader)
+        ? idempotencyKeyHeader[0]
+        : idempotencyKeyHeader,
+      body: Schema.decodeUnknownSync(SchoolServiceNotificationRequest)(
+        JSON.parse(Buffer.concat(chunks).toString("utf8")),
+      ),
+    });
+    response.statusCode = 204;
+    response.end();
+  });
+  notificationServer = server;
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(notificationPort, "127.0.0.1", resolve);
+  });
   const pgDir = join(artifacts, "postgres");
   run("initdb", ["-D", pgDir, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"]);
   start("postgres", ["-D", pgDir, "-p", String(pgPort), "-h", "127.0.0.1", "-k", artifacts]);
@@ -84,6 +118,12 @@ try {
     OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     JOURNEY_SEED_PG_URL: postgresUrl,
+    SCHOOL_SERVICE_NOTIFICATION_MODE: "http",
+    SCHOOL_SERVICE_NOTIFICATION_URL: `http://127.0.0.1:${notificationPort}/school-service`,
+    SCHOOL_SERVICE_NOTIFICATION_TOKEN: "synthetic-school-service-token",
+    SCHOOL_SERVICE_NOTIFICATION_POLL_MS: "25",
+    SCHOOL_SERVICE_NOTIFICATION_STALE_MS: "1000",
+    SCHOOL_SERVICE_NOTIFICATION_TIMEOUT_MS: "2000",
   };
   for (const key of Object.keys(environment))
     if (
@@ -192,16 +232,16 @@ try {
     if (code) assert.equal(body.code, code);
     return body;
   };
-  const readBoard = async () => (await sdk.placements.readBoard({ query, headers: {} })).body;
+  const readBoard = async () => (await sdk.placements.readBoard({ query })).body;
   const command = async (payload: unknown) => {
     const board = await readBoard();
     return (
       await sdk.placements.commandBoard({
         query,
-        headers: {
+        headers: Schema.decodeUnknownSync(IdempotencyIfMatchHeaders)({
           "if-match": board.etag,
           "idempotency-key": randomBytes(18).toString("base64url"),
-        },
+        }),
         payload: Schema.decodeUnknownSync(PlacementCommand)(payload),
       })
     ).body;
@@ -477,6 +517,53 @@ try {
         { action: "Revoke", actor_person_id: leaderId },
       ],
     );
+    const serviceProposal = (
+      await pool.query(
+        `SELECT proposal_id AS "proposalId",status,revision,jsonb_array_length(exception_snapshot) AS "exceptionCount" FROM school_service_proposals WHERE department_id=$1 AND semester_id=$2 ORDER BY created_at DESC LIMIT 1`,
+        [departmentId, semesterId],
+      )
+    ).rows[0];
+    assert.deepEqual(serviceProposal, {
+      proposalId: browserEvidence?.serviceProposalId,
+      status: "Confirmed",
+      revision: 2,
+      exceptionCount: 2,
+    });
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT required_volunteers AS "requiredVolunteers" FROM school_service_demand WHERE department_id=$1 AND semester_id=$2 AND school_id=$3 AND day='Monday' AND block='2'`,
+          [departmentId, semesterId, 962],
+        )
+      ).rows,
+      [{ requiredVolunteers: 4 }],
+    );
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT status,attempts FROM school_service_notification_outbox WHERE proposal_id=$1 ORDER BY person_id`,
+          [serviceProposal.proposalId],
+        )
+      ).rows,
+      [
+        { status: "Delivered", attempts: 1 },
+        { status: "Delivered", attempts: 1 },
+      ],
+    );
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT occurred_on::text AS "occurredOn",jsonb_array_length(attended_person_ids) AS "attendeeCount" FROM school_service_occurrences WHERE proposal_id=$1`,
+          [serviceProposal.proposalId],
+        )
+      ).rows,
+      [{ occurredOn: "2024-03-04", attendeeCount: 2 }],
+    );
+    assert.equal(notificationRequests.length, 2);
+    for (const delivered of notificationRequests) {
+      assert.equal(delivered.authorization, "Bearer synthetic-school-service-token");
+      assert.equal(delivered.idempotencyKey, delivered.body.effectId);
+    }
   }
   assert.deepEqual(
     await credentialSnapshot(),
@@ -492,6 +579,7 @@ try {
     revision,
     apiPassed: true,
     browserEvidence,
+    notificationRequests,
     runtime: {
       bun: process.versions.bun,
       postgres: (await pool.query("SELECT version() AS version")).rows[0].version,
@@ -518,6 +606,11 @@ try {
   throw error;
 } finally {
   if (pool) await pool.end();
+  const ownedNotificationServer = notificationServer;
+  if (ownedNotificationServer)
+    await new Promise<void>((resolve, reject) =>
+      ownedNotificationServer.close((error) => (error ? reject(error) : resolve())),
+    );
   for (const child of children.reverse()) await stopPreviewScenarioBackend(child);
   await rm(join(artifacts, "postgres"), { recursive: true, force: true });
   await rm(join(artifacts, "manifest.json"), { force: true });

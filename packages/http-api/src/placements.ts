@@ -44,6 +44,11 @@ export const PlacementProblem = problemUnion("PlacementProblem", [
   ["affiliation.inactive", 422],
   ["placement.overlap", 409],
   ["placement.inactive", 422],
+  ["school-service.proposal-empty", 422],
+  ["school-service.proposal-inactive", 422],
+  ["school-service.exception-review-invalid", 422],
+  ["school-service.occurrence-invalid", 422],
+  ["school-service.occurrence-duplicate", 409],
   ["precondition.required", 428],
   ["precondition.failed", 412],
   ["idempotency.in-flight", 409],
@@ -136,8 +141,8 @@ export const CommandPlacementBoardEndpoint = HttpApiEndpoint.post(
   .pipe((e) => annotateAccessSpec(e, access("placements.manage", true)))
   .annotateMerge(
     operationAnnotations(
-      "Manage volunteer affiliation and placement",
-      "Conditional audited commands; persisted placement scope must match the selected board.",
+      "Manage volunteer placement and school service",
+      "Conditional audited commands; demand, proposal, confirmation, notification, occurrence, and placement scope stay transaction-bound.",
     ),
   );
 export class PlacementsApi extends HttpApiGroup.make("placements")
@@ -149,6 +154,7 @@ export class PlacementsApi extends HttpApiGroup.make("placements")
   .annotateMerge(
     OpenApi.annotations({
       title: "Volunteer placement",
-      description: "Explicit affiliation and existing-volunteer school placement.",
+      description:
+        "Explicit affiliation, placement, demand, human-confirmed roster, and teaching occurrence.",
     }),
   ) {}

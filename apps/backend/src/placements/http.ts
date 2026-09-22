@@ -1,8 +1,22 @@
 import { Database } from "@vektorprogrammet/database";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
-  AffiliationScope, OwnAffiliationCommand, PlacementCommand, PlacementScope, PlacementScopes, PlacementFailure, canManagePlacements } from "@vektorprogrammet/domain/placements";
-import { lockPlacementDepartment, mutateAffiliation, mutatePlacementBoard, readOwnAffiliation, readPlacementBoard, readPlacementScopes } from "@vektorprogrammet/database/placements";
+  AffiliationScope,
+  OwnAffiliationCommand,
+  PlacementCommand,
+  PlacementScope,
+  PlacementScopes,
+  PlacementFailure,
+  canManagePlacements,
+} from "@vektorprogrammet/domain/placements";
+import {
+  lockPlacementDepartment,
+  mutateAffiliation,
+  mutatePlacementBoard,
+  readOwnAffiliation,
+  readPlacementBoard,
+  readPlacementScopes,
+} from "@vektorprogrammet/database/placements";
 import {
   ExternalNativeApi,
   OwnAffiliationResource,
@@ -42,9 +56,7 @@ const semantic = <A>(operation: () => A) =>
   Effect.try({
     try: operation,
     catch: (cause) =>
-      cause instanceof HttpSemanticFailure
-        ? cause
-        : new HttpSemanticFailure("internal.error", 500),
+      cause instanceof HttpSemanticFailure ? cause : new HttpSemanticFailure("internal.error", 500),
   });
 const header = (r: Request, k: string) => (r.headers.has(k) ? [r.headers.get(k)!] : []);
 const resource = <A extends object>(body: A) => ({
@@ -269,7 +281,11 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
                       selected.command,
                       auth.authority.personId,
                       auth.authorizationInstant,
-                      `placement-${identity.identitySha256}`,
+                      selected.command.action === "GenerateProposal"
+                        ? `school-service-proposal-${identity.identitySha256}`
+                        : selected.command.action === "RecordOccurrence"
+                          ? `school-service-occurrence-${identity.identitySha256}`
+                          : `placement-${identity.identitySha256}`,
                     ),
                   );
               return yield* Effect.tryPromise({

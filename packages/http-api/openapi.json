@@ -340,7 +340,7 @@
                 "interviewer": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_69"
+                      "$ref": "#/components/schemas/Objects_75"
                     },
                     {
                       "type": "null"
@@ -350,7 +350,7 @@
                 "interviewSchema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_70"
+                      "$ref": "#/components/schemas/Objects_76"
                     },
                     {
                       "type": "null"
@@ -404,13 +404,13 @@
           },
           "interviewers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_69"
+              "$ref": "#/components/schemas/Objects_75"
             },
             "type": "array"
           },
           "interviewSchemas": {
             "items": {
-              "$ref": "#/components/schemas/Objects_70"
+              "$ref": "#/components/schemas/Objects_76"
             },
             "type": "array"
           }
@@ -496,12 +496,12 @@
           },
           "periods": {
             "items": {
-              "$ref": "#/components/schemas/Objects_68"
+              "$ref": "#/components/schemas/Objects_74"
             },
             "type": "array"
           },
           "recommendation": {
-            "$ref": "#/components/schemas/Union_18"
+            "$ref": "#/components/schemas/Union_19"
           },
           "rows": {
             "items": {
@@ -532,7 +532,7 @@
                 "recommendation": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Union_20"
+                      "$ref": "#/components/schemas/Union_21"
                     },
                     {
                       "type": "null"
@@ -577,7 +577,7 @@
             ]
           },
           "sort": {
-            "$ref": "#/components/schemas/Union_19"
+            "$ref": "#/components/schemas/Union_20"
           }
         },
         "required": [
@@ -651,7 +651,7 @@
         "properties": {
           "answers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_73"
+              "$ref": "#/components/schemas/Objects_79"
             },
             "type": "array"
           },
@@ -754,7 +754,7 @@
                     },
                     "answers": {
                       "items": {
-                        "$ref": "#/components/schemas/Objects_73"
+                        "$ref": "#/components/schemas/Objects_79"
                       },
                       "type": "array"
                     },
@@ -767,7 +767,7 @@
                     "recommendation": {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Union_20"
+                          "$ref": "#/components/schemas/Union_21"
                         },
                         {
                           "type": "null"
@@ -783,7 +783,7 @@
                       "type": "integer"
                     },
                     "score": {
-                      "$ref": "#/components/schemas/Objects_74"
+                      "$ref": "#/components/schemas/Objects_80"
                     }
                   },
                   "required": [
@@ -812,7 +812,7 @@
                     },
                     "answers": {
                       "items": {
-                        "$ref": "#/components/schemas/Objects_73"
+                        "$ref": "#/components/schemas/Objects_79"
                       },
                       "type": "array"
                     },
@@ -834,7 +834,7 @@
                       "type": "integer"
                     },
                     "recommendation": {
-                      "$ref": "#/components/schemas/Union_20"
+                      "$ref": "#/components/schemas/Union_21"
                     },
                     "revision": {
                       "allOf": [
@@ -845,7 +845,7 @@
                       "type": "integer"
                     },
                     "score": {
-                      "$ref": "#/components/schemas/Objects_74"
+                      "$ref": "#/components/schemas/Objects_80"
                     }
                   },
                   "required": [
@@ -887,7 +887,7 @@
           "recommendation": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Union_20"
+                "$ref": "#/components/schemas/Union_21"
               },
               {
                 "type": "null"
@@ -908,7 +908,7 @@
           "score": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Objects_74"
+                "$ref": "#/components/schemas/Objects_80"
               },
               {
                 "type": "null"
@@ -1019,7 +1019,7 @@
         "properties": {
           "answers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_73"
+              "$ref": "#/components/schemas/Objects_79"
             },
             "type": "array"
           },
@@ -1032,10 +1032,10 @@
             "type": "integer"
           },
           "recommendation": {
-            "$ref": "#/components/schemas/Union_20"
+            "$ref": "#/components/schemas/Union_21"
           },
           "score": {
-            "$ref": "#/components/schemas/Objects_74"
+            "$ref": "#/components/schemas/Objects_80"
           }
         },
         "required": [
@@ -1099,7 +1099,7 @@
         "additionalProperties": false,
         "properties": {
           "departmentId": {
-            "$ref": "#/components/schemas/Union_9"
+            "$ref": "#/components/schemas/Union_10"
           },
           "endAt": {
             "type": "string"
@@ -1310,7 +1310,7 @@
         "additionalProperties": false,
         "properties": {
           "audience": {
-            "$ref": "#/components/schemas/Union_24"
+            "$ref": "#/components/schemas/Union_25"
           },
           "departmentId": {
             "type": "string"
@@ -1327,7 +1327,7 @@
             "type": "string"
           },
           "link": {
-            "$ref": "#/components/schemas/Union_25"
+            "$ref": "#/components/schemas/Union_26"
           },
           "semesterId": {
             "type": "string"
@@ -1373,7 +1373,7 @@
             "type": "boolean"
           },
           "deadline": {
-            "$ref": "#/components/schemas/Union_6"
+            "$ref": "#/components/schemas/Union_7"
           },
           "departmentId": {
             "type": "string"
@@ -1700,15 +1700,15 @@
         "properties": {
           "answers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_73"
+              "$ref": "#/components/schemas/Objects_79"
             },
             "type": "array"
           },
           "recommendation": {
-            "$ref": "#/components/schemas/Union_20"
+            "$ref": "#/components/schemas/Union_21"
           },
           "score": {
-            "$ref": "#/components/schemas/Objects_74"
+            "$ref": "#/components/schemas/Objects_80"
           }
         },
         "required": [
@@ -1839,7 +1839,7 @@
         ],
         "properties": {
           "message": {
-            "$ref": "#/components/schemas/Union_13"
+            "$ref": "#/components/schemas/Union_14"
           }
         },
         "type": "object"
@@ -1868,7 +1868,7 @@
             "additionalProperties": false,
             "properties": {
               "campus": {
-                "$ref": "#/components/schemas/Union_12"
+                "$ref": "#/components/schemas/Union_13"
               },
               "responseMessage": {
                 "type": "null"
@@ -1905,7 +1905,7 @@
             "additionalProperties": false,
             "properties": {
               "campus": {
-                "$ref": "#/components/schemas/Union_12"
+                "$ref": "#/components/schemas/Union_13"
               },
               "responseMessage": {
                 "anyOf": [
@@ -1952,7 +1952,7 @@
             "additionalProperties": false,
             "properties": {
               "campus": {
-                "$ref": "#/components/schemas/Union_12"
+                "$ref": "#/components/schemas/Union_13"
               },
               "responseMessage": {
                 "type": "string"
@@ -3449,6 +3449,190 @@
         "properties": {
           "code": {
             "enum": [
+              "school-service.proposal-empty"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "No active volunteer assignments are available for this proposal."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              422
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Empty school-service proposal"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:school-service.proposal-empty"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_36": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "school-service.proposal-inactive"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The proposal is not available for this transition."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              422
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Inactive school-service proposal"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:school-service.proposal-inactive"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_37": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "school-service.exception-review-invalid"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "Every proposal exception must be acknowledged exactly once."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              422
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Incomplete proposal review"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:school-service.exception-review-invalid"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_38": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "school-service.occurrence-invalid"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "Attendance must match one confirmed school, day and block roster exactly."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              422
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Invalid teaching occurrence"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:school-service.occurrence-invalid"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_39": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
               "credential.invalid"
             ],
             "type": "string"
@@ -3477,190 +3661,6 @@
           "type": {
             "enum": [
               "urn:vektorprogrammet:problem:v0.2:credential.invalid"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_36": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "authority.denied"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The authenticated principal is not permitted to perform this operation."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              403
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Authority denied"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:authority.denied"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_37": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "resource.not-found"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The requested resource was not found."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              404
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Resource not found"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:resource.not-found"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_38": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "placement.overlap"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "An active placement already exists for this person, school, semester and block."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              409
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Duplicate placement"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:placement.overlap"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_39": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "idempotency.in-flight"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "A request with this idempotency identity is still in progress."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              409
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Idempotent request in progress"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:idempotency.in-flight"
             ],
             "type": "string"
           }
@@ -3725,6 +3725,236 @@
         "properties": {
           "code": {
             "enum": [
+              "authority.denied"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The authenticated principal is not permitted to perform this operation."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              403
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Authority denied"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:authority.denied"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_41": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "resource.not-found"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The requested resource was not found."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              404
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Resource not found"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:resource.not-found"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_42": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "placement.overlap"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "An active placement already exists for this person, school, semester and block."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              409
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Duplicate placement"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:placement.overlap"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_43": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "school-service.occurrence-duplicate"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "This confirmed roster already has a teaching occurrence for the date and slot."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              409
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Duplicate teaching occurrence"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:school-service.occurrence-duplicate"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_44": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "idempotency.in-flight"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "A request with this idempotency identity is still in progress."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              409
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Idempotent request in progress"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:idempotency.in-flight"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_45": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
               "idempotency.digest-conflict"
             ],
             "type": "string"
@@ -3766,7 +3996,7 @@
         ],
         "type": "object"
       },
-      "Objects_41": {
+      "Objects_46": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -3812,7 +4042,7 @@
         ],
         "type": "object"
       },
-      "Objects_42": {
+      "Objects_47": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -3858,7 +4088,7 @@
         ],
         "type": "object"
       },
-      "Objects_43": {
+      "Objects_48": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -3904,7 +4134,7 @@
         ],
         "type": "object"
       },
-      "Objects_44": {
+      "Objects_49": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -3937,236 +4167,6 @@
           "type": {
             "enum": [
               "urn:vektorprogrammet:problem:v0.2:precondition.failed"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_45": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "internal.error"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The server encountered an unexpected error."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              500
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Internal error"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:internal.error"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_46": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "media-type.unsupported"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The request media type is not supported for this operation."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              415
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Unsupported media type"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:media-type.unsupported"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_47": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "request.malformed"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The request is malformed."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              400
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Malformed request"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:request.malformed"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_48": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "precondition.invalid"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "A conditional request header is malformed."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              400
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Invalid precondition"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:precondition.invalid"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_49": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "idempotency-key.invalid"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The Idempotency-Key header is invalid."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              400
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Invalid idempotency key"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:idempotency-key.invalid"
             ],
             "type": "string"
           }
@@ -4231,6 +4231,274 @@
         "properties": {
           "code": {
             "enum": [
+              "internal.error"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The server encountered an unexpected error."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              500
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Internal error"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:internal.error"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_51": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "media-type.unsupported"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The request media type is not supported for this operation."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              415
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Unsupported media type"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:media-type.unsupported"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_52": {
+        "additionalProperties": false,
+        "properties": {
+          "block": {
+            "$ref": "#/components/schemas/Union_6"
+          },
+          "day": {
+            "$ref": "#/components/schemas/Union_4"
+          },
+          "requiredVolunteers": {
+            "allOf": [
+              {
+                "minimum": 0
+              }
+            ],
+            "type": "integer"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "schoolId": {
+            "allOf": [
+              {
+                "exclusiveMinimum": 0
+              }
+            ],
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schoolId",
+          "day",
+          "block",
+          "requiredVolunteers",
+          "revision"
+        ],
+        "type": "object"
+      },
+      "Objects_53": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "request.malformed"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The request is malformed."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              400
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Malformed request"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:request.malformed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_54": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "precondition.invalid"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "A conditional request header is malformed."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              400
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Invalid precondition"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:precondition.invalid"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_55": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "idempotency-key.invalid"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The Idempotency-Key header is invalid."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              400
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Invalid idempotency key"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:idempotency-key.invalid"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_56": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
               "onboarding.claim-invalid"
             ],
             "type": "string"
@@ -4272,7 +4540,7 @@
         ],
         "type": "object"
       },
-      "Objects_51": {
+      "Objects_57": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -4318,7 +4586,7 @@
         ],
         "type": "object"
       },
-      "Objects_52": {
+      "Objects_58": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -4368,7 +4636,7 @@
         ],
         "type": "object"
       },
-      "Objects_53": {
+      "Objects_59": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -4401,282 +4669,6 @@
           "type": {
             "enum": [
               "urn:vektorprogrammet:problem:v0.2:credential.invalid"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_54": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "authority.denied"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The authenticated principal is not permitted to perform this operation."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              403
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Authority denied"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:authority.denied"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_55": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "resource.not-found"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The requested resource was not found."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              404
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Resource not found"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:resource.not-found"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_56": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "precondition.required"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "This operation requires an If-Match header."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              428
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Precondition required"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:precondition.required"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_57": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "precondition.failed"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The selected representation changed."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              412
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Precondition failed"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:precondition.failed"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_58": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "idempotency.in-flight"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "A request with this idempotency identity is still in progress."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              409
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Idempotent request in progress"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:idempotency.in-flight"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_59": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "idempotency.digest-conflict"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "This idempotency key identifies a different semantic request."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              409
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Idempotency conflict"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:idempotency.digest-conflict"
             ],
             "type": "string"
           }
@@ -4741,6 +4733,282 @@
         "properties": {
           "code": {
             "enum": [
+              "authority.denied"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The authenticated principal is not permitted to perform this operation."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              403
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Authority denied"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:authority.denied"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_61": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "resource.not-found"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The requested resource was not found."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              404
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Resource not found"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:resource.not-found"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_62": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "precondition.required"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "This operation requires an If-Match header."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              428
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Precondition required"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:precondition.required"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_63": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "precondition.failed"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The selected representation changed."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              412
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Precondition failed"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:precondition.failed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_64": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "idempotency.in-flight"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "A request with this idempotency identity is still in progress."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              409
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Idempotent request in progress"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:idempotency.in-flight"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_65": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "idempotency.digest-conflict"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "This idempotency key identifies a different semantic request."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              409
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Idempotency conflict"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:idempotency.digest-conflict"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_66": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
               "idempotency.response-expired"
             ],
             "type": "string"
@@ -4782,7 +5050,7 @@
         ],
         "type": "object"
       },
-      "Objects_61": {
+      "Objects_67": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -4828,7 +5096,7 @@
         ],
         "type": "object"
       },
-      "Objects_62": {
+      "Objects_68": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -4874,7 +5142,7 @@
         ],
         "type": "object"
       },
-      "Objects_63": {
+      "Objects_69": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -4920,7 +5188,57 @@
         ],
         "type": "object"
       },
-      "Objects_64": {
+      "Objects_7": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "validation.failed"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The request contains invalid semantic values."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              422
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Validation failed"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:validation.failed"
+            ],
+            "type": "string"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/Objects_8"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail",
+          "validation"
+        ],
+        "type": "object"
+      },
+      "Objects_70": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -4966,7 +5284,7 @@
         ],
         "type": "object"
       },
-      "Objects_65": {
+      "Objects_71": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -5012,7 +5330,7 @@
         ],
         "type": "object"
       },
-      "Objects_66": {
+      "Objects_72": {
         "additionalProperties": false,
         "examples": [
           {
@@ -5114,7 +5432,7 @@
         ],
         "type": "object"
       },
-      "Objects_67": {
+      "Objects_73": {
         "additionalProperties": false,
         "properties": {
           "campus": {
@@ -5162,7 +5480,7 @@
         ],
         "type": "object"
       },
-      "Objects_68": {
+      "Objects_74": {
         "additionalProperties": false,
         "properties": {
           "departmentId": {
@@ -5217,7 +5535,7 @@
         ],
         "type": "object"
       },
-      "Objects_69": {
+      "Objects_75": {
         "additionalProperties": false,
         "properties": {
           "displayName": {
@@ -5238,57 +5556,7 @@
         ],
         "type": "object"
       },
-      "Objects_7": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "validation.failed"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The request contains invalid semantic values."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              422
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Validation failed"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:validation.failed"
-            ],
-            "type": "string"
-          },
-          "validation": {
-            "$ref": "#/components/schemas/Objects_8"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail",
-          "validation"
-        ],
-        "type": "object"
-      },
-      "Objects_70": {
+      "Objects_76": {
         "additionalProperties": false,
         "properties": {
           "active": {
@@ -5331,7 +5599,7 @@
         ],
         "type": "object"
       },
-      "Objects_71": {
+      "Objects_77": {
         "additionalProperties": false,
         "properties": {
           "displayName": {
@@ -5360,7 +5628,7 @@
         ],
         "type": "object"
       },
-      "Objects_72": {
+      "Objects_78": {
         "additionalProperties": false,
         "properties": {
           "applicantId": {
@@ -5392,7 +5660,7 @@
         ],
         "type": "object"
       },
-      "Objects_73": {
+      "Objects_79": {
         "additionalProperties": false,
         "properties": {
           "answer": {
@@ -5415,256 +5683,6 @@
         "required": [
           "questionId",
           "answer"
-        ],
-        "type": "object"
-      },
-      "Objects_74": {
-        "additionalProperties": false,
-        "properties": {
-          "explanatoryPower": {
-            "type": "integer"
-          },
-          "roleModel": {
-            "type": "integer"
-          },
-          "suitability": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "explanatoryPower",
-          "roleModel",
-          "suitability"
-        ],
-        "type": "object"
-      },
-      "Objects_75": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "request.malformed"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The request is malformed."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              400
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Malformed request"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:request.malformed"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_76": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "header.malformed"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "A request header is malformed."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              400
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Malformed header"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:header.malformed"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_77": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "credential.missing"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "A credential is required for this operation."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              401
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Credential required"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:credential.missing"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_78": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "credential.invalid"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The supplied credential is invalid."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              401
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Invalid credential"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:credential.invalid"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_79": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "authority.denied"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The authenticated principal is not permitted to perform this operation."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              403
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Authority denied"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:authority.denied"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
         ],
         "type": "object"
       },
@@ -5873,6 +5891,256 @@
       "Objects_80": {
         "additionalProperties": false,
         "properties": {
+          "explanatoryPower": {
+            "type": "integer"
+          },
+          "roleModel": {
+            "type": "integer"
+          },
+          "suitability": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "explanatoryPower",
+          "roleModel",
+          "suitability"
+        ],
+        "type": "object"
+      },
+      "Objects_81": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "request.malformed"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The request is malformed."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              400
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Malformed request"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:request.malformed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_82": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "header.malformed"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "A request header is malformed."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              400
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Malformed header"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:header.malformed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_83": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "credential.missing"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "A credential is required for this operation."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              401
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Credential required"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:credential.missing"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_84": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "credential.invalid"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The supplied credential is invalid."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              401
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Invalid credential"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:credential.invalid"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_85": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "authority.denied"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The authenticated principal is not permitted to perform this operation."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              403
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Authority denied"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:authority.denied"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_86": {
+        "additionalProperties": false,
+        "properties": {
           "code": {
             "enum": [
               "origin.denied"
@@ -5916,7 +6184,7 @@
         ],
         "type": "object"
       },
-      "Objects_81": {
+      "Objects_87": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -5962,7 +6230,7 @@
         ],
         "type": "object"
       },
-      "Objects_82": {
+      "Objects_88": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -6008,7 +6276,7 @@
         ],
         "type": "object"
       },
-      "Objects_83": {
+      "Objects_89": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -6054,7 +6322,53 @@
         ],
         "type": "object"
       },
-      "Objects_84": {
+      "Objects_9": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "scope.invalid"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The selected department, semester or school is not available in this scope."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              422
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Invalid scope"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:scope.invalid"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_90": {
         "additionalProperties": false,
         "properties": {
           "articleId": {
@@ -6125,7 +6439,7 @@
             "type": "string"
           },
           "status": {
-            "$ref": "#/components/schemas/Union_23"
+            "$ref": "#/components/schemas/Union_24"
           },
           "sticky": {
             "type": "boolean"
@@ -6157,52 +6471,6 @@
           "canRevise",
           "canPublish",
           "authorDisplayName"
-        ],
-        "type": "object"
-      },
-      "Objects_9": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "scope.invalid"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The selected department, semester or school is not available in this scope."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              422
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Invalid scope"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:scope.invalid"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
         ],
         "type": "object"
       },
@@ -6521,11 +6789,161 @@
             },
             "type": "array"
           },
+          "demands": {
+            "items": {
+              "$ref": "#/components/schemas/Objects_52"
+            },
+            "type": "array"
+          },
           "departmentId": {
             "type": "string"
           },
           "etag": {
             "type": "string"
+          },
+          "notifications": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "attempts": {
+                  "allOf": [
+                    {
+                      "minimum": 0
+                    }
+                  ],
+                  "type": "integer"
+                },
+                "deliveredAt": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "effectId": {
+                  "type": "string"
+                },
+                "lastFailureTag": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "personId": {
+                  "type": "string"
+                },
+                "proposalId": {
+                  "allOf": [
+                    {
+                      "pattern": "^school-service-proposal-[a-f0-9]{64}$"
+                    }
+                  ],
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "Pending",
+                    "Processing",
+                    "Delivered",
+                    "Failed",
+                    "Quarantined"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "effectId",
+                "proposalId",
+                "personId",
+                "status",
+                "attempts",
+                "deliveredAt",
+                "lastFailureTag"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "occurrences": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "attendedPersonIds": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "block": {
+                  "$ref": "#/components/schemas/Union_6"
+                },
+                "day": {
+                  "$ref": "#/components/schemas/Union_4"
+                },
+                "occurredOn": {
+                  "allOf": [
+                    {
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    }
+                  ],
+                  "type": "string"
+                },
+                "occurrenceId": {
+                  "allOf": [
+                    {
+                      "pattern": "^school-service-occurrence-[a-f0-9]{64}$"
+                    }
+                  ],
+                  "type": "string"
+                },
+                "proposalId": {
+                  "allOf": [
+                    {
+                      "pattern": "^school-service-proposal-[a-f0-9]{64}$"
+                    }
+                  ],
+                  "type": "string"
+                },
+                "recordedAt": {
+                  "type": "string"
+                },
+                "recordedBy": {
+                  "type": "string"
+                },
+                "schoolId": {
+                  "allOf": [
+                    {
+                      "exclusiveMinimum": 0
+                    }
+                  ],
+                  "type": "integer"
+                },
+                "schoolName": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "occurrenceId",
+                "proposalId",
+                "schoolId",
+                "schoolName",
+                "day",
+                "block",
+                "occurredOn",
+                "attendedPersonIds",
+                "recordedAt",
+                "recordedBy"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           },
           "placements": {
             "items": {
@@ -6606,6 +7024,204 @@
             },
             "type": "array"
           },
+          "proposal": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "assignments": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "block": {
+                          "$ref": "#/components/schemas/Union_6"
+                        },
+                        "day": {
+                          "$ref": "#/components/schemas/Union_4"
+                        },
+                        "firstName": {
+                          "type": "string"
+                        },
+                        "lastName": {
+                          "type": "string"
+                        },
+                        "personId": {
+                          "type": "string"
+                        },
+                        "placementId": {
+                          "allOf": [
+                            {
+                              "pattern": "^placement-[a-f0-9]{64}$"
+                            }
+                          ],
+                          "type": "string"
+                        },
+                        "schoolId": {
+                          "allOf": [
+                            {
+                              "exclusiveMinimum": 0
+                            }
+                          ],
+                          "type": "integer"
+                        },
+                        "schoolName": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "placementId",
+                        "personId",
+                        "firstName",
+                        "lastName",
+                        "schoolId",
+                        "schoolName",
+                        "day",
+                        "block"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "confirmedAt": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "confirmedBy": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "createdBy": {
+                    "type": "string"
+                  },
+                  "demands": {
+                    "items": {
+                      "$ref": "#/components/schemas/Objects_52"
+                    },
+                    "type": "array"
+                  },
+                  "exceptions": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "assignedVolunteers": {
+                          "allOf": [
+                            {
+                              "minimum": 0
+                            }
+                          ],
+                          "type": "integer"
+                        },
+                        "block": {
+                          "$ref": "#/components/schemas/Union_6"
+                        },
+                        "code": {
+                          "enum": [
+                            "DemandUnfilled",
+                            "DemandExceeded",
+                            "AssignmentWithoutDemand"
+                          ],
+                          "type": "string"
+                        },
+                        "day": {
+                          "$ref": "#/components/schemas/Union_4"
+                        },
+                        "exceptionId": {
+                          "type": "string"
+                        },
+                        "requiredVolunteers": {
+                          "allOf": [
+                            {
+                              "minimum": 0
+                            }
+                          ],
+                          "type": "integer"
+                        },
+                        "schoolId": {
+                          "allOf": [
+                            {
+                              "exclusiveMinimum": 0
+                            }
+                          ],
+                          "type": "integer"
+                        },
+                        "schoolName": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "exceptionId",
+                        "code",
+                        "schoolId",
+                        "schoolName",
+                        "day",
+                        "block",
+                        "requiredVolunteers",
+                        "assignedVolunteers"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "proposalId": {
+                    "allOf": [
+                      {
+                        "pattern": "^school-service-proposal-[a-f0-9]{64}$"
+                      }
+                    ],
+                    "type": "string"
+                  },
+                  "reviewedExceptionIds": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "revision": {
+                    "type": "integer"
+                  },
+                  "status": {
+                    "enum": [
+                      "Draft",
+                      "Confirmed"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "proposalId",
+                  "status",
+                  "revision",
+                  "createdAt",
+                  "createdBy",
+                  "confirmedAt",
+                  "confirmedBy",
+                  "demands",
+                  "assignments",
+                  "exceptions",
+                  "reviewedExceptionIds"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "schools": {
             "items": {
               "additionalProperties": false,
@@ -6640,6 +7256,10 @@
           "affiliations",
           "placements",
           "schools",
+          "demands",
+          "proposal",
+          "notifications",
+          "occurrences",
           "etag"
         ],
         "type": "object"
@@ -6811,7 +7431,7 @@
             "type": "boolean"
           },
           "imageUrl": {
-            "$ref": "#/components/schemas/Union_13"
+            "$ref": "#/components/schemas/Union_14"
           },
           "previousVersions": {
             "items": {
@@ -6917,7 +7537,7 @@
                   "type": "boolean"
                 },
                 "imageUrl": {
-                  "$ref": "#/components/schemas/Union_13"
+                  "$ref": "#/components/schemas/Union_14"
                 },
                 "publishedAt": {
                   "type": "string"
@@ -7000,7 +7620,7 @@
             "type": "integer"
           },
           "status": {
-            "$ref": "#/components/schemas/Union_22"
+            "$ref": "#/components/schemas/Union_23"
           },
           "visualId": {
             "type": "string"
@@ -7095,7 +7715,7 @@
             "type": "integer"
           },
           "status": {
-            "$ref": "#/components/schemas/Union_22"
+            "$ref": "#/components/schemas/Union_23"
           },
           "visualId": {
             "type": "string"
@@ -7226,7 +7846,7 @@
             "type": "integer"
           },
           "status": {
-            "$ref": "#/components/schemas/Union_22"
+            "$ref": "#/components/schemas/Union_23"
           },
           "submittedAt": {
             "type": "string"
@@ -7327,7 +7947,7 @@
             "type": "integer"
           },
           "status": {
-            "$ref": "#/components/schemas/Union_22"
+            "$ref": "#/components/schemas/Union_23"
           },
           "submittedAt": {
             "type": "string"
@@ -7429,7 +8049,7 @@
         "additionalProperties": false,
         "properties": {
           "campus": {
-            "$ref": "#/components/schemas/Union_12"
+            "$ref": "#/components/schemas/Union_13"
           },
           "committedAt": {
             "type": "string"
@@ -7692,7 +8312,7 @@
             "type": "string"
           },
           "notificationState": {
-            "$ref": "#/components/schemas/Union_17"
+            "$ref": "#/components/schemas/Union_18"
           },
           "responseState": {
             "enum": [
@@ -7787,13 +8407,13 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_72"
+                "$ref": "#/components/schemas/Objects_78"
               },
               "applicationId": {
                 "type": "string"
               },
               "coInterviewer": {
-                "$ref": "#/components/schemas/Union_14"
+                "$ref": "#/components/schemas/Union_15"
               },
               "departmentId": {
                 "type": "string"
@@ -7802,13 +8422,13 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_71"
+                "$ref": "#/components/schemas/Objects_77"
               },
               "interviewId": {
                 "type": "string"
               },
               "notificationState": {
-                "$ref": "#/components/schemas/Union_16"
+                "$ref": "#/components/schemas/Union_17"
               },
               "responseMessage": {
                 "type": "null"
@@ -7825,7 +8445,7 @@
                 "type": "integer"
               },
               "schedule": {
-                "$ref": "#/components/schemas/Union_15"
+                "$ref": "#/components/schemas/Union_16"
               }
             },
             "required": [
@@ -7848,13 +8468,13 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_72"
+                "$ref": "#/components/schemas/Objects_78"
               },
               "applicationId": {
                 "type": "string"
               },
               "coInterviewer": {
-                "$ref": "#/components/schemas/Union_14"
+                "$ref": "#/components/schemas/Union_15"
               },
               "departmentId": {
                 "type": "string"
@@ -7863,13 +8483,13 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_71"
+                "$ref": "#/components/schemas/Objects_77"
               },
               "interviewId": {
                 "type": "string"
               },
               "notificationState": {
-                "$ref": "#/components/schemas/Union_16"
+                "$ref": "#/components/schemas/Union_17"
               },
               "responseMessage": {
                 "type": "null"
@@ -7890,7 +8510,7 @@
                 "type": "integer"
               },
               "schedule": {
-                "$ref": "#/components/schemas/Union_15"
+                "$ref": "#/components/schemas/Union_16"
               }
             },
             "required": [
@@ -7913,13 +8533,13 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_72"
+                "$ref": "#/components/schemas/Objects_78"
               },
               "applicationId": {
                 "type": "string"
               },
               "coInterviewer": {
-                "$ref": "#/components/schemas/Union_14"
+                "$ref": "#/components/schemas/Union_15"
               },
               "departmentId": {
                 "type": "string"
@@ -7928,13 +8548,13 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_71"
+                "$ref": "#/components/schemas/Objects_77"
               },
               "interviewId": {
                 "type": "string"
               },
               "notificationState": {
-                "$ref": "#/components/schemas/Union_16"
+                "$ref": "#/components/schemas/Union_17"
               },
               "responseMessage": {
                 "anyOf": [
@@ -7965,7 +8585,7 @@
                 "type": "integer"
               },
               "schedule": {
-                "$ref": "#/components/schemas/Union_15"
+                "$ref": "#/components/schemas/Union_16"
               }
             },
             "required": [
@@ -7988,13 +8608,13 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_72"
+                "$ref": "#/components/schemas/Objects_78"
               },
               "applicationId": {
                 "type": "string"
               },
               "coInterviewer": {
-                "$ref": "#/components/schemas/Union_14"
+                "$ref": "#/components/schemas/Union_15"
               },
               "departmentId": {
                 "type": "string"
@@ -8003,13 +8623,13 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_71"
+                "$ref": "#/components/schemas/Objects_77"
               },
               "interviewId": {
                 "type": "string"
               },
               "notificationState": {
-                "$ref": "#/components/schemas/Union_16"
+                "$ref": "#/components/schemas/Union_17"
               },
               "responseMessage": {
                 "type": "string"
@@ -8033,7 +8653,7 @@
                 "type": "integer"
               },
               "schedule": {
-                "$ref": "#/components/schemas/Union_15"
+                "$ref": "#/components/schemas/Union_16"
               }
             },
             "required": [
@@ -8060,13 +8680,13 @@
         "properties": {
           "activeSchools": {
             "items": {
-              "$ref": "#/components/schemas/Objects_66"
+              "$ref": "#/components/schemas/Objects_72"
             },
             "type": "array"
           },
           "inactiveSchools": {
             "items": {
-              "$ref": "#/components/schemas/Objects_66"
+              "$ref": "#/components/schemas/Objects_72"
             },
             "type": "array"
           }
@@ -8126,7 +8746,7 @@
             "$ref": "#/components/schemas/Arrays_3"
           },
           "help": {
-            "$ref": "#/components/schemas/Union_26"
+            "$ref": "#/components/schemas/Union_27"
           },
           "kind": {
             "enum": [
@@ -8226,7 +8846,7 @@
             "$ref": "#/components/schemas/Arrays_3"
           },
           "help": {
-            "$ref": "#/components/schemas/Union_26"
+            "$ref": "#/components/schemas/Union_27"
           },
           "kind": {
             "enum": [
@@ -8300,7 +8920,7 @@
             "$ref": "#/components/schemas/Arrays_3"
           },
           "help": {
-            "$ref": "#/components/schemas/Union_26"
+            "$ref": "#/components/schemas/Union_27"
           },
           "kind": {
             "enum": [
@@ -8375,7 +8995,7 @@
         "additionalProperties": false,
         "properties": {
           "help": {
-            "$ref": "#/components/schemas/Union_26"
+            "$ref": "#/components/schemas/Union_27"
           },
           "kind": {
             "enum": [
@@ -8593,7 +9213,7 @@
         "additionalProperties": false,
         "properties": {
           "audience": {
-            "$ref": "#/components/schemas/Union_24"
+            "$ref": "#/components/schemas/Union_25"
           },
           "departmentId": {
             "type": "string"
@@ -8618,7 +9238,7 @@
             "type": "string"
           },
           "link": {
-            "$ref": "#/components/schemas/Union_25"
+            "$ref": "#/components/schemas/Union_26"
           },
           "revision": {
             "enum": [
@@ -8659,7 +9279,7 @@
         "additionalProperties": false,
         "properties": {
           "audience": {
-            "$ref": "#/components/schemas/Union_24"
+            "$ref": "#/components/schemas/Union_25"
           },
           "departmentId": {
             "type": "string"
@@ -8684,7 +9304,7 @@
             "type": "string"
           },
           "link": {
-            "$ref": "#/components/schemas/Union_25"
+            "$ref": "#/components/schemas/Union_26"
           },
           "revision": {
             "enum": [
@@ -9064,7 +9684,7 @@
             "type": "boolean"
           },
           "deadline": {
-            "$ref": "#/components/schemas/Union_6"
+            "$ref": "#/components/schemas/Union_7"
           },
           "departmentId": {
             "type": "string"
@@ -9168,6 +9788,16 @@
         "type": "string"
       },
       "Union_10": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "Union_11": {
         "enum": [
           "all",
           "block-1",
@@ -9175,7 +9805,7 @@
         ],
         "type": "string"
       },
-      "Union_11": {
+      "Union_12": {
         "enum": [
           "Norsk",
           "Engelsk",
@@ -9183,7 +9813,7 @@
         ],
         "type": "string"
       },
-      "Union_12": {
+      "Union_13": {
         "anyOf": [
           {
             "allOf": [
@@ -9198,7 +9828,7 @@
           }
         ]
       },
-      "Union_13": {
+      "Union_14": {
         "anyOf": [
           {
             "type": "string"
@@ -9208,7 +9838,7 @@
           }
         ]
       },
-      "Union_14": {
+      "Union_15": {
         "anyOf": [
           {
             "additionalProperties": false,
@@ -9236,7 +9866,7 @@
           }
         ]
       },
-      "Union_15": {
+      "Union_16": {
         "anyOf": [
           {
             "$ref": "#/components/schemas/Recruitment.RecruitmentInterviewScheduleEncoded"
@@ -9246,17 +9876,17 @@
           }
         ]
       },
-      "Union_16": {
+      "Union_17": {
         "anyOf": [
           {
-            "$ref": "#/components/schemas/Union_17"
+            "$ref": "#/components/schemas/Union_18"
           },
           {
             "type": "null"
           }
         ]
       },
-      "Union_17": {
+      "Union_18": {
         "enum": [
           "Pending",
           "Processing",
@@ -9266,21 +9896,13 @@
         ],
         "type": "string"
       },
-      "Union_18": {
+      "Union_19": {
         "enum": [
           "all",
           "Ja",
           "Kanskje",
           "Nei",
           "not-recorded"
-        ],
-        "type": "string"
-      },
-      "Union_19": {
-        "enum": [
-          "applicant",
-          "recommendation",
-          "total"
         ],
         "type": "string"
       },
@@ -9296,13 +9918,21 @@
       },
       "Union_20": {
         "enum": [
+          "applicant",
+          "recommendation",
+          "total"
+        ],
+        "type": "string"
+      },
+      "Union_21": {
+        "enum": [
           "Ja",
           "Kanskje",
           "Nei"
         ],
         "type": "string"
       },
-      "Union_21": {
+      "Union_22": {
         "enum": [
           "inline; filename=\"receipt.jpg\"",
           "inline; filename=\"receipt.png\"",
@@ -9310,7 +9940,7 @@
         ],
         "type": "string"
       },
-      "Union_22": {
+      "Union_23": {
         "enum": [
           "Pending",
           "Refunded",
@@ -9319,21 +9949,21 @@
         ],
         "type": "string"
       },
-      "Union_23": {
+      "Union_24": {
         "enum": [
           "Draft",
           "Published"
         ],
         "type": "string"
       },
-      "Union_24": {
+      "Union_25": {
         "enum": [
           "TeamMembers",
           "AssistantsAndTeamMembers"
         ],
         "type": "string"
       },
-      "Union_25": {
+      "Union_26": {
         "anyOf": [
           {
             "allOf": [
@@ -9348,7 +9978,7 @@
           }
         ]
       },
-      "Union_26": {
+      "Union_27": {
         "anyOf": [
           {
             "type": "string"
@@ -9386,29 +10016,16 @@
         "type": "string"
       },
       "Union_6": {
-        "anyOf": [
-          {
-            "type": "string"
-          },
-          {
-            "type": "null"
-          }
-        ]
+        "enum": [
+          "1",
+          "2"
+        ],
+        "type": "string"
       },
       "Union_7": {
         "anyOf": [
           {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            ]
+            "type": "string"
           },
           {
             "type": "null"
@@ -9438,7 +10055,17 @@
       "Union_9": {
         "anyOf": [
           {
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            ]
           },
           {
             "type": "null"
@@ -13136,7 +13763,7 @@
                                     "type": "string"
                                   },
                                   "schedule": {
-                                    "$ref": "#/components/schemas/Objects_67"
+                                    "$ref": "#/components/schemas/Objects_73"
                                   }
                                 },
                                 "required": [
@@ -13155,7 +13782,7 @@
                                     "type": "string"
                                   },
                                   "schedule": {
-                                    "$ref": "#/components/schemas/Objects_67"
+                                    "$ref": "#/components/schemas/Objects_73"
                                   }
                                 },
                                 "required": [
@@ -16628,7 +17255,7 @@
             "name": "department",
             "required": false,
             "schema": {
-              "$ref": "#/components/schemas/Union_9"
+              "$ref": "#/components/schemas/Union_10"
             }
           }
         ],
@@ -16677,7 +17304,7 @@
                             "type": "string"
                           },
                           "status": {
-                            "$ref": "#/components/schemas/Union_23"
+                            "$ref": "#/components/schemas/Union_24"
                           },
                           "sticky": {
                             "type": "boolean"
@@ -17435,7 +18062,7 @@
                       "type": "string"
                     },
                     "status": {
-                      "$ref": "#/components/schemas/Union_23"
+                      "$ref": "#/components/schemas/Union_24"
                     },
                     "sticky": {
                       "type": "boolean"
@@ -18724,7 +19351,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Objects_84"
+                  "$ref": "#/components/schemas/Objects_90"
                 }
               }
             },
@@ -19613,7 +20240,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Objects_84"
+                  "$ref": "#/components/schemas/Objects_90"
                 }
               }
             },
@@ -27644,7 +28271,7 @@
             "name": "department",
             "required": false,
             "schema": {
-              "$ref": "#/components/schemas/Union_7"
+              "$ref": "#/components/schemas/Union_8"
             }
           },
           {
@@ -27652,7 +28279,7 @@
             "name": "semester",
             "required": false,
             "schema": {
-              "$ref": "#/components/schemas/Union_8"
+              "$ref": "#/components/schemas/Union_9"
             }
           },
           {
@@ -28371,7 +28998,7 @@
             "name": "department",
             "required": false,
             "schema": {
-              "$ref": "#/components/schemas/Union_9"
+              "$ref": "#/components/schemas/Union_10"
             }
           }
         ],
@@ -29586,16 +30213,16 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_47"
+                      "$ref": "#/components/schemas/Objects_53"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_48"
+                      "$ref": "#/components/schemas/Objects_54"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_49"
+                      "$ref": "#/components/schemas/Objects_55"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_50"
+                      "$ref": "#/components/schemas/Objects_56"
                     }
                   ]
                 }
@@ -29625,7 +30252,7 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_53"
+                          "$ref": "#/components/schemas/Objects_59"
                         }
                       ]
                     },
@@ -29664,7 +30291,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_54"
+                      "$ref": "#/components/schemas/Objects_60"
                     }
                   ]
                 }
@@ -29692,7 +30319,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_55"
+                      "$ref": "#/components/schemas/Objects_61"
                     }
                   ]
                 }
@@ -29720,22 +30347,22 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_58"
+                      "$ref": "#/components/schemas/Objects_64"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_59"
+                      "$ref": "#/components/schemas/Objects_65"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_60"
+                      "$ref": "#/components/schemas/Objects_66"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_61"
+                      "$ref": "#/components/schemas/Objects_67"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_62"
+                      "$ref": "#/components/schemas/Objects_68"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_63"
+                      "$ref": "#/components/schemas/Objects_69"
                     }
                   ]
                 }
@@ -29779,7 +30406,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_57"
+                      "$ref": "#/components/schemas/Objects_63"
                     }
                   ]
                 }
@@ -29807,7 +30434,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_51"
+                      "$ref": "#/components/schemas/Objects_57"
                     }
                   ]
                 }
@@ -29835,7 +30462,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_65"
+                      "$ref": "#/components/schemas/Objects_71"
                     }
                   ]
                 }
@@ -29863,7 +30490,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_52"
+                      "$ref": "#/components/schemas/Objects_58"
                     }
                   ]
                 }
@@ -29891,7 +30518,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_56"
+                      "$ref": "#/components/schemas/Objects_62"
                     }
                   ]
                 }
@@ -29919,7 +30546,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_64"
+                      "$ref": "#/components/schemas/Objects_70"
                     }
                   ]
                 }
@@ -30077,16 +30704,16 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_47"
+                      "$ref": "#/components/schemas/Objects_53"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_48"
+                      "$ref": "#/components/schemas/Objects_54"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_49"
+                      "$ref": "#/components/schemas/Objects_55"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_50"
+                      "$ref": "#/components/schemas/Objects_56"
                     }
                   ]
                 }
@@ -30116,7 +30743,7 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_53"
+                          "$ref": "#/components/schemas/Objects_59"
                         }
                       ]
                     },
@@ -30155,7 +30782,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_54"
+                      "$ref": "#/components/schemas/Objects_60"
                     }
                   ]
                 }
@@ -30183,7 +30810,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_55"
+                      "$ref": "#/components/schemas/Objects_61"
                     }
                   ]
                 }
@@ -30211,22 +30838,22 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_58"
+                      "$ref": "#/components/schemas/Objects_64"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_59"
+                      "$ref": "#/components/schemas/Objects_65"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_60"
+                      "$ref": "#/components/schemas/Objects_66"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_61"
+                      "$ref": "#/components/schemas/Objects_67"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_62"
+                      "$ref": "#/components/schemas/Objects_68"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_63"
+                      "$ref": "#/components/schemas/Objects_69"
                     }
                   ]
                 }
@@ -30270,7 +30897,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_57"
+                      "$ref": "#/components/schemas/Objects_63"
                     }
                   ]
                 }
@@ -30298,7 +30925,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_51"
+                      "$ref": "#/components/schemas/Objects_57"
                     }
                   ]
                 }
@@ -30326,7 +30953,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_65"
+                      "$ref": "#/components/schemas/Objects_71"
                     }
                   ]
                 }
@@ -30354,7 +30981,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_52"
+                      "$ref": "#/components/schemas/Objects_58"
                     }
                   ]
                 }
@@ -30382,7 +31009,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_56"
+                      "$ref": "#/components/schemas/Objects_62"
                     }
                   ]
                 }
@@ -30410,7 +31037,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_64"
+                      "$ref": "#/components/schemas/Objects_70"
                     }
                   ]
                 }
@@ -30598,16 +31225,16 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_47"
+                      "$ref": "#/components/schemas/Objects_53"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_48"
+                      "$ref": "#/components/schemas/Objects_54"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_49"
+                      "$ref": "#/components/schemas/Objects_55"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_50"
+                      "$ref": "#/components/schemas/Objects_56"
                     }
                   ]
                 }
@@ -30635,7 +31262,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_53"
+                      "$ref": "#/components/schemas/Objects_59"
                     }
                   ]
                 }
@@ -30669,7 +31296,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_54"
+                      "$ref": "#/components/schemas/Objects_60"
                     }
                   ]
                 }
@@ -30697,7 +31324,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_55"
+                      "$ref": "#/components/schemas/Objects_61"
                     }
                   ]
                 }
@@ -30725,22 +31352,22 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_58"
+                      "$ref": "#/components/schemas/Objects_64"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_59"
+                      "$ref": "#/components/schemas/Objects_65"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_60"
+                      "$ref": "#/components/schemas/Objects_66"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_61"
+                      "$ref": "#/components/schemas/Objects_67"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_62"
+                      "$ref": "#/components/schemas/Objects_68"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_63"
+                      "$ref": "#/components/schemas/Objects_69"
                     }
                   ]
                 }
@@ -30784,7 +31411,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_57"
+                      "$ref": "#/components/schemas/Objects_63"
                     }
                   ]
                 }
@@ -30812,7 +31439,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_51"
+                      "$ref": "#/components/schemas/Objects_57"
                     }
                   ]
                 }
@@ -30840,7 +31467,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_65"
+                      "$ref": "#/components/schemas/Objects_71"
                     }
                   ]
                 }
@@ -30868,7 +31495,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_52"
+                      "$ref": "#/components/schemas/Objects_58"
                     }
                   ]
                 }
@@ -30896,7 +31523,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_56"
+                      "$ref": "#/components/schemas/Objects_62"
                     }
                   ]
                 }
@@ -30924,7 +31551,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_64"
+                      "$ref": "#/components/schemas/Objects_70"
                     }
                   ]
                 }
@@ -32244,7 +32871,7 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_35"
+                          "$ref": "#/components/schemas/Objects_39"
                         }
                       ]
                     },
@@ -32283,7 +32910,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_36"
+                      "$ref": "#/components/schemas/Objects_40"
                     }
                   ]
                 }
@@ -32311,7 +32938,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_37"
+                      "$ref": "#/components/schemas/Objects_41"
                     }
                   ]
                 }
@@ -32339,19 +32966,22 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_38"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_39"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_40"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_41"
-                    },
-                    {
                       "$ref": "#/components/schemas/Objects_42"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_43"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_44"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_45"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_46"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_47"
                     }
                   ]
                 }
@@ -32395,7 +33025,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_44"
+                      "$ref": "#/components/schemas/Objects_49"
                     }
                   ]
                 }
@@ -32451,7 +33081,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_46"
+                      "$ref": "#/components/schemas/Objects_51"
                     }
                   ]
                 }
@@ -32492,6 +33122,18 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_34"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_35"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_36"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_37"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_38"
                     }
                   ]
                 }
@@ -32519,7 +33161,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_43"
+                      "$ref": "#/components/schemas/Objects_48"
                     }
                   ]
                 }
@@ -32547,7 +33189,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_45"
+                      "$ref": "#/components/schemas/Objects_50"
                     }
                   ]
                 }
@@ -32612,7 +33254,7 @@
         }
       },
       "post": {
-        "description": "Conditional audited commands; persisted placement scope must match the selected board.",
+        "description": "Conditional audited commands; demand, proposal, confirmation, notification, occurrence, and placement scope stay transaction-bound.",
         "operationId": "placements.commandBoard",
         "parameters": [
           {
@@ -32801,6 +33443,150 @@
                       "placementId"
                     ],
                     "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "action": {
+                        "enum": [
+                          "SetDemand"
+                        ],
+                        "type": "string"
+                      },
+                      "block": {
+                        "$ref": "#/components/schemas/Union_6"
+                      },
+                      "day": {
+                        "$ref": "#/components/schemas/Union_4"
+                      },
+                      "requiredVolunteers": {
+                        "allOf": [
+                          {
+                            "minimum": 0
+                          }
+                        ],
+                        "type": "integer"
+                      },
+                      "schoolId": {
+                        "allOf": [
+                          {
+                            "exclusiveMinimum": 0
+                          }
+                        ],
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "action",
+                      "schoolId",
+                      "day",
+                      "block",
+                      "requiredVolunteers"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "action": {
+                        "enum": [
+                          "GenerateProposal"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "action": {
+                        "enum": [
+                          "ConfirmProposal"
+                        ],
+                        "type": "string"
+                      },
+                      "proposalId": {
+                        "allOf": [
+                          {
+                            "pattern": "^school-service-proposal-[a-f0-9]{64}$"
+                          }
+                        ],
+                        "type": "string"
+                      },
+                      "reviewedExceptionIds": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "action",
+                      "proposalId",
+                      "reviewedExceptionIds"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "action": {
+                        "enum": [
+                          "RecordOccurrence"
+                        ],
+                        "type": "string"
+                      },
+                      "attendedPersonIds": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "block": {
+                        "$ref": "#/components/schemas/Union_6"
+                      },
+                      "day": {
+                        "$ref": "#/components/schemas/Union_4"
+                      },
+                      "occurredOn": {
+                        "allOf": [
+                          {
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                          }
+                        ],
+                        "type": "string"
+                      },
+                      "proposalId": {
+                        "allOf": [
+                          {
+                            "pattern": "^school-service-proposal-[a-f0-9]{64}$"
+                          }
+                        ],
+                        "type": "string"
+                      },
+                      "schoolId": {
+                        "allOf": [
+                          {
+                            "exclusiveMinimum": 0
+                          }
+                        ],
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "action",
+                      "proposalId",
+                      "schoolId",
+                      "day",
+                      "block",
+                      "occurredOn",
+                      "attendedPersonIds"
+                    ],
+                    "type": "object"
                   }
                 ]
               }
@@ -32884,7 +33670,7 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_35"
+                          "$ref": "#/components/schemas/Objects_39"
                         }
                       ]
                     },
@@ -32923,7 +33709,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_36"
+                      "$ref": "#/components/schemas/Objects_40"
                     }
                   ]
                 }
@@ -32951,7 +33737,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_37"
+                      "$ref": "#/components/schemas/Objects_41"
                     }
                   ]
                 }
@@ -32979,19 +33765,22 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_38"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_39"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_40"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_41"
-                    },
-                    {
                       "$ref": "#/components/schemas/Objects_42"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_43"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_44"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_45"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_46"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_47"
                     }
                   ]
                 }
@@ -33035,7 +33824,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_44"
+                      "$ref": "#/components/schemas/Objects_49"
                     }
                   ]
                 }
@@ -33091,7 +33880,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_46"
+                      "$ref": "#/components/schemas/Objects_51"
                     }
                   ]
                 }
@@ -33132,6 +33921,18 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_34"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_35"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_36"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_37"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_38"
                     }
                   ]
                 }
@@ -33159,7 +33960,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_43"
+                      "$ref": "#/components/schemas/Objects_48"
                     }
                   ]
                 }
@@ -33187,7 +33988,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_45"
+                      "$ref": "#/components/schemas/Objects_50"
                     }
                   ]
                 }
@@ -33218,7 +34019,7 @@
             "oauthUserBearer": []
           }
         ],
-        "summary": "Manage volunteer affiliation and placement",
+        "summary": "Manage volunteer placement and school service",
         "tags": [
           "Volunteer placement"
         ],
@@ -33336,7 +34137,7 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_35"
+                          "$ref": "#/components/schemas/Objects_39"
                         }
                       ]
                     },
@@ -33375,7 +34176,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_36"
+                      "$ref": "#/components/schemas/Objects_40"
                     }
                   ]
                 }
@@ -33403,7 +34204,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_37"
+                      "$ref": "#/components/schemas/Objects_41"
                     }
                   ]
                 }
@@ -33431,19 +34232,22 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_38"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_39"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_40"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_41"
-                    },
-                    {
                       "$ref": "#/components/schemas/Objects_42"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_43"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_44"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_45"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_46"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_47"
                     }
                   ]
                 }
@@ -33487,7 +34291,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_44"
+                      "$ref": "#/components/schemas/Objects_49"
                     }
                   ]
                 }
@@ -33543,7 +34347,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_46"
+                      "$ref": "#/components/schemas/Objects_51"
                     }
                   ]
                 }
@@ -33584,6 +34388,18 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_34"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_35"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_36"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_37"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_38"
                     }
                   ]
                 }
@@ -33611,7 +34427,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_43"
+                      "$ref": "#/components/schemas/Objects_48"
                     }
                   ]
                 }
@@ -33639,7 +34455,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_45"
+                      "$ref": "#/components/schemas/Objects_50"
                     }
                   ]
                 }
@@ -33831,7 +34647,7 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_35"
+                          "$ref": "#/components/schemas/Objects_39"
                         }
                       ]
                     },
@@ -33870,7 +34686,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_36"
+                      "$ref": "#/components/schemas/Objects_40"
                     }
                   ]
                 }
@@ -33898,7 +34714,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_37"
+                      "$ref": "#/components/schemas/Objects_41"
                     }
                   ]
                 }
@@ -33926,19 +34742,22 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_38"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_39"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_40"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_41"
-                    },
-                    {
                       "$ref": "#/components/schemas/Objects_42"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_43"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_44"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_45"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_46"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_47"
                     }
                   ]
                 }
@@ -33982,7 +34801,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_44"
+                      "$ref": "#/components/schemas/Objects_49"
                     }
                   ]
                 }
@@ -34038,7 +34857,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_46"
+                      "$ref": "#/components/schemas/Objects_51"
                     }
                   ]
                 }
@@ -34079,6 +34898,18 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_34"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_35"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_36"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_37"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_38"
                     }
                   ]
                 }
@@ -34106,7 +34937,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_43"
+                      "$ref": "#/components/schemas/Objects_48"
                     }
                   ]
                 }
@@ -34134,7 +34965,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_45"
+                      "$ref": "#/components/schemas/Objects_50"
                     }
                   ]
                 }
@@ -34327,7 +35158,7 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_35"
+                          "$ref": "#/components/schemas/Objects_39"
                         }
                       ]
                     },
@@ -34366,7 +35197,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_36"
+                      "$ref": "#/components/schemas/Objects_40"
                     }
                   ]
                 }
@@ -34394,7 +35225,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_37"
+                      "$ref": "#/components/schemas/Objects_41"
                     }
                   ]
                 }
@@ -34422,19 +35253,22 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_38"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_39"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_40"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_41"
-                    },
-                    {
                       "$ref": "#/components/schemas/Objects_42"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_43"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_44"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_45"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_46"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_47"
                     }
                   ]
                 }
@@ -34478,7 +35312,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_44"
+                      "$ref": "#/components/schemas/Objects_49"
                     }
                   ]
                 }
@@ -34534,7 +35368,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_46"
+                      "$ref": "#/components/schemas/Objects_51"
                     }
                   ]
                 }
@@ -34575,6 +35409,18 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_34"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_35"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_36"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_37"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_38"
                     }
                   ]
                 }
@@ -34602,7 +35448,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_43"
+                      "$ref": "#/components/schemas/Objects_48"
                     }
                   ]
                 }
@@ -34630,7 +35476,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_45"
+                      "$ref": "#/components/schemas/Objects_50"
                     }
                   ]
                 }
@@ -36957,7 +37803,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "$ref": "#/components/schemas/Union_22"
+                  "$ref": "#/components/schemas/Union_23"
                 },
                 {
                   "type": "null"
@@ -37601,7 +38447,7 @@
               "content-disposition": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Union_21"
+                  "$ref": "#/components/schemas/Union_22"
                 }
               },
               "content-length": {
@@ -37636,10 +38482,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_75"
+                      "$ref": "#/components/schemas/Objects_81"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_76"
+                      "$ref": "#/components/schemas/Objects_82"
                     }
                   ]
                 }
@@ -37669,10 +38515,10 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_77"
+                          "$ref": "#/components/schemas/Objects_83"
                         },
                         {
-                          "$ref": "#/components/schemas/Objects_78"
+                          "$ref": "#/components/schemas/Objects_84"
                         }
                       ]
                     },
@@ -37711,10 +38557,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_79"
+                      "$ref": "#/components/schemas/Objects_85"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_80"
+                      "$ref": "#/components/schemas/Objects_86"
                     }
                   ]
                 }
@@ -37742,7 +38588,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_81"
+                      "$ref": "#/components/schemas/Objects_87"
                     }
                   ]
                 }
@@ -37770,7 +38616,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_82"
+                      "$ref": "#/components/schemas/Objects_88"
                     }
                   ]
                 }
@@ -37798,7 +38644,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_83"
+                      "$ref": "#/components/schemas/Objects_89"
                     }
                   ]
                 }
@@ -37890,11 +38736,11 @@
                 {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Union_22"
+                      "$ref": "#/components/schemas/Union_23"
                     },
                     {
                       "items": {
-                        "$ref": "#/components/schemas/Union_22"
+                        "$ref": "#/components/schemas/Union_23"
                       },
                       "type": "array"
                     }
@@ -38510,7 +39356,7 @@
             "name": "departmentId",
             "required": false,
             "schema": {
-              "$ref": "#/components/schemas/Union_13"
+              "$ref": "#/components/schemas/Union_14"
             }
           }
         ],
@@ -47334,7 +48180,7 @@
               "content-disposition": {
                 "required": true,
                 "schema": {
-                  "$ref": "#/components/schemas/Union_21"
+                  "$ref": "#/components/schemas/Union_22"
                 }
               },
               "content-length": {
@@ -47369,10 +48215,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_75"
+                      "$ref": "#/components/schemas/Objects_81"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_76"
+                      "$ref": "#/components/schemas/Objects_82"
                     }
                   ]
                 }
@@ -47402,10 +48248,10 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_77"
+                          "$ref": "#/components/schemas/Objects_83"
                         },
                         {
-                          "$ref": "#/components/schemas/Objects_78"
+                          "$ref": "#/components/schemas/Objects_84"
                         }
                       ]
                     },
@@ -47444,10 +48290,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_79"
+                      "$ref": "#/components/schemas/Objects_85"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_80"
+                      "$ref": "#/components/schemas/Objects_86"
                     }
                   ]
                 }
@@ -47475,7 +48321,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_81"
+                      "$ref": "#/components/schemas/Objects_87"
                     }
                   ]
                 }
@@ -47503,7 +48349,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_82"
+                      "$ref": "#/components/schemas/Objects_88"
                     }
                   ]
                 }
@@ -47531,7 +48377,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_83"
+                      "$ref": "#/components/schemas/Objects_89"
                     }
                   ]
                 }
@@ -49694,7 +50540,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "$ref": "#/components/schemas/Union_18"
+                  "$ref": "#/components/schemas/Union_19"
                 },
                 {
                   "type": "null"
@@ -49729,7 +50575,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "$ref": "#/components/schemas/Union_19"
+                  "$ref": "#/components/schemas/Union_20"
                 },
                 {
                   "type": "null"
@@ -62497,7 +63343,7 @@
                                     "type": "boolean"
                                   },
                                   "language": {
-                                    "$ref": "#/components/schemas/Union_11"
+                                    "$ref": "#/components/schemas/Union_12"
                                   },
                                   "mondayUnavailable": {
                                     "type": "boolean"
@@ -62510,7 +63356,7 @@
                                     "type": "number"
                                   },
                                   "preferredGroup": {
-                                    "$ref": "#/components/schemas/Union_10"
+                                    "$ref": "#/components/schemas/Union_11"
                                   },
                                   "preferredSchool": {
                                     "anyOf": [
@@ -62594,7 +63440,7 @@
                             "type": "integer"
                           },
                           "period": {
-                            "$ref": "#/components/schemas/Objects_68"
+                            "$ref": "#/components/schemas/Objects_74"
                           },
                           "semesterName": {
                             "type": "string"
@@ -63546,7 +64392,7 @@
                     "type": "boolean"
                   },
                   "language": {
-                    "$ref": "#/components/schemas/Union_11"
+                    "$ref": "#/components/schemas/Union_12"
                   },
                   "mondayUnavailable": {
                     "type": "boolean"
@@ -63559,7 +64405,7 @@
                     "type": "number"
                   },
                   "preferredGroup": {
-                    "$ref": "#/components/schemas/Union_10"
+                    "$ref": "#/components/schemas/Union_11"
                   },
                   "preferredSchool": {
                     "anyOf": [
@@ -65189,7 +66035,7 @@
             "name": "department",
             "required": false,
             "schema": {
-              "$ref": "#/components/schemas/Union_9"
+              "$ref": "#/components/schemas/Union_10"
             }
           }
         ],
@@ -76866,7 +77712,7 @@
             "name": "department",
             "required": false,
             "schema": {
-              "$ref": "#/components/schemas/Union_7"
+              "$ref": "#/components/schemas/Union_8"
             }
           },
           {
@@ -76874,7 +77720,7 @@
             "name": "semester",
             "required": false,
             "schema": {
-              "$ref": "#/components/schemas/Union_8"
+              "$ref": "#/components/schemas/Union_9"
             }
           }
         ],
@@ -78074,7 +78920,7 @@
                       "type": "boolean"
                     },
                     "deadline": {
-                      "$ref": "#/components/schemas/Union_6"
+                      "$ref": "#/components/schemas/Union_7"
                     },
                     "departmentId": {
                       "type": "string"
@@ -79506,7 +80352,7 @@
       "name": "Substitute pool"
     },
     {
-      "description": "Explicit affiliation and existing-volunteer school placement.",
+      "description": "Explicit affiliation, placement, demand, human-confirmed roster, and teaching occurrence.",
       "name": "Volunteer placement"
     },
     {
