@@ -933,8 +933,9 @@ const StrictNativeProjectionSchema = Schema.Struct({
     code: Schema.String,
   }),
   administratorDirectory: Schema.Struct({
-    activeUsers: Schema.Array(DirectoryUserSchema),
-    inactiveUsers: Schema.Array(DirectoryUserSchema),
+    activePeople: Schema.Array(DirectoryUserSchema),
+    inactivePeople: Schema.Array(DirectoryUserSchema),
+    nextCursor: Schema.NullOr(Schema.String),
   }),
 });
 const PersonAuthorityProjectionSchema = Schema.Struct({
