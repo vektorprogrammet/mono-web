@@ -1859,13 +1859,16 @@
           "BetterAuthCookie",
           "OAuthUserBearer"
         ],
-        "canonicalScopeResolver": "receipts.approval-queue",
+        "canonicalScopeResolver": "receipts.settlement-queue",
         "capabilities": {
-          "none": true
+          "one": "settleReceipt"
         },
         "concealment": {
-          "mode": "Reveal",
-          "stages": []
+          "mode": "NotFound",
+          "stages": [
+            "Capability",
+            "Scope"
+          ]
         },
         "decisionTime": "SnapshotRead",
         "exposure": "External",
@@ -1883,7 +1886,6 @@
         "400",
         "401",
         "403",
-        "404",
         "500",
         "503"
       ],
@@ -1980,11 +1982,14 @@
         ],
         "canonicalScopeResolver": "receipts.by-id",
         "capabilities": {
-          "none": true
+          "one": "settleReceipt"
         },
         "concealment": {
-          "mode": "Reveal",
-          "stages": []
+          "mode": "NotFound",
+          "stages": [
+            "Capability",
+            "Scope"
+          ]
         },
         "decisionTime": "SnapshotRead",
         "exposure": "External",
@@ -2167,11 +2172,14 @@
         ],
         "canonicalScopeResolver": "receipts.by-id",
         "capabilities": {
-          "none": true
+          "one": "settleReceipt"
         },
         "concealment": {
-          "mode": "Reveal",
-          "stages": []
+          "mode": "NotFound",
+          "stages": [
+            "Capability",
+            "Scope"
+          ]
         },
         "decisionTime": "Transaction",
         "exposure": "External",

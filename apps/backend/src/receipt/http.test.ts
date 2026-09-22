@@ -890,6 +890,40 @@ describe("receipt v0.2 HTTP contract", () => {
     });
   });
 
+  it("rejects settlement media types outside the declared JSON contract", async () => {
+    const state = harness();
+    const response = await request(state.http, `/api/receipts/${receiptId}:settle`, {
+      method: "POST",
+      headers: {
+        "content-type": "text/plain",
+        "idempotency-key": "settle-wrong-media-type-0001",
+        "if-match": receiptEtag(receiptId, 2),
+      },
+      body: "not-json",
+    });
+
+    expect(response.status).toBe(415);
+    expect(await response.json()).toMatchObject({ code: "media-type.unsupported" });
+    expect(state.settlementCommands).toHaveLength(0);
+  });
+
+  it("stops reading an undeclared oversized settlement body", async () => {
+    const state = harness();
+    const response = await request(state.http, `/api/receipts/${receiptId}:settle`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": "settle-oversized-stream-0001",
+        "if-match": receiptEtag(receiptId, 2),
+      },
+      body: "x".repeat(65_537),
+    });
+
+    expect(response.status).toBe(413);
+    expect(await response.json()).toMatchObject({ code: "request.too-large" });
+    expect(state.settlementCommands).toHaveLength(0);
+  });
+
   it("records private immutable settlement evidence with revision and idempotent replay", async () => {
     const queueRow = pendingReceipt({
       status: "Approved",

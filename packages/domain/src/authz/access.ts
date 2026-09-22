@@ -64,6 +64,7 @@ export const CAPABILITY_TYPE_IDS = [
   "recruitment.conduct-interview",
   "receipts.manage-owned",
   "receipts.read-owned",
+  "settleReceipt",
   "content.read-workspace",
   "content.create-article",
   "content.read-article",
@@ -243,6 +244,7 @@ export const SCOPE_RESOLVER_IDS = [
   "receipts.by-id",
   "receipts.owned",
   "receipts.approval-queue",
+  "receipts.settlement-queue",
   "content.articles",
   "content.article-create",
   "content.article-by-id",
@@ -679,6 +681,7 @@ const collectionResolvers = new Set<string>([
   "recruitment.interviews",
   "receipts.owned",
   "receipts.approval-queue",
+  "receipts.settlement-queue",
   "content.articles",
   "content.public-news",
 ]);
@@ -721,7 +724,10 @@ const resolverRequirements: Partial<
 export const SCOPE_RESOLVERS = Object.fromEntries(
   SCOPE_RESOLVER_IDS.map((id) => {
     const contextSchema =
-      id === "receipts.by-id" || id === "receipts.owned" || id === "receipts.approval-queue"
+      id === "receipts.by-id" ||
+      id === "receipts.owned" ||
+      id === "receipts.approval-queue" ||
+      id === "receipts.settlement-queue"
         ? ReceiptRequirementContextSchema
         : id === "recruitment.invitation-response-by-capability"
           ? InvitationRequirementContextSchema

@@ -59,6 +59,30 @@ export function SettlementReceiptList({
           </p>
         )}
 
+        {actionNotice && (
+          <div
+            className="grid gap-3 rounded-md border bg-muted p-3"
+            role="status"
+            aria-live="polite"
+            data-testid="receipt-settlement-success"
+            data-command-id={actionNotice.commandId}
+            data-receipt-id={actionNotice.settlement.receiptId}
+          >
+            <p className="text-sm">
+              Oppgjøret er registrert. Utlegget er fortsatt godkjent; oppgjørsbeviset er en
+              separat, uforanderlig registrering.
+            </p>
+            <Link
+              className="text-sm underline underline-offset-4"
+              to={encodeURIComponent(actionNotice.settlement.receiptId)}
+              data-testid="read-receipt-settlement"
+            >
+              Se lagret oppgjørsbevis
+            </Link>
+            <ReceiptSettlementEvidence evidence={actionNotice.settlement} title="Oppgjørsbevis" />
+          </div>
+        )}
+
         {error ? (
           <p
             className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm"
@@ -95,29 +119,6 @@ export function SettlementReceiptList({
               </p>
             ) : null}
 
-            {actionNotice && (
-              <div
-                className="grid gap-3 rounded-md border bg-muted p-3"
-                role="status"
-                aria-live="polite"
-                data-testid="receipt-settlement-success"
-                data-command-id={actionNotice.commandId}
-                data-receipt-id={actionNotice.settlement.receiptId}
-              >
-                <p className="text-sm">
-                  Oppgjøret er registrert. Utlegget er fortsatt godkjent; oppgjørsbeviset er en
-                  separat, uforanderlig registrering.
-                </p>
-                <Link
-                  className="text-sm underline underline-offset-4"
-                  to={`/utlegg/oppgjor/${encodeURIComponent(actionNotice.settlement.receiptId)}`}
-                  data-testid="read-receipt-settlement"
-                >
-                  Se lagret oppgjørsbevis
-                </Link>
-                <ReceiptSettlementEvidence evidence={actionNotice.settlement} title="Oppgjørsbevis" />
-              </div>
-            )}
 
             {receipts.length === 0 ? (
               <div className="rounded-lg border border-dashed p-6">

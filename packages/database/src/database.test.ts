@@ -2644,7 +2644,7 @@ describe("DatabaseTest", () => {
           receiptDate: "2035-02-15",
           submittedAt: "2035-02-15T12:00:00.000Z",
           status: "pending",
-          approvedAt: null,
+          refundDate: null,
           paymentAccountCiphertext: "ciphertext:v1:receipt-import",
           file: {
             fileRef: `staged/${sourcePrimaryKey}`,

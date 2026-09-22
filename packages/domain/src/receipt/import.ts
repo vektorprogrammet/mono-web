@@ -29,7 +29,7 @@ export type ReceiptQuarantineReason =
   | "InvalidReceiptDate"
   | "InvalidSubmittedAt"
   | "UnknownStatus"
-  | "ApprovedAtContradiction"
+  | "RefundDateContradiction"
   | "MissingPaymentAccount"
   | "MissingFile";
 
@@ -76,7 +76,7 @@ const status = (value: string): ReceiptStatus | undefined => {
   switch (value) {
     case "pending":
       return "Pending";
-    case "approved":
+    case "refunded":
       return "Approved";
     case "rejected":
       return "Rejected";
@@ -133,10 +133,10 @@ export const importLegacyReceipt = (
   if (!isIsoInstant(row.submittedAt)) reasons.push("InvalidSubmittedAt");
   if (importedStatus === undefined) reasons.push("UnknownStatus");
   if (
-    (importedStatus === "Approved" && (row.approvedAt === null || !isIsoInstant(row.approvedAt))) ||
-    (importedStatus !== undefined && importedStatus !== "Approved" && row.approvedAt !== null)
+    (importedStatus === "Approved" && (row.refundDate === null || !isIsoInstant(row.refundDate))) ||
+    (importedStatus !== undefined && importedStatus !== "Approved" && row.refundDate !== null)
   ) {
-    reasons.push("ApprovedAtContradiction");
+    reasons.push("RefundDateContradiction");
   }
   if (row.paymentAccountCiphertext === null || row.paymentAccountCiphertext.length === 0) {
     reasons.push("MissingPaymentAccount");
@@ -196,7 +196,7 @@ export const importLegacyReceipt = (
       receiptDate: row.receiptDate,
       submittedAt: row.submittedAt,
       status: importedStatus,
-      approvedAt: importedStatus === "Approved" ? row.approvedAt : null,
+      approvedAt: importedStatus === "Approved" ? row.refundDate : null,
       paymentAccountCiphertext: row.paymentAccountCiphertext,
       file: row.file,
       revision: 0,

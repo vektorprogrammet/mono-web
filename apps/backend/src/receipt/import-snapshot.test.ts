@@ -91,7 +91,7 @@ it("accounts for malformed occurrences and rejects a collision with a decoded ro
     receiptDate: "2026-08-20",
     submittedAt: "2026-08-20T12:00:00.000Z",
     status: "pending",
-    approvedAt: null,
+    refundDate: null,
     file: f.file,
   };
   const envelope = (input: typeof source | Record<string, unknown>) => {

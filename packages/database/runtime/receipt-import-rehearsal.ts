@@ -272,7 +272,7 @@ try {
   );
   // Explicit pre-existing native fixture, before the measured historical import window.
   await pool.query(
-    `INSERT INTO economy_receipts(receipt_id,visual_id,owner_person_id,department_id,amount_ore,currency,description,receipt_date,submitted_at,status,refund_date,payment_account_ciphertext,file_ref,file_object_key,file_content_type,file_byte_length,file_sha256,revision)
+    `INSERT INTO economy_receipts(receipt_id,visual_id,owner_person_id,department_id,amount_ore,currency,description,receipt_date,submitted_at,status,approved_at,payment_account_ciphertext,file_ref,file_object_key,file_content_type,file_byte_length,file_sha256,revision)
  VALUES ('receipt-0095-baseline','SYN-0095-baseline',$1,'receipt-department-0095',500,'NOK','Pre-existing synthetic native receipt','2026-08-01','2026-08-01T12:00:00Z','Pending',NULL,'synthetic:baseline',$2,$3,$4,$5,$6,0)`,
     [
       persons[0]!.personId,

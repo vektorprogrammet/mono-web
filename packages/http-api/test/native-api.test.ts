@@ -117,13 +117,15 @@ const person = (
     decisionTime,
   });
 const receiptSettlement = (
-  resolver: "receipts.approval-queue" | "receipts.by-id",
+  resolver: "receipts.settlement-queue" | "receipts.by-id",
   decisionTime: "SnapshotRead" | "Transaction",
 ) =>
   expectedAccess({
     credentials: ["BetterAuthCookie", "OAuthUserBearer"],
     principals: ["Person"],
+    capability: "settleReceipt",
     resolver,
+    concealment: ["Capability", "Scope"],
     decisionTime,
   });
 const surveyAdmin = (
@@ -656,7 +658,7 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     "GET",
     "/api/receipt-settlement-queue",
     "receipts.listReceiptsForSettlement",
-    receiptSettlement("receipts.approval-queue", "SnapshotRead"),
+    receiptSettlement("receipts.settlement-queue", "SnapshotRead"),
   ],
   [
     "GET",

@@ -358,9 +358,9 @@ export const readOrganizationImportStableState = (
         receipt_date::text AS "receiptDate",
         to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "submittedAt",
         status,
-        CASE WHEN refund_date IS NULL THEN NULL
-          ELSE to_char(refund_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
-        END AS "refundDate",
+        CASE WHEN approved_at IS NULL THEN NULL
+          ELSE to_char(approved_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+        END AS "approvedAt",
         payment_account_ciphertext AS "paymentAccountCiphertext", file_ref AS "fileRef",
         file_object_key AS "fileObjectKey", file_content_type AS "fileContentType",
         file_byte_length::text AS "fileByteLength", file_sha256 AS "fileSha256", revision

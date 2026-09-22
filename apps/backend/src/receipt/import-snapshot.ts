@@ -31,7 +31,7 @@ const Row = Schema.Struct({
   receiptDate: Schema.String,
   submittedAt: Schema.String,
   status: Schema.String,
-  approvedAt: Schema.NullOr(Schema.String),
+  refundDate: Schema.NullOr(Schema.String),
   file: Schema.NullOr(FileEntry),
   rowDigest: Text,
 });
@@ -221,7 +221,7 @@ export const prepareReceiptSnapshot = async (
         receiptDate: row.receiptDate,
         submittedAt: row.submittedAt,
         status: row.status,
-        approvedAt: row.approvedAt,
+        refundDate: row.refundDate,
         paymentAccountCiphertext:
           snapshot.persons.find((person) => person.sourceUser === row.sourceUser)
             ?.syntheticPaymentAccount ?? null,

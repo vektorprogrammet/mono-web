@@ -19,7 +19,7 @@ const validRow: LegacyReceiptRow = {
   receiptDate: "2026-08-20",
   submittedAt: "2026-08-20T12:00:00.000Z",
   status: "pending",
-  approvedAt: null,
+  refundDate: null,
   paymentAccountCiphertext: "ciphertext:v1:account",
   file: {
     fileRef: "legacy/staged-1",
@@ -81,8 +81,8 @@ const cases: ReadonlyArray<{
   },
   { reason: "UnknownStatus", row: { ...validRow, status: "unknown" } },
   {
-    reason: "ApprovedAtContradiction",
-    row: { ...validRow, status: "approved", approvedAt: null },
+    reason: "RefundDateContradiction",
+    row: { ...validRow, status: "refunded", refundDate: null },
   },
   {
     reason: "MissingPaymentAccount",
@@ -98,6 +98,22 @@ it("covers every row-local Receipt quarantine reason", () => {
     if (result._tag === "QuarantinedReceiptImport") {
       expect(result.reasons).toContain(fixture.reason);
     }
+  }
+});
+
+it("maps the legacy refunded decision to approved without inventing settlement", () => {
+  const refundDate = "2026-08-22T12:00:00.000Z";
+  const result = importLegacyReceipt(
+    { ...validRow, status: "refunded", refundDate },
+    "receipt-1",
+    provenance,
+  );
+  expect(result).toMatchObject({
+    _tag: "AcceptedReceiptImport",
+    receipt: { status: "Approved", approvedAt: refundDate },
+  });
+  if (result._tag === "AcceptedReceiptImport") {
+    expect(Object.hasOwn(result.receipt, "settlement")).toBe(false);
   }
 });
 

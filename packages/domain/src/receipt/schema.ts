@@ -329,7 +329,7 @@ export const LegacyReceiptRowSchema = Schema.Struct({
   receiptDate: NonEmpty,
   submittedAt: NonEmpty,
   status: NonEmpty,
-  approvedAt: Schema.NullOr(NonEmpty),
+  refundDate: Schema.NullOr(NonEmpty),
   paymentAccountCiphertext: Schema.NullOr(NonEmpty),
   file: Schema.NullOr(LegacyReceiptFileSchema),
 });

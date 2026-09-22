@@ -67,13 +67,13 @@ import {
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
+import { readBoundedJson } from "../http-api/read-json.js";
 import {
   HttpSemanticFailure,
   deriveHttpIdentity,
   deriveStrongETag,
   nativeProblemResponse,
   parseIdempotencyKey,
-  parseJsonWithoutDuplicateMembers,
   parseRequiredIfMatch,
   semanticRequestDigest,
   semanticMutationRequest,
@@ -851,31 +851,19 @@ const decodeV2ReviseMultipart = (request: Request, maxFileBytes: number) =>
     });
   });
 
-const decodeJsonObject = (request: Request) =>
-  Effect.tryPromise({
-    try: async () => {
-      const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-      if (mediaType !== "application/json") {
-        throw new HttpSemanticFailure("request.malformed", 400);
-      }
-      const contentLength = request.headers.get("content-length");
-      if (contentLength !== null) {
-        if (!/^\d+$/.test(contentLength) || Number(contentLength) > 65_536) {
-          throw new HttpSemanticFailure("request.too-large", 413);
-        }
-      }
-      const text = await request.text();
-      if (new TextEncoder().encode(text).byteLength > 65_536) {
-        throw new HttpSemanticFailure("request.too-large", 413);
-      }
-      const body = parseJsonWithoutDuplicateMembers(new TextEncoder().encode(text));
-      if (body === null || typeof body !== "object" || Array.isArray(body)) {
-        throw new ReceiptDecodeError({ message: "request body must be an object" });
-      }
-      return body;
-    },
-    catch: (cause) => cause,
-  });
+const decodeJsonObject = (request: Request) => {
+  const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (mediaType !== "application/json") {
+    return Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
+  }
+  return readBoundedJson(request, 65_536).pipe(
+    Effect.flatMap((body) =>
+      body === null || typeof body !== "object" || Array.isArray(body)
+        ? Effect.fail(new ReceiptDecodeError({ message: "request body must be an object" }))
+        : Effect.succeed(body),
+    ),
+  );
+};
 
 const decodeExactEmptyJson = (request: Request) =>
   decodeJsonObject(request).pipe(

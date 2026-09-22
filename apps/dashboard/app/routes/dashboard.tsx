@@ -223,6 +223,18 @@ const mainLinks = [
       },
     ],
   },
+  {
+    title: "Oppgjør",
+    url: href("/utlegg/oppgjor"),
+    icon: <PiggyBank size={16} />,
+    isActive: false,
+    links: [
+      {
+        title: "Oppgjør",
+        url: href("/utlegg/oppgjor"),
+      },
+    ],
+  },
 ];
 const adminLinks = [
   {
@@ -250,10 +262,6 @@ const adminLinks = [
       {
         title: "Utlegg",
         url: href("/utlegg"),
-      },
-      {
-        title: "Oppgjør",
-        url: href("/utlegg/oppgjor"),
       },
       {
         title: "Sponsorer",

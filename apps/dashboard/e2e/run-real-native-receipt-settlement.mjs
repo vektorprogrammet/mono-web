@@ -1182,6 +1182,11 @@ async function main() {
       `${settlementRoute}/${encodeURIComponent(submittedReceipt.receiptId)}`,
       "Settlement success links to reloadable finance evidence",
     );
+    await settlementDetailLink.click();
+    await settler.page.waitForURL(
+      (url) => url.pathname === `${settlementRoute}/${encodeURIComponent(submittedReceipt.receiptId)}`,
+    );
+    await settler.page.getByTestId("receipt-settlement-evidence").waitFor();
 
     const canonicalRecord = await eventually(
       async () => {

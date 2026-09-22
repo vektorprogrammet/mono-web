@@ -99,7 +99,7 @@ const seed = (sql: DatabaseShape) =>
         INSERT INTO public.economy_receipts (
           receipt_id, visual_id, owner_person_id, department_id,
           amount_ore, currency, description, receipt_date, submitted_at,
-          status, refund_date, payment_account_ciphertext,
+          status, approved_at, payment_account_ciphertext,
           file_ref, file_object_key, file_content_type, file_byte_length,
           file_sha256, revision
         ) VALUES

@@ -314,7 +314,7 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
       receiptDate: "2026-08-19",
       submittedAt: "2026-08-20T10:00:00.000Z",
       status: "pending",
-      approvedAt: null,
+      refundDate: null,
       paymentAccountCiphertext: "ciphertext:v1:legacy-proof",
       file,
     };

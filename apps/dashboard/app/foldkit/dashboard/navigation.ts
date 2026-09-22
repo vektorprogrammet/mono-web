@@ -114,6 +114,7 @@ export const navigationSections: ReadonlyArray<NavigationSection> = [
         link: memberLink("Sponsorer", "/dashboard/sponsorer"),
       },
       { kind: "link", link: memberLink("Utlegg", "/dashboard/utlegg") },
+      { kind: "link", link: memberLink("Oppgjør", "/dashboard/utlegg/oppgjor") },
     ],
   },
   {

@@ -912,7 +912,6 @@ export const ReceiptsListReceiptsForSettlementProblem = problemUnion(
     ["credential.missing", 401],
     ["credential.invalid", 401],
     ["origin.denied", 403],
-    ["receipt.not-found", 404],
     ["internal.error", 500],
     ["receipts.unavailable", 503],
   ],

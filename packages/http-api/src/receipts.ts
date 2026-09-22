@@ -67,10 +67,10 @@ const ReceiptSettlementQueueAccess = makeAccessSpec({
   exposure: "External",
   acceptedCredentials: [{ _tag: "BetterAuthCookie" }, { _tag: "OAuthUserBearer" }],
   principalKinds: ["Person"],
-  capabilities: { _tag: "None" },
+  capabilities: { _tag: "One", capability: { type: "settleReceipt" } },
   requirements: [],
-  canonicalScopeResolver: "receipts.approval-queue",
-  concealment: { _tag: "Reveal" },
+  canonicalScopeResolver: "receipts.settlement-queue",
+  concealment: { _tag: "NotFound", conceal: ["Capability", "Scope"] },
   decisionTime: "SnapshotRead",
 });
 
@@ -78,10 +78,10 @@ const ReceiptSettlementReadAccess = makeAccessSpec({
   exposure: "External",
   acceptedCredentials: [{ _tag: "BetterAuthCookie" }, { _tag: "OAuthUserBearer" }],
   principalKinds: ["Person"],
-  capabilities: { _tag: "None" },
+  capabilities: { _tag: "One", capability: { type: "settleReceipt" } },
   requirements: [],
   canonicalScopeResolver: "receipts.by-id",
-  concealment: { _tag: "Reveal" },
+  concealment: { _tag: "NotFound", conceal: ["Capability", "Scope"] },
   decisionTime: "SnapshotRead",
 });
 
@@ -89,10 +89,10 @@ const ReceiptSettlementMutationAccess = makeAccessSpec({
   exposure: "External",
   acceptedCredentials: [{ _tag: "BetterAuthCookie" }, { _tag: "OAuthUserBearer" }],
   principalKinds: ["Person"],
-  capabilities: { _tag: "None" },
+  capabilities: { _tag: "One", capability: { type: "settleReceipt" } },
   requirements: [],
   canonicalScopeResolver: "receipts.by-id",
-  concealment: { _tag: "Reveal" },
+  concealment: { _tag: "NotFound", conceal: ["Capability", "Scope"] },
   decisionTime: "Transaction",
 });
 

@@ -44403,77 +44403,6 @@
               }
             }
           },
-          "404": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "anyOf": [
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "receipt.not-found"
-                          ],
-                          "type": "string"
-                        },
-                        "detail": {
-                          "enum": [
-                            "The receipt was not found."
-                          ],
-                          "type": "string"
-                        },
-                        "instance": {
-                          "$ref": "#/components/schemas/Union_"
-                        },
-                        "status": {
-                          "enum": [
-                            404
-                          ],
-                          "type": "number"
-                        },
-                        "title": {
-                          "enum": [
-                            "Receipt not found"
-                          ],
-                          "type": "string"
-                        },
-                        "type": {
-                          "enum": [
-                            "urn:vektorprogrammet:problem:v0.2:receipt.not-found"
-                          ],
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status",
-                        "code",
-                        "detail"
-                      ],
-                      "type": "object"
-                    }
-                  ]
-                }
-              }
-            },
-            "description": "Error",
-            "headers": {
-              "cache-control": {
-                "required": true,
-                "schema": {
-                  "$ref": "#/components/schemas/Literal_2"
-                }
-              },
-              "vary": {
-                "required": true,
-                "schema": {
-                  "$ref": "#/components/schemas/Literal_1"
-                }
-              }
-            }
-          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -44643,13 +44572,16 @@
             "BetterAuthCookie",
             "OAuthUserBearer"
           ],
-          "canonicalScopeResolver": "receipts.approval-queue",
+          "canonicalScopeResolver": "receipts.settlement-queue",
           "capabilities": {
-            "none": true
+            "one": "settleReceipt"
           },
           "concealment": {
-            "mode": "Reveal",
-            "stages": []
+            "mode": "NotFound",
+            "stages": [
+              "Capability",
+              "Scope"
+            ]
           },
           "decisionTime": "SnapshotRead",
           "exposure": "External",
@@ -45272,11 +45204,14 @@
           ],
           "canonicalScopeResolver": "receipts.by-id",
           "capabilities": {
-            "none": true
+            "one": "settleReceipt"
           },
           "concealment": {
-            "mode": "Reveal",
-            "stages": []
+            "mode": "NotFound",
+            "stages": [
+              "Capability",
+              "Scope"
+            ]
           },
           "decisionTime": "SnapshotRead",
           "exposure": "External",
@@ -54778,11 +54713,14 @@
           ],
           "canonicalScopeResolver": "receipts.by-id",
           "capabilities": {
-            "none": true
+            "one": "settleReceipt"
           },
           "concealment": {
-            "mode": "Reveal",
-            "stages": []
+            "mode": "NotFound",
+            "stages": [
+              "Capability",
+              "Scope"
+            ]
           },
           "decisionTime": "Transaction",
           "exposure": "External",
