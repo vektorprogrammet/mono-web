@@ -34,7 +34,9 @@ await applyMigrations(previous);
 const pool = new Pool({ connectionString: url });
 try {
   await pool.query(
-    `INSERT INTO public.person_profiles(person_id,first_name,last_name,revision) VALUES('journey-conduct-leader-0063','Lina','Lagleder',0)`,
+    `INSERT INTO public.person_profiles(person_id,first_name,last_name,revision) VALUES
+      ('journey-conduct-leader-0063','Lina','Lagleder',0),
+      ('journey-conduct-applicant-0063','Sofie','Gjennomfører',0)`,
   );
   execFileSync("bun", ["apps/dashboard/e2e/native-conduct-journey-seed.mjs"], {
     env: { ...process.env, CONDUCT_SEED_SKIP_IDENTITY: "1" },
