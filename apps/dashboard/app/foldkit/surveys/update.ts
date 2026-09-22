@@ -440,6 +440,18 @@ export const makeUpdate =
             : [
                 {
                   ...model,
+                  list:
+                    model.list._tag === "Success"
+                      ? {
+                          _tag: "Success",
+                          data: {
+                            ...model.list.data,
+                            surveys: model.list.data.surveys.map((survey) =>
+                              survey.surveyId === results.survey.surveyId ? results.survey : survey,
+                            ),
+                          },
+                        }
+                      : model.list,
                   detail: results.survey,
                   results: { _tag: "Success", data: results },
                 },

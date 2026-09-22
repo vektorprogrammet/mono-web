@@ -1,6 +1,7 @@
 import {
   DepartmentId,
   IdempotencyKey,
+  PersonId,
   SemesterId,
   SurveyId,
   SurveyQuestionId,
@@ -275,5 +276,36 @@ describe("school-survey Foldkit transitions", () => {
       }),
     );
     expect(stale).toEqual([loadingResults[0], []]);
+  });
+
+  it("keeps the list projection synchronized with refreshed survey results", () => {
+    issued.length = 0;
+    const scoped = update(makeInitialModel(), LoadedCatalog({ requestId: 1, catalog }));
+    const listed = update(scoped[0], LoadedList({ requestId: 2, list: listedSurvey }));
+    const selected = update(listed[0], SelectedSurvey({ surveyId }));
+    const loading = update(selected[0], RequestedResults({ surveyId }));
+    const closedSurvey = {
+      ...survey,
+      state: "Closed" as const,
+      revision: 8,
+      closedAt: "2032-04-01T13:00:00.000Z",
+      closedByPersonId: PersonId.make("survey-closing-person"),
+    };
+
+    const refreshed = update(
+      loading[0],
+      LoadedResults({
+        requestId: 3,
+        surveyId,
+        results: { survey: closedSurvey, responseCount: 0, responses: [] },
+      }),
+    );
+    const reselected = update(refreshed[0], SelectedSurvey({ surveyId }));
+
+    expect(reselected[0].detail).toEqual(closedSurvey);
+    expect(reselected[0].list).toEqual({
+      _tag: "Success",
+      data: { ...listedSurvey, surveys: [closedSurvey] },
+    });
   });
 });
