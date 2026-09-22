@@ -300,7 +300,13 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
         }),
       );
       return nativeCommandOutcomeResponse(outcome);
-    });
+    }).pipe(
+      Effect.tapError((cause) =>
+        Effect.sync(() => {
+          console.error(cause);
+        }),
+      ),
+    );
   return HttpApiBuilder.group(ExternalNativeApi, "placements", (handlers) =>
     Effect.succeed(
       handlers
