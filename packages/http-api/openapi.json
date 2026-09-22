@@ -10630,12 +10630,19 @@
             "$ref": "#/components/schemas/Arrays_4"
           },
           "responseCount": {
-            "allOf": [
+            "anyOf": [
               {
-                "minimum": 0
+                "allOf": [
+                  {
+                    "minimum": 0
+                  }
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
               }
-            ],
-            "type": "integer"
+            ]
           },
           "resultsVisibility": {
             "$ref": "#/components/schemas/SurveyResultsVisibility"
@@ -10736,12 +10743,19 @@
             "$ref": "#/components/schemas/Arrays_4"
           },
           "responseCount": {
-            "allOf": [
+            "anyOf": [
               {
-                "minimum": 0
+                "allOf": [
+                  {
+                    "minimum": 0
+                  }
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
               }
-            ],
-            "type": "integer"
+            ]
           },
           "resultsVisibility": {
             "$ref": "#/components/schemas/SurveyResultsVisibility"

@@ -140,6 +140,24 @@ person may hold more than one position or membership.
 A local chapter and a national unit use the same appointment mechanism but have
 different scopes. A chair is not automatically a global administrator.
 
+### School surveys
+
+A current department leader manages school surveys for that department. A global
+administrator can manage surveys for all departments. Each survey belongs to one
+department and one semester.
+
+A manager creates a survey with text, list, radio, or checkbox questions. The
+definition includes a completion message and an explicit results policy. A manager
+can close an open survey once but cannot reopen it.
+
+An anonymous respondent selects an eligible school and sends one response while
+the survey is open. The system stores the school but does not store a respondent
+identity. A closed survey conceals its public form and rejects new responses.
+
+The results policy grants access to department managers or only to global
+administrators. The same policy controls response counts, result rows, and CSV
+exports. Unauthorized readers cannot learn whether confidential results exist.
+
 ### Supporting workflows
 
 The native application also contains journeys for:
@@ -148,7 +166,6 @@ The native application also contains journeys for:
 - directory and school capacity maintenance;
 - public content, contact messages, and sponsor presentation;
 - social events and team interest;
-- surveys and school feedback;
 - certificates;
 - authenticated applicant progress;
 - acknowledged receipt and interview notification delivery.

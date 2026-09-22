@@ -8,7 +8,7 @@ The native replacement has substantial local functionality. Production still
 runs the legacy PHP application.
 
 The latest observed native runtime architecture is revision
-`037610ba04b1497816f5bd6e814ec628d4cd245b`.
+`3229a1dacfe3ee2ac0c2b889e42b87e154d8a442`.
 
 Implemented native journeys include:
 
@@ -24,8 +24,9 @@ Implemented native journeys include:
   recovery, exact attendance, and immutable Covered or Uncovered closure;
 - expense submission, private-file custody, scoped approval, rejection,
   reopening, refund, and acknowledged notification delivery;
-- content publication, contact messages, social-event creation, and anonymous
-  school-survey participation.
+- content publication, contact messages, and social-event creation;
+- scoped school-survey creation, anonymous response, closure, policy-controlled
+  results, response counts, and CSV export.
 
 These journeys were observed with synthetic local resources. This is not
 production cutover evidence.
@@ -43,10 +44,9 @@ product decision that names the fact and its authority.
 
 Close the remaining operating outcomes in this order:
 
-1. Complete survey administration, audience rules, results, and exports.
-2. Define the wider finance workflow, payment authority, and settlement evidence.
-3. Reconcile real identity, credentials, files, affiliation, and placement data.
-4. Rehearse production writer transfer, recovery, and rollback.
+1. Define the wider finance workflow, payment authority, and settlement evidence.
+2. Reconcile real identity, credentials, files, affiliation, and placement data.
+3. Rehearse production writer transfer, recovery, and rollback.
 
 Create one active file under `docs/specs/` for the next journey. Remove it when
 the accepted behavior is represented by [docs/system.md](docs/system.md), code,
