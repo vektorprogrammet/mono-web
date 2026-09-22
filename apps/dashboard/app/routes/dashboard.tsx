@@ -287,6 +287,9 @@ const adminLinks = [
   },
 ];
 
+const navigationTarget = (target: string, pathname: string): string =>
+  pathname === "/dashboard" || pathname.startsWith("/dashboard/") ? `/dashboard${target}` : target;
+
 function NavLinks({
   links,
 }: {
@@ -302,6 +305,7 @@ function NavLinks({
   }>;
 }) {
   const { open } = useSidebar();
+  const { pathname } = useLocation();
 
   return (
     <SidebarMenu>
@@ -322,7 +326,7 @@ function NavLinks({
                       <span>{link.title}</span>
                     </>
                   ) : (
-                    <Link to={link.url} prefetch="intent">
+                    <Link to={navigationTarget(link.url, pathname)} prefetch="intent">
                       {link.icon}
                     </Link>
                   )}
@@ -334,7 +338,7 @@ function NavLinks({
                   {link.links?.map((subLink) => (
                     <SidebarMenuSubItem key={subLink.title}>
                       <SidebarMenuSubButton asChild>
-                        <Link to={subLink.url} prefetch="intent">
+                        <Link to={navigationTarget(subLink.url, pathname)} prefetch="intent">
                           <span>{subLink.title}</span>
                         </Link>
                       </SidebarMenuSubButton>
