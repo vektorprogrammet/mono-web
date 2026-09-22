@@ -320,6 +320,8 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     const proposalArticle = page.locator("[data-proposal-id]");
     const serviceProposalId = await proposalArticle.getAttribute("data-proposal-id");
     expect(serviceProposalId).toMatch(/^school-service-proposal-/);
+    if (serviceProposalId === null) throw new Error("confirmed proposal id is missing");
+    const absenceFormName = `Fravær: Skole Beta, Monday, bolk 2, tjenesteplan ${serviceProposalId.slice(-8)}`;
     await expect(proposalArticle).toContainText("2 av 4 frivillige");
     const confirm = page.getByRole("form", { name: "Bekreft tjenesteforslag", exact: true });
     await confirm.getByRole("button", { name: "Bekreft og send tjenesteplan" }).click();
@@ -346,7 +348,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       .toContain("Delivered");
     await self.reload();
     const ownAbsence = self.getByRole("form", {
-      name: "Fravær: Skole Beta, Monday, bolk 2",
+      name: absenceFormName,
       exact: true,
     });
     await ownAbsence.getByLabel("Dato").focus();
@@ -375,7 +377,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await self.reload();
     await expect(
       self.getByRole("form", {
-        name: "Fravær: Skole Beta, Monday, bolk 2",
+        name: absenceFormName,
         exact: true,
       }),
     ).toBeVisible();
@@ -471,7 +473,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       page.getByText("Dekningen er bekreftet av koordinator.", { exact: true }),
     ).toBeVisible();
     const closeCovered = page.getByRole("form", {
-      name: `Tjenestelukking: Skole Beta, ${manifest.coverage.serviceDate}, bolk 2`,
+      name: `Tjenestelukking: Skole Beta, ${manifest.coverage.serviceDate}, bolk 2, tjenesteplan ${serviceProposalId.slice(-8)}`,
       exact: true,
     });
     await expect(closeCovered.getByLabel("Lina Lagleder møtte", { exact: true })).toBeChecked();
@@ -483,7 +485,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await page.reload();
     await expect(page.getByText("Utfallet: Dekket", { exact: true })).toBeVisible();
     const leaderAbsence = page.getByRole("form", {
-      name: "Fravær: Skole Beta, Monday, bolk 2",
+      name: absenceFormName,
       exact: true,
     });
     await leaderAbsence.getByLabel("Dato").fill(manifest.coverage.secondServiceDate);
@@ -565,7 +567,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await saved(withdrawOffer);
     await page.reload();
     const closeUncovered = page.getByRole("form", {
-      name: `Tjenestelukking: Skole Beta, ${manifest.coverage.secondServiceDate}, bolk 2`,
+      name: `Tjenestelukking: Skole Beta, ${manifest.coverage.secondServiceDate}, bolk 2, tjenesteplan ${serviceProposalId.slice(-8)}`,
       exact: true,
     });
     await expect(

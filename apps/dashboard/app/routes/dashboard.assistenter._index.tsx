@@ -957,7 +957,7 @@ function OwnCoveragePanel({
                   day: slot.day,
                   block: slot.block,
                 }}
-                label={`Fravær: ${slot.schoolName}, ${slot.day}, bolk ${slot.block}`}
+                label={`Fravær: ${slot.schoolName}, ${slot.day}, bolk ${slot.block}, tjenesteplan ${slot.proposalId.slice(-8)}`}
               >
                 <div className="grid min-w-0 gap-3 sm:grid-cols-2">
                   <label htmlFor={`own-absence-date-${slotId}`} className="min-w-0">
@@ -1112,7 +1112,7 @@ function CoverageCloseForm({
             block: slot.block,
             occurredOn: serviceDate,
           }}
-          label={`Tjenestelukking: ${slot.schoolName}, ${serviceDate}, bolk ${slot.block}`}
+          label={`Tjenestelukking: ${slot.schoolName}, ${serviceDate}, bolk ${slot.block}, tjenesteplan ${proposalId.slice(-8)}`}
         >
           <p className="text-sm text-muted-foreground">
             Valgene er beregnet fra den bekreftede planen, registrert fravær og bekreftet
@@ -1246,7 +1246,7 @@ function CoordinatorCoveragePanel({
                     day: slot.day,
                     block: slot.block,
                   }}
-                  label={`Fravær: ${slot.schoolName}, ${slot.day}, bolk ${slot.block}`}
+                  label={`Fravær: ${slot.schoolName}, ${slot.day}, bolk ${slot.block}, tjenesteplan ${slot.proposalId.slice(-8)}`}
                 >
                   <div className="grid min-w-0 gap-3 sm:grid-cols-2">
                     <label htmlFor={`coordinator-absence-person-${slotId}`} className="min-w-0">
