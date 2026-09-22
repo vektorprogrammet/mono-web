@@ -41,7 +41,10 @@ Person/profile records before credentials and historical operations can depend o
 those identities. The reconciled Account path accepts only matching immutable
 Person evidence, imports one supported credential, quarantines unsupported aliases
 and conflicts, preserves replay, and exercises native sign-in, recovery, and
-restore. Real cohort mapping and production import remain unperformed.
+restore. The historical service path accepts only explicitly mapped Person,
+department, semester, and school references; preserves append-only source
+provenance; derives historical affiliation; and leaves all current operational
+state unchanged. Real cohort mapping and production import remain unperformed.
 
 ## Next
 

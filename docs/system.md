@@ -70,6 +70,12 @@ quarantined without partial authentication writes. Exact replay preserves one
 Account and one evidence chain; password recovery replaces the retained legacy
 hash with a native credential and revokes older sessions.
 
+Legacy assistant service is append-only history. Each accepted row retains its
+source identity and requires accepted Person evidence plus explicit department,
+semester, and school mappings. Historical affiliation is derived from accepted
+service rows. Importing history never creates a current affiliation, placement,
+demand, absence, service occurrence, Account, or admission decision.
+
 ## Core lifecycles
 
 ### Recruitment and affiliation
