@@ -8,7 +8,7 @@ The native replacement has substantial local functionality. Production still
 runs the legacy PHP application.
 
 The latest observed native runtime architecture is revision
-`3229a1dacfe3ee2ac0c2b889e42b87e154d8a442`.
+`38afad18633288a859183045402c0725de2a2592`.
 
 Implemented native journeys include:
 
@@ -23,7 +23,8 @@ Implemented native journeys include:
   addressed acceptance or decline, coordinator acknowledgement, delivery
   recovery, exact attendance, and immutable Covered or Uncovered closure;
 - expense submission, private-file custody, scoped approval, rejection,
-  reopening, refund, and acknowledged notification delivery;
+  reopening, separately authorized immutable settlement evidence, and
+  acknowledged owner-notification recovery;
 - content publication, contact messages, and social-event creation;
 - scoped school-survey creation, anonymous response, closure, policy-controlled
   results, response counts, and CSV export.
@@ -42,10 +43,12 @@ It keeps recommendation, invitation, account claim, affiliation, and placement a
 separate facts. It does not infer an admission decision. Adding one requires a new
 product decision that names the fact and its authority.
 
-Close the remaining operating outcomes in this order:
+Close the remaining replacement gates in this order:
 
-1. Define the wider finance workflow, payment authority, and settlement evidence.
-2. Reconcile real identity, credentials, files, affiliation, and placement data.
+1. Reconcile real identity, credentials, files, affiliation, placement, receipt,
+   and settlement-reference data.
+2. Configure and prove the authorized production mail, storage, and external
+   settlement-evidence boundaries.
 3. Rehearse production writer transfer, recovery, and rollback.
 
 Create one active file under `docs/specs/` for the next journey. Remove it when

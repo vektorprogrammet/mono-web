@@ -433,7 +433,7 @@ const harness = (options: HarnessOptions = {}) => {
         revision: authorization.current.revision + 1,
       };
       const evidence = settlementEvidence({
-        ...(options.settlementEvidence ?? {}),
+        ...options.settlementEvidence,
         receiptId: receipt.receiptId,
         amountOre: receipt.amountOre,
         currency: "NOK",

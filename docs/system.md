@@ -125,11 +125,19 @@ closure remain separate durable facts. Pool membership alone implies none of the
 ### Expense reimbursement
 
 A volunteer submits a claim and private receipt file. Authorized approvers can read
-the file, approve or reject the claim, reopen a rejected claim when policy allows,
-and record settlement evidence.
+the file, approve or reject the claim, and reopen a rejected claim when policy
+allows. Approval does not prove payment and leaves the claim `Approved`.
 
-Claim state, file custody, approval authority, delivery attempts, and settlement
-history are separate facts. A file path or team label does not grant access.
+A different, explicit settlement grant can record immutable evidence after an
+external settlement. The evidence preserves the amount, destination fingerprint,
+external authority and reference, settlement time, recording actor, and receipt
+revision. Owners can read their evidence; finance readers see only evidence within
+their active scope. Notification failure does not roll back the evidence, and retry
+keeps the original effect identity.
+
+Claim state, file custody, approval authority, settlement authority, delivery
+attempts, and settlement history are separate facts. A file path, approval grant,
+or team label does not grant settlement access.
 
 ### Organization administration
 
