@@ -117,10 +117,7 @@ describe("spec 0067 runtime capability contracts", () => {
       "--reporter=line",
     ]);
     expect(ORGANIZATION_IMPORT_DASHBOARD_BUILD_ARGUMENTS).toEqual(["run", "build"]);
-    expect(ORGANIZATION_IMPORT_DASHBOARD_SERVE_ARGUMENTS).toEqual([
-      "node_modules/@react-router/serve/bin.cjs",
-      "build/server/index.js",
-    ]);
+    expect(ORGANIZATION_IMPORT_DASHBOARD_SERVE_ARGUMENTS).toEqual(["server.mjs"]);
     expect(ORGANIZATION_IMPORT_GENERATED_OUTPUT_PATHS).toEqual([
       "packages/sdk/dist",
       "packages/sdk/tsconfig.tsbuildinfo",
@@ -132,7 +129,7 @@ describe("spec 0067 runtime capability contracts", () => {
     ).toBe(true);
     expect(ORGANIZATION_IMPORT_DASHBOARD_RUNTIME).toEqual({
       build: "ReactRouterProductionBuild",
-      server: "ReactRouterServe",
+      server: "BunDashboardServer",
       viteDependencyOptimizer: "NotUsed",
     });
     const runnerOwnedOutputDir = join(
@@ -179,11 +176,11 @@ describe("spec 0067 runtime capability contracts", () => {
       ...EXPECTED_MIGRATION_23_PUBLIC_TABLES,
     ]);
     expect(NATIVE_BROWSER_JOURNEY_REQUIREMENTS).toEqual([
-      { path: "/api/departments", access: "Public", requestSource: "BrowserCrossOrigin" },
+      { path: "/api/departments", access: "Public", requestSource: "BrowserSameOrigin" },
       { path: "/api/people", access: "BoundedSession", requestSource: "DashboardSsr" },
       { path: "/api/profile", access: "BoundedSession", requestSource: "DashboardSsr" },
       { path: "/api/session", access: "BoundedSession", requestSource: "DashboardSsr" },
-      { path: "/api/teams", access: "Public", requestSource: "BrowserCrossOrigin" },
+      { path: "/api/teams", access: "Public", requestSource: "BrowserSameOrigin" },
     ]);
     expect(NATIVE_BROWSER_JOURNEY_REQUIREMENTS).toHaveLength(5);
     expect(
@@ -192,7 +189,7 @@ describe("spec 0067 runtime capability contracts", () => {
         path: "/api/departments",
         status: 200,
         sessionCookieAuth: false,
-        requestSource: "BrowserCrossOrigin",
+        requestSource: "BrowserSameOrigin",
       }),
     ).toBe(true);
     expect(
@@ -201,7 +198,7 @@ describe("spec 0067 runtime capability contracts", () => {
         path: "/api/teams",
         status: 200,
         sessionCookieAuth: true,
-        requestSource: "BrowserCrossOrigin",
+        requestSource: "BrowserSameOrigin",
       }),
     ).toBe(false);
     expect(
@@ -955,7 +952,7 @@ describe("spec 0067 artifact boundary", () => {
                 ...observation,
                 access: "Public" as const,
                 sessionCookieAuth: false,
-                requestSource: "BrowserCrossOrigin" as const,
+                requestSource: "BrowserSameOrigin" as const,
               }
             : observation,
         ),

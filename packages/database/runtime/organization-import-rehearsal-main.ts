@@ -125,7 +125,11 @@ interface ProxyRequestObservation {
   readonly path: string;
   readonly status: number;
   readonly sessionCookieAuth: boolean;
-  readonly requestSource: "BrowserCrossOrigin" | "DashboardSsr" | "UnexpectedOrigin";
+  readonly requestSource:
+    | "BrowserSameOrigin"
+    | "BrowserCrossOrigin"
+    | "DashboardSsr"
+    | "UnexpectedOrigin";
 }
 
 interface RehearsalProxy {
@@ -161,10 +165,7 @@ export const ORGANIZATION_IMPORT_PLAYWRIGHT_ARGUMENTS = [
 
 export const ORGANIZATION_IMPORT_DASHBOARD_BUILD_ARGUMENTS = ["run", "build"] as const;
 
-export const ORGANIZATION_IMPORT_DASHBOARD_SERVE_ARGUMENTS = [
-  "node_modules/@react-router/serve/bin.cjs",
-  "build/server/index.js",
-] as const;
+export const ORGANIZATION_IMPORT_DASHBOARD_SERVE_ARGUMENTS = ["server.mjs"] as const;
 
 export const ORGANIZATION_IMPORT_GENERATED_OUTPUT_PATHS = [
   "packages/sdk/dist",
@@ -175,7 +176,7 @@ export const ORGANIZATION_IMPORT_GENERATED_OUTPUT_PATHS = [
 
 export const ORGANIZATION_IMPORT_DASHBOARD_RUNTIME = {
   build: "ReactRouterProductionBuild",
-  server: "ReactRouterServe",
+  server: "BunDashboardServer",
   viteDependencyOptimizer: "NotUsed",
 } as const;
 
@@ -260,7 +261,11 @@ export const isExpectedNativeBrowserJourneyObservation = (input: {
   readonly path: string;
   readonly status: number;
   readonly sessionCookieAuth: boolean;
-  readonly requestSource: "BrowserCrossOrigin" | "DashboardSsr" | "UnexpectedOrigin";
+  readonly requestSource:
+    | "BrowserSameOrigin"
+    | "BrowserCrossOrigin"
+    | "DashboardSsr"
+    | "UnexpectedOrigin";
 }): boolean => {
   const requirement = NATIVE_BROWSER_JOURNEY_REQUIREMENTS.find(({ path }) => path === input.path);
   return (
@@ -604,7 +609,7 @@ const startDashboard = (
   observations: ProcessObservation[],
   processEffects: ProcessEffectObserver,
 ): Promise<ChildProcess> => {
-  const command = process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node";
+  const command = process.execPath;
   const args = ORGANIZATION_IMPORT_DASHBOARD_SERVE_ARGUMENTS;
   const label = "dashboard production server";
   rejectDeploymentIntent(command, args, processEffects, label);
@@ -864,11 +869,13 @@ const startRecordingProxy = async (
       .split(";")
       .some((pair) => pair.trim().startsWith(`${cookieName}=`));
     const requestSource =
-      request.headers.origin === undefined
-        ? ("DashboardSsr" as const)
-        : request.headers.origin === dashboardAllowedOrigin
-          ? ("BrowserCrossOrigin" as const)
-          : ("UnexpectedOrigin" as const);
+      request.headers["sec-fetch-site"] === "same-origin"
+        ? ("BrowserSameOrigin" as const)
+        : request.headers.origin === undefined
+          ? ("DashboardSsr" as const)
+          : request.headers.origin === dashboardAllowedOrigin
+            ? ("BrowserCrossOrigin" as const)
+            : ("UnexpectedOrigin" as const);
     const allowedPath = NATIVE_BROWSER_JOURNEY_PATHS.some(
       (allowedJourneyPath) => allowedJourneyPath === path,
     );

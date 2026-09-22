@@ -32,11 +32,11 @@ export const SPEC_0067 = {
 } as const;
 
 export const NATIVE_BROWSER_JOURNEY_REQUIREMENTS = [
-  { path: "/api/departments", access: "Public", requestSource: "BrowserCrossOrigin" },
+  { path: "/api/departments", access: "Public", requestSource: "BrowserSameOrigin" },
   { path: "/api/people", access: "BoundedSession", requestSource: "DashboardSsr" },
   { path: "/api/profile", access: "BoundedSession", requestSource: "DashboardSsr" },
   { path: "/api/session", access: "BoundedSession", requestSource: "DashboardSsr" },
-  { path: "/api/teams", access: "Public", requestSource: "BrowserCrossOrigin" },
+  { path: "/api/teams", access: "Public", requestSource: "BrowserSameOrigin" },
 ] as const;
 
 export const SPEC_0067_PREREQUISITES = {
@@ -689,6 +689,7 @@ const ProxyRequestSchema = Schema.Struct({
   status: Schema.Number,
   sessionCookieAuth: Schema.Boolean,
   requestSource: Schema.Union([
+    Schema.Literal("BrowserSameOrigin"),
     Schema.Literal("BrowserCrossOrigin"),
     Schema.Literal("DashboardSsr"),
     Schema.Literal("UnexpectedOrigin"),
@@ -700,7 +701,7 @@ const NativeBrowserPathObservationSchema = Schema.Struct({
   sessionCookieAuth: Schema.Boolean,
   access: Schema.Union([Schema.Literal("Public"), Schema.Literal("BoundedSession")]),
   requestSource: Schema.Union([
-    Schema.Literal("BrowserCrossOrigin"),
+    Schema.Literal("BrowserSameOrigin"),
     Schema.Literal("DashboardSsr"),
   ]),
 });
