@@ -79,20 +79,6 @@ test("0096 placement and 0110 school-service journeys persist with explicit auth
   const gates: string[] = [];
   const errors: string[] = [];
   for (const p of [page, self, other]) p.on("pageerror", (error) => errors.push(error.message));
-  for (const [name, observedPage] of [
-    ["coordinator", page],
-    ["volunteer", self],
-    ["concurrent", other],
-  ] as const) {
-    observedPage.on("request", (request) => {
-      if (request.method() === "POST")
-        console.error("placement-request", name, new Date().toISOString(), request.postData());
-    });
-    observedPage.on("response", (response) => {
-      if (response.request().method() === "POST")
-        console.error("placement-response", name, new Date().toISOString(), response.status());
-    });
-  }
   try {
     const anon = await anonymous.newPage();
     await anon.goto(`${manifest.dashboardOrigin}${scopePath()}`);

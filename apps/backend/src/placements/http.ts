@@ -29,7 +29,7 @@ import {
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { DomainId } from "@vektorprogrammet/domain/authz";
-import { Cause, Effect, Option, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { resolveRequestPersonAuthorityInTransaction } from "../authority.js";
 import { readBoundedJson } from "../http-api/read-json.js";
@@ -128,7 +128,6 @@ const authorize = (
     return auth;
   });
 const errorResponse = (cause: unknown): Response => {
-  console.error("placement-error-response", cause);
   if (cause instanceof HttpSemanticFailure || cause instanceof PlacementFailure)
     return nativeProblemResponse(cause.code, cause.status);
   if (
@@ -264,33 +263,37 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
                 return yield* Effect.fail(
                   new HttpSemanticFailure(precondition.code, precondition.status),
                 );
-              const mutated = selected.own
-                ? yield* mutateAffiliation(
-                    yield* readOwnAffiliation(
+              const changed = selected.own
+                ? resource(
+                    yield* mutateAffiliation(
+                      yield* readOwnAffiliation(
+                        auth.authority.personId,
+                        selected.scope.departmentId,
+                      ),
+                      selected.command.action,
                       auth.authority.personId,
-                      selected.scope.departmentId,
+                      auth.authorizationInstant,
                     ),
-                    selected.command.action,
-                    auth.authority.personId,
-                    auth.authorizationInstant,
                   )
-                : yield* mutatePlacementBoard(
-                    selected.scope,
-                    selected.command,
-                    auth.authority.personId,
-                    auth.authorizationInstant,
+                : resource(
+                    yield* mutatePlacementBoard(
+                      selected.scope,
+                      selected.command,
+                      auth.authority.personId,
+                      auth.authorizationInstant,
+                      selected.command.action === "GenerateProposal"
+                        ? `school-service-proposal-${identity.identitySha256}`
+                        : selected.command.action === "RecordOccurrence"
+                          ? `school-service-occurrence-${identity.identitySha256}`
+                          : `placement-${identity.identitySha256}`,
+                    ),
                   );
-              console.error("placement-mutation-result", selected.command.action, mutated);
-              const changed = resource(mutated);
-              console.error("placement-resource-result", selected.command.action, changed);
               return yield* Effect.tryPromise({
                 try: () => responseCapsule(json(changed, changed.etag)),
-                catch: (cause) => {
-                  console.error("placement-response-capsule-failure", cause);
-                  return cause instanceof HttpSemanticFailure
+                catch: (cause) =>
+                  cause instanceof HttpSemanticFailure
                     ? cause
-                    : new HttpSemanticFailure("internal.error", 500);
-                },
+                    : new HttpSemanticFailure("internal.error", 500),
               });
             }),
           };
@@ -298,13 +301,7 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
         { retry: "serialization-once" },
       );
       return nativeCommandOutcomeResponse(outcome);
-    }).pipe(
-      Effect.tapCause((cause) =>
-        Effect.sync(() => {
-          console.error("placement-command-failure", Cause.pretty(cause));
-        }),
-      ),
-    );
+    });
   return HttpApiBuilder.group(ExternalNativeApi, "placements", (handlers) =>
     Effect.succeed(
       handlers

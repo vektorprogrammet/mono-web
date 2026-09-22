@@ -9,7 +9,7 @@ import { timingSafeEqual } from "node:crypto";
 import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import { Identity } from "@vektorprogrammet/domain/identity";
-import { Cause, Effect, Layer, Redacted, Result, type SchemaIssue } from "effect";
+import { Effect, Layer, Redacted, Result, type SchemaIssue } from "effect";
 import { HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiError, HttpApiMiddleware } from "effect/unstable/httpapi";
 import {
@@ -33,9 +33,6 @@ export const toHttpApiResponse = <E, R>(
     Effect.flatMap(handle),
     Effect.catch((cause) => Effect.succeed(mapError(cause))),
     Effect.map(HttpServerResponse.fromWeb),
-    Effect.tapCause((cause) =>
-      Effect.sync(() => console.error("http-api-transport-failure", Cause.pretty(cause))),
-    ),
   );
 
 const issueAtHeader = (
