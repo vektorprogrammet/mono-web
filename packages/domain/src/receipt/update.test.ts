@@ -95,8 +95,8 @@ it.effect("submits, revises, and withdraws only a pending owner receipt", () =>
       decideReceipt(
         withdrawn.receipt,
         {
-          _tag: "RefundReceipt",
-          commandId: "command-refund-terminal",
+          _tag: "ApproveReceipt",
+          commandId: "command-approve-terminal",
           actor: approver,
           receiptId: "receipt-1",
           expectedRevision: 2,
@@ -130,7 +130,7 @@ it.effect("resolves KeepCurrentFile from the locked current receipt", () =>
   }),
 );
 
-it.effect("authorizes a refund by explicit department scope", () =>
+it.effect("authorizes approval by explicit department scope", () =>
   Effect.gen(function* () {
     const submitted = yield* decideReceipt(undefined, submit, context);
     const wrongDepartment: ReceiptActor = {
@@ -142,7 +142,7 @@ it.effect("authorizes a refund by explicit department scope", () =>
       decideReceipt(
         submitted.receipt,
         {
-          _tag: "RefundReceipt",
+          _tag: "ApproveReceipt",
           commandId: "command-denied",
           actor: wrongDepartment,
           receiptId: "receipt-1",
@@ -153,19 +153,19 @@ it.effect("authorizes a refund by explicit department scope", () =>
     );
     expect(denied._tag).toBe("ReceiptScopeDenied");
 
-    const refunded = yield* decideReceipt(
+    const approved = yield* decideReceipt(
       submitted.receipt,
       {
-        _tag: "RefundReceipt",
-        commandId: "command-refund",
+        _tag: "ApproveReceipt",
+        commandId: "command-approve",
         actor: approver,
         receiptId: "receipt-1",
         expectedRevision: 0,
       },
       context,
     );
-    expect(refunded.receipt.status).toBe("Refunded");
-    expect(refunded.receipt.refundDate).toBe(context.now);
+    expect(approved.receipt.status).toBe("Approved");
+    expect(approved.receipt.approvedAt).toBe(context.now);
   }),
 );
 
@@ -203,7 +203,7 @@ const legacyRow: LegacyReceiptRow = {
   receiptDate: "2026-08-19",
   submittedAt: "2026-08-20T10:00:00.000Z",
   status: "pending",
-  refundDate: null,
+  approvedAt: null,
   paymentAccountCiphertext: "ciphertext:v1:legacy",
   file,
 };
@@ -372,7 +372,7 @@ it.effect(
         );
         expect(denied._tag).toBe("Failure");
       }
-      for (const status of ["Pending", "Refunded", "Withdrawn"] as const) {
+      for (const status of ["Pending", "Approved", "Withdrawn"] as const) {
         const denied = yield* Effect.flip(
           decideReceipt({ ...rejected.receipt, status }, reopen, context),
         );
@@ -410,15 +410,15 @@ it.effect(
       const resolved = yield* decideReceipt(
         corrected.receipt,
         {
-          _tag: "RefundReceipt",
-          commandId: "corrected-refund",
+          _tag: "ApproveReceipt",
+          commandId: "corrected-approve",
           actor: approver,
           receiptId: context.receiptId,
           expectedRevision: 3,
         },
         context,
       );
-      expect(resolved.receipt.status).toBe("Refunded");
+      expect(resolved.receipt.status).toBe("Approved");
       expect(resolved.receipt.revision).toBe(4);
     }),
 );

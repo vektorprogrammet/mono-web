@@ -39,8 +39,8 @@ const AuthorizedReceiptCommandSchema = Schema.TaggedUnion({
     ...ReceiptCommandRequestSchema.cases.WithdrawPendingReceipt.fields,
     actor: ReceiptActorSchema,
   },
-  RefundReceipt: {
-    ...ReceiptCommandRequestSchema.cases.RefundReceipt.fields,
+  ApproveReceipt: {
+    ...ReceiptCommandRequestSchema.cases.ApproveReceipt.fields,
     actor: ReceiptActorSchema,
   },
   RejectReceipt: {
@@ -159,7 +159,7 @@ type ReceiptAccessAuthorization =
       readonly _tag:
         | "RevisePendingReceipt"
         | "WithdrawPendingReceipt"
-        | "RefundReceipt"
+        | "ApproveReceipt"
         | "RejectReceipt"
         | "ReopenRejectedReceipt";
       readonly actor: ReceiptActor;
@@ -177,7 +177,7 @@ export const authorizeReceiptMutationAccess = (
       case "RevisePendingReceipt":
       case "WithdrawPendingReceipt":
         return yield* owner(authorization.current, authorization.actor);
-      case "RefundReceipt":
+      case "ApproveReceipt":
       case "RejectReceipt":
       case "ReopenRejectedReceipt":
         return yield* approver(authorization.current, authorization.actor);
@@ -222,7 +222,7 @@ const decideCommand = (
             receiptDate: input.receiptDate,
             submittedAt: context.now,
             status: "Pending",
-            refundDate: null,
+            approvedAt: null,
             paymentAccountCiphertext: input.paymentAccountCiphertext,
             file: input.file,
             revision: 0,
@@ -290,25 +290,25 @@ const decideCommand = (
             auditAction: "PendingReceiptWithdrawn",
           };
         }),
-      RefundReceipt: (input) =>
+      ApproveReceipt: (input) =>
         Effect.gen(function* () {
           const current = yield* requireReceipt(existing, input.receiptId);
           yield* currentRevision(current, input.expectedRevision);
           yield* pending(current, input._tag);
           const receipt: Receipt = {
             ...current,
-            status: "Refunded",
-            refundDate: context.now,
+            status: "Approved",
+            approvedAt: context.now,
             revision: current.revision + 1,
           };
           return {
             receipt,
             observation: observation(input.commandId, receipt),
             outbox: [
-              effect(input.commandId, receipt.receiptId, "NotifyReceiptRefunded"),
+              effect(input.commandId, receipt.receiptId, "NotifyReceiptApproved"),
               effect(input.commandId, receipt.receiptId, "WriteReceiptAudit"),
             ],
-            auditAction: "ReceiptRefunded",
+            auditAction: "ReceiptApproved",
           };
         }),
       ReopenRejectedReceipt: (input) =>
@@ -342,7 +342,7 @@ const decideCommand = (
           const receipt: Receipt = {
             ...current,
             status: "Rejected",
-            refundDate: null,
+            approvedAt: null,
             revision: current.revision + 1,
           };
           return {

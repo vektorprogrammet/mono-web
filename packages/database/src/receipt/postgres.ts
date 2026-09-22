@@ -64,6 +64,7 @@ import {
   ReceiptStatusSchema,
   ReceiptCommandPrincipalSchema,
   ReceiptCommandRequestSchema,
+  ReceiptSettlementCommandRequestSchema,
   ReceiptObservationSchema,
   ReceiptSubmissionAllocationSchema,
   type ReceiptCommandPrincipal,
@@ -85,6 +86,7 @@ import {
 
 interface CommandReceiptRow {
   readonly command_sha256: string;
+  readonly command_json: unknown;
   readonly observation_json: unknown;
 }
 
@@ -107,6 +109,29 @@ const ReceiptApprovalFileReadRowSchema = Schema.Struct({
   file: ReceiptFileSchema,
 });
 type ReceiptApprovalFileReadRow = typeof ReceiptApprovalFileReadRowSchema.Type;
+
+/**
+ * Historical command receipts are retained verbatim because `command_sha256`
+ * authenticates their original request. This decoder is intentionally private:
+ * native callers cannot issue the retired command variant.
+ */
+const HistoricalRefundReceiptCommandRequestSchema = Schema.TaggedUnion({
+  RefundReceipt: {
+    commandId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+    receiptId: ReceiptId,
+    expectedRevision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  },
+});
+
+const StoredReceiptCommandEnvelopeSchema = Schema.Struct({
+  schema: Schema.String,
+  principalPersonId: PersonId,
+  request: Schema.Union([
+    ReceiptCommandRequestSchema,
+    HistoricalRefundReceiptCommandRequestSchema,
+    ReceiptSettlementCommandRequestSchema,
+  ]),
+});
 
 const persistenceError = (operation: string, cause: unknown) =>
   new ReceiptPersistenceError({ operation, message: String(cause), cause });
@@ -137,12 +162,12 @@ const findReceipt = (
         'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
       ) AS "submittedAt",
       status,
-      CASE WHEN refund_date IS NULL THEN NULL
+      CASE WHEN approved_at IS NULL THEN NULL
         ELSE to_char(
-          refund_date AT TIME ZONE 'UTC',
+          approved_at AT TIME ZONE 'UTC',
           'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
         )
-      END AS "refundDate",
+      END AS "approvedAt",
       payment_account_ciphertext AS "paymentAccountCiphertext",
       json_build_object(
         'fileRef', file_ref,
@@ -167,11 +192,20 @@ const findCommandReceipt = (
   commandId: string,
 ): Effect.Effect<CommandReceiptRow | undefined, ReceiptPersistenceError> =>
   sql<CommandReceiptRow>`
-    SELECT command_sha256, observation_json
+    SELECT command_sha256, command_json, observation_json
     FROM economy_receipt_command_receipts
     WHERE command_id = ${commandId}
   `.pipe(
-    Effect.map((rows) => rows[0]),
+    Effect.flatMap((rows) => {
+      const row = rows[0];
+      if (row === undefined) return Effect.succeed(undefined);
+      return Schema.decodeUnknownEffect(StoredReceiptCommandEnvelopeSchema)(row.command_json, {
+        onExcessProperty: "error",
+      }).pipe(
+        Effect.as(row),
+        Effect.mapError((cause) => persistenceError("decode stored command receipt", cause)),
+      );
+    }),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read command receipt", cause)),
     ),
@@ -185,13 +219,13 @@ const insertReceipt = (
     INSERT INTO economy_receipts (
       receipt_id, visual_id, owner_person_id, department_id,
       amount_ore, currency, description, receipt_date, submitted_at,
-      status, refund_date, payment_account_ciphertext,
+      status, approved_at, payment_account_ciphertext,
       file_ref, file_object_key, file_content_type, file_byte_length,
       file_sha256, revision
     ) VALUES (
       ${receipt.receiptId}, ${receipt.visualId}, ${receipt.ownerPersonId}, ${receipt.departmentId},
       ${receipt.amountOre}, ${receipt.currency}, ${receipt.description}, ${receipt.receiptDate}, ${receipt.submittedAt},
-      ${receipt.status}, ${receipt.refundDate}, ${receipt.paymentAccountCiphertext},
+      ${receipt.status}, ${receipt.approvedAt}, ${receipt.paymentAccountCiphertext},
       ${receipt.file.fileRef}, ${receipt.file.objectKey}, ${receipt.file.contentType}, ${receipt.file.byteLength},
       ${receipt.file.sha256}, ${receipt.revision}
     )
@@ -212,7 +246,7 @@ const storeReceipt = (
       description = ${receipt.description},
       receipt_date = ${receipt.receiptDate},
       status = ${receipt.status},
-      refund_date = ${receipt.refundDate},
+      approved_at = ${receipt.approvedAt},
       file_ref = ${receipt.file.fileRef},
       file_object_key = ${receipt.file.objectKey},
       file_content_type = ${receipt.file.contentType},
@@ -868,7 +902,7 @@ const authorizeReceiptMutationWithSql = (
         paymentAccountCiphertext: submission.paymentAccountCiphertext,
       };
     } else if (
-      target._tag === "RefundReceipt" ||
+      target._tag === "ApproveReceipt" ||
       target._tag === "RejectReceipt" ||
       target._tag === "ReopenRejectedReceipt"
     ) {

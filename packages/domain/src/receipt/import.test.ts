@@ -19,7 +19,7 @@ const validRow: LegacyReceiptRow = {
   receiptDate: "2026-08-20",
   submittedAt: "2026-08-20T12:00:00.000Z",
   status: "pending",
-  refundDate: null,
+  approvedAt: null,
   paymentAccountCiphertext: "ciphertext:v1:account",
   file: {
     fileRef: "legacy/staged-1",
@@ -81,8 +81,8 @@ const cases: ReadonlyArray<{
   },
   { reason: "UnknownStatus", row: { ...validRow, status: "unknown" } },
   {
-    reason: "RefundDateContradiction",
-    row: { ...validRow, status: "refunded", refundDate: null },
+    reason: "ApprovedAtContradiction",
+    row: { ...validRow, status: "approved", approvedAt: null },
   },
   {
     reason: "MissingPaymentAccount",

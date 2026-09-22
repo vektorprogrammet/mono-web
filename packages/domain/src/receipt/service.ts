@@ -1,5 +1,5 @@
 /**
- * Portable Economy service contract for receipt lifecycle operations.
+ * Portable Economy service contract for receipt lifecycle and settlement operations.
  *
  * @since 0.1.0
  */
@@ -13,13 +13,17 @@ import type {
   ReceiptFailure,
   ReceiptNotFound,
   ReceiptPersistenceError,
+  ReceiptSettlementFailure,
+  ReceiptSettlementListFailure,
+  ReceiptSettlementReadFailure,
 } from "./errors.js";
 import type { ReceiptFileService } from "./file-service.js";
 import type { ReceiptOutboxDeliveryResult } from "./outbox.js";
 import type {
   OwnedReceiptProjectionItem,
-  ReceiptListItem,
   ReceiptLifecycleEvidenceProjection,
+  ReceiptListItem,
+  ReceiptSettlementQueueItem,
   ReceiptStatusTotal,
 } from "./projections.js";
 import type {
@@ -27,7 +31,11 @@ import type {
   ReceiptActor,
   ReceiptCommandPrincipal,
   ReceiptFile,
+  ReceiptId,
   ReceiptObservation,
+  ReceiptSettlementActor,
+  ReceiptSettlementEvidence,
+  ReceiptSettlementObservation,
   ReceiptStatus,
   ReceiptSubmissionAllocation,
 } from "./schema.js";
@@ -38,6 +46,15 @@ export interface ReceiptTransactionResult {
   readonly replayed: boolean;
   readonly outboxCount: number;
 }
+
+export interface ReceiptSettlementTransactionResult {
+  readonly observation: ReceiptSettlementObservation;
+  readonly receipt: Receipt;
+  readonly settlement: ReceiptSettlementEvidence;
+  readonly replayed: boolean;
+  readonly outboxCount: number;
+}
+
 export type ReceiptMutationAuthorizationTarget =
   | {
       readonly _tag: "SubmitReceipt";
@@ -47,7 +64,7 @@ export type ReceiptMutationAuthorizationTarget =
       readonly _tag:
         | "RevisePendingReceipt"
         | "WithdrawPendingReceipt"
-        | "RefundReceipt"
+        | "ApproveReceipt"
         | "RejectReceipt"
         | "ReopenRejectedReceipt";
       readonly receiptId: string;
@@ -65,13 +82,25 @@ export type ReceiptMutationAuthorization =
       readonly _tag:
         | "RevisePendingReceipt"
         | "WithdrawPendingReceipt"
-        | "RefundReceipt"
+        | "ApproveReceipt"
         | "RejectReceipt"
         | "ReopenRejectedReceipt";
       readonly principal: ReceiptCommandPrincipal;
       readonly actor: ReceiptActor;
       readonly current: Receipt;
     };
+
+export interface ReceiptSettlementAuthorizationTarget {
+  readonly _tag: "RecordReceiptSettlement";
+  readonly receiptId: ReceiptId;
+}
+
+export interface ReceiptSettlementAuthorization {
+  readonly _tag: "RecordReceiptSettlement";
+  readonly principal: ReceiptCommandPrincipal;
+  readonly actor: ReceiptSettlementActor;
+  readonly current: Receipt;
+}
 
 export interface EconomyShape {
   readonly executeReceipt: (
@@ -93,6 +122,19 @@ export interface EconomyShape {
     authorization: ReceiptMutationAuthorization,
     allocation?: ReceiptSubmissionAllocation,
   ) => Effect.Effect<ReceiptTransactionResult, ReceiptFailure>;
+  /** Resolves a concealed settlement witness on the caller's transaction. */
+  readonly authorizeReceiptSettlement: (
+    target: ReceiptSettlementAuthorizationTarget,
+    principal: ReceiptCommandPrincipal,
+  ) => Effect.Effect<ReceiptSettlementAuthorization, ReceiptSettlementFailure>;
+  readonly executeAuthorizedReceiptSettlement: (
+    input: unknown,
+    authorization: ReceiptSettlementAuthorization,
+  ) => Effect.Effect<ReceiptSettlementTransactionResult, ReceiptSettlementFailure>;
+  readonly recordReceiptSettlement: (
+    input: unknown,
+    principal: ReceiptCommandPrincipal,
+  ) => Effect.Effect<ReceiptSettlementTransactionResult, ReceiptSettlementFailure>;
   readonly listOwnedReceipts: (
     ownerPersonId: string,
     status?: ReceiptStatus,
@@ -102,6 +144,10 @@ export interface EconomyShape {
     authorizationInstant: OrganizationAuthorityInstant,
     status?: ReceiptStatus,
   ) => Effect.Effect<ReadonlyArray<ReceiptListItem>, ReceiptApprovalListFailure>;
+  readonly listReceiptsForSettlement: (
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+  ) => Effect.Effect<ReadonlyArray<ReceiptSettlementQueueItem>, ReceiptSettlementListFailure>;
   /**
    * Resolves one approved receipt's private-file metadata on the caller-owned
    * repeatable-read, read-only transaction. The caller authenticates in that
@@ -112,6 +158,11 @@ export interface EconomyShape {
     personId: PersonId,
     authorizationInstant: OrganizationAuthorityInstant,
   ) => Effect.Effect<ReceiptFile, ReceiptApprovalFileReadFailure>;
+  readonly readReceiptSettlementForFinance: (
+    receiptId: string,
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+  ) => Effect.Effect<ReceiptSettlementEvidence, ReceiptSettlementReadFailure>;
   readonly readReceiptLifecycleEvidence: (
     receiptId: string,
     ownerPersonId: string,

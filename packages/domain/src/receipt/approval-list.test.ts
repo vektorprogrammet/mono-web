@@ -323,7 +323,7 @@ describe("rule-aware Receipt approval visibility", () => {
         }),
       ],
     );
-    const terminal = candidate("terminal-file", departmentA, "Refunded");
+    const terminal = candidate("terminal-file", departmentA, "Approved");
     const rules = [
       requirement("file-read-require-pending", "receipts.pending"),
       requirement("file-read-require-approver", "receipts.approver-relationship"),

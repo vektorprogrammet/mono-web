@@ -236,8 +236,9 @@ const interpretReceiptOutbox = (
     case "DeleteReceiptFile":
       return ReceiptFileService.use(({ apply }) => apply(request as ReceiptFileRequest));
     case "NotifyEconomyReceiptSubmitted":
-    case "NotifyReceiptRefunded":
+    case "NotifyReceiptApproved":
     case "NotifyReceiptRejected":
+    case "NotifyReceiptSettled":
     case "WriteReceiptAudit":
       return ReceiptAuxiliaryEffects.use(({ apply }) =>
         apply(request as ReceiptAuxiliaryRequest, claimId),

@@ -26,6 +26,21 @@ export class ReceiptAlreadyExists extends Schema.TaggedError<ReceiptAlreadyExist
   { receiptId: Schema.String },
 ) {}
 
+export class ReceiptAlreadySettled extends Schema.TaggedError<ReceiptAlreadySettled>()(
+  "ReceiptAlreadySettled",
+  { receiptId: Schema.String },
+) {}
+
+export class DuplicateExternalSettlementReference extends Schema.TaggedError<DuplicateExternalSettlementReference>()(
+  "DuplicateExternalSettlementReference",
+  { externalAuthority: Schema.String, externalReference: Schema.String },
+) {}
+
+export class SettlementAfterRecordedAt extends Schema.TaggedError<SettlementAfterRecordedAt>()(
+  "SettlementAfterRecordedAt",
+  { settledAt: Rfc3339InstantSchema, recordedAt: Rfc3339InstantSchema },
+) {}
+
 export class ReceiptScopeDenied extends Schema.TaggedError<ReceiptScopeDenied>()(
   "ReceiptScopeDenied",
   { receiptId: Schema.String, departmentId: Schema.String },
@@ -62,7 +77,11 @@ export class ReceiptPersistenceError extends Schema.TaggedError<ReceiptPersisten
 
 const ReceiptComposedCapabilitySchema = Schema.Literals(["submitReceipt", "approveReceipt"]);
 export type ReceiptComposedCapability = typeof ReceiptComposedCapabilitySchema.Type;
-const ReceiptAuthorityRecordKindSchema = Schema.Literals(["PaymentAuthority", "ApprovalGrant"]);
+const ReceiptAuthorityRecordKindSchema = Schema.Literals([
+  "PaymentAuthority",
+  "ApprovalGrant",
+  "SettlementGrant",
+]);
 
 export class ReceiptAuthorityRecordNotFound extends Schema.TaggedError<ReceiptAuthorityRecordNotFound>()(
   "ReceiptAuthorityRecordNotFound",
@@ -103,10 +122,13 @@ export const receiptCompositionFailure = (
     : reason === "RequirementFailed"
       ? new FailedComposedRequirement({ personId, capabilityId })
       : undefined;
+
 export const ReceiptAuthorityOperationSchema = Schema.Literals([
   "Submission",
   "DepartmentApproval",
   "GlobalApproval",
+  "DepartmentSettlement",
+  "GlobalSettlement",
   "Owner",
 ]);
 export type ReceiptAuthorityOperation = typeof ReceiptAuthorityOperationSchema.Type;
@@ -164,6 +186,24 @@ export type ReceiptApprovalListFailure =
 
 /** Typed read boundary for one canonical receipt file in the approval scope. */
 export type ReceiptApprovalFileReadFailure = ReceiptApprovalListFailure | ReceiptNotFound;
+
+export type ReceiptSettlementListFailure = ReceiptDecodeError | ReceiptPersistenceError;
+
+export type ReceiptSettlementReadFailure =
+  | ReceiptDecodeError
+  | ReceiptNotFound
+  | ReceiptPersistenceError;
+
+export type ReceiptSettlementFailure =
+  | ReceiptDecodeError
+  | ReceiptNotFound
+  | ReceiptAlreadySettled
+  | DuplicateExternalSettlementReference
+  | SettlementAfterRecordedAt
+  | StaleReceiptRevision
+  | InvalidReceiptTransition
+  | DuplicateReceiptCommandConflict
+  | ReceiptPersistenceError;
 
 export type ReceiptFailure =
   | ReceiptDecodeError

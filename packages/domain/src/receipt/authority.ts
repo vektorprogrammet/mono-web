@@ -5,10 +5,16 @@ import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
 import {
   AmbiguousReceiptPaymentAuthority,
   ReceiptAuthorityDenied,
+  ReceiptNotFound,
   ReceiptScopeDenied,
   type ReceiptAuthorityMappingError,
 } from "./errors.js";
-import { ReceiptActorSchema, type ReceiptActor } from "./schema.js";
+import {
+  ReceiptActorSchema,
+  ReceiptSettlementActorSchema,
+  type ReceiptActor,
+  type ReceiptSettlementActor,
+} from "./schema.js";
 
 const NonEmpty = Schema.String.pipe(
   Schema.check(
@@ -25,6 +31,9 @@ export type ReceiptPaymentAuthorityId = typeof ReceiptPaymentAuthorityId.Type;
 export const ReceiptApprovalGrantId = NonEmpty.pipe(Schema.brand("ReceiptApprovalGrantId"));
 export type ReceiptApprovalGrantId = typeof ReceiptApprovalGrantId.Type;
 
+export const ReceiptSettlementGrantId = NonEmpty.pipe(Schema.brand("ReceiptSettlementGrantId"));
+export type ReceiptSettlementGrantId = typeof ReceiptSettlementGrantId.Type;
+
 export const ReceiptAuthorityInstantSchema = Rfc3339InstantSchema;
 export type ReceiptAuthorityInstant = typeof ReceiptAuthorityInstantSchema.Type;
 
@@ -33,6 +42,12 @@ export const ReceiptApprovalGrantScopeSchema = Schema.TaggedUnion({
   Global: {},
 });
 export type ReceiptApprovalGrantScope = typeof ReceiptApprovalGrantScopeSchema.Type;
+
+export const ReceiptSettlementGrantScopeSchema = Schema.TaggedUnion({
+  Department: { departmentId: DepartmentId },
+  Global: {},
+});
+export type ReceiptSettlementGrantScope = typeof ReceiptSettlementGrantScopeSchema.Type;
 
 const ReceiptPaymentAuthorityFields = {
   paymentAuthorityId: ReceiptPaymentAuthorityId,
@@ -53,6 +68,15 @@ const ReceiptApprovalGrantFields = {
   revision: Revision,
 } as const;
 
+const ReceiptSettlementGrantFields = {
+  settlementGrantId: ReceiptSettlementGrantId,
+  personId: PersonId,
+  scope: ReceiptSettlementGrantScopeSchema,
+  startAt: ReceiptAuthorityInstantSchema,
+  endAt: Schema.NullOr(ReceiptAuthorityInstantSchema),
+  revision: Revision,
+} as const;
+
 const orderedAuthorityInterval = Schema.makeFilter(
   (authority: { readonly startAt: string; readonly endAt: string | null }) =>
     authority.endAt === null || compareRfc3339Instants(authority.endAt, authority.startAt) > 0,
@@ -68,6 +92,11 @@ export const ReceiptApprovalGrantSchema = Schema.Struct(ReceiptApprovalGrantFiel
   Schema.check(orderedAuthorityInterval),
 );
 export type ReceiptApprovalGrant = typeof ReceiptApprovalGrantSchema.Type;
+
+export const ReceiptSettlementGrantSchema = Schema.Struct(ReceiptSettlementGrantFields).pipe(
+  Schema.check(orderedAuthorityInterval),
+);
+export type ReceiptSettlementGrant = typeof ReceiptSettlementGrantSchema.Type;
 
 export const CreateReceiptPaymentAuthorityInputSchema = Schema.Struct({
   paymentAuthorityId: ReceiptPaymentAuthorityId,
@@ -116,6 +145,29 @@ export const RemoveReceiptApprovalGrantInputSchema = Schema.Struct({
 });
 export type RemoveReceiptApprovalGrantInput = typeof RemoveReceiptApprovalGrantInputSchema.Type;
 
+export const CreateReceiptSettlementGrantInputSchema = Schema.Struct({
+  settlementGrantId: ReceiptSettlementGrantId,
+  personId: PersonId,
+  scope: ReceiptSettlementGrantScopeSchema,
+  startAt: ReceiptAuthorityInstantSchema,
+  endAt: Schema.NullOr(ReceiptAuthorityInstantSchema),
+}).pipe(Schema.check(orderedAuthorityInterval));
+export type CreateReceiptSettlementGrantInput =
+  typeof CreateReceiptSettlementGrantInputSchema.Type;
+
+export const EndReceiptSettlementGrantInputSchema = Schema.Struct({
+  settlementGrantId: ReceiptSettlementGrantId,
+  endAt: ReceiptAuthorityInstantSchema,
+  expectedRevision: Revision,
+});
+export type EndReceiptSettlementGrantInput = typeof EndReceiptSettlementGrantInputSchema.Type;
+
+export const RemoveReceiptSettlementGrantInputSchema = Schema.Struct({
+  settlementGrantId: ReceiptSettlementGrantId,
+  expectedRevision: Revision,
+});
+export type RemoveReceiptSettlementGrantInput = typeof RemoveReceiptSettlementGrantInputSchema.Type;
+
 export const ResolvedReceiptPaymentAuthoritySchema = Schema.Struct({
   ...ReceiptPaymentAuthorityFields,
   active: Schema.Boolean,
@@ -127,6 +179,12 @@ export const ResolvedReceiptApprovalGrantSchema = Schema.Struct({
   active: Schema.Boolean,
 }).pipe(Schema.check(orderedAuthorityInterval));
 export type ResolvedReceiptApprovalGrant = typeof ResolvedReceiptApprovalGrantSchema.Type;
+
+export const ResolvedReceiptSettlementGrantSchema = Schema.Struct({
+  ...ReceiptSettlementGrantFields,
+  active: Schema.Boolean,
+}).pipe(Schema.check(orderedAuthorityInterval));
+export type ResolvedReceiptSettlementGrant = typeof ResolvedReceiptSettlementGrantSchema.Type;
 
 export const ReceiptOrganizationAuthorityStatusSchema = Schema.Literals([
   "Active",
@@ -142,12 +200,14 @@ export const ReceiptAuthoritySchema = Schema.Struct({
   organizationAuthority: ReceiptOrganizationAuthorityStatusSchema,
   paymentAuthorities: Schema.Array(ResolvedReceiptPaymentAuthoritySchema),
   approvalGrants: Schema.Array(ResolvedReceiptApprovalGrantSchema),
+  settlementGrants: Schema.Array(ResolvedReceiptSettlementGrantSchema),
 }).pipe(
   Schema.check(
     Schema.makeFilter(
       (authority) =>
         authority.paymentAuthorities.every((payment) => payment.personId === authority.personId) &&
-        authority.approvalGrants.every((grant) => grant.personId === authority.personId),
+        authority.approvalGrants.every((grant) => grant.personId === authority.personId) &&
+        authority.settlementGrants.every((grant) => grant.personId === authority.personId),
       { message: "Receipt authority records for the projected person" },
     ),
   ),
@@ -204,6 +264,7 @@ export const projectReceiptAuthority = (
   organization: OrganizationPersonAuthority,
   paymentAuthorities: ReadonlyArray<ReceiptPaymentAuthority>,
   approvalGrants: ReadonlyArray<ReceiptApprovalGrant>,
+  settlementGrants: ReadonlyArray<ReceiptSettlementGrant> = [],
 ): ReceiptAuthority => {
   const projectedPayments: Array<ResolvedReceiptPaymentAuthority> = [];
   for (const authority of paymentAuthorities) {
@@ -238,12 +299,29 @@ export const projectReceiptAuthority = (
   projectedGrants.sort(
     (left, right) =>
       compareText(left.scope._tag, right.scope._tag) ||
-      compareText(
-        left.scope._tag === "Department" ? left.scope.departmentId : "",
-        right.scope._tag === "Department" ? right.scope.departmentId : "",
-      ) ||
+      compareText(left.scope._tag === "Department" ? left.scope.departmentId : "", right.scope._tag === "Department" ? right.scope.departmentId : "") ||
       compareRfc3339Instants(left.startAt, right.startAt) ||
       compareText(left.approvalGrantId, right.approvalGrantId),
+  );
+
+  const projectedSettlementGrants: Array<ResolvedReceiptSettlementGrant> = [];
+  for (const grant of settlementGrants) {
+    if (grant.personId !== organization.personId) continue;
+    projectedSettlementGrants.push({
+      ...grant,
+      active:
+        intervalContains(grant, organization.evaluatedAt) &&
+        (grant.scope._tag === "Global"
+          ? resolvedOrganizationStatus === "Active"
+          : activeOrganizationAuthorityInDepartment(organization, grant.scope.departmentId)),
+    });
+  }
+  projectedSettlementGrants.sort(
+    (left, right) =>
+      compareText(left.scope._tag, right.scope._tag) ||
+      compareText(left.scope._tag === "Department" ? left.scope.departmentId : "", right.scope._tag === "Department" ? right.scope.departmentId : "") ||
+      compareRfc3339Instants(left.startAt, right.startAt) ||
+      compareText(left.settlementGrantId, right.settlementGrantId),
   );
 
   return {
@@ -252,6 +330,7 @@ export const projectReceiptAuthority = (
     organizationAuthority: resolvedOrganizationStatus,
     paymentAuthorities: projectedPayments,
     approvalGrants: projectedGrants,
+    settlementGrants: projectedSettlementGrants,
   };
 };
 
@@ -329,9 +408,7 @@ export const mapReceiptSubmissionPrincipal = (
     if (active.length === 1) {
       selected = active[0];
     } else {
-      if (candidates.length > 1) {
-        return Effect.fail(ambiguousPayment(authority, candidates));
-      }
+      if (candidates.length > 1) return Effect.fail(ambiguousPayment(authority, candidates));
       selected = candidates[0];
     }
   }
@@ -359,9 +436,7 @@ export const mapReceiptDepartmentApprovalActor = (
     if (grant.scope._tag !== "Department" || grant.scope.departmentId !== departmentId) continue;
     selected = preferTemporalCandidate(selected, grant, authority.evaluatedAt);
   }
-  if (selected === undefined) {
-    return Effect.fail(deny(authority, "DepartmentApproval", departmentId));
-  }
+  if (selected === undefined) return Effect.fail(deny(authority, "DepartmentApproval", departmentId));
   return Effect.succeed({
     personId: authority.personId,
     departmentId,
@@ -383,14 +458,11 @@ export const mapReceiptGlobalApprovalPrincipal = (
     if (grant.scope._tag !== "Global") continue;
     selected = preferTemporalCandidate(selected, grant, authority.evaluatedAt);
   }
-  if (selected === undefined) {
-    return Effect.fail(deny(authority, "GlobalApproval", null));
-  }
-  return Effect.succeed({
-    personId: authority.personId,
-    active: selected.active,
-  });
+  if (selected === undefined) return Effect.fail(deny(authority, "GlobalApproval", null));
+  return Effect.succeed({ personId: principalPersonId(authority), active: selected.active });
 };
+
+const principalPersonId = (authority: ReceiptAuthority): PersonId => authority.personId;
 
 export const mapReceiptGlobalApprovalActor = (
   authority: ReceiptAuthority,
@@ -439,9 +511,7 @@ export const mapReceiptApprovalActor = (
   receiptDepartmentId: DepartmentId,
 ): Effect.Effect<ReceiptActor, ReceiptAuthorityDenied> => {
   const selected = selectReceiptApprovalGrant(authority, receiptDepartmentId);
-  if (selected === undefined) {
-    return Effect.fail(deny(authority, "DepartmentApproval", receiptDepartmentId));
-  }
+  if (selected === undefined) return Effect.fail(deny(authority, "DepartmentApproval", receiptDepartmentId));
   return Effect.succeed({
     personId: authority.personId,
     departmentId: receiptDepartmentId,
@@ -472,6 +542,48 @@ export const mapExistingReceiptApprovalActor = (
         }),
     ),
   );
+
+/** Selects an active global grant first, then the receipt's department grant. */
+export const selectReceiptSettlementGrant = (
+  authority: ReceiptAuthority,
+  receiptDepartmentId: DepartmentId,
+): ResolvedReceiptSettlementGrant | undefined => {
+  let global: ResolvedReceiptSettlementGrant | undefined;
+  let department: ResolvedReceiptSettlementGrant | undefined;
+  for (const grant of authority.settlementGrants) {
+    if (grant.scope._tag === "Global") {
+      global = preferTemporalCandidate(global, grant, authority.evaluatedAt);
+    } else if (grant.scope.departmentId === receiptDepartmentId) {
+      department = preferTemporalCandidate(department, grant, authority.evaluatedAt);
+    }
+  }
+  return global?.active === true
+    ? global
+    : department?.active === true
+      ? department
+      : (global ?? department);
+};
+
+/**
+ * Settlement scope is intentionally concealed. An absent, inactive, or
+ * out-of-scope grant is indistinguishable from an unknown receipt.
+ */
+export const mapExistingReceiptSettlementActor = (
+  authority: ReceiptAuthority,
+  receiptId: string,
+  receiptDepartmentId: DepartmentId,
+): Effect.Effect<ReceiptSettlementActor, ReceiptNotFound> => {
+  const selected = selectReceiptSettlementGrant(authority, receiptDepartmentId);
+  if (selected?.active !== true) return Effect.fail(new ReceiptNotFound({ receiptId }));
+  return Effect.succeed({
+    personId: authority.personId,
+    active: true,
+    settlementScope:
+      selected.scope._tag === "Global"
+        ? { _tag: "Global" }
+        : { _tag: "Department", departmentId: receiptDepartmentId },
+  });
+};
 
 /** Owner lists use this person-keyed result and never select one department. */
 export const mapReceiptOwnerPrincipal = (

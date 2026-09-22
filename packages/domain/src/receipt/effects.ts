@@ -18,8 +18,9 @@ export const ReceiptOutboxRequestSchema = Schema.TaggedUnion({
     file: ReceiptFileSchema,
   },
   NotifyEconomyReceiptSubmitted: EffectBase,
-  NotifyReceiptRefunded: EffectBase,
+  NotifyReceiptApproved: EffectBase,
   NotifyReceiptRejected: EffectBase,
+  NotifyReceiptSettled: EffectBase,
   WriteReceiptAudit: EffectBase,
 });
 export type ReceiptOutboxRequest = typeof ReceiptOutboxRequestSchema.Type;

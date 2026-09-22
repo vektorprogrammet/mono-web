@@ -1,4 +1,4 @@
-import type { Receipt } from "./schema.js";
+import type { Receipt, ReceiptSettlementEvidence } from "./schema.js";
 
 export interface ReceiptListItem extends Pick<
   Receipt,
@@ -10,9 +10,17 @@ export interface ReceiptListItem extends Pick<
   | "currency"
   | "status"
   | "receiptDate"
+  | "approvedAt"
   | "revision"
 > {
   readonly amountOre: string;
+}
+
+/** Approved, unsettled claims visible to the caller's settlement grant. */
+export interface ReceiptSettlementQueueItem
+  extends Omit<ReceiptListItem, "status" | "approvedAt"> {
+  readonly status: "Approved";
+  readonly approvedAt: string;
 }
 
 export interface ReceiptStatusTotal {
@@ -23,6 +31,7 @@ export interface ReceiptStatusTotal {
 
 export interface OwnedReceiptProjectionItem extends ReceiptListItem {
   readonly submittedAt: Receipt["submittedAt"];
+  readonly settlement: ReceiptSettlementEvidence | null;
 }
 
 export interface ReceiptLifecycleOutboxProjection {
@@ -52,6 +61,7 @@ export interface ReceiptLifecycleEvidenceProjection {
     readonly byteLength: number;
     readonly sha256: string;
   };
+  readonly settlement: ReceiptSettlementEvidence | null;
   readonly outbox: ReadonlyArray<ReceiptLifecycleOutboxProjection>;
   readonly audit: ReadonlyArray<ReceiptLifecycleAuditProjection>;
 }

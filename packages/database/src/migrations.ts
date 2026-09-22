@@ -173,6 +173,10 @@ const nativeSchoolSurveyOperationsMigrationUrl = new URL(
   "../migrations/0045-native-school-survey-operations.sql",
   import.meta.url,
 );
+const expenseSettlementEvidenceMigrationUrl = new URL(
+  "../migrations/0048-expense-settlement-evidence.sql",
+  import.meta.url,
+);
 
 export const databaseMigrationDefinitions = [
   { id: "1_receipt-authority", name: "receipt-authority", url: receiptMigrationUrl },
@@ -397,6 +401,11 @@ export const databaseMigrationDefinitions = [
     id: "47_native-school-survey-operations",
     name: "native-school-survey-operations",
     url: nativeSchoolSurveyOperationsMigrationUrl,
+  },
+  {
+    id: "48_expense-settlement-evidence",
+    name: "expense-settlement-evidence",
+    url: expenseSettlementEvidenceMigrationUrl,
   },
 ] as const;
 

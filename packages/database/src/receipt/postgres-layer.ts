@@ -13,6 +13,13 @@ import {
   readReceiptFileForApproval as readReceiptFileForApprovalPostgres,
 } from "./postgres.js";
 import {
+  authorizeReceiptSettlement,
+  executeAuthorizedReceiptSettlement,
+  listReceiptsForSettlement,
+  readReceiptSettlementForFinance,
+  recordReceiptSettlement,
+} from "./settlement.js";
+import {
   listOwnedReceiptProjection,
   readReceiptLifecycleEvidence,
   receiptStatusTotals,
@@ -35,6 +42,16 @@ export const EconomyLive = Layer.effect(
         executeAuthorizedReceiptCommand(input, authorization, allocation).pipe(
           Effect.provideService(Database, database),
         ),
+      authorizeReceiptSettlement: (target, principal) =>
+        authorizeReceiptSettlement(target, principal).pipe(
+          Effect.provideService(Database, database),
+        ),
+      executeAuthorizedReceiptSettlement: (input, authorization) =>
+        executeAuthorizedReceiptSettlement(input, authorization).pipe(
+          Effect.provideService(Database, database),
+        ),
+      recordReceiptSettlement: (input, principal) =>
+        recordReceiptSettlement(input, principal).pipe(Effect.provideService(Database, database)),
       listOwnedReceipts: (ownerPersonId, status) =>
         listOwnedReceiptProjection(ownerPersonId, status).pipe(
           Effect.provideService(Database, database),
@@ -43,8 +60,16 @@ export const EconomyLive = Layer.effect(
         listReceiptsForApprovalPostgres(personId, authorizationInstant, status).pipe(
           Effect.provideService(Database, database),
         ),
+      listReceiptsForSettlement: (personId, authorizationInstant) =>
+        listReceiptsForSettlement(personId, authorizationInstant).pipe(
+          Effect.provideService(Database, database),
+        ),
       readReceiptFileForApproval: (receiptId, personId, authorizationInstant) =>
         readReceiptFileForApprovalPostgres(receiptId, personId, authorizationInstant).pipe(
+          Effect.provideService(Database, database),
+        ),
+      readReceiptSettlementForFinance: (receiptId, personId, authorizationInstant) =>
+        readReceiptSettlementForFinance(receiptId, personId, authorizationInstant).pipe(
           Effect.provideService(Database, database),
         ),
       readReceiptLifecycleEvidence: (receiptId, ownerPersonId) =>

@@ -27,7 +27,7 @@ export interface ReceiptProofEvidence {
   readonly passed: true;
   readonly accepted: {
     readonly submit: boolean;
-    readonly refund: boolean;
+    readonly approve: boolean;
     readonly revise: boolean;
     readonly withdraw: boolean;
     readonly import: boolean;
@@ -208,7 +208,7 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
     const wrongScope = yield* Effect.exit(
       executeReceiptCommand(
         {
-          _tag: "RefundReceipt",
+          _tag: "ApproveReceipt",
           commandId: "proof-command-wrong-scope",
           receiptId: "proof-receipt-1",
           expectedRevision: 0,
@@ -216,10 +216,10 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
         principal(wrongScopeApproverPersonId, "2026-08-20T12:01:00.000Z"),
       ),
     );
-    const refunded = yield* executeReceiptCommand(
+    const approved = yield* executeReceiptCommand(
       {
-        _tag: "RefundReceipt",
-        commandId: "proof-command-refund",
+        _tag: "ApproveReceipt",
+        commandId: "proof-command-approve",
         receiptId: "proof-receipt-1",
         expectedRevision: 0,
       },
@@ -314,7 +314,7 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
       receiptDate: "2026-08-19",
       submittedAt: "2026-08-20T10:00:00.000Z",
       status: "pending",
-      refundDate: null,
+      approvedAt: null,
       paymentAccountCiphertext: "ciphertext:v1:legacy-proof",
       file,
     };
@@ -374,7 +374,7 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
       passed: true,
       accepted: {
         submit: submitted.observation.status === "Pending",
-        refund: refunded.observation.status === "Refunded",
+        approve: approved.observation.status === "Approved",
         revise: revised.observation.revision === 1,
         withdraw: withdrawn.observation.status === "Withdrawn",
         import: imported?._tag === "AcceptedReceiptImport",
@@ -403,7 +403,7 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
     };
     assert.deepEqual(evidence.accepted, {
       submit: true,
-      refund: true,
+      approve: true,
       revise: true,
       withdraw: true,
       import: true,

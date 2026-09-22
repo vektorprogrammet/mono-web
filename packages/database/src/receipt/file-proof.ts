@@ -430,13 +430,13 @@ export const runReceiptFileProof = (
     if (workerClaimsRecovered !== 1) {
       throw new Error("exclusive Receipt outbox claim was not recoverable");
     }
-    const [refund, reject] = yield* Effect.all(
+    const [approve, reject] = yield* Effect.all(
       [
         Effect.exit(
           executeReceiptCommand(
             {
-              _tag: "RefundReceipt",
-              commandId: "file-proof-race-refund",
+              _tag: "ApproveReceipt",
+              commandId: "file-proof-race-approve",
               receiptId: "file-proof-race-receipt",
               expectedRevision: 0,
             },
@@ -606,7 +606,7 @@ export const runReceiptFileProof = (
       replacementDelivery.claim.claimId === "claim-replacement-retry";
     const duplicateFileEffects =
       snapshot.events.length - new Set(snapshot.events.map((event) => event.effectId)).size;
-    const resolutionResults = [refund, reject];
+    const resolutionResults = [approve, reject];
     const acceptedResolutions = resolutionResults.filter(
       (result) => result._tag === "Success",
     ).length;

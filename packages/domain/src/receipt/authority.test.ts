@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import type { OrganizationPersonAuthority } from "../organization/authority.js";
 import { DepartmentId, MembershipId, PersonId, TeamId } from "../organization/schema.js";
 import {
+  mapExistingReceiptSettlementActor,
   mapReceiptDepartmentApprovalActor,
   mapReceiptGlobalApprovalActor,
   mapReceiptOwnerActor,
@@ -11,8 +12,10 @@ import {
   projectReceiptAuthority,
   ReceiptApprovalGrantId,
   ReceiptPaymentAuthorityId,
+  ReceiptSettlementGrantId,
   type ReceiptApprovalGrant,
   type ReceiptPaymentAuthority,
+  type ReceiptSettlementGrant,
 } from "./authority.js";
 
 const evaluatedAt = "2026-08-24T12:00:00.000Z";
@@ -71,6 +74,20 @@ const approvalGrant = (
   revision: 0,
 });
 
+const settlementGrant = (
+  id: string,
+  scope: ReceiptSettlementGrant["scope"],
+  startAt = "2026-08-01T00:00:00.000Z",
+  endAt: string | null = null,
+): ReceiptSettlementGrant => ({
+  settlementGrantId: ReceiptSettlementGrantId.make(id),
+  personId,
+  scope,
+  startAt,
+  endAt,
+  revision: 0,
+});
+
 it.effect("maps explicit department and global Receipt approval grants", () =>
   Effect.gen(function* () {
     const authority = projectReceiptAuthority(
@@ -100,6 +117,78 @@ it.effect("maps explicit department and global Receipt approval grants", () =>
       active: true,
       approvalScope: { _tag: "Global" },
     });
+  }),
+);
+
+it.effect("requires an active current settlement grant and conceals its scope", () =>
+  Effect.gen(function* () {
+    const departmentAuthority = projectReceiptAuthority(
+      organizationAuthority([membership(departmentOne, true)]),
+      [],
+      [],
+      [settlementGrant("settlement-department", { _tag: "Department", departmentId: departmentOne })],
+    );
+    const actor = yield* mapExistingReceiptSettlementActor(
+      departmentAuthority,
+      "receipt-settlement-1",
+      departmentOne,
+    );
+    expect(actor).toEqual({
+      personId,
+      active: true,
+      settlementScope: { _tag: "Department", departmentId: departmentOne },
+    });
+
+    const wrongDepartment = yield* Effect.flip(
+      mapExistingReceiptSettlementActor(
+        departmentAuthority,
+        "receipt-settlement-2",
+        departmentTwo,
+      ),
+    );
+    expect(wrongDepartment._tag).toBe("ReceiptNotFound");
+
+    const expiredAuthority = projectReceiptAuthority(
+      organizationAuthority([membership(departmentOne, true)]),
+      [],
+      [],
+      [
+        settlementGrant(
+          "settlement-expired",
+          { _tag: "Department", departmentId: departmentOne },
+          "2026-08-01T00:00:00.000Z",
+          evaluatedAt,
+        ),
+      ],
+    );
+    const expired = yield* Effect.flip(
+      mapExistingReceiptSettlementActor(expiredAuthority, "receipt-settlement-3", departmentOne),
+    );
+    expect(expired._tag).toBe("ReceiptNotFound");
+
+    const detachedAuthority = projectReceiptAuthority(
+      organizationAuthority([membership(departmentOne, false)]),
+      [],
+      [],
+      [settlementGrant("settlement-detached", { _tag: "Department", departmentId: departmentOne })],
+    );
+    const detached = yield* Effect.flip(
+      mapExistingReceiptSettlementActor(detachedAuthority, "receipt-settlement-4", departmentOne),
+    );
+    expect(detached._tag).toBe("ReceiptNotFound");
+
+    const globalAuthority = projectReceiptAuthority(
+      organizationAuthority([membership(departmentOne, true)]),
+      [],
+      [],
+      [settlementGrant("settlement-global", { _tag: "Global" })],
+    );
+    const global = yield* mapExistingReceiptSettlementActor(
+      globalAuthority,
+      "receipt-settlement-4",
+      departmentTwo,
+    );
+    expect(global.settlementScope).toEqual({ _tag: "Global" });
   }),
 );
 

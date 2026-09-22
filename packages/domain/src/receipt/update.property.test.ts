@@ -88,13 +88,13 @@ it.effect.prop(
 );
 
 it.effect.prop(
-  "owners cannot withdraw withdrawn, refunded, or rejected Receipts",
+  "owners cannot withdraw withdrawn, approved, or rejected Receipts",
   { amount: Schema.Int },
   ({ amount }) =>
     Effect.gen(function* () {
       const terminalCommands = [
         { _tag: "WithdrawPendingReceipt" as const, actor: owner },
-        { _tag: "RefundReceipt" as const, actor: approver },
+        { _tag: "ApproveReceipt" as const, actor: approver },
         { _tag: "RejectReceipt" as const, actor: approver },
       ];
       for (const [index, terminal] of terminalCommands.entries()) {
