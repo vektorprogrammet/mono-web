@@ -615,8 +615,8 @@ async function readPostgresEvidence(environment) {
               'departmentId', department_id,
               'status', status,
               'revision', revision,
-              'refundDate', CASE WHEN refund_date IS NULL THEN NULL
-                ELSE to_char(refund_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+              'approvedAt', CASE WHEN approved_at IS NULL THEN NULL
+                ELSE to_char(approved_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
               END,
               'fileRef', file_ref,
               'objectKey', file_object_key,
@@ -731,7 +731,7 @@ async function readPostgresEvidence(environment) {
 function assertExpectedOutboxCommandOrder(postgres, journeyEvidence) {
   const expectedCommandOrder = [
     ...journeyEvidence.commands.submissions,
-    journeyEvidence.commands.refund,
+    journeyEvidence.commands.approval,
     journeyEvidence.commands.reject,
     journeyEvidence.commands.stale,
     journeyEvidence.commands.concurrentWinner,
@@ -786,8 +786,8 @@ function assertFileReadEvidence(fileReads) {
   for (const name of [
     "activePng",
     "dashboardPng",
-    "terminalRefund",
-    "dashboardTerminalRefund",
+    "terminalApproved",
+    "dashboardTerminalApproved",
     "concurrent",
   ]) {
     assertReceiptFileArtifact(artifacts[name], "image/png");
@@ -806,14 +806,14 @@ function assertFileReadEvidence(fileReads) {
     "Dashboard PDF receipt file bytes and headers",
   );
   assertEqual(
-    artifacts.terminalRefund,
+    artifacts.terminalApproved,
     artifacts.activePng,
-    "Refunded Receipt file bytes and headers",
+    "Approved Receipt file bytes and headers",
   );
   assertEqual(
-    artifacts.dashboardTerminalRefund,
+    artifacts.dashboardTerminalApproved,
     artifacts.activePng,
-    "Dashboard refunded Receipt file bytes and headers",
+    "Dashboard approved Receipt file bytes and headers",
   );
   assertEqual(
     artifacts.terminalReject,
@@ -939,16 +939,16 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
       throw new Error(`Receipt ${receiptId} did not commit exactly one approval revision`);
     }
     if (
-      (receipt.status === "Refunded" && typeof receipt.refundDate !== "string") ||
-      (receipt.status !== "Refunded" && receipt.refundDate !== null)
+      (receipt.status === "Approved" && typeof receipt.approvedAt !== "string") ||
+      (receipt.status !== "Approved" && receipt.approvedAt !== null)
     ) {
-      throw new Error(`Receipt ${receiptId} violated the refund-date invariant`);
+      throw new Error(`Receipt ${receiptId} violated the approved-at invariant`);
     }
   }
 
   const expectedCommandIds = [
     ...journeyEvidence.commands.submissions,
-    journeyEvidence.commands.refund,
+    journeyEvidence.commands.approval,
     journeyEvidence.commands.reject,
     journeyEvidence.commands.stale,
     journeyEvidence.commands.concurrentWinner,
@@ -986,8 +986,8 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
       throw new Error("Receipt submission audit actor or action is incorrect");
     }
   }
-  if (auditByCommand.get(journeyEvidence.commands.refund)?.action !== "ReceiptRefunded") {
-    throw new Error("Receipt refund audit action is incorrect");
+  if (auditByCommand.get(journeyEvidence.commands.approval)?.action !== "ReceiptApproved") {
+    throw new Error("Receipt approval audit action is incorrect");
   }
   if (
     auditByCommand.get(journeyEvidence.commands.reject)?.action !== "ReceiptRejected" ||
@@ -997,7 +997,7 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
   }
   const concurrentReceipt = receiptById.get(journeyEvidence.receipts.concurrent);
   const expectedConcurrentAction =
-    concurrentReceipt?.status === "Refunded" ? "ReceiptRefunded" : "ReceiptRejected";
+    concurrentReceipt?.status === "Approved" ? "ReceiptApproved" : "ReceiptRejected";
   if (
     auditByCommand.get(journeyEvidence.commands.concurrentWinner)?.action !==
     expectedConcurrentAction
@@ -1005,7 +1005,7 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
     throw new Error("Concurrent approval audit action is incorrect");
   }
   for (const commandId of [
-    journeyEvidence.commands.refund,
+    journeyEvidence.commands.approval,
     journeyEvidence.commands.reject,
     journeyEvidence.commands.stale,
     journeyEvidence.commands.concurrentWinner,
@@ -1047,13 +1047,13 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
     }
   }
   const expectedResolutionEffects = new Map([
-    [journeyEvidence.commands.refund, "NotifyReceiptRefunded"],
+    [journeyEvidence.commands.approval, "NotifyReceiptApproved"],
     [journeyEvidence.commands.reject, "NotifyReceiptRejected"],
     [journeyEvidence.commands.stale, "NotifyReceiptRejected"],
     [
       journeyEvidence.commands.concurrentWinner,
-      expectedConcurrentAction === "ReceiptRefunded"
-        ? "NotifyReceiptRefunded"
+      expectedConcurrentAction === "ReceiptApproved"
+        ? "NotifyReceiptApproved"
         : "NotifyReceiptRejected",
     ],
   ]);
@@ -1090,7 +1090,7 @@ function assertReceiptDeliveryEvidence(postgres, deliveries, seedEvidence) {
   );
   const subjectByEffectType = {
     NotifyEconomyReceiptSubmitted: "Nytt utlegg registrert",
-    NotifyReceiptRefunded: "Utlegget ditt er markert som refundert",
+    NotifyReceiptApproved: "Utlegget ditt er godkjent",
     NotifyReceiptRejected: "Utlegget ditt er avvist",
   };
   for (const row of notificationRows) {
@@ -1159,13 +1159,13 @@ function assertJourneyEvidence(journeyEvidence, seedEvidence) {
         foreignDepartment: 403,
         absentDepartmentScope: 404,
         absentGlobalScope: 404,
-        acceptedRefund: 200,
+        acceptedApproval: 200,
         acceptedReject: 200,
-        identicalRefundReplay: 200,
+        identicalApprovalReplay: 200,
         identicalRejectReplay: 200,
         changedReplay: 409,
         staleRevision: 412,
-        terminalRefund: 409,
+        terminalApproved: 409,
         terminalReject: 409,
         concurrent: [200, 412],
       },
@@ -1183,7 +1183,7 @@ function assertJourneyEvidence(journeyEvidence, seedEvidence) {
         noScope: 403,
         absent: 404,
         missingObject: 503,
-        terminalRefund: 200,
+        terminalApproved: 200,
         terminalReject: 200,
         concurrent: 200,
         dashboard: {
@@ -1194,7 +1194,7 @@ function assertJourneyEvidence(journeyEvidence, seedEvidence) {
           foreignScope: 403,
           absent: 404,
           unavailable: 503,
-          terminalRefund: 200,
+          terminalApproved: 200,
           terminalReject: 200,
         },
       },
@@ -1226,7 +1226,7 @@ function assertJourneyEvidence(journeyEvidence, seedEvidence) {
       {
         method: "GET",
         origin: dashboardOrigin,
-        pathname: `/dashboard/utlegg/${journeyEvidence.receipts.refund}/file`,
+        pathname: `/dashboard/utlegg/${journeyEvidence.receipts.approval}/file`,
         query: "",
       },
       {
@@ -1348,7 +1348,7 @@ function assertRequestLedger(records, journeyEvidence) {
   }
   assertEqual(
     concurrencyRecords.map(({ concurrencyProbe }) => concurrencyProbe),
-    ["file-read", "refund", "reject"],
+    ["file-read", "approve", "reject"],
     "Receipt transaction concurrency barrier lanes",
   );
   assertEqual(
@@ -1357,7 +1357,7 @@ function assertRequestLedger(records, journeyEvidence) {
     "Receipt transaction concurrency barrier outcomes",
   );
 
-  const semanticPath = /\/api\/receipts\/[^/]+:(?:refund|reject)$/u;
+  const semanticPath = /\/api\/receipts\/[^/]+::(?:approve|reject)$/u;
   const commands = receiptOperations.filter(
     ({ method, pathname }) => method === "POST" && semanticPath.test(pathname),
   );
@@ -1368,7 +1368,7 @@ function assertRequestLedger(records, journeyEvidence) {
       200, 200, 200, 200, 200, 200, 200, 400, 400, 403, 403, 403, 404, 404, 409, 409, 409, 412, 412,
       412, 422,
     ],
-    "Exact scoped refund/reject operation sequence",
+    "Exact scoped approval/reject operation sequence",
   );
   for (const command of commands) {
     if (typeof command.idempotencyKey !== "string" || typeof command.ifMatch !== "string") {

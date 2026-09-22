@@ -55,7 +55,7 @@ const receiptProjectionSchema = z
     amountOre: z.number().int().positive(),
     currency: z.literal("NOK"),
     receiptDate: z.string(),
-    status: z.enum(["Pending", "Refunded", "Rejected", "Withdrawn"]),
+    status: z.enum(["Pending", "Approved", "Rejected", "Withdrawn"]),
     revision: z.number().int().nonnegative(),
     etag: z.string().regex(/^"vkr2\./u),
   })
@@ -63,7 +63,7 @@ const receiptProjectionSchema = z
 
 const receiptResourceSchema = receiptProjectionSchema.extend({
   submittedAt: z.string(),
-  refundDate: z.string().nullable(),
+  approvedAt: z.string().nullable(),
 });
 
 const receiptPageSchema = z

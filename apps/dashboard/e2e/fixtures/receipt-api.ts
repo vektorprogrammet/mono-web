@@ -7,7 +7,7 @@ declare const Bun: {
   }): BunReceiptServer;
 };
 
-type ReceiptStatus = "Pending" | "Refunded" | "Rejected" | "Withdrawn";
+type ReceiptStatus = "Pending" | "Approved" | "Rejected" | "Withdrawn";
 type Operation =
   | "profile"
   | "personal-list"
@@ -29,7 +29,7 @@ type ReceiptWire = {
   receiptDate: string;
   submittedAt: string;
   status: ReceiptStatus;
-  refundDate: string | null;
+  approvedAt: string | null;
   revision: number;
   etag: string;
 };
@@ -99,7 +99,7 @@ const makeReceipt = (
   receiptDate,
   submittedAt: "2026-08-09T00:00:00.000Z",
   status,
-  refundDate: status === "Refunded" ? "2026-08-10T00:00:00.000Z" : null,
+  approvedAt: status === "Approved" ? "2026-08-10T00:00:00.000Z" : null,
   revision: status === "Pending" ? 0 : 1,
   etag: etagFor(receiptId, status === "Pending" ? 0 : 1),
 });
@@ -129,7 +129,7 @@ function resetState(): void {
     makeReceipt("admin-10", "Approval receipt", 15_000, "2026-08-05"),
     makeReceipt("admin-11", "Rejection receipt", 20_000, "2026-08-06"),
     makeReceipt("admin-12", "Withdrawn receipt", 22_500, "2026-08-07", "Withdrawn"),
-    makeReceipt("admin-13", "Already refunded", 30_000, "2026-08-04", "Refunded"),
+    makeReceipt("admin-13", "Already approved", 30_000, "2026-08-04", "Approved"),
   ];
   faults = new Map();
   evidence = [];
@@ -415,7 +415,7 @@ async function handleAdminStatus(
   request: Request,
   url: URL,
   receiptId: string,
-  status: "Refunded" | "Rejected",
+  status: "Approved" | "Rejected",
 ): Promise<Response> {
   const authFailure = unauthorized(request, url);
   if (authFailure !== null) return authFailure;
@@ -431,7 +431,7 @@ async function handleAdminStatus(
   if (preconditionFailure !== null) return preconditionFailure;
   if (receipt.status !== "Pending") return problem(409, "receipt.invalid-transition", "The Receipt cannot change status.");
   receipt.status = status;
-  receipt.refundDate = status === "Refunded" ? "2026-08-10T00:00:00.000Z" : null;
+  receipt.approvedAt = status === "Approved" ? "2026-08-10T00:00:00.000Z" : null;
   receipt.revision += 1;
   receipt.etag = etagFor(receipt.receiptId, receipt.revision);
   remember(request, receipt);
@@ -450,11 +450,11 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
   if (reviseMatch !== null && request.method === "PATCH") {
     return handlePersonalUpdate(request, url, decodeURIComponent(reviseMatch[1]));
   }
-  const actionMatch = url.pathname.match(/^\/api\/receipts\/([^/:]+):(withdraw|refund|reject)$/u);
+  const actionMatch = url.pathname.match(/^\/api\/receipts\/([^/:]+)::(withdraw|approve|reject)$/u);
   if (actionMatch !== null && request.method === "POST") {
     const receiptId = decodeURIComponent(actionMatch[1]);
     if (actionMatch[2] === "withdraw") return handlePersonalWithdraw(request, url, receiptId);
-    return handleAdminStatus(request, url, receiptId, actionMatch[2] === "refund" ? "Refunded" : "Rejected");
+    return handleAdminStatus(request, url, receiptId, actionMatch[2] === "approve" ? "Approved" : "Rejected");
   }
   return problem(404, "route.not-found", "The requested route does not exist.");
 }
