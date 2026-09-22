@@ -3,6 +3,7 @@ import type * as Statement from "effect/unstable/sql/Statement";
 import { Database, type DatabaseShape } from "../service.js";
 import {
   CoverageBoard,
+  CoverageRosterAssignment,
   OwnCoverageView,
   PlacementFailure,
   SchoolServiceAbsence,
@@ -248,6 +249,26 @@ const occurrenceRows = (sql: DatabaseShape, scope: PlacementScope) =>
     ORDER BY occurrence.occurred_on,occurrence.occurrence_id
   `;
 
+const coverageRosterRows = (sql: DatabaseShape, scope: PlacementScope) =>
+  sql`
+    SELECT proposal.proposal_id AS "proposalId",
+      assignment->>'placementId' AS "placementId",
+      assignment->>'personId' AS "personId",
+      assignment->>'firstName' AS "firstName",
+      assignment->>'lastName' AS "lastName",
+      (assignment->>'schoolId')::double precision AS "schoolId",
+      assignment->>'schoolName' AS "schoolName",
+      assignment->>'day' AS day,
+      assignment->>'block' AS block
+    FROM public.school_service_proposals AS proposal
+    CROSS JOIN LATERAL jsonb_array_elements(proposal.assignment_snapshot) AS assignment
+    WHERE proposal.department_id=${scope.departmentId}
+      AND proposal.semester_id=${scope.semesterId}
+      AND proposal.status='Confirmed'
+    ORDER BY proposal.proposal_id,(assignment->>'schoolId')::bigint,
+      assignment->>'day',assignment->>'block',assignment->>'personId'
+  `;
+
 const readAbsenceForUpdate = (sql: DatabaseShape, scope: PlacementScope, absenceId: string) =>
   Effect.gen(function* () {
     const rows = yield* sql`
@@ -490,6 +511,10 @@ export const readCoverageBoard = (scope: PlacementScope) =>
           sql`absence.department_id=${scope.departmentId} AND absence.semester_id=${scope.semesterId}`,
         ),
       );
+      const rosterAssignments = yield* decode(
+        Schema.Array(CoverageRosterAssignment),
+        yield* coverageRosterRows(sql, scope),
+      );
       const closures = yield* decode(
         Schema.Array(SchoolServiceClosure),
         yield* closureRows(
@@ -573,6 +598,7 @@ export const readCoverageBoard = (scope: PlacementScope) =>
       return yield* decode(CoverageBoard, {
         ...scope,
         absences,
+        rosterAssignments,
         candidates,
         offers,
         responses,

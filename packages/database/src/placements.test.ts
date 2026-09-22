@@ -339,6 +339,9 @@ describe("canonical placement persistence", () => {
     const candidatePerson = PersonId.make("coverage-candidate-person");
     const coverageCoordinator = PersonId.make("coverage-coordinator");
     const proposalId = SchoolServiceProposalId.make(`school-service-proposal-${"f".repeat(64)}`);
+    const newerProposalId = SchoolServiceProposalId.make(
+      `school-service-proposal-${"e".repeat(64)}`,
+    );
     const absenceId = SchoolServiceAbsenceId.make(`school-service-absence-${"1".repeat(64)}`);
     const offerId = SchoolServiceSubstituteOfferId.make(
       `school-service-substitute-offer-${"2".repeat(64)}`,
@@ -445,7 +448,9 @@ describe("canonical placement persistence", () => {
               now,
               { absenceId, offerId, acknowledgementId, occurrenceId },
             );
-            return { dispatched, blocked, closed };
+            yield* sql`INSERT INTO school_service_proposals(proposal_id,department_id,semester_id,status,revision,created_at,created_by_person_id,confirmed_at,confirmed_by_person_id,demand_snapshot,assignment_snapshot,exception_snapshot,reviewed_exception_ids) VALUES(${newerProposalId},${coverageScope.departmentId},${coverageScope.semesterId},'Confirmed',2,'2026-09-06T01:00:00.000Z',${coverageCoordinator},'2026-09-06T01:00:00.000Z',${coverageCoordinator},${sql.json([])},${sql.json([{ placementId: `placement-${"7".repeat(64)}`, personId: rosterPerson, firstName: "Rosa", lastName: "Roster", schoolId, schoolName: "Coverage school", day: "Tuesday", block: "2" }])},${sql.json([])},${sql.json([])})`;
+            const afterNewerProposal = yield* readCoverageBoard(coverageScope);
+            return { dispatched, blocked, closed, afterNewerProposal };
           }),
         ),
       ),
@@ -523,6 +528,9 @@ describe("canonical placement persistence", () => {
     expect(observed.closed.occurrences).toMatchObject([
       { occurrenceId, attendedPersonIds: [candidatePerson] },
     ]);
+    expect(
+      observed.afterNewerProposal.rosterAssignments.map((assignment) => assignment.proposalId),
+    ).toEqual([newerProposalId, proposalId]);
     expect(failed).toMatchObject({
       _tag: "Failed",
       failureTag: "SchoolServiceDispatchNotificationDeliveryError",

@@ -42,7 +42,11 @@ export async function loader({ request }: Route.LoaderArgs) {
     if (departmentId && semesterId) {
       const scope = Schema.decodeUnknownSync(PlacementScope)({ departmentId, semesterId });
       ownCoverage = (await client.placements.readOwnCoverage({ query: scope })).body;
-      if (scopes.departments.some((department) => department.departmentId === departmentId && department.canManage)) {
+      if (
+        scopes.departments.some(
+          (department) => department.departmentId === departmentId && department.canManage,
+        )
+      ) {
         const [placement, coverageBoard] = await Promise.all([
           client.placements.readBoard({ query: scope }),
           client.placements.readCoverageBoard({ query: scope }),
@@ -89,7 +93,10 @@ export async function action({ request }: Route.ActionArgs) {
       await client.placements.commandOwnAffiliation({
         query: Schema.decodeUnknownSync(AffiliationScope)({ departmentId }),
         headers,
-        payload: Schema.decodeUnknownSync(OwnAffiliationCommand)({ action }, { onExcessProperty: "error" }),
+        payload: Schema.decodeUnknownSync(OwnAffiliationCommand)(
+          { action },
+          { onExcessProperty: "error" },
+        ),
       });
     } else if (action === "ReportAbsence" || action === "RespondToOffer") {
       const query = Schema.decodeUnknownSync(PlacementScope)({
@@ -113,7 +120,14 @@ export async function action({ request }: Route.ActionArgs) {
             },
         { onExcessProperty: "error" },
       );
-      await client.placements.commandOwnCoverage({ query, headers, payload });
+      switch (payload.action) {
+        case "ReportAbsence":
+          await client.placements.commandOwnCoverage({ query, headers, payload });
+          break;
+        case "RespondToOffer":
+          await client.placements.commandOwnCoverage({ query, headers, payload });
+          break;
+      }
     } else if (
       action === "ReportAbsenceForVolunteer" ||
       action === "DispatchSubstituteOffer" ||
@@ -158,7 +172,23 @@ export async function action({ request }: Route.ActionArgs) {
                 },
         { onExcessProperty: "error" },
       );
-      await client.placements.commandCoverageBoard({ query, headers, payload });
+      switch (payload.action) {
+        case "ReportAbsenceForVolunteer":
+          await client.placements.commandCoverageBoard({ query, headers, payload });
+          break;
+        case "DispatchSubstituteOffer":
+          await client.placements.commandCoverageBoard({ query, headers, payload });
+          break;
+        case "WithdrawSubstituteOffer":
+          await client.placements.commandCoverageBoard({ query, headers, payload });
+          break;
+        case "AcknowledgeCoverage":
+          await client.placements.commandCoverageBoard({ query, headers, payload });
+          break;
+        case "CloseCoverage":
+          await client.placements.commandCoverageBoard({ query, headers, payload });
+          break;
+      }
     } else {
       const query = Schema.decodeUnknownSync(PlacementScope)({
         departmentId,
@@ -263,10 +293,8 @@ export async function action({ request }: Route.ActionArgs) {
         "Oppmøtet må samsvare nøyaktig med den bekreftede planen for skole, dag og bolk.",
       "school-service.occurrence-duplicate":
         "Undervisningen er allerede registrert for denne datoen og bolken.",
-      "absence.target-invalid":
-        "Fravær kan bare meldes for et bekreftet oppmøte på riktig dato.",
-      "absence.duplicate":
-        "Fravær er allerede meldt for dette oppmøtet. Hent oppdatert oversikt.",
+      "absence.target-invalid": "Fravær kan bare meldes for et bekreftet oppmøte på riktig dato.",
+      "absence.duplicate": "Fravær er allerede meldt for dette oppmøtet. Hent oppdatert oversikt.",
       "absence.closed": "Denne fraværssaken er allerede avsluttet og kan ikke endres.",
       "offer.candidate-ineligible":
         "Vikaren er ikke lenger kvalifisert for dette oppmøtet. Hent oppdatert oversikt.",
@@ -283,8 +311,7 @@ export async function action({ request }: Route.ActionArgs) {
         "Et sendt eller akseptert tilbud må avslås, trekkes tilbake eller bekreftes før tjenesten kan lukkes.",
       "coverage.attendance-invalid":
         "Oppmøtet må være nøyaktig den bekreftede planen minus fravær pluss bekreftede vikarer.",
-      "coverage.occurrence-duplicate":
-        "Tjenesten er allerede lukket for denne datoen og bolken.",
+      "coverage.occurrence-duplicate": "Tjenesten er allerede lukket for denne datoen og bolken.",
     };
     const conflict = problem?.status === 412 || problem?.code === "transaction.conflict";
     return privateData(
@@ -527,10 +554,7 @@ function PlacementFields({
 }
 type PlacementProposal = NonNullable<(typeof PlacementBoardResource.Type)["proposal"]>;
 type PlacementAssignment = PlacementProposal["assignments"][number];
-type ConfirmedSlot = Pick<
-  PlacementAssignment,
-  "schoolId" | "schoolName" | "day" | "block"
-> & {
+type ConfirmedSlot = Pick<PlacementAssignment, "schoolId" | "schoolName" | "day" | "block"> & {
   readonly assignments: ReadonlyArray<PlacementAssignment>;
 };
 type ConfirmedSlotBuilder = Pick<
@@ -813,6 +837,42 @@ type CoverageClosure = (typeof CoverageBoardResource.Type)["closures"][number];
 type CoverageCandidate = (typeof CoverageBoardResource.Type)["candidates"][number];
 type CoverageNotification = (typeof CoverageBoardResource.Type)["dispatchNotifications"][number];
 type CoverageSlotIdentity = Pick<CoverageAbsence, "proposalId" | "schoolId" | "day" | "block">;
+type CoverageRosterAssignment = (typeof CoverageBoardResource.Type)["rosterAssignments"][number];
+type CoverageConfirmedSlot = ConfirmedSlot & {
+  readonly proposalId: CoverageRosterAssignment["proposalId"];
+};
+function coverageConfirmedSlots(
+  assignments: ReadonlyArray<CoverageRosterAssignment>,
+): ReadonlyArray<CoverageConfirmedSlot> {
+  const slots = new Map<
+    string,
+    Omit<CoverageConfirmedSlot, "assignments"> & {
+      readonly assignments: Map<CoverageRosterAssignment["personId"], CoverageRosterAssignment>;
+    }
+  >();
+  for (const assignment of assignments) {
+    const key = coverageSlotKey(assignment);
+    let slot = slots.get(key);
+    if (slot === undefined) {
+      slot = {
+        proposalId: assignment.proposalId,
+        schoolId: assignment.schoolId,
+        schoolName: assignment.schoolName,
+        day: assignment.day,
+        block: assignment.block,
+        assignments: new Map(),
+      };
+      slots.set(key, slot);
+    }
+    slot.assignments.set(assignment.personId, assignment);
+  }
+  return [...slots.values()].map(({ assignments: slotAssignments, ...slot }) => ({
+    ...slot,
+    assignments: [...slotAssignments.values()],
+  }));
+}
+const coverageSlotKey = (slot: CoverageSlotIdentity): string =>
+  `${slot.proposalId}:${slot.schoolId}:${slot.day}:${slot.block}`;
 function deliverySummary(notification: CoverageNotification | undefined): string {
   if (notification === undefined) return "Venter på leveringsstatus";
   const attempts = notification.attempts === 1 ? "1 forsøk" : `${notification.attempts} forsøk`;
@@ -860,7 +920,10 @@ function OwnCoveragePanel({
   for (const notification of coverage.dispatchNotifications)
     notificationsByOfferId.set(notification.offerId, notification);
   return (
-    <section className="min-w-0 space-y-5 rounded-lg border p-4 sm:p-6" aria-labelledby="own-coverage-title">
+    <section
+      className="min-w-0 space-y-5 rounded-lg border p-4 sm:p-6"
+      aria-labelledby="own-coverage-title"
+    >
       <header>
         <h2 id="own-coverage-title" className="text-xl font-semibold">
           Min fravær og vikardekning
@@ -873,7 +936,9 @@ function OwnCoveragePanel({
         <h3 id="own-roster-title" className="font-semibold">
           Bekreftede oppmøter
         </h3>
-        {coverage.rosterSlots.length === 0 && <p>Du har ingen bekreftede oppmøter i valgt semester.</p>}
+        {coverage.rosterSlots.length === 0 && (
+          <p>Du har ingen bekreftede oppmøter i valgt semester.</p>
+        )}
         {coverage.rosterSlots.map((slot) => {
           const slotId = `${slot.proposalId}-${slot.schoolId}-${slot.day}-${slot.block}`;
           return (
@@ -986,12 +1051,18 @@ function CoverageCloseForm({
   closuresByAbsenceId: ReadonlyMap<string, CoverageClosure>;
 }) {
   const serviceDate = absences[0]?.serviceDate;
-  if (serviceDate === undefined || absences.some((absence) => closuresByAbsenceId.has(absence.absenceId))) {
+  if (
+    serviceDate === undefined ||
+    absences.some((absence) => closuresByAbsenceId.has(absence.absenceId))
+  ) {
     return null;
   }
   const absenceIds = new Set(absences.map((absence) => absence.absenceId));
   const absentPeople = new Set(absences.map((absence) => absence.personId));
-  const expectedByPersonId = new Map<string, { readonly personId: string; readonly label: string }>();
+  const expectedByPersonId = new Map<
+    string,
+    { readonly personId: string; readonly label: string }
+  >();
   for (const assignment of slot.assignments) {
     if (!absentPeople.has(assignment.personId)) {
       expectedByPersonId.set(assignment.personId, {
@@ -1077,16 +1148,12 @@ function CoverageCloseForm({
 }
 function CoordinatorCoveragePanel({
   coverage,
-  board,
   scope,
 }: {
   coverage: typeof CoverageBoardResource.Type;
-  board: typeof PlacementBoardResource.Type | null;
   scope: { readonly departmentId: string; readonly semesterId: string };
 }) {
-  const proposal = board?.proposal;
-  const confirmedProposal = proposal?.status === "Confirmed" ? proposal : null;
-  const slots = confirmedSlots(confirmedProposal);
+  const slots = coverageConfirmedSlots(coverage.rosterAssignments);
   const offersById = new Map<string, CoverageOffer>();
   const offersByAbsenceId = new Map<string, Array<CoverageOffer>>();
   for (const offer of coverage.offers) {
@@ -1111,20 +1178,9 @@ function CoordinatorCoveragePanel({
     if (candidates === undefined) candidatesByAbsenceId.set(candidate.absenceId, [candidate]);
     else candidates.push(candidate);
   }
-  const slotsByKey = new Map<string, ConfirmedSlot>();
-  if (confirmedProposal !== null) {
-    for (const slot of slots) {
-      slotsByKey.set(
-        coverageSlotKey({
-          proposalId: confirmedProposal.proposalId,
-          schoolId: slot.schoolId,
-          day: slot.day,
-          block: slot.block,
-        }),
-        slot,
-      );
-    }
-  }
+  const slotsByKey = new Map<string, ConfirmedSlot>(
+    slots.map((slot) => [coverageSlotKey(slot), slot]),
+  );
   const closureGroups = new Map<
     string,
     {
@@ -1171,13 +1227,12 @@ function CoordinatorCoveragePanel({
         <h3 id="coordinator-absence-title" className="font-semibold">
           Rapporter fravær for frivillig
         </h3>
-        {confirmedProposal === null ? (
+        {slots.length === 0 ? (
           <p>En bekreftet tjenesteplan må være tilgjengelig før fravær kan rapporteres.</p>
         ) : (
           <>
-            {slots.length === 0 && <p>Den bekreftede tjenesteplanen har ingen oppmøter.</p>}
             {slots.map((slot) => {
-              const slotId = `${slot.schoolId}-${slot.day}-${slot.block}`;
+              const slotId = `${slot.proposalId}-${slot.schoolId}-${slot.day}-${slot.block}`;
               return (
                 <CommandForm
                   key={slotId}
@@ -1186,7 +1241,7 @@ function CoordinatorCoveragePanel({
                   hidden={{
                     ...scope,
                     action: "ReportAbsenceForVolunteer",
-                    proposalId: confirmedProposal.proposalId,
+                    proposalId: slot.proposalId,
                     schoolId: String(slot.schoolId),
                     day: slot.day,
                     block: slot.block,
@@ -1252,9 +1307,7 @@ function CoordinatorCoveragePanel({
                 {absence.schoolName}, {absence.serviceDate} — {absence.day}, bolk {absence.block}
               </h4>
               {closure ? (
-                <p>
-                  Utfallet: {closureOutcomeLabel[closure.outcome]}
-                </p>
+                <p>Utfallet: {closureOutcomeLabel[closure.outcome]}</p>
               ) : activeOffer ? (
                 <p>
                   {activeOffer.status === "Acknowledged"
@@ -1349,8 +1402,8 @@ function CoordinatorCoveragePanel({
         <h3 id="coverage-closure-title" className="font-semibold">
           Tjenestelukking
         </h3>
-        {confirmedProposal === null ? (
-          <p>Oppmøtet kan ikke beregnes uten den bekreftede tjenesteplanen.</p>
+        {slots.length === 0 ? (
+          <p>Oppmøtet kan ikke beregnes uten en bekreftet tjenesteplan.</p>
         ) : openClosureGroups.length === 0 ? (
           <p>Det er ingen åpne tjenester med registrert fravær å lukke.</p>
         ) : (
@@ -1588,7 +1641,7 @@ export default function Assistenter() {
           <SchoolServicePanel board={board} scope={scope} />
         </div>
       )}
-      {coverage && <CoordinatorCoveragePanel coverage={coverage} board={board} scope={scope} />}
+      {coverage && <CoordinatorCoveragePanel coverage={coverage} scope={scope} />}
     </section>
   );
 }

@@ -254,6 +254,10 @@ export const ConfirmedRosterSlot = Schema.Struct({
   day: TeachingDay,
   block: TeachingBlock,
 });
+export const CoverageRosterAssignment = Schema.Struct({
+  proposalId: SchoolServiceProposalId,
+  ...SchoolServiceProposalAssignment.fields,
+});
 export const CoverageCandidate = Schema.Struct({
   absenceId: SchoolServiceAbsenceId,
   applicationId: Schema.String,
@@ -271,6 +275,7 @@ export const OwnCoverageView = Schema.Struct({
 });
 export const CoverageBoard = Schema.Struct({
   ...PlacementScope.fields,
+  rosterAssignments: Schema.Array(CoverageRosterAssignment),
   absences: Schema.Array(SchoolServiceAbsence),
   candidates: Schema.Array(CoverageCandidate),
   offers: Schema.Array(SchoolServiceSubstituteOffer),
@@ -409,6 +414,7 @@ export type SchoolServiceCoverageAcknowledgement = typeof SchoolServiceCoverageA
 export type SchoolServiceClosure = typeof SchoolServiceClosure.Type;
 export type SchoolServiceDispatchNotification = typeof SchoolServiceDispatchNotification.Type;
 export type ConfirmedRosterSlot = typeof ConfirmedRosterSlot.Type;
+export type CoverageRosterAssignment = typeof CoverageRosterAssignment.Type;
 export type CoverageCandidate = typeof CoverageCandidate.Type;
 export type OwnCoverageView = typeof OwnCoverageView.Type;
 export type CoverageBoard = typeof CoverageBoard.Type;

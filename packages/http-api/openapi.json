@@ -1305,6 +1305,68 @@
             },
             "type": "array"
           },
+          "rosterAssignments": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "block": {
+                  "$ref": "#/components/schemas/Union_6"
+                },
+                "day": {
+                  "$ref": "#/components/schemas/Union_4"
+                },
+                "firstName": {
+                  "type": "string"
+                },
+                "lastName": {
+                  "type": "string"
+                },
+                "personId": {
+                  "type": "string"
+                },
+                "placementId": {
+                  "allOf": [
+                    {
+                      "pattern": "^placement-[a-f0-9]{64}$"
+                    }
+                  ],
+                  "type": "string"
+                },
+                "proposalId": {
+                  "allOf": [
+                    {
+                      "pattern": "^school-service-proposal-[a-f0-9]{64}$"
+                    }
+                  ],
+                  "type": "string"
+                },
+                "schoolId": {
+                  "allOf": [
+                    {
+                      "exclusiveMinimum": 0
+                    }
+                  ],
+                  "type": "integer"
+                },
+                "schoolName": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "proposalId",
+                "placementId",
+                "personId",
+                "firstName",
+                "lastName",
+                "schoolId",
+                "schoolName",
+                "day",
+                "block"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "semesterId": {
             "type": "string"
           }
@@ -1312,6 +1374,7 @@
         "required": [
           "departmentId",
           "semesterId",
+          "rosterAssignments",
           "absences",
           "candidates",
           "offers",
