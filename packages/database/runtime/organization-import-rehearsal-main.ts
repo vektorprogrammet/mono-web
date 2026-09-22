@@ -39,6 +39,7 @@ import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/
 import {
   Identity,
   IdentityActor,
+  IdentitySession,
   IdentityEngineError,
   IdentitySessionNotFound,
   type IdentityShape,
@@ -1101,7 +1102,19 @@ const makeIdentityTestLayer = (
         .some((pair) => pair.trim() === `${SPEC_0067.sessionCookieName}=${sessionCookie}`);
       return accepted ? Promise.resolve(actor) : Promise.reject(new IdentitySessionNotFound());
     },
-    readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
+    readCurrentSession: async (cookieHeader) => {
+      const currentActor = await identity.resolveSession(cookieHeader);
+      const authorizationInstant = DateTime.makeUnsafe(new Date(SPEC_0067.authorizationInstant));
+      return new IdentitySession({
+        sessionId: currentActor.sessionId,
+        createdAt: authorizationInstant,
+        updatedAt: authorizationInstant,
+        expiresAt: currentActor.expiresAt,
+        ipAddress: null,
+        userAgent: null,
+        current: true,
+      });
+    },
     listSessions: () => Promise.reject(new Error("unexpected session list")),
     revokeCurrentSession: () => {
       counters.authMutationAttempts += 1;
