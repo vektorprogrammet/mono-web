@@ -1919,7 +1919,7 @@ const runRehearsal = async (
     const processEnvironment: NodeJS.ProcessEnv = {
       ...childToolEnvironment,
       API_URL: proxy.origin,
-      VITE_API_URL: proxy.origin,
+      VITE_API_URL: dashboardOrigin,
       DASHBOARD_ORIGIN: dashboardOrigin,
       BETTER_AUTH_SECRET: backendSecret,
       NATIVE_IDENTITY_DEPLOYMENT: "local",
@@ -2084,7 +2084,6 @@ const runRehearsal = async (
       ...processEnvironment,
       ORGANIZATION_IMPORT_REHEARSAL: "1",
       ORGANIZATION_IMPORT_REHEARSAL_DASHBOARD_ORIGIN: dashboardOrigin,
-      ORGANIZATION_IMPORT_REHEARSAL_API_ORIGIN: proxy.origin,
       ORGANIZATION_IMPORT_REHEARSAL_SESSION_TOKEN: sessionCookie,
       ORGANIZATION_IMPORT_REHEARSAL_BROWSER_EVIDENCE_PATH: browserEvidencePath,
       ORGANIZATION_IMPORT_REHEARSAL_PLAYWRIGHT_OUTPUT_DIR: join(

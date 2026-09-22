@@ -130,7 +130,6 @@ const readFinalPageState = async (
 
 if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
   const dashboardOrigin = required("ORGANIZATION_IMPORT_REHEARSAL_DASHBOARD_ORIGIN");
-  const apiOrigin = required("ORGANIZATION_IMPORT_REHEARSAL_API_ORIGIN");
   const sessionToken = required("ORGANIZATION_IMPORT_REHEARSAL_SESSION_TOKEN");
   const evidencePath = required("ORGANIZATION_IMPORT_REHEARSAL_BROWSER_EVIDENCE_PATH");
   const authorizationInstant = required("ORGANIZATION_IMPORT_REHEARSAL_AUTHORIZATION_INSTANT");
@@ -150,8 +149,12 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
   }, testInfo) => {
     const allowedOrigins: Record<string, true> = {
       [dashboardOrigin]: true,
-      [apiOrigin]: true,
     };
+    const classifyBrowserRequestOrigin = (url: URL): DiagnosticOrigin =>
+      url.origin === dashboardOrigin &&
+      (url.pathname === "/api" || url.pathname.startsWith("/api/"))
+        ? "api-proxy-loopback"
+        : "dashboard-loopback";
     const diagnosticSensitiveValues = [
       sessionToken,
       expectedMemberEmail,
@@ -212,8 +215,7 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
           await route.abort("blockedbyclient");
           return;
         }
-        const diagnosticOrigin: DiagnosticOrigin =
-          url.origin === dashboardOrigin ? "dashboard-loopback" : "api-proxy-loopback";
+        const diagnosticOrigin = classifyBrowserRequestOrigin(url);
         appendDiagnostic(diagnosticRequests, {
           method: redactDiagnosticText(request.method(), diagnosticSensitiveValues),
           origin: diagnosticOrigin,
@@ -230,7 +232,7 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
           await route.abort("blockedbyclient");
           return;
         }
-        if (url.origin === apiOrigin) {
+        if (diagnosticOrigin === "api-proxy-loopback") {
           const observation = {
             method: request.method(),
             origin: "api-proxy-loopback" as const,
@@ -283,7 +285,7 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
         const url = new URL(response.url());
         if (allowedOrigins[url.origin] !== true || response.status() < 400) return;
         appendDiagnostic(failedResponses, {
-          origin: url.origin === dashboardOrigin ? "dashboard-loopback" : "api-proxy-loopback",
+          origin: classifyBrowserRequestOrigin(url),
           path: redactDiagnosticText(url.pathname, diagnosticSensitiveValues),
           status: response.status(),
         });

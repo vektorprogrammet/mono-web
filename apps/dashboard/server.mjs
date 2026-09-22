@@ -6,6 +6,18 @@ import { fileURLToPath } from "node:url";
 import { createRequestHandler } from "react-router";
 import * as build from "./build/server/index.js";
 nativeDashboardRecoveryMode(process.env);
+const configuredApiUrl = process.env.API_URL;
+if (configuredApiUrl === undefined || configuredApiUrl.trim() === "")
+  throw new Error("API_URL is required");
+const apiOrigin = new URL(configuredApiUrl);
+if (
+  apiOrigin.username !== "" ||
+  apiOrigin.password !== "" ||
+  apiOrigin.pathname !== "/" ||
+  apiOrigin.search !== "" ||
+  apiOrigin.hash !== ""
+)
+  throw new Error("API_URL must be an origin without credentials, path, query, or fragment");
 const handler = createRequestHandler(build, "production");
 const clientRoot = fileURLToPath(new URL("./build/client/", import.meta.url));
 const mount = build.basename;
@@ -16,7 +28,22 @@ const server = Bun.serve({
   hostname: process.env.HOST ?? "127.0.0.1",
   port: Number(process.env.PORT ?? "3000"),
   fetch: async (request) => {
-    const pathname = new URL(request.url).pathname;
+    const url = new URL(request.url);
+    const pathname = url.pathname;
+    if (pathname === "/api" || pathname.startsWith("/api/")) {
+      try {
+        const upstreamUrl = new URL(`${pathname}${url.search}`, apiOrigin);
+        return await fetch(new Request(upstreamUrl, request), { redirect: "manual" });
+      } catch (cause) {
+        process.stderr.write(
+          `Dashboard API proxy failed: ${cause instanceof Error ? (cause.stack ?? cause.message) : String(cause)}\n`,
+        );
+        return new Response("Tjenesten er midlertidig utilgjengelig.", {
+          status: 503,
+          headers: { "cache-control": "no-store" },
+        });
+      }
+    }
     const assetPath =
       mount !== "/" && pathname.startsWith(mount) ? pathname.slice(mount.length - 1) : pathname;
     let filePath;
@@ -44,7 +71,7 @@ const server = Bun.serve({
       return await handler(request);
     } catch (cause) {
       process.stderr.write(
-        `Dashboard request failed: ${cause instanceof Error ? cause.stack ?? cause.message : String(cause)}\n`,
+        `Dashboard request failed: ${cause instanceof Error ? (cause.stack ?? cause.message) : String(cause)}\n`,
       );
       return new Response("Tjenesten er midlertidig utilgjengelig.", {
         status: 503,
