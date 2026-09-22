@@ -253,6 +253,12 @@ export const SCOPE_RESOLVER_IDS = [
   "social-events.create",
   "surveys.form",
   "surveys.response-create",
+  "surveys.admin-catalog",
+  "surveys.admin-list",
+  "surveys.admin-create",
+  "surveys.admin-close",
+  "surveys.admin-results",
+  "surveys.admin-results-export",
 ] as const;
 export const ScopeResolverId = Schema.Literals(SCOPE_RESOLVER_IDS).pipe(
   Schema.brand("ScopeResolverId"),

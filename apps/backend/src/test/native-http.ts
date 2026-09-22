@@ -13,7 +13,9 @@ import {
   ReceiptsApi,
   RecruitmentApi,
   RequestSchemaErrorMiddleware,
+  SchoolSurveysApi,
 } from "@vektorprogrammet/http-api";
+import { SchoolSurveysApiHandlers } from "../surveys/http.js";
 import { Effect, Layer } from "effect";
 import { Etag, HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { HttpApi, HttpApiBuilder, type HttpApiGroup } from "effect/unstable/httpapi";
@@ -88,6 +90,10 @@ const internalReceiptContract = HttpApi.make("internal-native-api")
 const contentContract = HttpApi.make("external-native-api")
   .add(ContentApi)
   .middleware(RequestSchemaErrorMiddleware);
+const schoolSurveysContract = HttpApi.make("external-native-api")
+  .add(SchoolSurveysApi)
+  .middleware(RequestSchemaErrorMiddleware);
+
 
 type TestServiceLayer = Layer.Layer<Identity | OAuthCredentialAuthority>;
 
@@ -231,6 +237,10 @@ export const makeSchoolsTestHttp = <S extends TestServiceLayer>(
     services,
   ),
 });
+export const makeSchoolSurveysTestHttp = <S extends TestServiceLayer>(services: S) => ({
+  fetch: testFetch(schoolSurveysContract, SchoolSurveysApiHandlers(), services),
+});
+
 
 export const makeBackendTestHttp = (
   config: BackendConfig,

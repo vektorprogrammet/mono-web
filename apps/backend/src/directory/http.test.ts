@@ -291,6 +291,12 @@ const schoolSurveys = SchoolSurveys.of({
   readForm: () => Effect.die("unexpected school-survey read"),
   prepareResponse: () => Effect.die("unexpected school-survey preparation"),
   persistResponse: () => Effect.die("unexpected school-survey persistence"),
+  readAdminCatalog: () => Effect.die("unexpected school-survey administration catalog"),
+  readAdminSurvey: () => Effect.die("unexpected school-survey administration read"),
+  listAdminSurveys: () => Effect.die("unexpected school-survey administration list"),
+  createAdminSurvey: () => Effect.die("unexpected school-survey administration create"),
+  closeAdminSurvey: () => Effect.die("unexpected school-survey administration close"),
+  readAdminResults: () => Effect.die("unexpected school-survey administration results"),
 });
 const oauthCredentialAuthority = OAuthCredentialAuthority.of({
   resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),

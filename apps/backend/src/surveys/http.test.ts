@@ -1,0 +1,515 @@
+import {
+  Database,
+  IdentitySnapshot,
+  OAuthCredentialAuthority,
+  type DatabaseShape,
+} from "@vektorprogrammet/database";
+import {
+  SchoolSurveyNotFound,
+  SchoolSurveys,
+  SemesterId,
+  SurveyId,
+  SurveyQuestionId,
+  encodeSchoolSurveyResultsCsv,
+  type SchoolSurveysShape,
+} from "@vektorprogrammet/domain";
+import {
+  DepartmentId,
+  MembershipId,
+  OrganizationAuthorityInstantSchema,
+  PersonId,
+  TeamId,
+  type OrganizationPersonAuthority,
+} from "@vektorprogrammet/domain/organization";
+import {
+  Identity,
+  IdentityActor,
+  IdentitySessionNotFound,
+  type IdentityShape,
+} from "@vektorprogrammet/domain/identity";
+import { DateTime, Effect, Layer } from "effect";
+import { describe, expect, it } from "vitest";
+import { makeSchoolSurveysTestHttp } from "../test/native-http.js";
+
+const personId = PersonId.make("school-surveys-http-person");
+const departmentId = DepartmentId.make("school-surveys-http-department");
+const semesterId = SemesterId.make("school-surveys-http-semester");
+const observedAt = "2032-04-01T12:00:00.000Z";
+const authorizationInstant = OrganizationAuthorityInstantSchema.make(observedAt);
+const schoolSurveyId = SurveyId.make("survey_http_results");
+const schoolSurveyQuestionId = SurveyQuestionId.make("survey_http_results_q_0");
+
+const sessionRequest = (url: string, init: RequestInit = {}): Request => {
+  const headers = new Headers(init.headers);
+  headers.set("cookie", "better-auth.session_token=school-surveys-test-session");
+  return new Request(url, { ...init, headers });
+};
+
+const authority = (
+  overrides: Partial<OrganizationPersonAuthority> = {},
+): OrganizationPersonAuthority => ({
+  personId,
+  evaluatedAt: authorizationInstant,
+  globalAdministrator: "Absent",
+  memberships: [
+    {
+      membershipId: MembershipId.make("school-surveys-http-membership"),
+      teamId: TeamId.make("school-surveys-http-team"),
+      departmentId,
+      active: true,
+      teamLeader: true,
+    },
+  ],
+  ...overrides,
+});
+
+const adminSurvey = (overrides: Record<string, unknown> = {}) => ({
+  surveyId: schoolSurveyId,
+  departmentId,
+  semesterId,
+  semesterLabel: "Spring 2032",
+  title: "School survey",
+  completionText: "Thank you.",
+  resultsVisibility: "DepartmentManagers" as const,
+  state: "Open" as const,
+  revision: 0,
+  createdAt: observedAt,
+  createdByPersonId: personId,
+  closedAt: null,
+  closedByPersonId: null,
+  responseCount: 1,
+  questions: [
+    {
+      kind: "Text" as const,
+      questionId: schoolSurveyQuestionId,
+      label: "What worked?",
+      help: null,
+      required: true,
+      alternatives: [],
+    },
+  ],
+  ...overrides,
+});
+
+const results = (survey = adminSurvey()) => ({
+  survey,
+  responseCount: 1,
+  responses: [
+    {
+      school: { schoolId: 1, name: "Survey School" },
+      submittedAt: observedAt,
+      answers: [
+        {
+          kind: "Text" as const,
+          questionId: schoolSurveyQuestionId,
+          value: "Everything",
+        },
+      ],
+    },
+  ],
+});
+
+const identity = Identity.of({
+  signIn: () => Promise.reject(new Error("unexpected sign-in")),
+  resolveSession: async (cookieHeader: string | undefined) => {
+    if (cookieHeader?.includes("school-surveys-test-session")) {
+      return new IdentityActor({
+        personId,
+        sessionId: "school-surveys-test-session",
+        expiresAt: DateTime.makeUnsafe(new Date("2032-04-02T12:00:00.000Z")),
+      });
+    }
+    throw new IdentitySessionNotFound();
+  },
+  readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
+  listSessions: () => Promise.reject(new Error("unexpected session list")),
+  revokeCurrentSession: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeSession: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeOtherSessions: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
+  recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
+  signOut: async () => ({ setCookies: [] }),
+} satisfies IdentityShape);
+
+const nativeProblem = (code: string, title: string, status: number, detail: string) => ({
+  type: `urn:vektorprogrammet:problem:v0.2:${code}`,
+  title,
+  status,
+  detail,
+  code,
+});
+
+const makeDatabase = (projection: OrganizationPersonAuthority): DatabaseShape => {
+  const receipts = new Map<string, Record<string, unknown>>();
+  const rows =
+    projection.memberships.length === 0
+      ? [
+          {
+            globalAdministrator: projection.globalAdministrator,
+            membershipId: null,
+            teamId: null,
+            departmentId: null,
+            active: null,
+            teamLeader: null,
+          },
+        ]
+      : projection.memberships.map((membership) => ({
+          globalAdministrator: projection.globalAdministrator,
+          membershipId: membership.membershipId,
+          teamId: membership.teamId,
+          departmentId: membership.departmentId,
+          active: membership.active,
+          teamLeader: membership.teamLeader,
+        }));
+  return Object.assign(
+    ((strings: TemplateStringsArray, ...values: ReadonlyArray<unknown>) => {
+      const statement = strings.join(" ");
+      if (statement.includes("SET TRANSACTION ISOLATION LEVEL")) return Effect.void;
+      if (statement.includes("transaction_timestamp() AT TIME ZONE 'UTC'")) {
+        return Effect.succeed([{ now: observedAt }]);
+      }
+      if (statement.includes("locked_global_administrator_grants")) return Effect.succeed(rows);
+      if (statement.includes("SELECT pg_try_advisory_xact_lock")) {
+        return Effect.succeed([{ acquired: true }]);
+      }
+      if (statement.includes("UPDATE public.native_http_idempotency_receipts")) {
+        return Effect.succeed([]);
+      }
+      if (statement.includes("FROM public.native_http_idempotency_receipts")) {
+        const receipt = receipts.get(String(values[0]));
+        return Effect.succeed(receipt === undefined ? [] : [receipt]);
+      }
+      if (statement.includes("INSERT INTO public.native_http_idempotency_receipts")) {
+        receipts.set(String(values[0]), {
+          requestSha256: String(values[1]),
+          operationId: String(values[2]),
+          state: "Complete",
+          status: Number(values[3]),
+          mediaType: values[4],
+          bodyBytes: values[5],
+          headers: values[6],
+        });
+        return Effect.succeed([]);
+      }
+      return Effect.succeed([]);
+    }) as unknown as DatabaseShape,
+    {
+      health: Effect.void,
+      json: (value: unknown) => value,
+      withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect,
+    },
+  ) as DatabaseShape;
+};
+
+const makeServices = (
+  projection: OrganizationPersonAuthority,
+  surveyService: Partial<SchoolSurveysShape> & Record<string, unknown>,
+) => {
+  const defaults = {
+    readForm: () => Effect.die("unexpected anonymous form read"),
+    prepareResponse: () => Effect.die("unexpected anonymous response preparation"),
+    persistResponse: () => Effect.die("unexpected anonymous response persistence"),
+    readAdminCatalog: () => Effect.die("unexpected administration catalog read"),
+    readAdminSurvey: () => Effect.die("unexpected administration survey read"),
+    listAdminSurveys: () => Effect.die("unexpected administration survey list"),
+    createAdminSurvey: () => Effect.die("unexpected administration survey create"),
+    closeAdminSurvey: () => Effect.die("unexpected administration survey close"),
+    readAdminResults: () => Effect.die("unexpected administration results read"),
+  };
+  const identitySnapshot = IdentitySnapshot.of({
+    resolveSession: (cookieHeader) =>
+      cookieHeader?.includes("school-surveys-test-session")
+        ? Effect.succeed(
+            new IdentityActor({
+              personId,
+              sessionId: "school-surveys-test-session",
+              expiresAt: DateTime.makeUnsafe(new Date("2032-04-02T12:00:00.000Z")),
+            }),
+          )
+        : Effect.fail(new IdentitySessionNotFound()),
+  } as never);
+  const oauthCredentialAuthority = OAuthCredentialAuthority.of({
+    resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
+    resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
+  } as never);
+  return Layer.mergeAll(
+    Layer.succeed(Database, makeDatabase(projection)),
+    Layer.succeed(SchoolSurveys, SchoolSurveys.of({ ...defaults, ...surveyService } as never)),
+    Layer.succeed(Identity, identity),
+    Layer.succeed(IdentitySnapshot, identitySnapshot),
+    Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
+  );
+};
+
+describe("School surveys native HTTP adapter", () => {
+  it("returns the authorized result projection and its pure CSV representation", async () => {
+    const survey = adminSurvey();
+    const result = results(survey);
+    let catalogAuthorities = 0;
+    let resultReads = 0;
+    const api = makeSchoolSurveysTestHttp(
+      makeServices(authority(), {
+        readAdminCatalog: () => {
+          catalogAuthorities += 1;
+          return Effect.succeed({
+            departments: [{ departmentId, name: "Survey department" }],
+            semesters: [{ semesterId, startAt: "2032-01-01T00:00:00.000Z", endAt: "2032-06-30T23:59:59.000Z" }],
+          });
+        },
+        readAdminSurvey: () => Effect.succeed(survey),
+        listAdminSurveys: () => Effect.succeed({ departmentId, semesterId, surveys: [survey] }),
+        readAdminResults: () => {
+          resultReads += 1;
+          return Effect.succeed(result);
+        },
+      }),
+    );
+
+    const catalogResponse = await api.fetch(
+      sessionRequest("http://backend.test/api/surveys/admin/catalog"),
+    );
+    expect(catalogResponse.status).toBe(200);
+    expect(catalogResponse.headers.get("cache-control")).toBe("private, no-store");
+    expect(catalogAuthorities).toBe(1);
+
+    const listResponse = await api.fetch(
+      sessionRequest(
+        `http://backend.test/api/surveys/admin?departmentId=${departmentId}&semesterId=${semesterId}`,
+      ),
+    );
+    expect({ status: listResponse.status, body: await listResponse.json() }).toEqual({
+      status: 200,
+      body: { departmentId, semesterId, surveys: [survey] },
+    });
+
+    const resultResponse = await api.fetch(
+      sessionRequest(`http://backend.test/api/surveys/admin/${schoolSurveyId}/results`),
+    );
+    expect({ status: resultResponse.status, body: await resultResponse.json() }).toEqual({
+      status: 200,
+      body: result,
+    });
+
+    const exportResponse = await api.fetch(
+      sessionRequest(`http://backend.test/api/surveys/admin/${schoolSurveyId}/results.csv`),
+    );
+    expect({
+      status: exportResponse.status,
+      contentType: exportResponse.headers.get("content-type"),
+      contentDisposition: exportResponse.headers.get("content-disposition"),
+      cacheControl: exportResponse.headers.get("cache-control"),
+      body: await exportResponse.text(),
+    }).toEqual({
+      status: 200,
+      contentType: "text/csv; charset=utf-8",
+      contentDisposition: 'attachment; filename="school-survey-survey_http_results-results.csv"',
+      cacheControl: "private, no-store",
+      body: encodeSchoolSurveyResultsCsv(result as never),
+    });
+    expect(resultReads).toBe(2);
+  });
+
+  it("uses receipt-derived commands, generated survey IDs, and revisioned close commands", async () => {
+    const createdCommands: Array<Record<string, unknown>> = [];
+    const closedCommands: Array<Record<string, unknown>> = [];
+    const survey = adminSurvey({ responseCount: 0 });
+    const api = makeSchoolSurveysTestHttp(
+      makeServices(authority(), {
+        readAdminSurvey: () => Effect.succeed(survey),
+        createAdminSurvey: (command: Record<string, unknown>) => {
+          createdCommands.push(command);
+          return Effect.succeed({ ...survey, surveyId: command.surveyId });
+        },
+        closeAdminSurvey: (command: Record<string, unknown>) => {
+          closedCommands.push(command);
+          return Effect.succeed({
+            ...survey,
+            state: "Closed",
+            revision: 1,
+            closedAt: observedAt,
+            closedByPersonId: personId,
+          });
+        },
+      }),
+    );
+    const createPayload = {
+      departmentId,
+      semesterId,
+      title: "School survey",
+      completionText: "Thank you.",
+      resultsVisibility: "DepartmentManagers",
+      questions: [{ kind: "Text", label: "What worked?", help: null, required: true }],
+    };
+    const createResponse = await api.fetch(
+      sessionRequest("http://backend.test/api/surveys/admin", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": "AAAAAAAAAAAAAAAAAAAAAA",
+        },
+        body: JSON.stringify(createPayload),
+      }),
+    );
+    expect(createResponse.status).toBe(201);
+    expect(createResponse.headers.get("location")).toMatch(/^\/api\/surveys\/survey_[0-9a-f-]+$/u);
+    expect(createdCommands).toHaveLength(1);
+    expect(String(createdCommands[0]?.commandId)).toMatch(/^httpv2_[A-Za-z0-9_-]{43}$/u);
+    expect(String(createdCommands[0]?.surveyId)).toMatch(/^survey_[0-9a-f-]{36}$/u);
+    expect(createdCommands[0]?.actorPersonId).toBe(personId);
+
+    const closeResponse = await api.fetch(
+      sessionRequest(`http://backend.test/api/surveys/admin/${schoolSurveyId}/close`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": "BBBBBBBBBBBBBBBBBBBBBB",
+        },
+        body: JSON.stringify({ expectedRevision: 0 }),
+      }),
+    );
+    expect(closeResponse.status).toBe(200);
+    expect(closedCommands).toHaveLength(1);
+    expect(closedCommands[0]?.surveyId).toBe(schoolSurveyId);
+    expect(closedCommands[0]?.request).toEqual({ expectedRevision: 0 });
+  });
+
+  it("conceals confidential results from a current department manager", async () => {
+    let resultReads = 0;
+    const confidentialSurvey = adminSurvey({ resultsVisibility: "GlobalAdministrators" });
+    const api = makeSchoolSurveysTestHttp(
+      makeServices(authority(), {
+        readAdminSurvey: () => Effect.succeed(confidentialSurvey),
+        readAdminResults: () => {
+          resultReads += 1;
+          return Effect.die("confidential results must not be read");
+        },
+      }),
+    );
+
+    const response = await api.fetch(
+      sessionRequest(`http://backend.test/api/surveys/admin/${schoolSurveyId}/results`),
+    );
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 404,
+      body: nativeProblem(
+        "resource.not-found",
+        "Resource not found",
+        404,
+        "The requested resource was not found.",
+      ),
+    });
+    expect(resultReads).toBe(0);
+  });
+  it("denies ordinary, inactive, and out-of-department survey management before domain reads", async () => {
+    let catalogReads = 0;
+    let listReads = 0;
+    const catalogService = {
+      readAdminCatalog: () => {
+        catalogReads += 1;
+        return Effect.die("unauthorized catalog reads must not reach the domain");
+      },
+    };
+    const ordinary = makeSchoolSurveysTestHttp(
+      makeServices(authority({ memberships: [{ ...authority().memberships[0]!, teamLeader: false }] }), {
+        ...catalogService,
+      }),
+    );
+    const inactive = makeSchoolSurveysTestHttp(
+      makeServices(authority({ memberships: [], globalAdministrator: "Inactive" }), {
+        ...catalogService,
+      }),
+    );
+    const otherDepartmentId = DepartmentId.make("school-surveys-http-other-department");
+    const wrongDepartment = makeSchoolSurveysTestHttp(
+      makeServices(authority(), {
+        listAdminSurveys: () => {
+          listReads += 1;
+          return Effect.die("out-of-department survey lists must not reach the domain");
+        },
+      }),
+    );
+    let globalListReads = 0;
+    const globalAdministrator = makeSchoolSurveysTestHttp(
+      makeServices(authority({ memberships: [], globalAdministrator: "Active" }), {
+        listAdminSurveys: () => {
+          globalListReads += 1;
+          return Effect.succeed({ departmentId: otherDepartmentId, semesterId, surveys: [] });
+        },
+      }),
+    );
+
+
+    const [ordinaryResponse, inactiveResponse, wrongDepartmentResponse, globalAdministratorResponse] =
+      await Promise.all([
+        ordinary.fetch(sessionRequest("http://backend.test/api/surveys/admin/catalog")),
+        inactive.fetch(sessionRequest("http://backend.test/api/surveys/admin/catalog")),
+        wrongDepartment.fetch(
+          sessionRequest(
+            `http://backend.test/api/surveys/admin?departmentId=${otherDepartmentId}&semesterId=${semesterId}`,
+          ),
+        ),
+        globalAdministrator.fetch(
+          sessionRequest(
+            `http://backend.test/api/surveys/admin?departmentId=${otherDepartmentId}&semesterId=${semesterId}`,
+          ),
+        ),
+      ]);
+
+    expect([
+      ordinaryResponse.status,
+      inactiveResponse.status,
+      wrongDepartmentResponse.status,
+      globalAdministratorResponse.status,
+    ]).toEqual([403, 403, 403, 200]);
+    expect({ catalogReads, listReads, globalListReads }).toEqual({
+      catalogReads: 0,
+      listReads: 0,
+      globalListReads: 1,
+    });
+  });
+
+  it("keeps a closed anonymous survey concealed and avoids response persistence", async () => {
+    let persistCalls = 0;
+    const api = makeSchoolSurveysTestHttp(
+      makeServices(authority(), {
+        readForm: () => Effect.fail(new SchoolSurveyNotFound({ surveyId: String(schoolSurveyId) })),
+        prepareResponse: () =>
+          Effect.fail(new SchoolSurveyNotFound({ surveyId: String(schoolSurveyId) })),
+        persistResponse: () => {
+          persistCalls += 1;
+          return Effect.die("closed survey responses must not persist");
+        },
+      }),
+    );
+
+    const formResponse = await api.fetch(
+      new Request(`http://backend.test/api/surveys/${schoolSurveyId}`),
+    );
+    expect(formResponse.status).toBe(404);
+
+    const submitResponse = await api.fetch(
+      new Request(`http://backend.test/api/surveys/${schoolSurveyId}/responses`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": "CCCCCCCCCCCCCCCCCCCCCC",
+        },
+        body: JSON.stringify({
+          schoolId: 1,
+          answers: [{ kind: "Text", questionId: schoolSurveyQuestionId, value: "Everything" }],
+        }),
+      }),
+    );
+    expect({ status: submitResponse.status, body: await submitResponse.json() }).toEqual({
+      status: 404,
+      body: nativeProblem(
+        "resource.not-found",
+        "Resource not found",
+        404,
+        "The requested resource was not found.",
+      ),
+    });
+    expect(persistCalls).toBe(0);
+  });
+
+});

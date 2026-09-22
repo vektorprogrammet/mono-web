@@ -116,6 +116,19 @@ const person = (
     requirements,
     decisionTime,
   });
+const surveyAdmin = (
+  resolver: string,
+  decisionTime: "SnapshotRead" | "Transaction",
+  concealment?: ReadonlyArray<string>,
+) =>
+  expectedAccess({
+    credentials: ["BetterAuthCookie", "OAuthUserBearer"],
+    principals: ["Person"],
+    resolver,
+    concealment,
+    decisionTime,
+  });
+
 const invitation = (
   requirements: ReadonlyArray<string>,
   decisionTime: "SnapshotRead" | "Transaction",
@@ -729,6 +742,43 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     "surveys.submitSchoolSurveyResponse",
     anonymous("surveys.response-create", "Transaction"),
   ],
+  [
+    "GET",
+    "/api/surveys/admin/catalog",
+    "surveys.readAdminCatalog",
+    surveyAdmin("surveys.admin-catalog", "SnapshotRead"),
+  ],
+  [
+    "GET",
+    "/api/surveys/admin",
+    "surveys.listAdminSurveys",
+    surveyAdmin("surveys.admin-list", "SnapshotRead"),
+  ],
+  [
+    "POST",
+    "/api/surveys/admin",
+    "surveys.createAdminSurvey",
+    surveyAdmin("surveys.admin-create", "Transaction"),
+  ],
+  [
+    "POST",
+    "/api/surveys/admin/:surveyId/close",
+    "surveys.closeAdminSurvey",
+    surveyAdmin("surveys.admin-close", "Transaction", ["Scope"]),
+  ],
+  [
+    "GET",
+    "/api/surveys/admin/:surveyId/results",
+    "surveys.readAdminResults",
+    surveyAdmin("surveys.admin-results", "SnapshotRead", ["Scope"]),
+  ],
+  [
+    "GET",
+    "/api/surveys/admin/:surveyId/results.csv",
+    "surveys.exportAdminResults",
+    surveyAdmin("surveys.admin-results-export", "SnapshotRead", ["Scope"]),
+  ],
+
 
   [
     "GET",
@@ -780,6 +830,8 @@ const createdMutationOperations = [
   "content.createArticle",
   "social-events.create",
   "surveys.submitSchoolSurveyResponse",
+  "surveys.createAdminSurvey",
+
 ];
 
 const entityMutationOperations = [
@@ -806,6 +858,8 @@ const entityMutationOperations = [
   "content.publishArticle",
   "content.unpublishArticle",
 ] as const;
+const bodyPreconditionMutationOperations = ["surveys.closeAdminSurvey"] as const;
+
 
 const taggedNoContentMutationOperations = [
   "recruitment.confirmInvitation",
@@ -823,6 +877,8 @@ const privateBinaryReadOperations = [
   "receipts.readReceiptFile",
   "receipts.readReceiptFileForApproval",
 ] as const;
+const privateTextReadOperations = ["surveys.exportAdminResults"] as const;
+
 
 const privateReadOperations = [
   "onboarding.readBoard",
@@ -849,7 +905,11 @@ const privateReadOperations = [
   "admissions.readApplicantProgress",
   "social-events.readScope",
   "social-events.list",
+  "surveys.readAdminCatalog",
+  "surveys.listAdminSurveys",
+  "surveys.readAdminResults",
 ] as const;
+
 const noStoreReadOperations = [
   "system.health",
   "admissions.readApplicationConfirmation",
@@ -1088,10 +1148,13 @@ describe("native API reflection", () => {
     const categories = [
       "contact.submitContactMessage",
       ...privateBinaryReadOperations,
+      ...privateTextReadOperations,
+
       ...publicConditionalOperations,
       ...privateConditionalOperations,
       ...createdMutationOperations,
       ...entityMutationOperations,
+      ...bodyPreconditionMutationOperations,
       ...taggedNoContentMutationOperations,
       ...plainNoContentMutationOperations,
       ...privateReadOperations,
@@ -1128,6 +1191,9 @@ describe("native API reflection", () => {
     for (const operationId of entityMutationOperations) {
       assertSuccess(operationId, "200", ["cache-control", "etag", "vary"], true);
     }
+    for (const operationId of bodyPreconditionMutationOperations) {
+      assertSuccess(operationId, "200", ["cache-control", "etag", "vary"], true);
+    }
     for (const operationId of taggedNoContentMutationOperations) {
       assertSuccess(operationId, "204", ["cache-control", "etag", "vary"], false);
     }
@@ -1149,6 +1215,16 @@ describe("native API reflection", () => {
         "x-content-type-options",
       ]);
     }
+    for (const operationId of privateTextReadOperations) {
+      const text = operation(operationId).responses["200"]!;
+      expect(Object.keys(text.content ?? {})).toEqual(["text/csv; charset=utf-8"]);
+      expect(Object.keys(text.headers ?? {}).sort()).toEqual([
+        "cache-control",
+        "content-disposition",
+        "vary",
+      ]);
+    }
+
     assertSuccess("contact.submitContactMessage", "201", ["cache-control", "vary"], false);
     const tags = new Map<string, string>([
       ["contact", "Public contact"],
@@ -1196,6 +1272,8 @@ describe("native API reflection", () => {
       ...entityMutationOperations,
       ...taggedNoContentMutationOperations,
       ...plainNoContentMutationOperations,
+      ...bodyPreconditionMutationOperations,
+
     ]);
     for (const operationId of categories) {
       const headerParameters = (operation(operationId).parameters ?? [])
@@ -1208,9 +1286,11 @@ describe("native API reflection", () => {
         expect(headerParameters).toEqual(["if-match", "if-none-match"]);
       } else if (mutations.has(operationId)) {
         expect(headerParameters).toEqual(
-          existingResourceMutationOperations.has(operationId)
-            ? ["idempotency-key", "if-match"]
-            : ["idempotency-key"],
+          bodyPreconditionMutationOperations.includes(operationId as never)
+            ? ["idempotency-key"]
+            : existingResourceMutationOperations.has(operationId)
+              ? ["idempotency-key", "if-match"]
+              : ["idempotency-key"],
         );
       } else {
         expect(headerParameters).toEqual([]);
