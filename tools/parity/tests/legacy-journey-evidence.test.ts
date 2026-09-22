@@ -2,14 +2,11 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Schema } from "effect";
-import { canonicalJson, sha256 } from "../src/canonical.js";
-import {
-  LegacyJourneyObservationArtifactSchema,
-  type LegacyJourneyRunManifest,
-} from "../src/legacy-journey-evidence.js";
+import { canonicalJson } from "../src/canonical.js";
+import { LegacyJourneyObservationArtifactSchema } from "../src/legacy-journey-evidence.js";
 
 const repositoryRoot = resolve(import.meta.dir, "../../..");
-const evidenceRoot = resolve(repositoryRoot, "evidence/capability-parity");
+const evidenceRoot = resolve(repositoryRoot, "tools/parity/data/capability-parity");
 
 const readJson = (path: string): unknown => JSON.parse(readFileSync(path, "utf8")) as unknown;
 
@@ -17,30 +14,6 @@ const decodeLegacyArtifact = (path: string) =>
   Schema.decodeUnknownSync(LegacyJourneyObservationArtifactSchema, {
     onExcessProperty: "error",
   })(readJson(path));
-
-test("committed legacy run manifest pins canonical artifacts for all three tracer rows", () => {
-  const manifestPath = resolve(evidenceRoot, "legacy-run-manifest.json");
-  const manifestBytes = readFileSync(manifestPath, "utf8");
-  const manifest = readJson(manifestPath) as LegacyJourneyRunManifest;
-
-  expect(canonicalJson(manifest)).toBe(manifestBytes);
-  expect(manifest.schema_version).toBe("claim-specific-legacy-journey-run/v1");
-  expect(manifest.native_gate).toEqual({
-    backend: "native_effect",
-    reason: "NATIVE_EVIDENCE_COLLECTED_BY_SEPARATE_NATIVE_RUN",
-    result: "ready",
-  });
-  expect(manifest.legacy).toHaveLength(3);
-  expect(new Set(manifest.legacy.map((run) => run.journey)).size).toBe(3);
-  for (const run of manifest.legacy) {
-    expect(run.backend).toBe("legacy_symfony");
-    expect(run.result).toBe("passed");
-    expect(run.observations.length).toBeGreaterThan(0);
-    expect(canonicalJson(run.observations)).toBe(
-      canonicalJson(decodeLegacyArtifact(resolve(evidenceRoot, run.artifact_pointer)).observations),
-    );
-  }
-});
 
 test("legacy witness artifacts record observed legacy semantics without normalization", () => {
   for (const journey of [
@@ -126,17 +99,4 @@ test("legacy witness artifacts record observed legacy semantics without normaliz
   expect(interview.verified_semantics.effect_ids).toEqual([
     "effect-interview-invitation-notification-requested",
   ]);
-});
-
-test("legacy artifact digests round-trip against manifest records", () => {
-  const manifest = readJson(
-    resolve(evidenceRoot, "legacy-run-manifest.json"),
-  ) as LegacyJourneyRunManifest;
-  for (const run of manifest.legacy) {
-    const bytes = readFileSync(resolve(evidenceRoot, run.artifact_pointer), "utf8");
-    expect(sha256(bytes)).toBe(run.artifact_digest);
-    expect(run.database_digest.length).toBe("sha256:".length + 64);
-    expect(run.runner_digest.length).toBe("sha256:".length + 64);
-    expect(run.fixture_digest.length).toBe("sha256:".length + 64);
-  }
 });

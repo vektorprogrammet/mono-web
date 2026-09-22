@@ -158,13 +158,13 @@ const RUNTIME_FIXTURE_PATHS = [
   "runtime/api-operations.json",
   "runtime/api.json",
 ] as const;
-const OPENAPI_PATH = "evidence/legacy-contract/legacy-symfony-openapi.snapshot.json";
+const OPENAPI_PATH = "tools/parity/data/legacy-contract/legacy-symfony-openapi.snapshot.json";
 const CONSOLE_PATH = "apps/server/bin/console";
 const H3_GENERATOR_PATH = "apps/server/tools/security-h3/0015/generate.ts";
-const H3_SOURCE_MANIFEST_PATH = "evidence/security-h3/0015/source-manifest.json";
-const H3_COLLECTOR_PATH = "evidence/security-h3/0015/route-collector.json";
-const H3_ROUTE_PATH = "evidence/security-h3/0015/current-route-inventory.json";
-const H3_RESOURCE_PATH = "evidence/security-h3/0015/current-resource-inventory.json";
+const H3_SOURCE_MANIFEST_PATH = "tools/parity/data/security-h3/0015/source-manifest.json";
+const H3_COLLECTOR_PATH = "tools/parity/data/security-h3/0015/route-collector.json";
+const H3_ROUTE_PATH = "tools/parity/data/security-h3/0015/current-route-inventory.json";
+const H3_RESOURCE_PATH = "tools/parity/data/security-h3/0015/current-resource-inventory.json";
 const API_PLATFORM_PREFIX = "/api";
 const GENERATED_API_PLATFORM_OPERATION_SUFFIXES: Readonly<Record<string, string>> = {
   get: "GET",

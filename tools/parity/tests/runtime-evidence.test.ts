@@ -1,5 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   assertSafeRuntimeEvidenceBytes,
   canonicalRuntimeEvidenceBytes,
@@ -8,13 +8,13 @@ import {
   makeRuntimeEvidenceRegister,
   runtimeEvidenceReceiptRefId,
   tryDecodeRuntimeEvidenceRegister,
-} from "../src/runtime-evidence.js"
-import { tryDecodeAcceptedIntentRegister } from "../src/coverage.js"
-import { canonicalJson, sha256 } from "../src/canonical.js"
-import { projectionLockPath, withProjectionFileLock } from "../node-runtime.js"
+} from "../src/runtime-evidence.js";
+import { tryDecodeAcceptedIntentRegister } from "../src/coverage.js";
+import { canonicalJson, sha256 } from "../src/canonical.js";
+import { projectionLockPath, withProjectionFileLock } from "../node-runtime.js";
 
-const sourceRef = `src-${"a".repeat(64)}`
-const digest = (hex: string): string => `sha256:${hex.repeat(64).slice(0, 64)}`
+const sourceRef = `src-${"a".repeat(64)}`;
+const digest = (hex: string): string => `sha256:${hex.repeat(64).slice(0, 64)}`;
 
 const receiptInput = {
   journey_ref_id: "intent://journey:recruitment:applicant-assignment:v1",
@@ -28,37 +28,44 @@ const receiptInput = {
   exit_code: 0,
   result: "passed" as const,
   artifact_digest: digest("3"),
-}
+};
 
 describe("runtime evidence register", () => {
   test("emits stable canonical bytes and content-derived receipt reference", () => {
-    const first = makeRuntimeEvidenceReceipt(receiptInput)
-    const second = makeRuntimeEvidenceReceipt({ ...receiptInput, step_ids: [...receiptInput.step_ids] })
-    expect(first).toEqual(second)
-    expect(first.receipt_ref_id).toBe(runtimeEvidenceReceiptRefId(receiptInput))
-    const register = makeRuntimeEvidenceRegister([first])
-    const bytes = canonicalRuntimeEvidenceBytes(register)
-    expect(bytes).toBe(canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([second])))
-    expect(bytes).not.toContain("timestamp")
-    expect(bytes).not.toContain("/tmp/")
-    expect(decodeRuntimeEvidenceRegister(JSON.parse(bytes))).toEqual(register)
-  })
+    const first = makeRuntimeEvidenceReceipt(receiptInput);
+    const second = makeRuntimeEvidenceReceipt({
+      ...receiptInput,
+      step_ids: [...receiptInput.step_ids],
+    });
+    expect(first).toEqual(second);
+    expect(first.receipt_ref_id).toBe(runtimeEvidenceReceiptRefId(receiptInput));
+    const register = makeRuntimeEvidenceRegister([first]);
+    const bytes = canonicalRuntimeEvidenceBytes(register);
+    expect(bytes).toBe(canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([second])));
+    expect(bytes).not.toContain("timestamp");
+    expect(bytes).not.toContain("/tmp/");
+    expect(decodeRuntimeEvidenceRegister(JSON.parse(bytes))).toEqual(register);
+  });
   test("accepts exact content-addressed revision identifiers", () => {
     const numeric = makeRuntimeEvidenceReceipt({
       ...receiptInput,
       legacy_revision_ref_id: `rev-legacy-${"0123456789abcdef".repeat(3).slice(0, 40)}`,
       mono_revision_ref_id: `rev-mono-${"0123456789abcdef".repeat(4)}`,
       runner_source_ref_ids: [`src-${"0123456789abcdef".repeat(4)}`],
-    })
-    expect(decodeRuntimeEvidenceRegister(JSON.parse(canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([numeric])))).receipts[0]).toEqual(numeric)
-  })
+    });
+    expect(
+      decodeRuntimeEvidenceRegister(
+        JSON.parse(canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([numeric]))),
+      ).receipts[0],
+    ).toEqual(numeric);
+  });
   test("accepts opaque content-addressed receipt references", () => {
     const selectedRevisionRefIds = [
       receiptInput.legacy_revision_ref_id,
       receiptInput.mono_revision_ref_id,
-    ].sort()
-    const receiptRefId = "receipt-aa77c79d09b1738b3dac10076832e6062244f89af838cc1a875a2c803d18511d"
-    const journeyRefId = "intent://journey:test:opaque-receipt:v1"
+    ].sort();
+    const receiptRefId = "receipt-aa77c79d09b1738b3dac10076832e6062244f89af838cc1a875a2c803d18511d";
+    const journeyRefId = "intent://journey:test:opaque-receipt:v1";
     const intentPayload = {
       intent_ref_id: journeyRefId,
       intent_revision: "opaque-receipt-v1",
@@ -70,7 +77,7 @@ describe("runtime evidence register", () => {
       canonical_signatures: [],
       inventory_kinds: [],
       journey_ref_ids: [journeyRefId],
-    }
+    };
     const journeyPayload = {
       journey_ref_id: journeyRefId,
       journey_key: "opaque-receipt",
@@ -78,78 +85,121 @@ describe("runtime evidence register", () => {
       journey_revision: "opaque-receipt-v1",
       selected_revision_ref_ids: selectedRevisionRefIds,
       source_ref_ids: [],
-      steps: [{
-        step_id: "observed-step",
-        surface: "api_operation",
-        row_ids: [`row-${"1".repeat(64)}`],
-        canonical_signatures: [],
-        expected_contract_ref: null,
-        runtime_evidence_ref_ids: [receiptRefId],
-      }],
+      steps: [
+        {
+          step_id: "observed-step",
+          surface: "api_operation",
+          row_ids: [`row-${"1".repeat(64)}`],
+          canonical_signatures: [],
+          expected_contract_ref: null,
+          runtime_evidence_ref_ids: [receiptRefId],
+        },
+      ],
       coverage_scope: "user_visible",
-    }
-    const decoded = tryDecodeAcceptedIntentRegister({
-      schema_version: "functional-parity-accepted-intent/v1",
-      intents: [{ ...intentPayload, intent_digest: sha256(canonicalJson(intentPayload)) }],
-      journeys: [{ ...journeyPayload, journey_digest: sha256(canonicalJson(journeyPayload)) }],
-    }, selectedRevisionRefIds)
-    expect(decoded.issues).toEqual([])
-    expect(decoded.register?.journeys[0]?.steps[0]?.runtime_evidence_ref_ids).toEqual([receiptRefId])
-  })
-
+    };
+    const decoded = tryDecodeAcceptedIntentRegister(
+      {
+        schema_version: "functional-parity-accepted-intent/v1",
+        intents: [{ ...intentPayload, intent_digest: sha256(canonicalJson(intentPayload)) }],
+        journeys: [{ ...journeyPayload, journey_digest: sha256(canonicalJson(journeyPayload)) }],
+      },
+      selectedRevisionRefIds,
+    );
+    expect(decoded.issues).toEqual([]);
+    expect(decoded.register?.journeys[0]?.steps[0]?.runtime_evidence_ref_ids).toEqual([
+      receiptRefId,
+    ]);
+  });
 
   test.each([
-    ["unknown object key", "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"schema_version\":\"functional-parity-runtime-evidence/v1\",\"receipts\":[],\"unsafe\":true}"],
-    ["failed result with zero exit", JSON.stringify({ ...makeRuntimeEvidenceRegister([makeRuntimeEvidenceReceipt({ ...receiptInput, result: "failed", exit_code: 0 })]), receipts: [makeRuntimeEvidenceReceipt({ ...receiptInput, result: "failed", exit_code: 0 })] })],
+    [
+      "unknown object key",
+      '{"$schema":"https://json-schema.org/draft/2020-12/schema","schema_version":"functional-parity-runtime-evidence/v1","receipts":[],"unsafe":true}',
+    ],
+    [
+      "failed result with zero exit",
+      JSON.stringify({
+        ...makeRuntimeEvidenceRegister([
+          makeRuntimeEvidenceReceipt({ ...receiptInput, result: "failed", exit_code: 0 }),
+        ]),
+        receipts: [makeRuntimeEvidenceReceipt({ ...receiptInput, result: "failed", exit_code: 0 })],
+      }),
+    ],
   ])("rejects %s", (_name, text) => {
-    expect(() => assertSafeRuntimeEvidenceBytes(new TextEncoder().encode(text))).toThrow()
-  })
+    expect(() => assertSafeRuntimeEvidenceBytes(new TextEncoder().encode(text))).toThrow();
+  });
 
   test("rejects unsafe, duplicate, and noncanonical bytes before decode", () => {
-    const valid = canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([makeRuntimeEvidenceReceipt(receiptInput)]))
-    expect(() => assertSafeRuntimeEvidenceBytes(new TextEncoder().encode(`${valid}\n`))).toThrow("EVIDENCE_NOT_CANONICAL")
-    const duplicate = valid.replace('"schema_version":"functional-parity-runtime-evidence/v1"', '"schema_version":"functional-parity-runtime-evidence/v1","schema_version":"functional-parity-runtime-evidence/v1"')
-    expect(() => assertSafeRuntimeEvidenceBytes(new TextEncoder().encode(duplicate))).toThrow("EVIDENCE_DUPLICATE_KEY")
-    const unsafe = valid.replace('"mono_revision_ref_id":"rev-mono-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"', '"mono_revision_ref_id":"rev-mono-ghp_0123456789abcdef"')
-    expect(tryDecodeRuntimeEvidenceRegister(JSON.parse(unsafe))).toEqual({ register: null, reason: "EVIDENCE_RECEIPT_INVALID" })
-  })
+    const valid = canonicalRuntimeEvidenceBytes(
+      makeRuntimeEvidenceRegister([makeRuntimeEvidenceReceipt(receiptInput)]),
+    );
+    expect(() => assertSafeRuntimeEvidenceBytes(new TextEncoder().encode(`${valid}\n`))).toThrow(
+      "EVIDENCE_NOT_CANONICAL",
+    );
+    const duplicate = valid.replace(
+      '"schema_version":"functional-parity-runtime-evidence/v1"',
+      '"schema_version":"functional-parity-runtime-evidence/v1","schema_version":"functional-parity-runtime-evidence/v1"',
+    );
+    expect(() => assertSafeRuntimeEvidenceBytes(new TextEncoder().encode(duplicate))).toThrow(
+      "EVIDENCE_DUPLICATE_KEY",
+    );
+    const unsafe = valid.replace(
+      '"mono_revision_ref_id":"rev-mono-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"',
+      '"mono_revision_ref_id":"rev-mono-ghp_0123456789abcdef"',
+    );
+    expect(tryDecodeRuntimeEvidenceRegister(JSON.parse(unsafe))).toEqual({
+      register: null,
+      reason: "EVIDENCE_RECEIPT_INVALID",
+    });
+  });
   test("decodes the canonical bytes emitted by the browser receipt helper", async () => {
-    const outputDirectory = mkdtempSync("/tmp/runtime-evidence-emitted-")
+    const outputDirectory = mkdtempSync("/tmp/runtime-evidence-emitted-");
     const outputPath = join(
       outputDirectory,
-      "evidence",
-      "functional-parity",
+      "artifacts",
+      "parity",
+      "runtime",
       "0104",
-      "evidence",
-      "functional-parity",
+      "artifacts",
+      "parity",
       "runtime",
       "runtime-evidence.json",
-    )
-    const sourceA = `src-${"0123456789abcdef".repeat(4)}`
-    const sourceB = `src-${"fedcba9876543210".repeat(4)}`
+    );
+    const sourceA = `src-${"0123456789abcdef".repeat(4)}`;
+    const sourceB = `src-${"fedcba9876543210".repeat(4)}`;
     const names = [
       "RUNTIME_EVIDENCE_RECEIPT_PATH",
       "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
       "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
       "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
-    ] as const
-    const previous = new Map(names.map((name) => [name, process.env[name]]))
+    ] as const;
+    const previous = new Map(names.map((name) => [name, process.env[name]]));
     try {
-      process.env.RUNTIME_EVIDENCE_RECEIPT_PATH = outputPath
-      process.env.RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID = `rev-legacy-sha256-${"a".repeat(64)}`
-      process.env.RUNTIME_EVIDENCE_MONO_REVISION_REF_ID = `rev-mono-sha256-${"b".repeat(64)}`
-      process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS = `${sourceA},${sourceB}`
-      const helper = await import("../../../apps/dashboard/e2e/runtime-evidence-receipt.mjs")
+      process.env.RUNTIME_EVIDENCE_RECEIPT_PATH = outputPath;
+      process.env.RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID = `rev-legacy-sha256-${"a".repeat(64)}`;
+      process.env.RUNTIME_EVIDENCE_MONO_REVISION_REF_ID = `rev-mono-sha256-${"b".repeat(64)}`;
+      process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS = `${sourceA},${sourceB}`;
+      const helper = await import("../../../apps/dashboard/e2e/runtime-evidence-receipt.mjs");
       expect(helper.projectionDirectoryForEvidencePath(outputPath, outputDirectory)).toBe(
-        join(outputDirectory, "evidence", "functional-parity"),
-      )
-      const nestedRepositoryRoot = join(outputDirectory, "evidence", "functional-parity", "0104")
+        join(outputDirectory, "artifacts", "parity"),
+      );
+      const nestedRepositoryRoot = join(outputDirectory, "artifacts", "parity", "runtime", "0104");
       expect(helper.projectionDirectoryForEvidencePath(outputPath, nestedRepositoryRoot)).toBe(
-        join(nestedRepositoryRoot, "evidence", "functional-parity"),
-      )
-      const artifactBytes = helper.sanitizePlaywrightArtifact(new TextEncoder().encode(JSON.stringify({
-        suites: [{ specs: [{ title: "accepted", ok: true, tests: [{ results: [{ status: "passed" }] }] }] }],
-      })))
+        join(nestedRepositoryRoot, "artifacts", "parity"),
+      );
+      const artifactBytes = helper.sanitizePlaywrightArtifact(
+        new TextEncoder().encode(
+          JSON.stringify({
+            suites: [
+              {
+                specs: [
+                  { title: "accepted", ok: true, tests: [{ results: [{ status: "passed" }] }] },
+                ],
+              },
+            ],
+          }),
+        ),
+      );
       const receiptRef = await helper.emitRuntimeEvidenceReceipt({
         repositoryRoot: outputDirectory,
         journeyRefId: "intent://journey:test:emitted-receipt:v1",
@@ -161,60 +211,74 @@ describe("runtime evidence register", () => {
         ],
         fixtureInputBytes: new TextEncoder().encode("fixture"),
         artifactBytes,
-      })
-      const register = assertSafeRuntimeEvidenceBytes(new Uint8Array(readFileSync(outputPath)))
-      expect(register.receipts[0]?.receipt_ref_id).toBe(receiptRef)
-      expect(register.receipts[0]?.environment_kind).toBe("local_disposable")
-      expect(register.receipts[0]?.result).toBe("passed")
+      });
+      const register = assertSafeRuntimeEvidenceBytes(new Uint8Array(readFileSync(outputPath)));
+      expect(register.receipts[0]?.receipt_ref_id).toBe(receiptRef);
+      expect(register.receipts[0]?.environment_kind).toBe("local_disposable");
+      expect(register.receipts[0]?.result).toBe("passed");
     } finally {
       for (const name of names) {
-        const value = previous.get(name)
-        if (value === undefined) delete process.env[name]
-        else process.env[name] = value
+        const value = previous.get(name);
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
       }
-      rmSync(outputDirectory, { recursive: true, force: true })
+      rmSync(outputDirectory, { recursive: true, force: true });
     }
-  })
+  });
   test("projection writer lock queue recovers after acquisition failure", async () => {
-    const projectionDirectory = mkdtempSync("/tmp/runtime-evidence-lock-")
-    const lockPath = projectionLockPath(projectionDirectory)
-    const symlinkTarget = join(projectionDirectory, "lock-target")
-    writeFileSync(symlinkTarget, "", "utf8")
-    symlinkSync(symlinkTarget, lockPath)
+    const projectionDirectory = mkdtempSync("/tmp/runtime-evidence-lock-");
+    const lockPath = projectionLockPath(projectionDirectory);
+    const symlinkTarget = join(projectionDirectory, "lock-target");
+    writeFileSync(symlinkTarget, "", "utf8");
+    symlinkSync(symlinkTarget, lockPath);
     try {
       await expect(
         withProjectionFileLock(projectionDirectory, "exclusive", async () => "unreachable"),
-      ).rejects.toThrow()
-      rmSync(lockPath)
+      ).rejects.toThrow();
+      rmSync(lockPath);
       await expect(
         withProjectionFileLock(projectionDirectory, "exclusive", async () => "recovered"),
-      ).resolves.toBe("recovered")
+      ).resolves.toBe("recovered");
     } finally {
-      rmSync(lockPath, { force: true })
-      rmSync(projectionDirectory, { recursive: true, force: true })
+      rmSync(lockPath, { force: true });
+      rmSync(projectionDirectory, { recursive: true, force: true });
     }
-  })
+  });
 
   test("emits one canonical register for multiple journey receipts", async () => {
-    const outputDirectory = mkdtempSync("/tmp/runtime-evidence-batch-")
-    const outputPath = join(outputDirectory, "runtime-evidence.json")
-    const sourceRefId = `src-${"0123456789abcdef".repeat(4)}`
+    const outputDirectory = mkdtempSync("/tmp/runtime-evidence-batch-");
+    const outputPath = join(outputDirectory, "runtime-evidence.json");
+    const sourceRefId = `src-${"0123456789abcdef".repeat(4)}`;
     const names = [
       "RUNTIME_EVIDENCE_RECEIPT_PATH",
       "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
       "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
       "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
-    ] as const
-    const previous = new Map(names.map((name) => [name, process.env[name]]))
+    ] as const;
+    const previous = new Map(names.map((name) => [name, process.env[name]]));
     try {
-      process.env.RUNTIME_EVIDENCE_RECEIPT_PATH = outputPath
-      process.env.RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID = `rev-legacy-sha256-${"a".repeat(64)}`
-      process.env.RUNTIME_EVIDENCE_MONO_REVISION_REF_ID = `rev-mono-sha256-${"b".repeat(64)}`
-      process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS = sourceRefId
-      const helper = await import("../../../apps/dashboard/e2e/runtime-evidence-receipt.mjs")
-      const artifactBytes = helper.sanitizePlaywrightArtifact(new TextEncoder().encode(JSON.stringify({
-        suites: [{ specs: [{ title: "accepted batch", ok: true, tests: [{ results: [{ status: "passed" }] }] }] }],
-      })))
+      process.env.RUNTIME_EVIDENCE_RECEIPT_PATH = outputPath;
+      process.env.RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID = `rev-legacy-sha256-${"a".repeat(64)}`;
+      process.env.RUNTIME_EVIDENCE_MONO_REVISION_REF_ID = `rev-mono-sha256-${"b".repeat(64)}`;
+      process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS = sourceRefId;
+      const helper = await import("../../../apps/dashboard/e2e/runtime-evidence-receipt.mjs");
+      const artifactBytes = helper.sanitizePlaywrightArtifact(
+        new TextEncoder().encode(
+          JSON.stringify({
+            suites: [
+              {
+                specs: [
+                  {
+                    title: "accepted batch",
+                    ok: true,
+                    tests: [{ results: [{ status: "passed" }] }],
+                  },
+                ],
+              },
+            ],
+          }),
+        ),
+      );
       const receiptRefs = await helper.emitRuntimeEvidenceReceipts({
         repositoryRoot: outputDirectory,
         journeys: [
@@ -225,62 +289,62 @@ describe("runtime evidence register", () => {
         runnerSourceInputBytes: [{ sourceRefId, bytes: new TextEncoder().encode("runner") }],
         fixtureInputBytes: new TextEncoder().encode("fixture"),
         artifactBytes,
-      })
-      const register = assertSafeRuntimeEvidenceBytes(new Uint8Array(readFileSync(outputPath)))
-      expect(receiptRefs).toEqual(register.receipts.map(({ receipt_ref_id }) => receipt_ref_id))
+      });
+      const register = assertSafeRuntimeEvidenceBytes(new Uint8Array(readFileSync(outputPath)));
+      expect(receiptRefs).toEqual(register.receipts.map(({ receipt_ref_id }) => receipt_ref_id));
       expect(register.receipts.map(({ journey_ref_id }) => journey_ref_id)).toEqual([
         "intent://journey:test:batch-a:v1",
         "intent://journey:test:batch-b:v1",
-      ])
+      ]);
     } finally {
       for (const name of names) {
-        const value = previous.get(name)
-        if (value === undefined) delete process.env[name]
-        else process.env[name] = value
+        const value = previous.get(name);
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
       }
-      rmSync(outputDirectory, { recursive: true, force: true })
+      rmSync(outputDirectory, { recursive: true, force: true });
     }
-  })
+  });
   test("confines native receipts to the declared repository evidence directory", async () => {
-    const helper = await import("../../../apps/dashboard/e2e/runtime-evidence-receipt.mjs")
-    const repositoryRoot = mkdtempSync("/tmp/native-runtime-evidence-path-")
+    const helper = await import("../../../apps/dashboard/e2e/runtime-evidence-receipt.mjs");
+    const repositoryRoot = mkdtempSync("/tmp/native-runtime-evidence-path-");
     try {
       expect(
         helper.resolveNativeRuntimeEvidencePath(
           repositoryRoot,
-          "evidence/functional-parity/runtime/schools.json",
+          "artifacts/parity/runtime/schools.json",
         ),
-      ).toBe(join(repositoryRoot, "evidence/functional-parity/runtime/schools.json"))
+      ).toBe(join(repositoryRoot, "artifacts/parity/runtime/schools.json"));
       expect(() =>
         helper.resolveNativeRuntimeEvidencePath(
           repositoryRoot,
-          "evidence/functional-parity/runtime/../outside.json",
+          "artifacts/parity/runtime/../outside.json",
         ),
-      ).toThrow("under evidence/functional-parity/runtime")
+      ).toThrow("under artifacts/parity/runtime");
       expect(() =>
         helper.resolveNativeRuntimeEvidencePath(repositoryRoot, "/tmp/outside.json"),
-      ).toThrow("under evidence/functional-parity/runtime")
+      ).toThrow("under artifacts/parity/runtime");
       expect(() =>
         helper.resolveNativeRuntimeEvidencePath(repositoryRoot, "evidence/other.json"),
-      ).toThrow("under evidence/functional-parity/runtime")
+      ).toThrow("under artifacts/parity/runtime");
       expect(() =>
-        helper.resolveNativeRuntimeEvidencePath(repositoryRoot, "evidence/functional-parity/runtime"),
-      ).toThrow("JSON file")
+        helper.resolveNativeRuntimeEvidencePath(repositoryRoot, "artifacts/parity/runtime"),
+      ).toThrow("JSON file");
     } finally {
-      rmSync(repositoryRoot, { recursive: true, force: true })
+      rmSync(repositoryRoot, { recursive: true, force: true });
     }
-  })
+  });
   test("does not emit a native receipt unless explicitly configured", async () => {
-    const helper = await import("../../../apps/dashboard/e2e/runtime-evidence-receipt.mjs")
+    const helper = await import("../../../apps/dashboard/e2e/runtime-evidence-receipt.mjs");
     const names = [
       "RUNTIME_EVIDENCE_RECEIPT_PATH",
       "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
       "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
       "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
-    ] as const
-    const previous = new Map(names.map((name) => [name, process.env[name]]))
+    ] as const;
+    const previous = new Map(names.map((name) => [name, process.env[name]]));
     try {
-      for (const name of names) delete process.env[name]
+      for (const name of names) delete process.env[name];
       await expect(
         helper.emitNativeRuntimeEvidenceReceipts({
           repositoryRoot: "/tmp/native-runtime-evidence-default",
@@ -290,13 +354,13 @@ describe("runtime evidence register", () => {
           fixtureInputBytes: new TextEncoder().encode("unused"),
           artifactBytes: new TextEncoder().encode("unused"),
         }),
-      ).resolves.toBeNull()
+      ).resolves.toBeNull();
     } finally {
       for (const name of names) {
-        const value = previous.get(name)
-        if (value === undefined) delete process.env[name]
-        else process.env[name] = value
+        const value = previous.get(name);
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
       }
     }
-  })
-})
+  });
+});

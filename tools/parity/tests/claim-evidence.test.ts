@@ -28,16 +28,10 @@ import {
 import { canonicalJson, compareByteOrder, sha256, stableId } from "../src/canonical.js";
 
 const legacyCatalog = JSON.parse(
-  readFileSync(
-    resolve(import.meta.dir, "../../../evidence/capability-parity/atomic-legacy.json"),
-    "utf8",
-  ),
+  readFileSync(resolve(import.meta.dir, "../data/capability-parity/atomic-legacy.json"), "utf8"),
 ) as AtomicOperationCatalog;
 const nativeCatalog = JSON.parse(
-  readFileSync(
-    resolve(import.meta.dir, "../../../evidence/capability-parity/atomic-native.json"),
-    "utf8",
-  ),
+  readFileSync(resolve(import.meta.dir, "../data/capability-parity/atomic-native.json"), "utf8"),
 ) as AtomicOperationCatalog;
 const catalogs: ClaimEvidenceCatalogs = { legacy: legacyCatalog, native: nativeCatalog };
 

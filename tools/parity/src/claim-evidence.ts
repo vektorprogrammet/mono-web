@@ -34,7 +34,7 @@ const INTERVIEW_SCHEDULING_SOURCE_REF = "intent://journey:recruitment:interview-
 const INVITATION_RESPONSE_SOURCE_REF = "intent://journey:recruitment:invitation-response:v1";
 const RECEIPT_SELF_SOURCE_REF = "intent://journey:parity:receipt_self:v1";
 const FINANCE_OPERATIONS_SOURCE_REF = "intent://journey:parity:finance_operations:v1";
-const SPEC_SOURCE_REF = "design-specs/0078.1-claim-specific-evidence-amendment.md";
+const SPEC_SOURCE_REF = "docs/system.md#end-to-end-journeys";
 
 export const TARGET_INTENT_REFS = [
   APPLICANT_ADMISSION_REF,

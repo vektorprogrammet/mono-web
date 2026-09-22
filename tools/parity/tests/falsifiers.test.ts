@@ -237,7 +237,7 @@ const terminalReport = (
   falsifier_id: null,
   projection_write:
     mode === "write"
-      ? { status: "written", target_ref: "evidence/functional-parity" }
+      ? { status: "written", target_ref: "artifacts/parity" }
       : { status: "not_requested", target_ref: null },
   source_manifest_sha256: sha256("{}"),
   inventory_artifact_sha256: { "source-manifest.json": sha256("{}") },
@@ -273,7 +273,7 @@ test("terminal write promotion is exit fourteen and does not run diff", () => {
     status: "projection_written",
     exit_code: 14,
     mode: "write",
-    projection_write: { status: "written", target_ref: "evidence/functional-parity" },
+    projection_write: { status: "written", target_ref: "artifacts/parity" },
     verification: { deterministic_diff: "not_run" },
   });
 });
@@ -313,10 +313,10 @@ test("terminal claims require the closed generated artifact bundle", async () =>
 test("projection listings ignore co-located acceptance evidence directories", async () => {
   const root = mkdtempSync("/tmp/functional-parity-projections-");
   try {
-    putFixture(root, "evidence/functional-parity/source-manifest.json", "{}");
-    putFixture(root, "evidence/functional-parity/0051/runtime.json", "{}");
+    putFixture(root, "artifacts/parity/source-manifest.json", "{}");
+    putFixture(root, "artifacts/parity/0051/runtime.json", "{}");
     const entries = await Effect.runPromise(
-      readProjectionDirectoryEffect(root, "evidence/functional-parity").pipe(
+      readProjectionDirectoryEffect(root, "artifacts/parity").pipe(
         Effect.provide(NodeRuntimeLayer),
       ),
     );
@@ -579,15 +579,18 @@ test("real target API identities and normalized H3 edges do not invoke ambient r
   const monoRoot = gitFixture();
   const legacyRoot = gitFixture();
   const copiedPaths = new Set([
-    "evidence/security-h3/0015/source-manifest.json",
-    "evidence/security-h3/0015/route-collector.json",
-    "evidence/security-h3/0015/current-route-inventory.json",
-    "evidence/security-h3/0015/current-resource-inventory.json",
+    "tools/parity/data/security-h3/0015/source-manifest.json",
+    "tools/parity/data/security-h3/0015/route-collector.json",
+    "tools/parity/data/security-h3/0015/current-route-inventory.json",
+    "tools/parity/data/security-h3/0015/current-resource-inventory.json",
     "apps/server/tools/security-h3/0015/generate.ts",
-    "evidence/legacy-contract/legacy-symfony-openapi.snapshot.json",
+    "tools/parity/data/legacy-contract/legacy-symfony-openapi.snapshot.json",
   ]);
   const sourceManifest = JSON.parse(
-    readFileSync(join(sourceRoot, "evidence/security-h3/0015/source-manifest.json"), "utf8"),
+    readFileSync(
+      join(sourceRoot, "tools/parity/data/security-h3/0015/source-manifest.json"),
+      "utf8",
+    ),
   ) as readonly { readonly path: string }[];
   for (const source of sourceManifest) copiedPaths.add(source.path);
   try {
@@ -627,7 +630,7 @@ test("real target API identities and normalized H3 edges do not invoke ambient r
     });
     const openApi = JSON.parse(
       readFileSync(
-        join(sourceRoot, "evidence/legacy-contract/legacy-symfony-openapi.snapshot.json"),
+        join(sourceRoot, "tools/parity/data/legacy-contract/legacy-symfony-openapi.snapshot.json"),
         "utf8",
       ),
     ) as {
@@ -712,7 +715,7 @@ test("OpenAPI route keys remain structural while credential and schema values fa
     try {
       putFixture(
         monoRoot,
-        "evidence/legacy-contract/legacy-symfony-openapi.snapshot.json",
+        "tools/parity/data/legacy-contract/legacy-symfony-openapi.snapshot.json",
         JSON.stringify(openApiPayload),
       );
       execFileSync("git", ["-C", monoRoot, "add", "."]);
@@ -1139,7 +1142,7 @@ test("malformed and unsafe OpenAPI documents remain schema-invalid and write-blo
       putFixture(monoRoot, "apps/server/vendor/autoload.php", "<?php\n");
       putFixture(
         monoRoot,
-        "evidence/legacy-contract/legacy-symfony-openapi.snapshot.json",
+        "tools/parity/data/legacy-contract/legacy-symfony-openapi.snapshot.json",
         JSON.stringify(payload),
       );
       execFileSync("git", ["-C", monoRoot, "add", "."]);
@@ -1255,7 +1258,7 @@ test("runtime defaults resolve omitted API metadata while explicit conflicts rem
     );
     putFixture(
       monoRoot,
-      "evidence/legacy-contract/legacy-symfony-openapi.snapshot.json",
+      "tools/parity/data/legacy-contract/legacy-symfony-openapi.snapshot.json",
       JSON.stringify({
         openapi: "3.1.0",
         info: { title: "Fixture API", version: "1.0.0" },
@@ -1330,7 +1333,7 @@ test("OpenAPI prototype-named component changes stale the zero-operation reconci
     putFixture(monoRoot, "apps/server/var/parity/api-operations.json", "[]");
     putFixture(
       monoRoot,
-      "evidence/legacy-contract/legacy-symfony-openapi.snapshot.json",
+      "tools/parity/data/legacy-contract/legacy-symfony-openapi.snapshot.json",
       JSON.stringify({
         openapi: "3.1.0",
         info: { title: "Fixture API", version: "1.0.0" },
@@ -2324,7 +2327,7 @@ describe("source safety boundary", () => {
       try {
         putFixture(
           root,
-          "evidence/functional-parity/unsafe.env",
+          "artifacts/parity/unsafe.env",
           "DATABASE_URL=mysql://vektor:secret@db/app\n",
         );
         execFileSync("git", ["-C", root, "add", "."]);
@@ -2332,9 +2335,9 @@ describe("source safety boundary", () => {
         const snapshot = await Effect.runPromise(
           scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
         );
-        expect(
-          snapshot.files.some((entry) => entry.path.startsWith("evidence/functional-parity/")),
-        ).toBe(false);
+        expect(snapshot.files.some((entry) => entry.path.startsWith("artifacts/parity/"))).toBe(
+          false,
+        );
       } finally {
         rmSync(root, { recursive: true, force: true });
       }

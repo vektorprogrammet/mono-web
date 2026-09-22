@@ -98,7 +98,7 @@ const assertAuthorityRootOwnershipWithServices = (
   legacyRoot: string,
   monoRoot: string,
   authorityPath?: string,
-  projectionDirectory = "evidence/functional-parity",
+  projectionDirectory = "artifacts/parity",
 ): void => {
   const legacy = canonicalExistingPath(fileSystem, legacyRoot);
   const mono = canonicalExistingPath(fileSystem, monoRoot);
@@ -140,7 +140,7 @@ export const assertAuthorityRootOwnership = (
   legacyRoot: string,
   monoRoot: string,
   authorityPath?: string,
-  projectionDirectory = "evidence/functional-parity",
+  projectionDirectory = "artifacts/parity",
 ): Effect.Effect<void, ParityRuntimeError, ParityCommandExecutor | ParityFileSystem> =>
   Effect.gen(function* () {
     const fileSystem = yield* ParityFileSystem;
@@ -292,7 +292,7 @@ export const readPinnedIntentRegisterEffect = (
   path: string,
   legacyRoot: string,
   monoRoot: string,
-  projectionDirectory = "evidence/functional-parity",
+  projectionDirectory = "artifacts/parity",
 ): Effect.Effect<
   PinnedIntentRegister,
   ParityRuntimeError,
@@ -320,7 +320,7 @@ const recheckPinnedIntentRegisterWithServices = (
   pinned: PinnedIntentRegister,
   legacyRoot: string,
   monoRoot: string,
-  projectionDirectory = "evidence/functional-parity",
+  projectionDirectory = "artifacts/parity",
 ): void => {
   const current = readAuthorityBlob(
     fileSystem,
@@ -342,7 +342,7 @@ export const recheckPinnedIntentRegister = (
   pinned: PinnedIntentRegister,
   legacyRoot: string,
   monoRoot: string,
-  projectionDirectory = "evidence/functional-parity",
+  projectionDirectory = "artifacts/parity",
 ): Effect.Effect<void, ParityRuntimeError, ParityCommandExecutor | ParityFileSystem> =>
   Effect.gen(function* () {
     const fileSystem = yield* ParityFileSystem;
@@ -463,7 +463,7 @@ export const readPinnedRuntimeEvidenceRegisterEffect = (
   path: string,
   legacyRoot: string,
   monoRoot: string,
-  projectionDirectory = "evidence/functional-parity",
+  projectionDirectory = "artifacts/parity",
 ): Effect.Effect<
   PinnedRuntimeEvidenceRegister,
   ParityRuntimeError,
@@ -498,7 +498,7 @@ const recheckPinnedRuntimeEvidenceRegisterWithServices = (
   pinned: PinnedRuntimeEvidenceRegister,
   legacyRoot: string,
   monoRoot: string,
-  projectionDirectory = "evidence/functional-parity",
+  projectionDirectory = "artifacts/parity",
 ): void => {
   const current = readRuntimeEvidenceBlob(
     fileSystem,
@@ -520,7 +520,7 @@ export const recheckPinnedRuntimeEvidenceRegister = (
   pinned: PinnedRuntimeEvidenceRegister,
   legacyRoot: string,
   monoRoot: string,
-  projectionDirectory = "evidence/functional-parity",
+  projectionDirectory = "artifacts/parity",
 ): Effect.Effect<void, ParityRuntimeError, ParityCommandExecutor | ParityFileSystem> =>
   Effect.gen(function* () {
     const fileSystem = yield* ParityFileSystem;
@@ -631,7 +631,7 @@ interface GitState {
   readonly trackedPaths: ReadonlySet<string>;
 }
 const MAX_GIT_METADATA_BYTES = 64 * 1024 * 1024;
-const MONO_PROJECTION_DIRECTORY = "evidence/functional-parity";
+const MONO_PROJECTION_DIRECTORY = "artifacts/parity";
 const isMonoProjectionMountPath = (rootRef: "legacy" | "mono", path: string): boolean =>
   rootRef === "mono" &&
   (path === MONO_PROJECTION_DIRECTORY || path.startsWith(`${MONO_PROJECTION_DIRECTORY}/`));

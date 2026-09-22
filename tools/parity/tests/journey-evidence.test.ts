@@ -9,7 +9,7 @@ import {
 } from "../src/journey-evidence.js";
 
 const repositoryRoot = resolve(import.meta.dir, "../../..");
-const evidenceRoot = resolve(repositoryRoot, "evidence/capability-parity");
+const evidenceRoot = resolve(repositoryRoot, "tools/parity/data/capability-parity");
 
 const readJson = (path: string): unknown => JSON.parse(readFileSync(path, "utf8")) as unknown;
 

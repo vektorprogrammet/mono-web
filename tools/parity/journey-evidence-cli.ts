@@ -112,7 +112,7 @@ const assertOutsideFunctionalParityProjection = (path: string): void => {
 const parseOutput = (arguments_: readonly string[]): string => {
   const index = arguments_.indexOf("--output");
   if (index === -1 || arguments_[index + 1] === undefined) {
-    throw new Error("journey-evidence-cli requires --output <evidence/capability-parity>");
+    throw new Error("journey-evidence-cli requires --output <artifacts/parity/capability>");
   }
   if (arguments_.length !== 4 || arguments_[2] !== "--output") {
     throw new Error("JOURNEY_EVIDENCE_ARGUMENTS_INVALID");

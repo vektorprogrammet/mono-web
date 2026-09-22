@@ -160,7 +160,7 @@ const semanticFixture = (
   const withoutDigest = {
     intent_ref_id: "intent://test:composition:v1",
     intent_revision: "composition-v1",
-    source_ref_ids: ["design-specs/0078"],
+    source_ref_ids: ["fixture://intent/composition"],
     source_v1_selection: null,
     semantic_stages: [
       { stage_id: "stage-write", kind: "command" as const, source_step_ids: ["write"] },
@@ -227,12 +227,12 @@ const semanticFixture = (
         {
           predicate_ref: "predicate://authorized",
           implies: [],
-          source_ref_ids: ["design-specs/0078"],
+          source_ref_ids: ["fixture://intent/composition"],
         },
         {
           predicate_ref: "predicate://forbidden",
           implies: [],
-          source_ref_ids: ["design-specs/0078"],
+          source_ref_ids: ["fixture://intent/composition"],
         },
       ],
       projections: [
@@ -240,7 +240,7 @@ const semanticFixture = (
           projection_ref: "projection://identity",
           input_selector: "$.id",
           output_selector: "$.id",
-          source_ref_ids: ["design-specs/0078"],
+          source_ref_ids: ["fixture://intent/composition"],
         },
       ],
       intents: [intent],

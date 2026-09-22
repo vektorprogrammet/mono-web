@@ -88,7 +88,7 @@ import type {
   ZeroGapReport,
 } from "./types.js";
 
-export const PROJECTION_DIRECTORY = "evidence/functional-parity";
+export const PROJECTION_DIRECTORY = "artifacts/parity";
 export const COMMITTED_PROJECTIONS = [
   "source-manifest.json",
   "legacy-routes.json",
@@ -1484,7 +1484,7 @@ const syntheticFixtureFiles: readonly {
     path: "apps/server/src/App/Fixture/Controller/FixtureController.php",
     contents: "<?php\nfinal class FixtureController {}\n",
   },
-  { root: "mono", path: "evidence/security-h3/0015/source-manifest.json", contents: "[]" },
+  { root: "mono", path: "tools/parity/data/security-h3/0015/source-manifest.json", contents: "[]" },
   {
     root: "legacy",
     path: "src/AppBundle/Command/FixtureCommand.php",
@@ -1527,7 +1527,7 @@ const syntheticFixtureFiles: readonly {
     contents:
       "services:\n  fixture_command:\n    class: App\\Fixture\\Infrastructure\\Command\\FixtureCommand\n",
   },
-  { root: "mono", path: "evidence/security-h3/0015/route-collector.json", contents: "{}" },
+  { root: "mono", path: "tools/parity/data/security-h3/0015/route-collector.json", contents: "{}" },
   {
     root: "mono",
     path: "apps/server/src/App/Infrastructure/Fixture.php",
@@ -1558,7 +1558,7 @@ const syntheticFixtureFiles: readonly {
   },
   {
     root: "mono",
-    path: "evidence/legacy-contract/legacy-symfony-openapi.snapshot.json",
+    path: "tools/parity/data/legacy-contract/legacy-symfony-openapi.snapshot.json",
     contents: JSON.stringify({
       openapi: "3.1.0",
       info: { title: "Fixture API", version: "1.0.0" },
@@ -1572,7 +1572,7 @@ const syntheticFixtureFiles: readonly {
   },
   {
     root: "mono",
-    path: "evidence/security-h3/0015/current-route-inventory.json",
+    path: "tools/parity/data/security-h3/0015/current-route-inventory.json",
     contents: JSON.stringify([
       {
         path_template: "/fixture/base",
@@ -1584,7 +1584,7 @@ const syntheticFixtureFiles: readonly {
   },
   {
     root: "mono",
-    path: "evidence/security-h3/0015/current-resource-inventory.json",
+    path: "tools/parity/data/security-h3/0015/current-resource-inventory.json",
     contents: JSON.stringify([
       {
         path_template: "/fixture/api",
@@ -1778,7 +1778,7 @@ const createFixtureWorkspace = (
     const resourceDigest = sha256(fileSystem.readText(resourcePath)).slice("sha256:".length);
     const resourceRef = `source:apps/server/src/App/Api/Resource/Fixture.php:1:${resourceDigest}`;
     fileSystem.writeFile(
-      join(root, "evidence/security-h3/0015/source-manifest.json"),
+      join(root, "tools/parity/data/security-h3/0015/source-manifest.json"),
       JSON.stringify([
         {
           bytes: resourceBytes.byteLength,
@@ -1789,8 +1789,8 @@ const createFixtureWorkspace = (
       "utf8",
     );
     for (const artifactPath of [
-      "evidence/security-h3/0015/current-route-inventory.json",
-      "evidence/security-h3/0015/current-resource-inventory.json",
+      "tools/parity/data/security-h3/0015/current-route-inventory.json",
+      "tools/parity/data/security-h3/0015/current-resource-inventory.json",
     ]) {
       const artifact = JSON.parse(fileSystem.readText(join(root, artifactPath))) as Array<
         Record<string, unknown>
@@ -2040,7 +2040,10 @@ const mutateFixture = (
       return;
     case "F8_openapi_stale":
       fileSystem.writeFile(
-        join(workspace.root, "evidence/legacy-contract/legacy-symfony-openapi.snapshot.json"),
+        join(
+          workspace.root,
+          "tools/parity/data/legacy-contract/legacy-symfony-openapi.snapshot.json",
+        ),
         JSON.stringify({
           openapi: "3.1.0",
           info: { title: "Fixture API", version: "1.0.0" },
@@ -2077,7 +2080,10 @@ const mutateFixture = (
         "utf8",
       );
       fileSystem.writeFile(
-        join(workspace.root, "evidence/legacy-contract/legacy-symfony-openapi.snapshot.json"),
+        join(
+          workspace.root,
+          "tools/parity/data/legacy-contract/legacy-symfony-openapi.snapshot.json",
+        ),
         JSON.stringify({
           openapi: "3.1.0",
           info: { title: "Fixture API", version: "1.0.0" },
@@ -2174,7 +2180,7 @@ const mutateFixture = (
     case "F16_h3_authority_copy": {
       const path = join(
         workspace.root,
-        "evidence/security-h3/0015/current-resource-inventory.json",
+        "tools/parity/data/security-h3/0015/current-resource-inventory.json",
       );
       const records = JSON.parse(fileSystem.readText(path)) as Array<Record<string, unknown>>;
       const sourceRefIds = records[0]?.source_ref_ids;

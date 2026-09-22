@@ -38,7 +38,7 @@ const GENERATOR_PATHS = [
   "tools/parity/schemas",
   "tools/parity/src/capability-parity.ts",
   "packages/http-api/openapi.json",
-  "evidence/legacy-contract/legacy-symfony-openapi.snapshot.json",
+  "tools/parity/data/legacy-contract/legacy-symfony-openapi.snapshot.json",
 ] as const;
 
 export const parseCapabilityVerifyArgs = (rawArgs: readonly string[]): Options => {
@@ -90,7 +90,7 @@ const pinAuthority = async (path: string, parsed: unknown): Promise<AuthorityPin
   const relativePath = relative(repositoryRoot, path).replaceAll("\\", "/");
   if (relativePath.startsWith("../") || relativePath === "")
     throw new Error("AUTHORITY_PATH_INVALID");
-  const isInRepoAuthority = relativePath.startsWith("evidence/capability-parity/");
+  const isInRepoAuthority = relativePath.startsWith("artifacts/parity/capability/");
   const statusArguments = isInRepoAuthority
     ? ["status", "--porcelain", "--", relativePath]
     : ["status", "--porcelain"];
@@ -110,7 +110,7 @@ const pinAuthority = async (path: string, parsed: unknown): Promise<AuthorityPin
   const bytes = await readFile(path, "utf8");
   return {
     repository_ref: isInRepoAuthority
-      ? "in-repo:evidence/capability-parity"
+      ? "in-repo:artifacts/parity/capability"
       : `external:${basename(repositoryRoot)}`,
     authority_path: relativePath,
     revision,
