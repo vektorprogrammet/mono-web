@@ -917,10 +917,20 @@ const StrictNativeProjectionSchema = Schema.Struct({
   ),
   session: Schema.Struct({
     personId: Schema.String,
+    sessionId: Schema.String,
+    createdAt: Schema.String,
+    updatedAt: Schema.String,
     expiresAt: Schema.String,
+    ipAddress: Schema.NullOr(Schema.String),
+    userAgent: Schema.NullOr(Schema.String),
+    current: Schema.Boolean,
   }),
   missingSession: Schema.Struct({
-    error: Schema.Struct({ tag: Schema.String }),
+    type: Schema.String,
+    title: Schema.String,
+    status: Schema.Number,
+    detail: Schema.String,
+    code: Schema.String,
   }),
   administratorDirectory: Schema.Struct({
     activeUsers: Schema.Array(DirectoryUserSchema),
