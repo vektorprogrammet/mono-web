@@ -4,6 +4,9 @@ Lifecycle: build
 
 ## Current
 
+The [Cloudflare development provider boundary](docs/specs/cloudflare-development-provider-boundary.md)
+is frozen for local implementation. Production use remains unauthorized.
+
 The native replacement has substantial local functionality. Production still
 runs the legacy PHP application.
 
