@@ -19,12 +19,6 @@ export const registerOrganizationCatalogElement = (): void => {
       #connected = false;
       #dispose: (() => void) | undefined;
 
-      set catalogKind(value: unknown) {
-        if (typeof value === "string") {
-          this.setAttribute(ORGANIZATION_CATALOG_KIND_ATTRIBUTE, value);
-        }
-      }
-
       #start(): void {
         this.#dispose?.();
         this.#dispose = undefined;
