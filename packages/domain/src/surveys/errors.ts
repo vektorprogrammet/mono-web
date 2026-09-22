@@ -21,8 +21,36 @@ export class SchoolSurveyValidationFailed extends Data.TaggedError("SchoolSurvey
   readonly field: string;
 }> {}
 
+/** The selected department is not admitted for the selected semester. */
+export class SchoolSurveyScopeInvalid extends Data.TaggedError("SchoolSurveyScopeInvalid")<{
+  readonly departmentId: string;
+  readonly semesterId: string;
+}> {}
+
+/** A close command did not observe the revision currently stored by PostgreSQL. */
+export class SchoolSurveyStaleRevision extends Data.TaggedError("SchoolSurveyStaleRevision")<{
+  readonly surveyId: string;
+  readonly expectedRevision: number;
+  readonly actualRevision: number;
+}> {}
+
+/** A lifecycle operation is not permitted from the survey's current state. */
+export class SchoolSurveyInvalidState extends Data.TaggedError("SchoolSurveyInvalidState")<{
+  readonly surveyId: string;
+  readonly state: "Open" | "Closed";
+}> {}
+
+/** One command identity was reused for a different durable survey command. */
+export class SchoolSurveyCommandConflict extends Data.TaggedError("SchoolSurveyCommandConflict")<{
+  readonly commandId: string;
+}> {}
+
 export type SchoolSurveyFailure =
   | SchoolSurveyDecodeError
   | SchoolSurveyPersistenceError
   | SchoolSurveyNotFound
-  | SchoolSurveyValidationFailed;
+  | SchoolSurveyValidationFailed
+  | SchoolSurveyScopeInvalid
+  | SchoolSurveyStaleRevision
+  | SchoolSurveyInvalidState
+  | SchoolSurveyCommandConflict;

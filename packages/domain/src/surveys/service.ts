@@ -1,9 +1,17 @@
 import { Context, Effect } from "effect";
+import type { OrganizationPersonAuthority } from "../organization/authority.js";
 import type { SchoolSurveyFailure } from "./errors.js";
 import type {
+  CloseSchoolSurveyCommand,
+  CreateSchoolSurveyCommand,
   PreparedSchoolSurveyResponse,
+  SchoolSurveyAdminCatalogResource,
+  SchoolSurveyAdminListResource,
+  SchoolSurveyAdminResource,
+  SchoolSurveyAdminScope,
   SchoolSurveyFormResource,
   SchoolSurveyResponseResource,
+  SchoolSurveyResultsResource,
   SubmitSchoolSurveyResponseRequest,
   SurveyId,
   SurveyResponseId,
@@ -24,6 +32,30 @@ export interface SchoolSurveysShape {
     readonly responseId: SurveyResponseId;
     readonly prepared: PreparedSchoolSurveyResponse;
   }) => Effect.Effect<SchoolSurveyResponseResource, SchoolSurveyFailure>;
+  /** Returns only scopes the supplied current organization authority can manage. */
+  readonly readAdminCatalog: (
+    authority: OrganizationPersonAuthority,
+  ) => Effect.Effect<SchoolSurveyAdminCatalogResource, SchoolSurveyFailure>;
+  /** Reads one School survey's full immutable definition and current lifecycle metadata. */
+  readonly readAdminSurvey: (
+    surveyId: SurveyId,
+  ) => Effect.Effect<SchoolSurveyAdminResource, SchoolSurveyFailure>;
+  /** Lists one validated owner scope in a stable definition order. */
+  readonly listAdminSurveys: (
+    scope: SchoolSurveyAdminScope,
+  ) => Effect.Effect<SchoolSurveyAdminListResource, SchoolSurveyFailure>;
+  /** Persists one server-identified, initially Open School survey and its audit row. */
+  readonly createAdminSurvey: (
+    command: CreateSchoolSurveyCommand,
+  ) => Effect.Effect<SchoolSurveyAdminResource, SchoolSurveyFailure>;
+  /** Performs the only allowed lifecycle transition, Open to Closed. */
+  readonly closeAdminSurvey: (
+    command: CloseSchoolSurveyCommand,
+  ) => Effect.Effect<SchoolSurveyAdminResource, SchoolSurveyFailure>;
+  /** Reads ordered anonymous responses from an already authorized result projection. */
+  readonly readAdminResults: (
+    surveyId: SurveyId,
+  ) => Effect.Effect<SchoolSurveyResultsResource, SchoolSurveyFailure>;
 }
 
 export class SchoolSurveys extends Context.Service<SchoolSurveys, SchoolSurveysShape>()(

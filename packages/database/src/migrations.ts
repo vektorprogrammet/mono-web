@@ -169,6 +169,10 @@ const absenceSubstituteServiceClosureMigrationUrl = new URL(
   "../migrations/0046-absence-substitute-service-closure.sql",
   import.meta.url,
 );
+const nativeSchoolSurveyOperationsMigrationUrl = new URL(
+  "../migrations/0045-native-school-survey-operations.sql",
+  import.meta.url,
+);
 
 export const databaseMigrationDefinitions = [
   { id: "1_receipt-authority", name: "receipt-authority", url: receiptMigrationUrl },
@@ -388,6 +392,11 @@ export const databaseMigrationDefinitions = [
     id: "46_absence-substitute-service-closure",
     name: "absence-substitute-service-closure",
     url: absenceSubstituteServiceClosureMigrationUrl,
+  },
+  {
+    id: "47_native-school-survey-operations",
+    name: "native-school-survey-operations",
+    url: nativeSchoolSurveyOperationsMigrationUrl,
   },
 ] as const;
 
