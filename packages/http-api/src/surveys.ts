@@ -1,6 +1,7 @@
 import {
   CloseSchoolSurveyRequest,
   CreateSchoolSurveyRequest,
+  SchoolSurveyQuestionKind,
   DepartmentId,
   SchoolSurveyAdminCatalogResource,
   SchoolSurveyAdminListResource,
@@ -8,6 +9,9 @@ import {
   SchoolSurveyFormResource,
   SchoolSurveyResponseResource,
   SchoolSurveyResultsResource,
+  SurveyQuestionId,
+  SurveyResultsVisibility,
+  SurveyState,
   SemesterId,
   SubmitSchoolSurveyResponseRequest,
   SurveyId,
@@ -30,6 +34,7 @@ import {
 export {
   CloseSchoolSurveyRequest,
   CreateSchoolSurveyRequest,
+  SchoolSurveyQuestionKind,
   SchoolSurveyAdminCatalogResource,
   SchoolSurveyAdminListResource,
   SchoolSurveyAdminResource,
@@ -37,6 +42,9 @@ export {
   SchoolSurveyResponseResource,
   SchoolSurveyResultsResource,
   SubmitSchoolSurveyResponseRequest,
+  SurveyQuestionId,
+  SurveyResultsVisibility,
+  SurveyState,
   SurveyId,
 };
 
@@ -227,10 +235,7 @@ export const ReadAdminCatalogEndpoint = HttpApiEndpoint.get(
 )
   .middleware(PersonSecurity)
   .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      schoolSurveyAdminAccess("surveys.admin-catalog", "SnapshotRead"),
-    ),
+    annotateAccessSpec(endpoint, schoolSurveyAdminAccess("surveys.admin-catalog", "SnapshotRead")),
   )
   .annotateMerge(
     operationAnnotations(
@@ -240,11 +245,15 @@ export const ReadAdminCatalogEndpoint = HttpApiEndpoint.get(
   );
 
 /** @since 0.2.0 @category Endpoints */
-export const ListAdminSurveysEndpoint = HttpApiEndpoint.get("listAdminSurveys", "/api/surveys/admin", {
-  query: { departmentId: DepartmentId, semesterId: SemesterId },
-  success: privateReadResponse(SchoolSurveyAdminListResource),
-  error: endpointProblemResponses(SchoolSurveyAdminListProblem),
-})
+export const ListAdminSurveysEndpoint = HttpApiEndpoint.get(
+  "listAdminSurveys",
+  "/api/surveys/admin",
+  {
+    query: { departmentId: DepartmentId, semesterId: SemesterId },
+    success: privateReadResponse(SchoolSurveyAdminListResource),
+    error: endpointProblemResponses(SchoolSurveyAdminListProblem),
+  },
+)
   .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(endpoint, schoolSurveyAdminAccess("surveys.admin-list", "SnapshotRead")),
@@ -257,12 +266,16 @@ export const ListAdminSurveysEndpoint = HttpApiEndpoint.get("listAdminSurveys", 
   );
 
 /** @since 0.2.0 @category Endpoints */
-export const CreateAdminSurveyEndpoint = HttpApiEndpoint.post("createAdminSurvey", "/api/surveys/admin", {
-  headers: IdempotencyHeaders,
-  payload: CreateSchoolSurveyRequest,
-  success: createdMutationResponse(SchoolSurveyAdminResource.pipe(HttpApiSchema.status(201))),
-  error: endpointProblemResponses(SchoolSurveyAdminCreateProblem),
-})
+export const CreateAdminSurveyEndpoint = HttpApiEndpoint.post(
+  "createAdminSurvey",
+  "/api/surveys/admin",
+  {
+    headers: IdempotencyHeaders,
+    payload: CreateSchoolSurveyRequest,
+    success: createdMutationResponse(SchoolSurveyAdminResource.pipe(HttpApiSchema.status(201))),
+    error: endpointProblemResponses(SchoolSurveyAdminCreateProblem),
+  },
+)
   .middleware(PersonSecurity)
   .pipe((endpoint) =>
     annotateAccessSpec(endpoint, schoolSurveyAdminAccess("surveys.admin-create", "Transaction")),
@@ -291,7 +304,10 @@ export const CloseAdminSurveyEndpoint = HttpApiEndpoint.post(
     ),
   )
   .annotateMerge(
-    operationAnnotations("Close school survey", "Closes one School survey at its expected revision."),
+    operationAnnotations(
+      "Close school survey",
+      "Closes one School survey at its expected revision.",
+    ),
   );
 
 /** @since 0.2.0 @category Endpoints */
