@@ -36,6 +36,10 @@ The native architecture now uses one Effect backend runtime, one PostgreSQL
 ownership layer, generated HTTP and SDK contracts, transaction-bound authority,
 atomic audit/outbox/receipt writes, and Foldkit dashboard workflows.
 
+The synthetic local Person reconciliation path now creates or explicitly links
+Person/profile records before credentials and historical operations can depend on
+those identities. Real cohort mapping and production import remain unperformed.
+
 ## Next
 
 The implemented recruitment sequence is complete under the current product model.

@@ -3031,7 +3031,7 @@ describe("DatabaseTest", () => {
         const directGlobalFailure = yield* Effect.flip(
           economy.executeReceipt(
             {
-              _tag: "RefundReceipt",
+              _tag: "ApproveReceipt",
               commandId: "missing-receipt-command-global-direct",
               receiptId: "missing-receipt-global-direct-target",
               expectedRevision: 0,
@@ -3053,7 +3053,7 @@ describe("DatabaseTest", () => {
         const receiptRuleFailure = yield* Effect.flip(
           economy.executeReceipt(
             {
-              _tag: "RefundReceipt",
+              _tag: "ApproveReceipt",
               commandId: "missing-receipt-command-receipt-rule",
               receiptId: "missing-receipt-receipt-rule-target",
               expectedRevision: 0,
@@ -3075,7 +3075,7 @@ describe("DatabaseTest", () => {
         const departmentRuleFailure = yield* Effect.flip(
           economy.executeReceipt(
             {
-              _tag: "RefundReceipt",
+              _tag: "ApproveReceipt",
               commandId: "missing-receipt-command-department-rule",
               receiptId: "missing-receipt-department-rule-target",
               expectedRevision: 0,

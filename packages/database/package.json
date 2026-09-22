@@ -25,7 +25,7 @@
     "./surveys": "./src/surveys/index.ts"
   },
   "scripts": {
-    "test": "vitest run",
+    "test": "vitest run --no-file-parallelism",
     "proof:receipt": "bun run runtime/receipt-postgres-proof-main.ts",
     "proof:authorization-rules": "bun run runtime/authorization-rules-postgres-proof-main.ts",
     "trace:rule-reconciliation": "bun run runtime/rule-reconciliation-postgres-tracer-main.ts",
@@ -46,7 +46,8 @@
     "check-types": "tsc --noEmit",
     "build": "tsc --noEmit",
     "lint": "oxlint",
-    "rehearsal:receipt-import": "bun run runtime/receipt-import-rehearsal.ts"
+    "rehearsal:receipt-import": "bun run runtime/receipt-import-rehearsal.ts",
+    "rehearsal:person-cohort": "bun run runtime/person-cohort-rehearsal.ts"
   },
   "dependencies": {
     "@better-auth/oauth-provider": "1.7.1",

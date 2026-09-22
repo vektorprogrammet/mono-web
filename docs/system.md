@@ -51,6 +51,16 @@ These facts may overlap. One person can be a volunteer, team member, team leader
 receipt approver, and coordinator at the same time. Leaving a team must not erase
 volunteer history or school placement.
 
+Legacy data must resolve to a Person before credentials, affiliations, placements,
+or operational history can reference it. Reconciliation requires an explicit
+source-to-Person mapping and matching identity evidence. Creating a Person writes
+the initial name and contact profile. Linking an existing Person never overwrites
+native profile facts and requires the expected profile revisions.
+
+Inactive, ambiguous, stale, conflicting, or unattested mappings are quarantined
+without partial Person writes. Legacy username and company-email aliases do not
+become native login identities. Credential import is a separate Account operation.
+
 ## Core lifecycles
 
 ### Recruitment and affiliation

@@ -1,0 +1,489 @@
+/** 0106 owned synthetic PostgreSQL Person reconciliation journey. */
+import assert from "node:assert/strict";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { Effect, Redacted } from "effect";
+import { Pool } from "pg";
+import { databaseHealth } from "@vektorprogrammet/database";
+import { DatabaseLive } from "../src/layers.js";
+import { PersonCohortFailure, importPersonCohort } from "../src/person-cohort.js";
+
+const root = resolve(import.meta.dirname, "../../..");
+const command = (name: string, args: ReadonlyArray<string>) =>
+  execFileSync(name, args, {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 60_000,
+  });
+const pause = (milliseconds: number) =>
+  new Promise<void>((resolvePause) => setTimeout(resolvePause, milliseconds));
+const freePort = async (): Promise<number> => {
+  const server = createServer();
+  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const port = address.port;
+  await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+  return port;
+};
+const waitForPostgres = async (pool: Pool): Promise<void> => {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    try {
+      await pool.query("SELECT 1");
+      return;
+    } catch {
+      await pause(100);
+    }
+  }
+  throw new Error("owned PostgreSQL readiness timeout");
+};
+const stop = async (child: ChildProcess): Promise<void> => {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  await new Promise<void>((resolveStop, reject) => {
+    const timer = setTimeout(() => reject(new Error("owned process cleanup timeout")), 15_000);
+    child.once("exit", () => {
+      clearTimeout(timer);
+      resolveStop();
+    });
+    child.kill("SIGTERM");
+  });
+};
+const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+
+for (const key of ["PERSON_COHORT_PG_URL", "PERSON_COHORT_INPUT", "DATABASE_URL"])
+  assert.equal(process.env[key], undefined, `${key} ambient configuration prohibited`);
+
+const artifacts = await mkdtemp(join(tmpdir(), "vektor-person-cohort-0106-"));
+const pgdata = join(artifacts, "postgres");
+const inputFile = join(artifacts, "person-cohort.json");
+const children: ChildProcess[] = [];
+let pool: Pool | undefined;
+let evidence: Record<string, unknown> | undefined;
+
+try {
+  const port = await freePort();
+  command("initdb", [
+    "-D",
+    pgdata,
+    "-A",
+    "trust",
+    "-U",
+    "postgres",
+    "--no-locale",
+    "--encoding=UTF8",
+  ]);
+  const postgres = spawn(
+    "postgres",
+    ["-D", pgdata, "-p", String(port), "-h", "127.0.0.1", "-k", artifacts],
+    { stdio: "ignore" },
+  );
+  children.push(postgres);
+  pool = new Pool({ connectionString: `postgres://postgres@127.0.0.1:${port}/postgres` });
+  await waitForPostgres(pool);
+  await pool.query("CREATE DATABASE person_cohort_rehearsal");
+  await pool.end();
+
+  const databaseUrl = `postgres://postgres@127.0.0.1:${port}/person_cohort_rehearsal`;
+  pool = new Pool({ connectionString: databaseUrl, max: 4 });
+  await Effect.runPromise(
+    databaseHealth.pipe(
+      Effect.provide(DatabaseLive({ url: Redacted.make(databaseUrl), maxConnections: 1 })),
+    ),
+  );
+
+  await pool.query(`
+    INSERT INTO public.person_profiles (person_id, first_name, last_name, revision)
+    VALUES
+      ('person-link', 'Native', 'Linked', 2),
+      ('person-stale', 'Native', 'Stale', 1),
+      ('person-email-mismatch', 'Native', 'Mismatch', 0),
+      ('person-target-conflict', 'Native', 'Conflict', 0),
+      ('person-email-owner', 'Native', 'Owner', 0);
+    INSERT INTO public.person_contact_profiles (person_id, email, phone, revision)
+    VALUES
+      ('person-link', 'link@example.invalid', '+47 900 00 001', 3),
+      ('person-stale', 'stale@example.invalid', '+47 900 00 002', 1),
+      ('person-email-mismatch', 'native@example.invalid', '+47 900 00 003', 0),
+      ('person-target-conflict', 'target@example.invalid', '+47 900 00 004', 0),
+      ('person-email-owner', 'owned@example.invalid', '+47 900 00 005', 0)
+  `);
+  const linkedBefore = (
+    await pool.query(
+      `SELECT p.*, c.email, c.phone, c.revision AS contact_revision
+         FROM public.person_profiles p
+         JOIN public.person_contact_profiles c USING (person_id)
+        WHERE p.person_id = 'person-link'`,
+    )
+  ).rows[0];
+
+  type SourceRow = {
+    sourceUserId: string;
+    active: boolean;
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+    username?: string;
+    companyEmail?: string;
+  };
+  type Mapping =
+    | {
+        _tag: "CreatePerson";
+        sourceUserId: string;
+        personId: string;
+        emailOwnership: { email: string; attestedBy: string; evidenceRef: string };
+      }
+    | {
+        _tag: "LinkExistingPerson";
+        sourceUserId: string;
+        personId: string;
+        emailOwnership: { email: string; attestedBy: string; evidenceRef: string };
+        expectedNameRevision: number;
+        expectedContactRevision: number;
+      };
+  const occurrences: Array<{ occurrenceId: string; row: unknown }> = [];
+  const mappings: Mapping[] = [];
+  const row = (sourceUserId: string, overrides: Partial<SourceRow> = {}): SourceRow => ({
+    sourceUserId,
+    active: true,
+    firstName: "Legacy",
+    lastName: sourceUserId,
+    email: `${sourceUserId}@example.invalid`,
+    phone: "+47 999 00 000",
+    username: `legacy-${sourceUserId}`,
+    companyEmail: `${sourceUserId}@vektorprogrammet.invalid`,
+    ...overrides,
+  });
+  const attest = (source: SourceRow) => ({
+    email: source.email,
+    attestedBy: "synthetic-operator",
+    evidenceRef: `attestation-${source.sourceUserId}`,
+  });
+  const addCreate = (
+    sourceUserId: string,
+    overrides: Partial<SourceRow> = {},
+    personId = `person-${sourceUserId}`,
+  ): SourceRow => {
+    const source = row(sourceUserId, overrides);
+    occurrences.push({ occurrenceId: `occ-${sourceUserId}`, row: source });
+    mappings.push({
+      _tag: "CreatePerson",
+      sourceUserId,
+      personId,
+      emailOwnership: attest(source),
+    });
+    return source;
+  };
+  const addLink = (
+    sourceUserId: string,
+    personId: string,
+    expectedNameRevision: number,
+    expectedContactRevision: number,
+    overrides: Partial<SourceRow> = {},
+  ): SourceRow => {
+    const source = row(sourceUserId, overrides);
+    occurrences.push({ occurrenceId: `occ-${sourceUserId}`, row: source });
+    mappings.push({
+      _tag: "LinkExistingPerson",
+      sourceUserId,
+      personId,
+      expectedNameRevision,
+      expectedContactRevision,
+      emailOwnership: attest(source),
+    });
+    return source;
+  };
+
+  addCreate("create");
+  addLink("link", "person-link", 2, 3, { email: "link@example.invalid" });
+  occurrences.push({ occurrenceId: "occ-invalid", row: { sourceUserId: "invalid" } });
+  addCreate("inactive", { active: false });
+  occurrences.push({ occurrenceId: "occ-no-map", row: row("no-map") });
+  addCreate("ambiguous");
+  mappings.push({ ...mappings.at(-1)! });
+  addCreate("unattested");
+  mappings.at(-1)!.emailOwnership.email = "other@example.invalid";
+  const duplicateSource = addCreate("duplicate-source");
+  occurrences.push({ occurrenceId: "occ-duplicate-source-second", row: { ...duplicateSource } });
+  addCreate("duplicate-email-a", { email: "shared@example.invalid" });
+  addCreate("duplicate-email-b", { email: "SHARED@example.invalid" });
+  addCreate("duplicate-target-a");
+  addCreate("duplicate-target-b", {}, "person-duplicate-target-a");
+  addCreate("target-conflict", {}, "person-target-conflict");
+  addCreate("email-conflict", { email: "owned@example.invalid" });
+  addLink("missing", "person-missing", 0, 0);
+  addLink("stale", "person-stale", 0, 0, { email: "stale@example.invalid" });
+  addLink("email-mismatch", "person-email-mismatch", 0, 0);
+
+  const snapshot = {
+    sourceRepository: "synthetic-legacy",
+    sourceRevision: "synthetic-source-0106",
+    snapshotId: "person-cohort-0106",
+    transformationRevision: "0106-v1",
+    synthetic: true,
+    occurrences,
+    mappings,
+  };
+  await writeFile(inputFile, JSON.stringify(snapshot), { mode: 0o600 });
+  await chmod(inputFile, 0o600);
+  const runCli = (): unknown =>
+    JSON.parse(
+      execFileSync(process.execPath, ["run", "packages/database/runtime/person-cohort-main.ts"], {
+        cwd: root,
+        encoding: "utf8",
+        timeout: 60_000,
+        env: {
+          ...process.env,
+          PERSON_COHORT_MODE: "synthetic",
+          NATIVE_IDENTITY_DEPLOYMENT: "local",
+          PERSON_COHORT_PG_URL: databaseUrl,
+          PERSON_COHORT_INPUT: inputFile,
+        },
+      }),
+    );
+
+  const cliReport = runCli();
+  const report = await importPersonCohort(pool, snapshot);
+  assert.deepEqual(cliReport, report, "guarded CLI returns the persisted report");
+  assert.equal(report.input, occurrences.length);
+  assert.equal(report.accepted, 2);
+  assert.equal(report.quarantined, occurrences.length - 2);
+  assert.equal(report.aliases, "LegacyUsernameAndCompanyEmailUnsupported");
+  assert.equal(report.credentials, "HandledByCredentialCohort");
+  assert.deepEqual(runCli(), report, "exact CLI replay is byte-equivalent");
+  const concurrentRow = row("concurrent-initial");
+  const concurrentSnapshot = {
+    ...snapshot,
+    sourceRevision: "synthetic-source-0106-concurrent",
+    snapshotId: "person-cohort-0106-concurrent",
+    occurrences: [{ occurrenceId: "occ-concurrent-initial", row: concurrentRow }],
+    mappings: [
+      {
+        _tag: "CreatePerson" as const,
+        sourceUserId: "concurrent-initial",
+        personId: "person-concurrent-initial",
+        emailOwnership: attest(concurrentRow),
+      },
+    ],
+  };
+  const concurrent = await Promise.all([
+    importPersonCohort(pool, concurrentSnapshot),
+    importPersonCohort(pool, concurrentSnapshot),
+  ]);
+  assert.deepEqual(concurrent[0], concurrent[1]);
+  assert.equal(concurrent[0].accepted, 1);
+  const concurrentCounts = (
+    await pool.query<{
+      profile_count: string;
+      contact_count: string;
+      snapshot_count: string;
+      occurrence_count: string;
+      import_count: string;
+    }>(
+      `SELECT
+        (SELECT count(*) FROM public.person_profiles WHERE person_id = 'person-concurrent-initial') AS profile_count,
+        (SELECT count(*) FROM public.person_contact_profiles WHERE person_id = 'person-concurrent-initial') AS contact_count,
+        (SELECT count(*) FROM public.person_cohort_snapshots WHERE snapshot_id = 'person-cohort-0106-concurrent') AS snapshot_count,
+        (SELECT count(*) FROM public.person_cohort_occurrences WHERE occurrence_id = 'occ-concurrent-initial') AS occurrence_count,
+        (SELECT count(*) FROM public.person_cohort_imports WHERE source_user_id = 'concurrent-initial') AS import_count`,
+    )
+  ).rows[0];
+  assert.ok(concurrentCounts);
+  assert.deepEqual(Object.values(concurrentCounts).map(Number), [1, 1, 1, 1, 1]);
+
+  const created = (
+    await pool.query(
+      `SELECT p.first_name, p.last_name, p.revision, c.email, c.phone,
+              c.revision AS contact_revision
+         FROM public.person_profiles p
+         JOIN public.person_contact_profiles c USING (person_id)
+        WHERE p.person_id = 'person-create'`,
+    )
+  ).rows[0];
+  assert.deepEqual(created, {
+    first_name: "Legacy",
+    last_name: "create",
+    revision: 0,
+    email: "create@example.invalid",
+    phone: "+47 999 00 000",
+    contact_revision: 0,
+  });
+  const linkedAfter = (
+    await pool.query(
+      `SELECT p.*, c.email, c.phone, c.revision AS contact_revision
+         FROM public.person_profiles p
+         JOIN public.person_contact_profiles c USING (person_id)
+        WHERE p.person_id = 'person-link'`,
+    )
+  ).rows[0];
+  assert.deepEqual(linkedAfter, linkedBefore, "linking preserves native profile and contact facts");
+  assert.equal(
+    Number((await pool.query(`SELECT count(*) FROM auth."user"`)).rows[0].count),
+    0,
+    "person reconciliation creates no credentials",
+  );
+  assert.deepEqual(
+    (
+      await pool.query(`SELECT reason FROM public.person_cohort_occurrences ORDER BY reason`)
+    ).rows.map(({ reason }) => reason),
+    [
+      "CreatedPerson",
+      "CreatedPerson",
+      "DuplicateEmail",
+      "DuplicateEmail",
+      "DuplicateSource",
+      "DuplicateSource",
+      "DuplicateTarget",
+      "DuplicateTarget",
+      "EmailConflict",
+      "EmailUnattested",
+      "ExistingEmailConflict",
+      "ExistingPersonStale",
+      "InvalidRow",
+      "Inactive",
+      "LinkedExistingPerson",
+      "MappingAmbiguous",
+      "MappingMissing",
+      "PersonMissing",
+      "TargetConflict",
+    ].sort(),
+  );
+
+  const factsBeforeConflict = digest(
+    (
+      await pool.query(
+        `SELECT jsonb_build_object(
+          'profiles', (SELECT jsonb_agg(p ORDER BY person_id) FROM public.person_profiles p),
+          'contacts', (SELECT jsonb_agg(c ORDER BY person_id) FROM public.person_contact_profiles c),
+          'snapshots', (SELECT jsonb_agg(s ORDER BY snapshot_key) FROM public.person_cohort_snapshots s),
+          'occurrences', (SELECT jsonb_agg(o ORDER BY snapshot_key, occurrence_id) FROM public.person_cohort_occurrences o),
+          'imports', (SELECT jsonb_agg(i ORDER BY source_repository, source_user_id) FROM public.person_cohort_imports i)
+        ) AS facts`,
+      )
+    ).rows[0],
+  );
+  await assert.rejects(
+    importPersonCohort(pool, { ...snapshot, sourceRevision: "changed-source" }),
+    (cause) => cause instanceof PersonCohortFailure && cause.code === "SnapshotConflict",
+  );
+  assert.equal(
+    digest(
+      (
+        await pool.query(
+          `SELECT jsonb_build_object(
+            'profiles', (SELECT jsonb_agg(p ORDER BY person_id) FROM public.person_profiles p),
+            'contacts', (SELECT jsonb_agg(c ORDER BY person_id) FROM public.person_contact_profiles c),
+            'snapshots', (SELECT jsonb_agg(s ORDER BY snapshot_key) FROM public.person_cohort_snapshots s),
+            'occurrences', (SELECT jsonb_agg(o ORDER BY snapshot_key, occurrence_id) FROM public.person_cohort_occurrences o),
+            'imports', (SELECT jsonb_agg(i ORDER BY source_repository, source_user_id) FROM public.person_cohort_imports i)
+          ) AS facts`,
+        )
+      ).rows[0],
+    ),
+    factsBeforeConflict,
+  );
+
+  const crossTargetRow = row("cross-target", { email: "link@example.invalid" });
+  const crossTargetReport = await importPersonCohort(pool, {
+    ...snapshot,
+    snapshotId: "person-cohort-0106-cross-target",
+    occurrences: [{ occurrenceId: "occ-cross-target", row: crossTargetRow }],
+    mappings: [
+      {
+        _tag: "LinkExistingPerson" as const,
+        sourceUserId: "cross-target",
+        personId: "person-link",
+        emailOwnership: attest(crossTargetRow),
+        expectedNameRevision: 2,
+        expectedContactRevision: 3,
+      },
+    ],
+  });
+  assert.deepEqual(crossTargetReport.occurrences, [
+    {
+      occurrenceId: "occ-cross-target",
+      disposition: "Quarantined",
+      reason: "TargetConflict",
+    },
+  ]);
+
+  await pool.query(`
+    CREATE FUNCTION public.fail_person_cohort_import() RETURNS trigger
+    LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic failure'; END $$;
+    CREATE TRIGGER fail_person_cohort_import
+    BEFORE INSERT ON public.person_cohort_imports
+    FOR EACH ROW EXECUTE FUNCTION public.fail_person_cohort_import()
+  `);
+  const rollbackRow = row("rollback");
+  const rollbackSnapshot = {
+    ...snapshot,
+    snapshotId: "person-cohort-0106-rollback",
+    occurrences: [{ occurrenceId: "occ-rollback", row: rollbackRow }],
+    mappings: [
+      {
+        _tag: "CreatePerson" as const,
+        sourceUserId: "rollback",
+        personId: "person-rollback",
+        emailOwnership: attest(rollbackRow),
+      },
+    ],
+  };
+  await assert.rejects(
+    importPersonCohort(pool, rollbackSnapshot),
+    (cause) => cause instanceof PersonCohortFailure && cause.code === "PersistenceFailure",
+  );
+  assert.equal(
+    Number(
+      (
+        await pool.query(
+          `SELECT count(*) FROM public.person_profiles WHERE person_id = 'person-rollback'`,
+        )
+      ).rows[0].count,
+    ),
+    0,
+  );
+  assert.equal(
+    Number(
+      (
+        await pool.query(
+          `SELECT count(*) FROM public.person_cohort_snapshots WHERE snapshot_id = 'person-cohort-0106-rollback'`,
+        )
+      ).rows[0].count,
+    ),
+    0,
+  );
+  await pool.query(`
+    DROP TRIGGER fail_person_cohort_import ON public.person_cohort_imports;
+    DROP FUNCTION public.fail_person_cohort_import()
+  `);
+  await assert.rejects(
+    pool.query(`UPDATE public.person_cohort_imports SET evidence_ref = 'changed'`),
+    /Person cohort evidence is immutable/,
+  );
+
+  evidence = {
+    contract: "0106",
+    sourceRevision: command("git", ["rev-parse", "HEAD"]).trim(),
+    report,
+    createdPerson: created,
+    linkedPersonUnchanged: true,
+    concurrentInitialImport: true,
+    changedSnapshotRejected: true,
+    crossSnapshotTargetConflict: true,
+    forcedRollback: true,
+    immutableEvidence: true,
+    productionEffects: "none",
+  };
+} finally {
+  if (pool) await pool.end().catch(() => undefined);
+  for (const child of children.reverse()) await stop(child).catch(() => undefined);
+  await rm(artifacts, { recursive: true, force: true });
+}
+
+assert.ok(evidence, "rehearsal must complete before evidence is emitted");
+process.stdout.write(JSON.stringify(evidence, null, 2) + "\n");

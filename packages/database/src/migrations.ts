@@ -407,6 +407,11 @@ export const databaseMigrationDefinitions = [
     name: "expense-settlement-evidence",
     url: expenseSettlementEvidenceMigrationUrl,
   },
+  {
+    id: "49_native-person-reconciliation",
+    name: "native-person-reconciliation",
+    url: new URL("../migrations/0049-native-person-reconciliation.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

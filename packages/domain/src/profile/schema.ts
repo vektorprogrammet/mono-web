@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { Model } from "effect/unstable/schema";
 import { PersonId } from "../organization/schema.js";
 
-const Name = Schema.String.pipe(
+export const PersonProfileName = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter((value) => value.trim().length > 0, { message: "a non-empty name" }),
     Schema.isMaxLength(100),
@@ -60,8 +60,8 @@ export const UpdateOwnProfileCommand = Schema.Struct({
   commandId: ProfileCommandId,
   expectedNameRevision: Revision,
   expectedContactRevision: Revision,
-  firstName: Name,
-  lastName: Name,
+  firstName: PersonProfileName,
+  lastName: PersonProfileName,
   email: PersonContactEmail,
   phone: PersonContactPhone,
 });
@@ -69,8 +69,8 @@ export type UpdateOwnProfileCommand = typeof UpdateOwnProfileCommand.Type;
 
 export const OwnProfile = Schema.Struct({
   personId: PersonId,
-  firstName: Name,
-  lastName: Name,
+  firstName: PersonProfileName,
+  lastName: PersonProfileName,
   email: PersonContactEmail,
   phone: PersonContactPhone,
   nameRevision: Revision,
@@ -91,20 +91,20 @@ export class PersonProfile extends Model.Class<PersonProfile>("Profile.PersonPro
     json: PersonId,
   }),
   firstName: Model.Field({
-    select: Name,
-    insert: Name,
-    update: Name,
-    json: Name,
-    jsonCreate: Name,
-    jsonUpdate: Name,
+    select: PersonProfileName,
+    insert: PersonProfileName,
+    update: PersonProfileName,
+    json: PersonProfileName,
+    jsonCreate: PersonProfileName,
+    jsonUpdate: PersonProfileName,
   }),
   lastName: Model.Field({
-    select: Name,
-    insert: Name,
-    update: Name,
-    json: Name,
-    jsonCreate: Name,
-    jsonUpdate: Name,
+    select: PersonProfileName,
+    insert: PersonProfileName,
+    update: PersonProfileName,
+    json: PersonProfileName,
+    jsonCreate: PersonProfileName,
+    jsonUpdate: PersonProfileName,
   }),
   revision: Model.GeneratedByDb(Revision),
 }) {}
