@@ -431,7 +431,6 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     self.on("request", (request) => {
       if (
         request.method() === "POST" &&
-        new URL(request.url()).pathname.endsWith("/assistenter.data") &&
         new URLSearchParams(request.postData() ?? "").get("action") === "ReportAbsence"
       )
         absencePosts++;
