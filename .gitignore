@@ -21,6 +21,7 @@ artifacts/
 !.vscode/launch.json
 !.vscode/extensions.json
 .idea
+.serena/
 *.swp
 *.swo
 *~

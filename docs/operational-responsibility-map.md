@@ -1,6 +1,6 @@
 # Operational responsibility map
 
-**Status:** Target operating model and migration gap map. Revised 2026-09-22.
+**Status:** Target operating model and migration gap map. Revised 2026-09-23.
 
 This document states who performs work, which software context supports it, and
 where the replacement is incomplete. Business meaning lives in [system.md](system.md).
@@ -164,11 +164,11 @@ closed as one operational journey.
 | Identity            | Native sessions, OAuth, account claim, password recovery, profile                                                                       | Real Person and Account reconciliation, unsupported credentials and aliases                              |
 | Placement           | Affiliation, placement, demand, roster confirmation, notifications, absence, exact occurrence, and Covered or Uncovered service closure | No-show, correction, complete history, certificate, and reporting outcomes                               |
 | Substitute coverage | Pool membership, eligibility, sequential dispatch, response, acknowledgement, delivery recovery, and closure                            | Wider notification channels and complete operational reporting                                           |
-| Economy             | Claim, private file, approval, rejection, reopen, outbox retry                                                                          | Wider finance workflow, payment authority, settlement integration                                        |
+| Economy             | Claim, private file, approval, rejection, reopen, outbox retry, immutable settlement evidence, and owner notification recovery          | External bank or payment execution remains outside the product                                           |
 | Organization        | Units, memberships, team interest, scoped authority                                                                                     | Verify all national and cross-chapter operations; retire linear legacy roles                             |
-| Surveys             | Selected native survey journeys                                                                                                         | Full administration, results, audience rules, and export                                                 |
+| Surveys             | Scoped administration, anonymous response, closure, audience policy, results, response counts, and CSV export                           | External distribution and long-term export retention                                                     |
 | Reporting           | Several recruitment, receipt, and operational projections                                                                               | Complete statistics, exports, certificate, and service-delivery reports                                  |
-| Production          | Local synthetic PostgreSQL, browser, API, recovery, and delivery exercises                                                              | Real-data rehearsal, writer transfer, rollback, deployment, and legacy shutdown                          |
+| Production          | Local synthetic PostgreSQL, browser, API, recovery, delivery, and development-provider compositions                                     | Real-data rehearsal, exact-revision deployment proof, writer transfer, rollback, and legacy shutdown     |
 
 ## Known retained-data constraints
 
@@ -211,14 +211,21 @@ Before cutover, prove on the exact candidate revision:
 7. rollback after writer transfer;
 8. operator-observable health and failure diagnostics.
 
-## Next development order
+## Final sprint order
 
-Complete operational journeys, not isolated endpoints:
+Complete migration and replacement gates, not optional legacy features:
 
-1. Close survey administration, results, audience rules, and exports.
-2. Define wider finance and settlement ownership.
-3. Reconcile real identity, files, affiliation, and placement data.
-4. Rehearse production writer transfer and rollback.
+1. Rehearse the real legacy Person and profile cohort on disposable local databases.
+2. Reconcile credentials, aliases, affiliations, placements, receipts, private
+   files, and settlement references through separate accepted cohorts.
+3. Prove the exact candidate revision through development deployment and the
+   applicant, volunteer, coordinator, economy, and administrator journeys.
+4. Rehearse backup, restore, writer transfer, recovery, and rollback.
+5. Request production authority only after all prior gates pass.
+
+Changelog, legacy arrangements, legacy surveys, historical articles, certificate
+requests, and nonessential statistics are not cutover gates. Preserve retained data
+as an archive when no native operational workflow needs it.
 
 Each journey gets one active contract in `docs/specs/`. Remove the contract after
 its durable intent is in this map, the system document, code, and observable checks.

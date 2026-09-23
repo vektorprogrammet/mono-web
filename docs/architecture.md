@@ -1,6 +1,6 @@
 # Intended architecture
 
-**Status:** Target architecture for the native replacement. Revised 2026-09-22.
+**Status:** Target architecture for the native replacement. Revised 2026-09-23.
 
 See [system.md](system.md) for business meaning and [STATE.md](../STATE.md) for
 current implementation status.
@@ -202,14 +202,28 @@ Rules:
 
 ## Runtime composition
 
-`apps/backend/src/main.ts` is the native composition root. It provides concrete
-configuration, PostgreSQL, identity, file storage, notification, and HTTP layers,
-then runs the server and worker programs.
+`apps/backend/src/main.ts` is the Bun composition root. It provides concrete
+configuration, PostgreSQL, identity, file storage, notification, and HTTP layers.
+It then runs the server and worker programs.
+
+`apps/backend/src/cloudflare-worker.ts` is the Cloudflare development composition
+root. It uses the same domain and HTTP contracts. Its Layers provide Hyperdrive
+PostgreSQL access, R2 private-file storage, provider email, identity, and Worker HTTP.
+Concrete Cloudflare imports stay in the application and infrastructure packages.
+
+The homepage and dashboard have separate Worker entry points. Pull-request previews
+build the exact proposed revision without credentials. Trusted default-branch code
+deploys those bundles, probes documents and assets, and deletes the previews when
+the pull request closes.
 
 Required configuration is explicit. A production composition must fail before
 serving if a required provider, credential, schema, or storage dependency is
 missing. Test and local layers must be named as such and must not silently stand in
 for production.
+
+Development deployment does not authorize production. Production still requires
+separate provider configuration, data migration, writer transfer, and operator
+approval.
 
 ## Change protocol
 
