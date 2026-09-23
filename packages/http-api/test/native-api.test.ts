@@ -716,12 +716,7 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     "PATCH",
     "/api/content/articles/:articleId",
     "content.reviseArticle",
-    person(
-      "content.revise-article",
-      "content.article-by-id",
-      ["content.draft", "content.revisable"],
-      "Transaction",
-    ),
+    person("content.revise-article", "content.article-by-id", ["content.revisable"], "Transaction"),
   ],
   [
     "POST",

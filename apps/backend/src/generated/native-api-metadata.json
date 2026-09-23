@@ -679,9 +679,6 @@
         ],
         "requirements": [
           {
-            "id": "content.draft"
-          },
-          {
             "id": "content.revisable"
           }
         ]
