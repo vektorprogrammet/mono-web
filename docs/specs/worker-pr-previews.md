@@ -11,9 +11,10 @@ Every same-repository pull request gets current Cloudflare Worker Preview URLs f
 - Use Cloudflare Worker Previews through Wrangler 4.135 or newer.
 - Build and deploy the exact pull-request head.
 - Never expose Cloudflare credentials to fork pull requests.
-- Frontend previews use the deployed development API; they do not preview backend code or own isolated PostgreSQL state.
+- Frontend previews read the deployed development API; they do not preview backend code or own isolated PostgreSQL state.
+- The dashboard Worker Preview covers its unauthenticated shell and server-rendered routes. Authenticated staff journeys remain on the container-backed preview until preview-origin and cookie policy are explicitly designed.
 - Preview host acceptance is enabled only by explicit Preview configuration and only for `*.workers.dev` hosts.
-- Retain the container-backed preview implementation because it remains the isolated full-system path; Worker Previews do not support binding one Preview Worker to another Preview Worker.
+- Retain the container-backed preview implementation as the isolated full-system path; Worker Previews cannot bind one Preview Worker to another Preview Worker.
 - Do not deploy or mutate production.
 
 ## Done when

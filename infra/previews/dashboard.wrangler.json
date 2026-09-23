@@ -2,9 +2,13 @@
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "vektor-vektor-apex-dashboard-dev-main-zos25olfo5fmb3en",
   "preview_urls": true,
-  "main": "../../apps/dashboard/build/server/index.js",
+  "main": "../../apps/dashboard/workers/preview-app.ts",
   "compatibility_date": "2026-09-22",
-  "compatibility_flags": ["nodejs_compat", "nodejs_compat_populate_process_env"],
+  "compatibility_flags": [
+    "global_fetch_strictly_public",
+    "nodejs_compat",
+    "nodejs_compat_populate_process_env"
+  ],
   "assets": {
     "binding": "ASSETS",
     "directory": "../../apps/dashboard/build/client",
