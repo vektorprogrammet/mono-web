@@ -98,6 +98,10 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     other = await concurrent.newPage();
   const gates: string[] = [];
   const errors: string[] = [];
+  const foldkitEvents: string[] = [];
+  page.on("console", (entry) => {
+    if (entry.text().startsWith("DATED-SERVICE-")) foldkitEvents.push(entry.text());
+  });
   const monitor = (current: Page) => current.on("pageerror", (error) => errors.push(error.message));
   for (const current of [page, self, other]) monitor(current);
   try {
@@ -389,6 +393,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       })),
     );
     console.log("DATED-SERVICE-PAGE-ERRORS", errors);
+    console.log("DATED-SERVICE-EVENTS", foldkitEvents);
     const scheduleForm = page.locator(
       'form:has(input[name="action"][value="ScheduleService"]):has(input[name="block"][value="2"])',
     );

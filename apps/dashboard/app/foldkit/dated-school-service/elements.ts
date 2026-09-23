@@ -30,6 +30,7 @@ export const registerDatedServiceElement = (): void => {
       }
 
       disconnectedCallback(): void {
+        console.info("DATED-SERVICE-DISCONNECT");
         this.#dispose?.();
         this.#dispose = undefined;
       }
