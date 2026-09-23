@@ -276,6 +276,14 @@ export const mutatePlacementBoard = (
         if (oldAbsence.length > 0) return yield* fail("commitment.duplicate",409);
         const assignments = proposal.assignments.filter((entry) => entry.schoolId === command.schoolId && entry.day === command.day && entry.block === command.block);
         const schoolName = board.schools.find((school) => school.schoolId === command.schoolId)!.name;
+        const occupied = yield* sql`SELECT 1 FROM jsonb_array_elements(${sql.json(assignments)}) AS assignment
+          JOIN public.school_service_person_reservations AS reservation
+            ON reservation.person_id=assignment->>'personId'
+          WHERE reservation.service_interval && tsrange(
+            CAST(${command.serviceDate} AS date)+CAST(${command.startTime} AS time),
+            CAST(${command.serviceDate} AS date)+CAST(${command.endTime} AS time),'[)')
+          LIMIT 1`;
+        if (occupied.length > 0) return yield* fail("commitment.duplicate",409);
         yield* sql`INSERT INTO public.school_service_commitments(
           commitment_id,proposal_id,department_id,semester_id,school_id,school_name,day,block,
           service_date,start_time,end_time,required_volunteers,assignment_snapshot,created_at,created_by_person_id

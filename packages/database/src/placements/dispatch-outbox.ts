@@ -29,6 +29,8 @@ const CanonicalRow = Schema.Struct({
   day: Schema.String,
   block: Schema.String,
   serviceDate: Schema.String,
+  startTime: Schema.NullOr(Schema.String),
+  endTime: Schema.NullOr(Schema.String),
   dispatchedAt: Schema.String,
 });
 
@@ -124,6 +126,8 @@ const claimInTransaction = (sql: DatabaseShape, claimId: string, claimedAt: stri
       readonly day: string;
       readonly block: string;
       readonly serviceDate: string;
+      readonly startTime: string | null;
+      readonly endTime: string | null;
       readonly dispatchedAt: string;
     }>`
       SELECT offer.offer_id AS "offerId",absence.absence_id AS "absenceId",
@@ -132,10 +136,12 @@ const claimInTransaction = (sql: DatabaseShape, claimId: string, claimedAt: stri
         absence.school_id::double precision AS "schoolId",
         offer.school_name_snapshot AS "schoolNameSnapshot",
         absence.day,absence.block,to_char(absence.service_date,'YYYY-MM-DD') AS "serviceDate",
+        to_char(commitment.start_time,'HH24:MI') AS "startTime",
+        to_char(commitment.end_time,'HH24:MI') AS "endTime",
         to_char(offer.dispatched_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "dispatchedAt"
       FROM public.school_service_substitute_offers AS offer
       JOIN public.school_service_absences AS absence USING(absence_id)
-      JOIN public.schools_directory_schools AS school ON school.school_id=absence.school_id
+      LEFT JOIN public.school_service_commitments AS commitment ON commitment.commitment_id=absence.commitment_id
       WHERE offer.offer_id=${decodedRow.offerId}
       FOR SHARE OF offer,absence
     `;
@@ -174,6 +180,7 @@ const claimInTransaction = (sql: DatabaseShape, claimId: string, claimedAt: stri
             day: canonical.day,
             block: canonical.block,
             serviceDate: canonical.serviceDate,
+            ...(canonical.startTime === null || canonical.endTime === null ? {} : { startTime: canonical.startTime, endTime: canonical.endTime }),
             dispatchedAt: canonical.dispatchedAt,
           };
     if (

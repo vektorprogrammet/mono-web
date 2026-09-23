@@ -107,15 +107,16 @@ const offerRows = (sql: DatabaseShape, where: Statement.Fragment) =>
       absence.proposal_id AS "proposalId",absence.department_id AS "departmentId",
       absence.semester_id AS "semesterId",offer.candidate_person_id AS "candidatePersonId",
       candidate.first_name AS "candidateFirstName",candidate.last_name AS "candidateLastName",
-      absence.school_id::double precision AS "schoolId",school.name AS "schoolName",
+      absence.school_id::double precision AS "schoolId",offer.school_name_snapshot AS "schoolName",
       absence.day,absence.block,to_char(absence.service_date,'YYYY-MM-DD') AS "serviceDate",
+      to_char(commitment.start_time,'HH24:MI') AS "startTime",to_char(commitment.end_time,'HH24:MI') AS "endTime",
       offer.dispatcher_person_id AS "dispatcherPersonId",
       to_char(offer.dispatched_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "dispatchedAt",
       offer.status,offer.revision,offer.eligibility_snapshot AS "eligibilitySnapshot"
     FROM public.school_service_substitute_offers AS offer
     JOIN public.school_service_absences AS absence USING(absence_id)
     JOIN public.person_profiles AS candidate ON candidate.person_id=offer.candidate_person_id
-    JOIN public.schools_directory_schools AS school ON school.school_id=absence.school_id
+    LEFT JOIN public.school_service_commitments AS commitment ON commitment.commitment_id=absence.commitment_id
     WHERE ${where}
     ORDER BY offer.offer_id
   `;
@@ -241,15 +242,16 @@ const readOfferForUpdate = (sql: DatabaseShape, scope: PlacementScope, offerId: 
         absence.proposal_id AS "proposalId",absence.department_id AS "departmentId",
         absence.semester_id AS "semesterId",offer.candidate_person_id AS "candidatePersonId",
         candidate.first_name AS "candidateFirstName",candidate.last_name AS "candidateLastName",
-        absence.school_id::double precision AS "schoolId",school.name AS "schoolName",
+        absence.school_id::double precision AS "schoolId",offer.school_name_snapshot AS "schoolName",
         absence.day,absence.block,to_char(absence.service_date,'YYYY-MM-DD') AS "serviceDate",
+        to_char(commitment.start_time,'HH24:MI') AS "startTime",to_char(commitment.end_time,'HH24:MI') AS "endTime",
         offer.dispatcher_person_id AS "dispatcherPersonId",
         to_char(offer.dispatched_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "dispatchedAt",
         offer.status,offer.revision,offer.eligibility_snapshot AS "eligibilitySnapshot"
       FROM public.school_service_substitute_offers AS offer
       JOIN public.school_service_absences AS absence USING(absence_id)
       JOIN public.person_profiles AS candidate ON candidate.person_id=offer.candidate_person_id
-      JOIN public.schools_directory_schools AS school ON school.school_id=absence.school_id
+      LEFT JOIN public.school_service_commitments AS commitment ON commitment.commitment_id=absence.commitment_id
       WHERE offer.offer_id=${offerId}
         AND absence.department_id=${scope.departmentId}
         AND absence.semester_id=${scope.semesterId}
@@ -318,15 +320,10 @@ const eligibilitySnapshot = (
             AND placement.block IN (${absence.block},'Both')
         )
         AND NOT EXISTS (
-          SELECT 1
-          FROM public.school_service_coverage_acknowledgements AS acknowledgement
-          JOIN public.school_service_substitute_offers AS covered_offer
-            ON covered_offer.offer_id=acknowledgement.offer_id
-          JOIN public.school_service_absences AS covered_absence
-            ON covered_absence.absence_id=covered_offer.absence_id
-          WHERE covered_offer.candidate_person_id=link.person_id
-            AND covered_absence.service_date=CAST(${absence.serviceDate} AS date)
-            AND covered_absence.block=${absence.block}
+          SELECT 1 FROM public.school_service_person_reservations AS reservation
+          JOIN public.school_service_commitments AS target ON target.commitment_id=${absence.commitmentId}
+          WHERE reservation.person_id=link.person_id
+            AND reservation.service_interval && tsrange(target.service_date+target.start_time,target.service_date+target.end_time,'[)')
         )
       ORDER BY application.application_id
       LIMIT 1
@@ -476,7 +473,7 @@ export const readCoverageBoard = (scope: PlacementScope) =>
       const candidates = yield* sql`
         SELECT DISTINCT ON (absence.absence_id,link.person_id)
           absence.absence_id AS "absenceId",application.application_id AS "applicationId",
-          link.person_id AS "personId",applicant.first_name AS "firstName",applicant.last_name AS "lastName"
+          link.person_id AS "personId",profile.first_name AS "firstName",profile.last_name AS "lastName"
         FROM public.school_service_absences AS absence
         JOIN public.admission_substitute_preferences AS preferences ON preferences.active
         JOIN public.admission_applications AS application
@@ -486,6 +483,7 @@ export const readCoverageBoard = (scope: PlacementScope) =>
           AND period.department_id=application.department_id
         JOIN public.admission_applicants AS applicant ON applicant.applicant_id=application.applicant_id
         JOIN public.applicant_account_links AS link ON link.applicant_id=application.applicant_id
+        JOIN public.person_profiles AS profile ON profile.person_id=link.person_id
         JOIN public.organization_volunteer_affiliations AS affiliation
           ON affiliation.person_id=link.person_id
           AND affiliation.department_id=${scope.departmentId}
@@ -525,15 +523,10 @@ export const readCoverageBoard = (scope: PlacementScope) =>
               AND placement.block IN (absence.block,'Both')
           )
           AND NOT EXISTS (
-            SELECT 1
-            FROM public.school_service_coverage_acknowledgements AS acknowledgement
-            JOIN public.school_service_substitute_offers AS covered_offer
-              ON covered_offer.offer_id=acknowledgement.offer_id
-            JOIN public.school_service_absences AS covered_absence
-              ON covered_absence.absence_id=covered_offer.absence_id
-            WHERE covered_offer.candidate_person_id=link.person_id
-              AND covered_absence.service_date=absence.service_date
-              AND covered_absence.block=absence.block
+            SELECT 1 FROM public.school_service_person_reservations AS reservation
+            JOIN public.school_service_commitments AS target ON target.commitment_id=absence.commitment_id
+            WHERE reservation.person_id=link.person_id
+              AND reservation.service_interval && tsrange(target.service_date+target.start_time,target.service_date+target.end_time,'[)')
           )
         ORDER BY absence.absence_id,link.person_id,application.application_id
       `;
@@ -631,7 +624,7 @@ const dispatchOffer = (
 ) =>
   Effect.gen(function* () {
     const absence = yield* readAbsenceForUpdate(sql, scope, command.absenceId);
-    yield* openCommitment(sql, scope, absence.commitmentId ?? "");
+    const commitment = yield* openCommitment(sql, scope, absence.commitmentId ?? "");
     const active = yield* sql`
       SELECT offer_id FROM public.school_service_substitute_offers
       WHERE absence_id=${absence.absenceId}
@@ -650,7 +643,7 @@ const dispatchOffer = (
       INSERT INTO public.school_service_substitute_offers(
         offer_id,absence_id,candidate_person_id,dispatcher_person_id,dispatched_at,status,revision,
         school_name_snapshot,eligibility_snapshot
-      ) VALUES(${offerId},${absence.absenceId},${command.candidatePersonId},${actor},${now},'Offered',1,${absence.schoolName},${sql.json(snapshot)})
+      ) VALUES(${offerId},${absence.absenceId},${command.candidatePersonId},${actor},${now},'Offered',1,${commitment.schoolName},${sql.json(snapshot)})
     `;
     const effectId = `school-service-substitute-dispatch:${offerId}`;
     const payload = {
@@ -663,10 +656,12 @@ const dispatchOffer = (
       departmentId: scope.departmentId,
       semesterId: scope.semesterId,
       schoolId: absence.schoolId,
-      schoolName: absence.schoolName,
+      schoolName: commitment.schoolName,
       day: absence.day,
       block: absence.block,
       serviceDate: absence.serviceDate,
+      startTime: commitment.startTime,
+      endTime: commitment.endTime,
       dispatchedAt: now,
     };
     yield* decode(SchoolServiceDispatchNotificationRequest, payload);
@@ -721,7 +716,14 @@ const acknowledgeCoverage = (
     const offer = yield* readOfferForUpdate(sql, scope, offerId);
     if (offer.status !== "Accepted") return yield* fail("coverage.acknowledgement-invalid", 409);
     const absence = yield* readAbsenceForUpdate(sql, scope, offer.absenceId);
-    yield* openCommitment(sql, scope, absence.commitmentId ?? "");
+    const commitment = yield* openCommitment(sql, scope, absence.commitmentId ?? "");
+    const competing = yield* sql`SELECT 1 FROM public.school_service_person_reservations
+      WHERE person_id=${offer.candidatePersonId} AND source_id<>${offer.offerId}
+        AND service_interval && tsrange(
+          CAST(${commitment.serviceDate} AS date)+CAST(${commitment.startTime} AS time),
+          CAST(${commitment.serviceDate} AS date)+CAST(${commitment.endTime} AS time),'[)')
+      LIMIT 1`;
+    if (competing.length > 0) return yield* fail("coverage.acknowledgement-invalid",409);
     const accepted = yield* sql`
       SELECT 1 FROM public.school_service_substitute_offer_responses
       WHERE offer_id=${offer.offerId} AND absence_id=${absence.absenceId} AND response='Accept'

@@ -219,6 +219,8 @@ export const SchoolServiceSubstituteOffer = Schema.Struct({
   day: TeachingDay,
   block: TeachingBlock,
   serviceDate: IsoServiceDate,
+  startTime: Schema.NullOr(SchoolServiceTime),
+  endTime: Schema.NullOr(SchoolServiceTime),
   dispatcherPersonId: PersonId,
   dispatchedAt: Schema.String,
   status: SchoolServiceSubstituteOfferStatus,
@@ -265,6 +267,8 @@ export const SchoolServiceDispatchNotificationRequest = Schema.Struct({
   day: TeachingDay,
   block: TeachingBlock,
   serviceDate: IsoServiceDate,
+  startTime: Schema.optional(SchoolServiceTime),
+  endTime: Schema.optional(SchoolServiceTime),
   dispatchedAt: Schema.String,
 });
 export type SchoolServiceDispatchNotificationRequest =
