@@ -53,32 +53,40 @@ assistant-service rows. It quarantined 125 rows: 105 invalid, 10 without
 mappings, and 10 with duplicate targets. The native history view contains
 1,681 distinct historical affiliations.
 
-The same transaction reconciled all 2,923 credential rows. It created 1,482
-Person-bound Accounts with unchanged supported legacy hashes. It quarantined
-1,441 rows: 1,421 without passwords, 13 inactive, 5 invalid, and 2 without
-accepted Person mappings. Legacy usernames and company email addresses remain
-unsupported login aliases. The import did not infer a current affiliation or
-placement. A synthetic LegacyBackup Account signed in through native Better
-Auth with a known password. Real backup passwords are unknown; the rehearsal
-did not authenticate a real person.
+The same transaction reconciled all 2,923 source account rows. It imported
+1,482 unchanged supported hashes and provisioned 1,410 passwordless native
+user identities without credentials, sessions, mail, or email-verification
+flags. It quarantined 31 rows: 13 inactive, 5 invalid, and 13 without accepted
+Person mappings. One accepted Person has an invalid account row and no native
+login identity. It needs explicit correction before production cutover.
+Legacy usernames and company emails remain unsupported login aliases. The
+import did not infer a current affiliation or placement.
 
-The local journey proved rollback after induced historical and credential
-failures, fresh-target rejection, exact replay, backup/restore content
-equivalence, restored replay, and private cleanup. The Person rollback,
-concurrent import, changed-source, and own-profile gates also passed.
+A synthetic LegacyBackup credential signed in through native Better Auth. A
+separate synthetic passwordless identity requested a native reset message,
+received it through the local mail boundary, set its first password, and signed
+in. A reused token failed. The backup contains no known real passwords, and
+no real person or external mail provider was authenticated.
+
+The local journey proved rollback after induced historical, credential, and
+passwordless import failures. It proved one concurrent import, exact replay,
+changed-source refusal, native backup/restore equivalence, restored replay,
+and private cleanup. Replay also preserved a credential set after import. The
+Person own-profile read and cohort gates passed.
 
 The driver reads one consistent, read-only InnoDB source snapshot. It requires
 an explicitly selected, empty native database for first import. Replay checks
-the same source evidence and target references. Devenv provisions the local
-source and a separate native PostgreSQL target. This is a backup rehearsal.
-It did not access or change the live system or transfer writer authority.
+the same source evidence and target references. This rehearsal created separate
+disposable MariaDB and PostgreSQL processes on private Unix sockets. It did
+not access or change the live system or transfer writer authority.
 The backup has zero assignments for 2024 Høst. Its 92 assignments for 2024 Vår
 were historical when the backup was made. It cannot prove current placements
 or eventual live contents. Changes since this backup need reconciliation.
 
-Passwordless account recovery, unsupported credentials, aliases, current
-placement, receipt, private-file, and settlement-reference cohorts remain.
-Their synthetic paths do not infer current authority from historical facts.
+Unsupported credentials, legacy aliases, current placements, receipts, private
+files, and settlement references remain. The local backup does not prove
+current mailbox ownership or current production identity. Synthetic
+operational paths do not infer current authority from historical facts.
 
 ## Next
 
@@ -89,9 +97,9 @@ product decision that names the fact and its authority.
 
 Close the remaining replacement gates in this order:
 
-1. Reconcile passwordless accounts, unsupported hashes, aliases, receipts, private
-   files, and settlement references with local backup evidence. Current placement
-   needs a later fresh, authorized source snapshot.
+1. Reconcile the one accepted Person with an invalid account row. Then reconcile
+   unsupported credentials, legacy aliases, receipts, private files, and
+   settlement references. Current placement needs a fresh authorized source.
 2. Configure and prove authorized mail, storage, and settlement-evidence boundaries.
 3. When authorized, obtain a production SELECT-only source route and a new native
    database. Reconcile changes since the backup without source writes.

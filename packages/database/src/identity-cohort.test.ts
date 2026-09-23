@@ -12,6 +12,7 @@ describe("synthetic credential cohort boundary", () => {
     snapshotId: "snapshot",
     transformationRevision: "0100",
     sourceKind: "Synthetic",
+    passwordlessPolicy: "Quarantine",
     occurrences: [{ occurrenceId: "one", row: {} }],
     mappings: [],
   };
@@ -24,6 +25,12 @@ describe("synthetic credential cohort boundary", () => {
       }),
     ).toThrow("InvalidSnapshot");
     expect(() => decodeIdentityCohort({ ...fixture, synthetic: true })).toThrow("InvalidSnapshot");
+    expect(() => decodeIdentityCohort({ ...fixture, passwordlessPolicy: undefined })).toThrow(
+      "InvalidSnapshot",
+    );
+    expect(() =>
+      decodeSyntheticIdentityCohort({ ...fixture, passwordlessPolicy: "ProvisionRecovery" }),
+    ).toThrow("InvalidSnapshot");
     expect(decodeIdentityCohort({ ...fixture, sourceKind: "LegacyBackup" }).sourceKind).toBe(
       "LegacyBackup",
     );

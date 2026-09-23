@@ -42,12 +42,11 @@ const moduleFile = fileURLToPath(import.meta.url);
 const repositoryRoot = resolve(dirname(moduleFile), "../..");
 const expectedSourceSha256 = "0ee71a6d3009181f1711ca9ee73917a8945c340d1ecd9f729ba12ecd57a88df5";
 const expectedSourceSize = 8_254_002;
-const expectedPersonReportFingerprint =
-  "c756dd07171521c0db72abdef1f531255ac311ed5014aae667d8fab26f21c299";
 const expectedHistoricalStateFingerprint =
   "803940f7aab3f9da92d61abd3b5e6cdb2b65bc01080bf14fd9f1013310a64457";
-const expectedCredentialDispositionFingerprint =
-  "430e8dd75a4b3c10d855a89f195c6ac6aa43e51d2d9046fd63f0dc74951a4824";
+const expectedAccountDispositionFingerprint =
+  "090e90e3128e3cc661bc833771f66ba6e9e4c96e4c1b7876f814debeb6129f89";
+
 const expectedLegacyShape = {
   tables: 65,
   entityTables: 48,
@@ -325,7 +324,10 @@ const cutoverState = async (pool: Pool) => {
       (SELECT count(*) FROM public.assistant_placements)::text AS current_placements,
       (SELECT count(*) FROM auth."user")::text AS accounts,
       (SELECT count(*) FROM auth."account" WHERE "providerId"='credential')::text AS credentials,
-      (SELECT count(*) FROM auth.credential_cohort_imports)::text AS credential_imports,
+      (SELECT count(*) FROM auth.account_cohort_imports)::text AS account_imports,
+      (SELECT count(*) FROM auth.account_cohort_imports WHERE import_mode = 'CredentialImported')::text AS credential_imports,
+      (SELECT count(*) FROM auth.account_cohort_imports WHERE import_mode = 'RecoveryPending')::text AS recovery_pending,
+      (SELECT count(*) FROM auth.account_cohort_imports i JOIN auth."user" u ON u.id = i.person_id WHERE i.import_mode = 'RecoveryPending' AND u."emailVerified" = false AND NOT EXISTS (SELECT 1 FROM auth."account" a WHERE a."userId" = u.id))::text AS recovery_unclaimed,
       (SELECT count(*) FROM auth.credential_cohort_occurrences)::text AS credential_occurrences,
       (SELECT count(*) FROM auth.identity_security_audit)::text AS credential_audit`)
   ).rows[0]!;
@@ -343,6 +345,7 @@ const cutoverState = async (pool: Pool) => {
       "SELECT school_id::text, name, contact_person, email, phone, language, active FROM public.schools_directory_schools ORDER BY school_id",
     ),
   });
+  const personFingerprint = await nativeStateFingerprint(pool);
   return {
     counts: {
       history: toInt(counts.history),
@@ -351,13 +354,40 @@ const cutoverState = async (pool: Pool) => {
       current_placements: toInt(counts.current_placements),
       accounts: toInt(counts.accounts),
       credentials: toInt(counts.credentials),
+      account_imports: toInt(counts.account_imports),
       credential_imports: toInt(counts.credential_imports),
+      recovery_pending: toInt(counts.recovery_pending),
+      recovery_unclaimed: toInt(counts.recovery_unclaimed),
       credential_occurrences: toInt(counts.credential_occurrences),
       credential_audit: toInt(counts.credential_audit),
     },
     historicalFingerprint,
+    personFingerprint,
+    importedCredentialFingerprint: digest(
+      await rows(
+        "SELECT i.source_user_id, a.password FROM auth.account_cohort_imports i JOIN auth.\"account\" a ON a.id = i.account_id WHERE i.import_mode = 'CredentialImported' ORDER BY i.source_user_id",
+      ),
+    ),
     fingerprint: digest({
       historicalFingerprint,
+      person: personFingerprint,
+      departments: await rows(
+        "SELECT * FROM public.organization_departments ORDER BY department_id",
+      ),
+      admissionDepartments: await rows(
+        "SELECT * FROM public.admission_period_departments ORDER BY department_id",
+      ),
+      semesters: await rows("SELECT * FROM public.admission_period_semesters ORDER BY semester_id"),
+      schools: await rows("SELECT * FROM public.schools_directory_schools ORDER BY school_id"),
+      schoolDepartments: await rows(
+        "SELECT * FROM public.schools_directory_departments ORDER BY department_id, school_id",
+      ),
+      historicalSnapshots: await rows(
+        "SELECT * FROM public.historical_service_snapshots ORDER BY snapshot_key",
+      ),
+      affiliations: await rows(
+        "SELECT * FROM public.assistant_affiliation_history ORDER BY person_id, department_id, semester_id",
+      ),
       users: await rows('SELECT id, name, email, "emailVerified" FROM auth."user" ORDER BY id'),
       credentials: await rows(
         'SELECT id, "userId", "providerId", issuer, password FROM auth."account" ORDER BY id',
@@ -369,7 +399,7 @@ const cutoverState = async (pool: Pool) => {
         "SELECT snapshot_key, occurrence_id, disposition, reason FROM auth.credential_cohort_occurrences ORDER BY snapshot_key, occurrence_id",
       ),
       imports: await rows(
-        "SELECT source_repository, source_user_id, person_id, account_id, source_digest, snapshot_key, occurrence_id FROM auth.credential_cohort_imports ORDER BY source_repository, source_user_id",
+        "SELECT source_repository, source_user_id, person_id, import_mode, account_id, source_digest, snapshot_key, occurrence_id FROM auth.account_cohort_imports ORDER BY source_repository, source_user_id",
       ),
       audit: await rows(
         "SELECT event_id, event_kind, subject_person_id, actor_principal, details FROM auth.identity_security_audit ORDER BY event_id",
@@ -612,7 +642,16 @@ const runRehearsal = async (temporaryRoot: string) => {
     );
     assert.equal(users.length, expectedLegacyShape.people);
 
-    const toolRevision = sha256(await readFile(moduleFile, "utf8"));
+    const toolRevision = sha256(
+      canonicalJson(
+        await Promise.all(
+          [
+            fileURLToPath(new URL("./legacy-person-snapshot.ts", import.meta.url)),
+            fileURLToPath(import.meta.resolve("@vektorprogrammet/database/person-cohort")),
+          ].map((path) => readFile(path, "utf8")),
+        ),
+      ),
+    );
     const snapshot = buildLegacyPersonSnapshot(users, {
       sourceRevision: sourceSha256,
       transformationRevision: toolRevision.slice(0, 32),
@@ -703,11 +742,6 @@ const runRehearsal = async (temporaryRoot: string) => {
         reasons: { CreatedPerson: 2_893, Inactive: 13, InvalidRow: 17 },
       },
       "Real Person cohort classification changed; aggregate details only",
-    );
-    assert.equal(
-      digest(committedReport),
-      expectedPersonReportFingerprint,
-      "Real Person cohort dispositions changed; details redacted",
     );
 
     const replayReport = await importPersonCohort(pool, decodedSnapshot);
@@ -841,6 +875,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       targetDatabase: cutoverDatabase,
       snapshotId: "vektor-backup-2024-08-22-service",
       attestedBy: "legacy-backup-2024-08-22",
+      passwordlessPolicy: "ProvisionRecovery" as const,
     };
     cutoverPool = new Pool({ connectionString: cutoverTargetUrl, max: 2 });
     await cutoverPool.query("CREATE TABLE public.unrelated_state (id integer PRIMARY KEY)");
@@ -868,26 +903,30 @@ const runRehearsal = async (temporaryRoot: string) => {
     );
     const rollbackCountsSql = `SELECT
       (SELECT count(*) FROM public.historical_service_reference_provenance)::text AS refs,
+      (SELECT count(*) FROM public.organization_departments)::text AS departments,
+      (SELECT count(*) FROM public.admission_period_departments)::text AS admission_departments,
+      (SELECT count(*) FROM public.admission_period_semesters)::text AS semesters,
+      (SELECT count(*) FROM public.schools_directory_schools)::text AS schools,
+      (SELECT count(*) FROM public.schools_directory_departments)::text AS school_departments,
       (SELECT count(*) FROM public.person_profiles)::text AS people,
+      (SELECT count(*) FROM public.person_contact_profiles)::text AS contacts,
+      (SELECT count(*) FROM public.person_cohort_imports)::text AS person_imports,
+      (SELECT count(*) FROM public.person_cohort_snapshots)::text AS person_snapshots,
+      (SELECT count(*) FROM public.person_cohort_occurrences)::text AS person_occurrences,
+      (SELECT count(*) FROM public.profile_http_versions)::text AS profile_http_versions,
       (SELECT count(*) FROM public.assistant_service_history)::text AS history,
       (SELECT count(*) FROM public.historical_service_snapshots)::text AS snapshots,
+      (SELECT count(*) FROM public.historical_service_occurrences)::text AS historical_occurrences,
       (SELECT count(*) FROM auth."user")::text AS accounts,
       (SELECT count(*) FROM auth."account")::text AS credentials,
-      (SELECT count(*) FROM auth.credential_cohort_imports)::text AS imports,
+      (SELECT count(*) FROM auth.account_cohort_imports)::text AS imports,
+      (SELECT count(*) FROM auth.credential_cohort_snapshots)::text AS account_snapshots,
+      (SELECT count(*) FROM auth.credential_cohort_occurrences)::text AS account_occurrences,
       (SELECT count(*) FROM auth.identity_security_audit)::text AS audit`;
     const rolledBack = await cutoverPool.query<Record<string, string>>(rollbackCountsSql);
     assert.deepEqual(
-      rolledBack.rows[0],
-      {
-        refs: "0",
-        people: "0",
-        history: "0",
-        snapshots: "0",
-        accounts: "0",
-        credentials: "0",
-        imports: "0",
-        audit: "0",
-      },
+      Object.values(rolledBack.rows[0]!),
+      Object.keys(rolledBack.rows[0]!).map(() => "0"),
       "Failed cutover left partial native state",
     );
     await cutoverPool.query(`
@@ -895,29 +934,29 @@ const runRehearsal = async (temporaryRoot: string) => {
       DROP FUNCTION public.fail_historical_cutover_insert();
     `);
     await cutoverPool.query(`
-      CREATE OR REPLACE FUNCTION auth.fail_credential_cutover_insert()
+      CREATE OR REPLACE FUNCTION auth.fail_recovery_cutover_insert()
       RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN
-        RAISE EXCEPTION 'deliberate account cutover rollback';
+        RAISE EXCEPTION 'deliberate recovery cutover rollback';
       END;
       $$;
-      CREATE TRIGGER fail_credential_cutover_insert
-      BEFORE INSERT ON auth.credential_cohort_imports
-      FOR EACH ROW EXECUTE FUNCTION auth.fail_credential_cutover_insert();
+      CREATE TRIGGER fail_recovery_cutover_insert
+      BEFORE INSERT ON auth.account_cohort_imports
+      FOR EACH ROW WHEN (NEW.import_mode = 'RecoveryPending')
+      EXECUTE FUNCTION auth.fail_recovery_cutover_insert();
     `);
     await assert.rejects(
       runLegacyServiceCutover(cutoverOptions),
-      (cause: unknown) =>
-        cause instanceof CutoverStageFailure && cause.stage === "CredentialImport",
+      (cause: unknown) => cause instanceof CutoverStageFailure && cause.stage === "AccountImport",
     );
     assert.deepEqual(
       (await cutoverPool.query<Record<string, string>>(rollbackCountsSql)).rows[0],
       rolledBack.rows[0],
-      "Credential failure left partial Person, history, account, or audit state",
+      "Recovery failure left partial Person, reference, history, account, audit, or provenance state",
     );
     await cutoverPool.query(`
-      DROP TRIGGER fail_credential_cutover_insert ON auth.credential_cohort_imports;
-      DROP FUNCTION auth.fail_credential_cutover_insert();
+      DROP TRIGGER fail_recovery_cutover_insert ON auth.account_cohort_imports;
+      DROP FUNCTION auth.fail_recovery_cutover_insert();
     `);
     const cutoverFirst = await runLegacyServiceCutover(cutoverOptions).catch((cause: unknown) => {
       throw new Error(
@@ -951,22 +990,40 @@ const runRehearsal = async (temporaryRoot: string) => {
       "Real legacy history dispositions changed",
     );
     assert.deepEqual(
-      cutoverFirst.credentials,
+      cutoverFirst.accounts,
       {
         stage: "Reconciled",
         input: 2923,
-        accepted: 1482,
-        quarantined: 1441,
+        accepted: 2892,
+        credentialImported: 1482,
+        recoveryPending: 1410,
+        quarantined: 31,
         reasons: {
           Imported: 1482,
           Inactive: 13,
           InvalidRow: 5,
-          MappingMissing: 2,
-          MissingPassword: 1421,
+          MappingMissing: 13,
+          RecoveryPending: 1410,
         },
-        dispositionFingerprint: expectedCredentialDispositionFingerprint,
+        dispositionFingerprint: expectedAccountDispositionFingerprint,
       },
-      "Real legacy credential dispositions changed",
+      "Real legacy account dispositions changed",
+    );
+
+    const acceptedPersonAccountGap = (
+      await cutoverPool.query<{ reason: string; count: string }>(
+        "SELECT a.reason, count(*)::text AS count FROM public.person_cohort_occurrences p JOIN auth.credential_cohort_occurrences a ON a.occurrence_id = p.occurrence_id WHERE p.disposition = 'Accepted' AND a.disposition = 'Quarantined' GROUP BY a.reason ORDER BY a.reason",
+      )
+    ).rows.map(({ reason, count }) => ({ reason, count: toInt(count) }));
+    assert.equal(
+      acceptedPersonAccountGap.reduce((sum, row) => sum + row.count, 0),
+      cutoverFirst.person.accepted - cutoverFirst.accounts.accepted,
+      "Accepted Person/account gap differs from quarantined account dispositions",
+    );
+    assert.deepEqual(
+      acceptedPersonAccountGap,
+      [{ reason: "InvalidRow", count: 1 }],
+      "A different accepted Person now lacks a native Account",
     );
     const cutoverBefore = await cutoverState(cutoverPool);
     assert.equal(
@@ -981,11 +1038,82 @@ const runRehearsal = async (temporaryRoot: string) => {
     );
     assert.equal(cutoverBefore.counts.current_affiliations, 0);
     assert.equal(cutoverBefore.counts.current_placements, 0);
-    assert.equal(cutoverBefore.counts.accounts, cutoverFirst.credentials.accepted);
-    assert.equal(cutoverBefore.counts.credentials, cutoverFirst.credentials.accepted);
-    assert.equal(cutoverBefore.counts.credential_imports, cutoverFirst.credentials.accepted);
+    assert.equal(cutoverBefore.counts.accounts, cutoverFirst.accounts.accepted);
+    assert.equal(cutoverBefore.counts.credentials, 1482);
+    assert.equal(cutoverBefore.counts.credential_imports, 1482);
+    assert.equal(cutoverBefore.counts.recovery_pending, cutoverFirst.accounts.recoveryPending);
+    assert.equal(cutoverBefore.counts.recovery_unclaimed, cutoverFirst.accounts.recoveryPending);
+    assert.equal(cutoverBefore.counts.account_imports, cutoverFirst.accounts.accepted);
     assert.equal(cutoverBefore.counts.credential_occurrences, 2923);
-    assert.equal(cutoverBefore.counts.credential_audit, cutoverFirst.credentials.accepted);
+    assert.equal(cutoverBefore.counts.credential_audit, cutoverFirst.accounts.accepted);
+    const originalHashes = new Map(
+      jsonLines<{ id: number | string; password: string }>(
+        await mysql(
+          mysqlSocket,
+          "SELECT JSON_OBJECT('id', id, 'password', password) FROM user WHERE password IS NOT NULL AND password <> '' ORDER BY id",
+        ),
+      ).map(({ id, password }) => [`legacy-user:${id}`, password]),
+    );
+    const importedHashes = await cutoverPool.query<{ source_user_id: string; password: string }>(
+      `SELECT i.source_user_id, a.password FROM auth.account_cohort_imports i
+       JOIN auth."account" a ON a.id = i.account_id
+       WHERE i.import_mode = 'CredentialImported' ORDER BY i.source_user_id`,
+    );
+    assert.equal(importedHashes.rowCount, 1482);
+    for (const { source_user_id, password } of importedHashes.rows)
+      assert.ok(
+        originalHashes.get(source_user_id) === password,
+        "Imported hash differs; details redacted",
+      );
+    const recoveryCandidate = await cutoverPool.query<{
+      person_id: string;
+      source_user_id: string;
+      verified: boolean;
+      canonical_email: boolean;
+      pending_account_id: boolean;
+      native_users: string;
+      native_credentials: string;
+    }>(`SELECT i.person_id, i.source_user_id, u."emailVerified" AS verified,
+        lower(u.email) = lower(c.email) AS canonical_email,
+        i.account_id IS NULL AS pending_account_id,
+        (SELECT count(*) FROM auth."user" WHERE id = i.person_id)::text AS native_users,
+        (SELECT count(*) FROM auth."account" WHERE "userId" = i.person_id)::text AS native_credentials
+      FROM auth.account_cohort_imports i
+      JOIN auth."user" u ON u.id = i.person_id
+      JOIN public.person_contact_profiles c ON c.person_id = i.person_id
+      WHERE i.import_mode = 'RecoveryPending'
+      ORDER BY i.source_user_id LIMIT 1`);
+    const candidate = recoveryCandidate.rows[0];
+    assert.ok(candidate !== undefined, "No reconciled passwordless account");
+    assert.equal(candidate.verified, false);
+    assert.equal(candidate.canonical_email, true);
+    assert.equal(candidate.pending_account_id, true);
+    assert.equal(toInt(candidate.native_users), 1);
+    assert.equal(toInt(candidate.native_credentials), 0);
+    const sourceId = /^legacy-user:(\d+)$/.exec(candidate.source_user_id)?.[1];
+    assert.ok(sourceId, "Recovery source identity must be a numeric legacy user");
+    const sourcePassword = await mysql(
+      mysqlSocket,
+      `SELECT IF(password IS NULL, 'NULL', IF(password = '', 'EMPTY', 'PRESENT')) FROM user WHERE id = ${sourceId}`,
+    );
+    assert.match(sourcePassword, /^(NULL|EMPTY)$/);
+    await mysql(mysqlSocket, `UPDATE user SET password = 'changed-source' WHERE id = ${sourceId}`);
+    try {
+      await assert.rejects(
+        runLegacyServiceCutover(cutoverOptions),
+        (cause: unknown) => cause instanceof CutoverStageFailure && cause.stage === "AccountImport",
+      );
+      assert.deepEqual(
+        await cutoverState(cutoverPool),
+        cutoverBefore,
+        "Changed source altered target",
+      );
+    } finally {
+      await mysql(
+        mysqlSocket,
+        `UPDATE user SET password = ${sourcePassword === "NULL" ? "NULL" : "''"} WHERE id = ${sourceId}`,
+      );
+    }
     const cutoverReplay = await runLegacyServiceCutover(cutoverOptions).catch((cause: unknown) => {
       throw new Error(
         cause instanceof CutoverStageFailure
@@ -1000,11 +1128,39 @@ const runRehearsal = async (temporaryRoot: string) => {
       cutoverFirst.historicalService,
       "Historical service replay diverged; details redacted",
     );
-    assert.deepEqual(cutoverReplay.credentials, cutoverFirst.credentials);
+    assert.deepEqual(cutoverReplay.accounts, cutoverFirst.accounts);
     assert.deepEqual(
       await cutoverState(cutoverPool),
       cutoverBefore,
-      "Replay changed native historical content",
+      "Replay changed native Person, references, history, or account facts",
+    );
+    // Native reset creates the first credential later; prove the import replay cannot overwrite one.
+    const claimAccountId = "rehearsal-claim-" + sha256(candidate.person_id).slice(0, 32);
+    const simulatedClaim = await cutoverPool.query(
+      `INSERT INTO auth."account"(id,"accountId","providerId",issuer,"userId",password,"updatedAt")
+       SELECT $1,$2,'credential',issuer,$2,password,now()
+         FROM auth."account" WHERE "providerId" = 'credential' ORDER BY id LIMIT 1`,
+      [claimAccountId, candidate.person_id],
+    );
+    assert.equal(simulatedClaim.rowCount, 1, "No supported credential hash for replay probe");
+    const cutoverClaimed = await cutoverState(cutoverPool);
+    assert.equal(cutoverClaimed.counts.credentials, cutoverBefore.counts.credentials + 1);
+    assert.equal(cutoverClaimed.counts.credential_imports, cutoverBefore.counts.credential_imports);
+    assert.equal(
+      cutoverClaimed.importedCredentialFingerprint,
+      cutoverBefore.importedCredentialFingerprint,
+    );
+    assert.equal(
+      cutoverClaimed.counts.recovery_unclaimed,
+      cutoverBefore.counts.recovery_unclaimed - 1,
+    );
+    assert.notEqual(cutoverClaimed.fingerprint, cutoverBefore.fingerprint);
+    const claimedReplay = await runLegacyServiceCutover(cutoverOptions);
+    assert.deepEqual(claimedReplay.accounts, cutoverFirst.accounts);
+    assert.deepEqual(
+      await cutoverState(cutoverPool),
+      cutoverClaimed,
+      "Claimed credential was clobbered by replay",
     );
     const cutoverDumpPath = join(privateRoot, "service-native.dump");
     await run(
@@ -1057,8 +1213,8 @@ const runRehearsal = async (temporaryRoot: string) => {
     restoredCutoverPool = new Pool({ connectionString: restoredCutoverUrl, max: 2 });
     assert.deepEqual(
       await cutoverState(restoredCutoverPool),
-      cutoverBefore,
-      "Restored historical content differs",
+      cutoverClaimed,
+      "Restored Person, service, account, or post-claim credential content differs",
     );
     const restoredCutoverReplay = await runLegacyServiceCutover({
       ...cutoverOptions,
@@ -1067,11 +1223,11 @@ const runRehearsal = async (temporaryRoot: string) => {
     });
     assert.equal(restoredCutoverReplay.references.stage, "ExactReplay");
     assert.equal(restoredCutoverReplay.person.stage, "ExactReplay");
-    assert.deepEqual(restoredCutoverReplay.credentials, cutoverFirst.credentials);
+    assert.deepEqual(restoredCutoverReplay.accounts, cutoverFirst.accounts);
     assert.deepEqual(
       await cutoverState(restoredCutoverPool),
-      cutoverBefore,
-      "Restored historical replay changed content",
+      cutoverClaimed,
+      "Restored replay changed claimed credential or native content",
     );
     completedReport = {
       specification: "legacy-backup-person-and-accounts-rehearsal",
@@ -1115,7 +1271,12 @@ const runRehearsal = async (temporaryRoot: string) => {
         reportFingerprint: digest(committedReport),
         counts: countsBeforeBackup,
       },
-      cutoverRehearsal: { ...cutoverFirst, native: cutoverBefore },
+      cutoverRehearsal: {
+        ...cutoverFirst,
+        acceptedPersonAccountGap,
+        native: cutoverBefore,
+        postClaim: cutoverClaimed,
+      },
       gates: {
         postgresTransport: "owner-only-unix-socket",
         rollbackLeavesNoPartialWrites: "passed",
@@ -1126,15 +1287,14 @@ const runRehearsal = async (temporaryRoot: string) => {
         restoredReplay: "no-additional-writes",
         nativeOwnProfileRead: "passed",
         cutoverRollbackLeavesNoPartialWrites: "passed",
+        cutoverChangedAccountSource: "rejected",
+        passwordlessIdentityUnverifiedWithoutCredential: "passed",
+        claimCredentialSurvivesReplay: "passed",
         cutoverBackupRestore: "equivalent",
         cutoverRestoredReplay: "no-additional-writes",
         privateArtifacts: "owner-only-and-cleaned",
       },
-      deferredCohorts: [
-        "passwordless-account-recovery-and-legacy-aliases",
-        "current-school-placements",
-        "receipt-and-private-files",
-      ],
+      deferredCohorts: ["legacy-aliases", "current-school-placements", "receipt-and-private-files"],
       productionResourcesUsed: false,
       externalProviderActions: false,
     } as const;

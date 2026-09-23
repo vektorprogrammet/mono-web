@@ -25,6 +25,10 @@ export const IdentityCohortSnapshot = Schema.Struct({
   snapshotId: Id,
   transformationRevision: Id,
   sourceKind: Schema.Union([Schema.Literal("Synthetic"), Schema.Literal("LegacyBackup")]),
+  passwordlessPolicy: Schema.Union([
+    Schema.Literal("Quarantine"),
+    Schema.Literal("ProvisionRecovery"),
+  ]),
   occurrences: Schema.Array(Schema.Struct({ occurrenceId: Id, row: Schema.Unknown })).pipe(
     Schema.check(Schema.isMinLength(1)),
     Schema.check(Schema.isMaxLength(10000)),
@@ -53,6 +57,7 @@ export class IdentityCohortFailure extends Error {
 }
 export type CohortReason =
   | "Imported"
+  | "RecoveryPending"
   | "ExactReplay"
   | "InvalidRow"
   | "Inactive"
@@ -118,7 +123,7 @@ const report = async (tx: PoolClient, key: string): Promise<CohortReport> => {
     aliases: "LegacyUsernameAndCompanyEmailUnsupported",
   };
 };
-/** All source occurrences and credential writes are one transaction; no engine adapter's separate pool. */
+/** Source occurrences and identity writes share the caller's transaction. */
 export const importIdentityCohort = async (
   pool: Pool,
   input: unknown,
@@ -194,7 +199,7 @@ export const importIdentityCohort = async (
       const sourceId = sourceIdOf(occurrence.row);
       if (sourceId) {
         const previousSource = await tx.query<{ source_digest: string }>(
-          "SELECT source_digest FROM auth.credential_cohort_imports WHERE source_repository=$1 AND source_user_id=$2",
+          "SELECT source_digest FROM auth.account_cohort_imports WHERE source_repository=$1 AND source_user_id=$2",
           [snapshot.sourceRepository, sourceId],
         );
         if (
@@ -207,33 +212,48 @@ export const importIdentityCohort = async (
       else if ((sourceCounts.get(row.sourceUserId) ?? 0) > 1) reason = "DuplicateSource";
       else if ((emailCounts.get(row.email.toLowerCase()) ?? 0) > 1) reason = "DuplicateEmail";
       else if (!row.active) reason = "Inactive";
-      else if (row.passwordHash === null || row.passwordHash === "") reason = "MissingPassword";
-      else if (!isSupportedLegacyPasswordHash(row.passwordHash)) reason = "UnsupportedHash";
+      else if (
+        (row.passwordHash === null || row.passwordHash === "") &&
+        snapshot.passwordlessPolicy === "Quarantine"
+      )
+        reason = "MissingPassword";
+      else if (
+        row.passwordHash !== null &&
+        row.passwordHash !== "" &&
+        !isSupportedLegacyPasswordHash(row.passwordHash)
+      )
+        reason = "UnsupportedHash";
       else if (!mappings.length) reason = "MappingMissing";
       else if (mappings.length > 1) reason = "MappingAmbiguous";
       else if (mapping!.emailOwnership.email.toLowerCase() !== row.email.toLowerCase())
         reason = "EmailUnattested";
       else if ((targetCounts.get(mapping!.personId) ?? 0) > 1) reason = "DuplicateTarget";
       let sourceDigest: string | undefined;
-      let accountId: string | undefined;
+      let accountId: string | null | undefined;
+      const passwordless = row?.passwordHash === null || row?.passwordHash === "";
+      const importMode = passwordless ? "RecoveryPending" : "CredentialImported";
       let person:
         | { first_name: string; last_name: string; contact_email: string | null }
         | undefined;
       if (!reason && row && mapping) {
         sourceDigest = digest({ row, mapping });
-        accountId = `cohort-${digest([snapshot.sourceRepository, row.sourceUserId])}`;
+        accountId = passwordless
+          ? null
+          : `cohort-${digest([snapshot.sourceRepository, row.sourceUserId])}`;
         const imported = await tx.query<{
           source_digest: string;
           person_id: string;
-          account_id: string;
+          account_id: string | null;
+          import_mode: "CredentialImported" | "RecoveryPending";
         }>(
-          "SELECT source_digest,person_id,account_id FROM auth.credential_cohort_imports WHERE source_repository=$1 AND source_user_id=$2",
+          "SELECT source_digest,person_id,account_id,import_mode FROM auth.account_cohort_imports WHERE source_repository=$1 AND source_user_id=$2",
           [snapshot.sourceRepository, row.sourceUserId],
         );
         if (imported.rows[0]) {
           if (
             imported.rows[0].source_digest !== sourceDigest ||
             imported.rows[0].person_id !== mapping.personId ||
+            imported.rows[0].import_mode !== importMode ||
             imported.rows[0].account_id !== accountId
           )
             throw new IdentityCohortFailure("SourceIdentityConflict");
@@ -267,45 +287,61 @@ export const importIdentityCohort = async (
             ).rowCount
           )
             reason = "EmailConflict";
-          else reason = "Imported";
+          else reason = passwordless ? "RecoveryPending" : "Imported";
         }
       }
       if (!reason) throw new IdentityCohortFailure("PersistenceFailure");
-      const accepted = reason === "Imported" || reason === "ExactReplay";
+      const accepted =
+        reason === "Imported" || reason === "RecoveryPending" || reason === "ExactReplay";
       await tx.query(
         "INSERT INTO auth.credential_cohort_occurrences(snapshot_key,occurrence_id,disposition,reason) VALUES($1,$2,$3,$4)",
         [key, occurrence.occurrenceId, accepted ? "Accepted" : "Quarantined", reason],
       );
-      if (reason === "Imported" && row && mapping && person && accountId && sourceDigest) {
+      if (
+        (reason === "Imported" || reason === "RecoveryPending") &&
+        row &&
+        mapping &&
+        person &&
+        accountId !== undefined &&
+        sourceDigest
+      ) {
         await tx.query(
           'INSERT INTO auth."user"(id,name,email,"emailVerified") VALUES($1,$2,$3,false)',
           [mapping.personId, `${person.first_name} ${person.last_name}`, row.email.toLowerCase()],
         );
+        if (accountId !== null)
+          await tx.query(
+            'INSERT INTO auth."account"(id,"accountId","providerId",issuer,"userId",password,"updatedAt") VALUES($1,$2,\'credential\',$3,$2,$4,now())',
+            [accountId, mapping.personId, createLocalAccountIssuer("credential"), row.passwordHash],
+          );
         await tx.query(
-          'INSERT INTO auth."account"(id,"accountId","providerId",issuer,"userId",password,"updatedAt") VALUES($1,$2,\'credential\',$3,$2,$4,now())',
-          [accountId, mapping.personId, createLocalAccountIssuer("credential"), row.passwordHash],
-        );
-        await tx.query(
-          "INSERT INTO auth.credential_cohort_imports(source_repository,source_user_id,person_id,account_id,source_digest,snapshot_key,occurrence_id) VALUES($1,$2,$3,$4,$5,$6,$7)",
+          "INSERT INTO auth.account_cohort_imports(source_repository,source_user_id,person_id,account_id,import_mode,source_digest,snapshot_key,occurrence_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
           [
             snapshot.sourceRepository,
             row.sourceUserId,
             mapping.personId,
             accountId,
+            importMode,
             sourceDigest,
             key,
             occurrence.occurrenceId,
           ],
         );
         await tx.query(
-          `INSERT INTO auth.identity_security_audit(event_id,event_kind,subject_person_id,actor_principal,details) VALUES($1,'account-provisioned-administratively',$2,$3,$4::jsonb)`,
+          `INSERT INTO auth.identity_security_audit(event_id,event_kind,subject_person_id,actor_principal,details) VALUES($1,$5,$2,$3,$4::jsonb)`,
           [
             `cohort-${sourceDigest}`,
             mapping.personId,
             snapshot.sourceKind === "LegacyBackup"
               ? "administrative:legacy-backup-cohort"
               : "administrative:synthetic-cohort",
-            JSON.stringify({ outcomeCode: "account-provisioned", affectedSessionCount: 0 }),
+            JSON.stringify({
+              outcomeCode: passwordless ? "recovery-pending" : "account-provisioned",
+              affectedSessionCount: 0,
+            }),
+            passwordless
+              ? "recovery-identity-provisioned-administratively"
+              : "account-provisioned-administratively",
           ],
         );
       }

@@ -447,6 +447,11 @@ export const databaseMigrationDefinitions = [
     name: "legacy-backup-credential-cohort",
     url: new URL("../migrations/0056-legacy-backup-credential-cohort.sql", import.meta.url),
   },
+  {
+    id: "57_passwordless-account-recovery",
+    name: "passwordless-account-recovery",
+    url: new URL("../migrations/0057-passwordless-account-recovery.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

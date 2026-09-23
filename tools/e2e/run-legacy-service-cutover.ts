@@ -44,6 +44,7 @@ interface CutoverOptions {
   readonly targetDatabase: string;
   readonly snapshotId: string;
   readonly attestedBy: string;
+  readonly passwordlessPolicy: "ProvisionRecovery";
 }
 type CutoverStage =
   | "SourceRead"
@@ -53,8 +54,8 @@ type CutoverStage =
   | "PersonImport"
   | "HistoricalProjection"
   | "HistoricalImport"
-  | "CredentialProjection"
-  | "CredentialImport"
+  | "AccountProjection"
+  | "AccountImport"
   | "TargetCommit"
   | "TargetRollback"
   | "TargetClose";
@@ -179,13 +180,16 @@ export const buildLegacyHistoricalSnapshot = (
     mappings,
   });
 };
-
-/** Project credential rows only through accepted Person reconciliation. */
-export const buildLegacyCredentialSnapshot = (
+/** Project account rows only through accepted Person reconciliation. */
+export const buildLegacyAccountSnapshot = (
   source: LegacySourceSnapshot,
   person: PersonCohortReport,
   personSnapshot: PersonCohortSnapshot,
-  identity: { readonly snapshotId: string; readonly transformationRevision: string },
+  identity: {
+    readonly snapshotId: string;
+    readonly transformationRevision: string;
+    readonly passwordlessPolicy: "ProvisionRecovery";
+  },
 ) => {
   const accepted = new Set(
     person.occurrences
@@ -214,6 +218,7 @@ export const buildLegacyCredentialSnapshot = (
     snapshotId: identity.snapshotId,
     transformationRevision: identity.transformationRevision,
     sourceKind: "LegacyBackup",
+    passwordlessPolicy: identity.passwordlessPolicy,
     occurrences,
     mappings: personSnapshot.mappings
       .filter((mapping) =>
@@ -226,10 +231,10 @@ export const buildLegacyCredentialSnapshot = (
       })),
   });
 };
-
-/** Imports Person, directories, historical service, and owned credentials only. */
+/** Imports Person, directories, historical service, and owned account identities only. */
 export const runLegacyServiceCutover = async (options: CutoverOptions) => {
   if (
+    options.passwordlessPolicy !== "ProvisionRecovery" ||
     !/^[A-Za-z0-9._:-]{1,128}$/.test(options.snapshotId) ||
     !/^[A-Za-z0-9._:-]{1,128}$/.test(options.attestedBy) ||
     !/^[A-Za-z0-9_]+$/.test(options.targetDatabase) ||
@@ -338,14 +343,15 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
     );
     if (historical.accepted === 0)
       throw new CutoverStageFailure("HistoricalImport", "NoAcceptedService");
-    const credentialSnapshot = await inStage("CredentialProjection", async () =>
-      buildLegacyCredentialSnapshot(source, person, personSnapshot, {
+    const accountSnapshot = await inStage("AccountProjection", async () =>
+      buildLegacyAccountSnapshot(source, person, personSnapshot, {
         snapshotId: options.snapshotId,
         transformationRevision,
+        passwordlessPolicy: options.passwordlessPolicy,
       }),
     );
-    const credentialsReport: IdentityCohortReport = await inStage("CredentialImport", () =>
-      importIdentityCohort(pool, credentialSnapshot, client),
+    const accountsReport: IdentityCohortReport = await inStage("AccountImport", () =>
+      importIdentityCohort(pool, accountSnapshot, client),
     );
     await inStage("TargetCommit", () => client.query("COMMIT"));
     return {
@@ -379,13 +385,18 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
         quarantined: historical.quarantined,
         reasons: reasons(historical.occurrences),
       },
-      credentials: {
+      accounts: {
         stage: "Reconciled",
-        input: credentialsReport.input,
-        accepted: credentialsReport.accepted,
-        quarantined: credentialsReport.quarantined,
-        reasons: reasons(credentialsReport.occurrences),
-        dispositionFingerprint: digest(credentialsReport.occurrences),
+        input: accountsReport.input,
+        accepted: accountsReport.accepted,
+        credentialImported: accountsReport.occurrences.filter(({ reason }) => reason === "Imported")
+          .length,
+        recoveryPending: accountsReport.occurrences.filter(
+          ({ reason }) => reason === "RecoveryPending",
+        ).length,
+        quarantined: accountsReport.quarantined,
+        reasons: reasons(accountsReport.occurrences),
+        dispositionFingerprint: digest(accountsReport.occurrences),
       },
     };
   } catch (error) {
@@ -401,7 +412,7 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
 };
 
 const usage =
-  "Usage: bun run run-legacy-service-cutover.ts --source-url-env=NAME --target-url-env=NAME --target-database=NAME --snapshot-id=ID --attested-by=ID (remote MariaDB URL requires ?sslCaEnv=NAME; local rehearsal uses ?socketPath=/absolute/socket)";
+  "Usage: bun run run-legacy-service-cutover.ts --source-url-env=NAME --target-url-env=NAME --target-database=NAME --snapshot-id=ID --attested-by=ID --passwordless-policy=provision-recovery (remote PostgreSQL requires ?sslCaEnv=NAME; local target uses ?host=/absolute/socket; source remains SELECT-only)";
 if (import.meta.main) {
   if (process.argv.length === 3 && process.argv[2] === "--help") {
     console.log(usage);
@@ -420,10 +431,12 @@ if (import.meta.main) {
         "target-database",
         "snapshot-id",
         "attested-by",
+        "passwordless-policy",
       ];
       if (
         Object.keys(argumentsByName).length !== names.length ||
-        names.some((name) => !argumentsByName[name])
+        names.some((name) => !argumentsByName[name]) ||
+        argumentsByName["passwordless-policy"] !== "provision-recovery"
       )
         throw new Error("Required option missing");
       const sourceEnv = argumentsByName["source-url-env"]!;
@@ -442,6 +455,7 @@ if (import.meta.main) {
         targetDatabase: argumentsByName["target-database"]!,
         snapshotId: argumentsByName["snapshot-id"]!,
         attestedBy: argumentsByName["attested-by"]!,
+        passwordlessPolicy: "ProvisionRecovery",
       });
       console.log(JSON.stringify(result));
     } catch (error) {

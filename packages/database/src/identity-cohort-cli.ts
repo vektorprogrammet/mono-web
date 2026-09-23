@@ -16,7 +16,8 @@ const invalidSnapshot = () => new IdentityCohortFailure("InvalidSnapshot");
 
 export const decodeSyntheticIdentityCohort = (input: unknown) => {
   const snapshot = decodeIdentityCohort(input);
-  if (snapshot.sourceKind !== "Synthetic") throw invalidSnapshot();
+  if (snapshot.sourceKind !== "Synthetic" || snapshot.passwordlessPolicy !== "Quarantine")
+    throw invalidSnapshot();
   return snapshot;
 };
 

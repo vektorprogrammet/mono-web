@@ -103,6 +103,7 @@ export const IdentitySecurityEventKind = Schema.Literals([
   "sign-up-rejected",
   "trusted-origin-csrf-rejected",
   "account-provisioned-administratively",
+  "recovery-identity-provisioned-administratively",
   "session-provisioned-administratively",
 ]);
 export type IdentitySecurityEventKind = typeof IdentitySecurityEventKind.Type;
@@ -135,6 +136,7 @@ export const IdentitySecurityOutcomeCode = Schema.Literals([
   "public-sign-up-disabled",
   "origin-not-trusted",
   "account-provisioned",
+  "recovery-pending",
   "session-provisioned",
 ]);
 export type IdentitySecurityOutcomeCode = typeof IdentitySecurityOutcomeCode.Type;

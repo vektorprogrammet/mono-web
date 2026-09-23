@@ -215,6 +215,7 @@ try {
     snapshotId: "cohort-0107",
     transformationRevision: "0107-v1",
     sourceKind: "Synthetic" as const,
+    passwordlessPolicy: "Quarantine" as const,
     occurrences,
     mappings,
   };
@@ -222,6 +223,7 @@ try {
     source: Row,
     mode: "create" | "link" = "create",
     personId = `person-${source.sourceUserId}`,
+    client?: import("pg").PoolClient,
   ) => {
     const personMapping =
       mode === "create"
@@ -247,27 +249,31 @@ try {
             expectedNameRevision: 0,
             expectedContactRevision: 0,
           };
-    const result = await importPersonCohort(pool!, {
-      sourceRepository: snapshot.sourceRepository,
-      sourceRevision: `person-source-${source.sourceUserId}`,
-      snapshotId: `person-${source.sourceUserId}`,
-      transformationRevision: "0107-v1",
-      sourceKind: "Synthetic",
-      occurrences: [
-        {
-          occurrenceId: `person-${source.sourceUserId}`,
-          row: {
-            sourceUserId: source.sourceUserId,
-            active: true,
-            firstName: "Synthetic",
-            lastName: "Cohort",
-            email: source.email,
-            phone: "+47 999 00 000",
+    const result = await importPersonCohort(
+      pool!,
+      {
+        sourceRepository: snapshot.sourceRepository,
+        sourceRevision: `person-source-${source.sourceUserId}`,
+        snapshotId: `person-${source.sourceUserId}`,
+        transformationRevision: "0107-v1",
+        sourceKind: "Synthetic",
+        occurrences: [
+          {
+            occurrenceId: `person-${source.sourceUserId}`,
+            row: {
+              sourceUserId: source.sourceUserId,
+              active: true,
+              firstName: "Synthetic",
+              lastName: "Cohort",
+              email: source.email,
+              phone: "+47 999 00 000",
+            },
           },
-        },
-      ],
-      mappings: [personMapping],
-    });
+        ],
+        mappings: [personMapping],
+      },
+      client,
+    );
     assert.equal(result.accepted, 1);
   };
   await pool.query(
@@ -289,7 +295,7 @@ try {
     digest(
       (
         await pool!.query(
-          `SELECT jsonb_build_object('users',(SELECT jsonb_agg(u ORDER BY id) FROM auth."user" u),'accounts',(SELECT jsonb_agg(a ORDER BY id) FROM auth."account" a),'snapshots',(SELECT jsonb_agg(s ORDER BY snapshot_key) FROM auth.credential_cohort_snapshots s),'occurrences',(SELECT jsonb_agg(o ORDER BY snapshot_key,occurrence_id) FROM auth.credential_cohort_occurrences o),'imports',(SELECT jsonb_agg(i ORDER BY source_repository,source_user_id) FROM auth.credential_cohort_imports i)) AS facts`,
+          `SELECT jsonb_build_object('users',(SELECT jsonb_agg(u ORDER BY id) FROM auth."user" u),'accounts',(SELECT jsonb_agg(a ORDER BY id) FROM auth."account" a),'snapshots',(SELECT jsonb_agg(s ORDER BY snapshot_key) FROM auth.credential_cohort_snapshots s),'occurrences',(SELECT jsonb_agg(o ORDER BY snapshot_key,occurrence_id) FROM auth.credential_cohort_occurrences o),'imports',(SELECT jsonb_agg(i ORDER BY source_repository,source_user_id) FROM auth.account_cohort_imports i)) AS facts`,
         )
       ).rows,
     );
@@ -374,7 +380,7 @@ try {
     ],
   };
   await pool.query(
-    "CREATE FUNCTION auth.fail_cohort_0107() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Synthetic failure'; END $$; CREATE TRIGGER fail_cohort_0107 BEFORE INSERT ON auth.credential_cohort_imports FOR EACH ROW EXECUTE FUNCTION auth.fail_cohort_0107()",
+    "CREATE FUNCTION auth.fail_cohort_0107() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Synthetic failure'; END $$; CREATE TRIGGER fail_cohort_0107 BEFORE INSERT ON auth.account_cohort_imports FOR EACH ROW EXECUTE FUNCTION auth.fail_cohort_0107()",
   );
   await assert.rejects(importIdentityCohort(pool, failedSnapshot));
   assert.equal(
@@ -383,10 +389,10 @@ try {
   );
   assert.equal(await facts(), initialFacts);
   await pool.query(
-    "DROP TRIGGER fail_cohort_0107 ON auth.credential_cohort_imports; DROP FUNCTION auth.fail_cohort_0107()",
+    "DROP TRIGGER fail_cohort_0107 ON auth.account_cohort_imports; DROP FUNCTION auth.fail_cohort_0107()",
   );
   await assert.rejects(
-    pool.query("UPDATE auth.credential_cohort_imports SET source_digest=repeat('f',64)"),
+    pool.query("UPDATE auth.account_cohort_imports SET source_digest=repeat('f',64)"),
   );
   await writeFile(inputFile, JSON.stringify(snapshot), { mode: 0o600 });
   const cli = spawn("bun", ["run", "packages/database/runtime/identity-cohort-main.ts"], {
@@ -441,7 +447,7 @@ try {
         `SELECT
            (SELECT count(*)::int FROM auth."user" WHERE id='person-concurrent-initial') AS users,
            (SELECT count(*)::int FROM auth."account" WHERE "userId"='person-concurrent-initial') AS accounts,
-           (SELECT count(*)::int FROM auth.credential_cohort_imports WHERE source_user_id='concurrent-initial') AS imports`,
+           (SELECT count(*)::int FROM auth.account_cohort_imports WHERE source_user_id='concurrent-initial') AS imports`,
       )
     ).rows[0],
     { users: 1, accounts: 1, imports: 1 },
@@ -459,13 +465,36 @@ try {
     email: "backup-passwordless@example.invalid",
     passwordHash: null,
   };
+  const emptyPasswordRow: Row = {
+    sourceUserId: "backup-empty-password",
+    active: true,
+    email: "backup-empty-password@example.invalid",
+    passwordHash: "",
+  };
+  const unsupportedBackupRow: Row = {
+    sourceUserId: "backup-unsupported",
+    active: true,
+    email: "backup-unsupported@example.invalid",
+    passwordHash: "unsupported-hash",
+  };
   const mismatchedRow: Row = {
     sourceUserId: "backup-contact-mismatch",
     active: true,
     email: "backup-contact-mismatch@example.invalid",
     passwordHash: hashes[0]!,
   };
-  for (const row of [backupRow, passwordlessRow, mismatchedRow]) await reconcilePerson(row);
+  const backupTargetConflictRow: Row = { ...targetConflictRow, passwordHash: null };
+  const backupEmailConflictRow: Row = { ...emailConflictRow, passwordHash: null };
+  for (const row of [
+    backupRow,
+    passwordlessRow,
+    emptyPasswordRow,
+    unsupportedBackupRow,
+    mismatchedRow,
+    backupTargetConflictRow,
+    backupEmailConflictRow,
+  ])
+    await reconcilePerson(row);
   await pool.query("UPDATE public.person_contact_profiles SET email=$1 WHERE person_id=$2", [
     "different@example.invalid",
     "person-backup-contact-mismatch",
@@ -474,11 +503,28 @@ try {
     ...snapshot,
     snapshotId: "legacy-backup-synthetic-rehearsal",
     sourceKind: "LegacyBackup" as const,
-    occurrences: [backupRow, passwordlessRow, mismatchedRow].map((row) => ({
+    passwordlessPolicy: "ProvisionRecovery" as const,
+    occurrences: [
+      backupRow,
+      passwordlessRow,
+      emptyPasswordRow,
+      unsupportedBackupRow,
+      mismatchedRow,
+      backupTargetConflictRow,
+      backupEmailConflictRow,
+    ].map((row) => ({
       occurrenceId: `backup-${row.sourceUserId}`,
       row,
     })),
-    mappings: [backupRow, passwordlessRow, mismatchedRow].map((row) => ({
+    mappings: [
+      backupRow,
+      passwordlessRow,
+      emptyPasswordRow,
+      unsupportedBackupRow,
+      mismatchedRow,
+      backupTargetConflictRow,
+      backupEmailConflictRow,
+    ].map((row) => ({
       sourceUserId: row.sourceUserId,
       personId: `person-${row.sourceUserId}`,
       emailOwnership: {
@@ -488,10 +534,59 @@ try {
       },
     })),
   };
+  const failedRecoveryRow: Row = {
+    sourceUserId: "backup-rollback",
+    active: true,
+    email: "backup-rollback@example.invalid",
+    passwordHash: null,
+  };
+  const rollbackSnapshot = {
+    ...backupSnapshot,
+    snapshotId: "legacy-backup-rollback",
+    occurrences: [{ occurrenceId: "backup-rollback", row: failedRecoveryRow }],
+    mappings: [
+      {
+        sourceUserId: failedRecoveryRow.sourceUserId,
+        personId: "person-backup-rollback",
+        emailOwnership: {
+          email: failedRecoveryRow.email,
+          attestedBy: "synthetic-operator",
+          evidenceRef: "rollback",
+        },
+      },
+    ],
+  };
+  const rollbackFactsQuery = `SELECT jsonb_build_object(
+      'persons',(SELECT count(*) FROM public.person_profiles),
+      'contacts',(SELECT count(*) FROM public.person_contact_profiles),
+      'personImports',(SELECT count(*) FROM public.person_cohort_imports),
+      'users',(SELECT count(*) FROM auth."user"),
+      'accounts',(SELECT count(*) FROM auth."account"),
+      'audit',(SELECT count(*) FROM auth.identity_security_audit),
+      'snapshots',(SELECT count(*) FROM auth.credential_cohort_snapshots),
+      'occurrences',(SELECT count(*) FROM auth.credential_cohort_occurrences),
+      'imports',(SELECT count(*) FROM auth.account_cohort_imports)) AS facts`;
+  const rollbackFacts = await pool.query(rollbackFactsQuery);
+  await pool.query(
+    "CREATE FUNCTION auth.fail_recovery_cohort() RETURNS trigger LANGUAGE plpgsql AS $rollback$ BEGIN RAISE EXCEPTION 'Forced recovery rollback'; END $rollback$; CREATE TRIGGER fail_recovery_cohort BEFORE INSERT ON auth.account_cohort_imports FOR EACH ROW EXECUTE FUNCTION auth.fail_recovery_cohort()",
+  );
+  const rollbackClient = await pool.connect();
+  try {
+    await rollbackClient.query("BEGIN");
+    await reconcilePerson(failedRecoveryRow, "create", "person-backup-rollback", rollbackClient);
+    await assert.rejects(importIdentityCohort(pool, rollbackSnapshot, rollbackClient));
+    await rollbackClient.query("ROLLBACK");
+  } finally {
+    rollbackClient.release();
+  }
+  assert.deepEqual((await pool.query(rollbackFactsQuery)).rows, rollbackFacts.rows);
+  await pool.query(
+    "DROP TRIGGER fail_recovery_cohort ON auth.account_cohort_imports; DROP FUNCTION auth.fail_recovery_cohort()",
+  );
   const shared = await pool.connect();
   try {
     await shared.query("BEGIN");
-    assert.equal((await importIdentityCohort(pool, backupSnapshot, shared)).accepted, 1);
+    assert.equal((await importIdentityCohort(pool, backupSnapshot, shared)).accepted, 3);
     await shared.query("ROLLBACK");
   } finally {
     shared.release();
@@ -501,11 +596,32 @@ try {
       .rowCount,
     0,
   );
-  const backupReport = await importIdentityCohort(pool, backupSnapshot);
-  assert.equal(backupReport.accepted, 1);
+  const concurrentRecovery = await Promise.all([
+    importIdentityCohort(pool, backupSnapshot),
+    importIdentityCohort(pool, backupSnapshot),
+  ]);
+  assert.deepEqual(concurrentRecovery[0], concurrentRecovery[1]);
+  const backupReport = concurrentRecovery[0]!;
+  assert.equal(backupReport.accepted, 3);
   assert.equal(
     backupReport.occurrences.find((r) => r.occurrenceId === "backup-backup-passwordless")?.reason,
-    "MissingPassword",
+    "RecoveryPending",
+  );
+  assert.equal(
+    backupReport.occurrences.find((r) => r.occurrenceId === "backup-backup-empty-password")?.reason,
+    "RecoveryPending",
+  );
+  assert.equal(
+    backupReport.occurrences.find((r) => r.occurrenceId === "backup-backup-unsupported")?.reason,
+    "UnsupportedHash",
+  );
+  assert.equal(
+    backupReport.occurrences.find((r) => r.occurrenceId === "backup-target-conflict")?.reason,
+    "TargetConflict",
+  );
+  assert.equal(
+    backupReport.occurrences.find((r) => r.occurrenceId === "backup-email-conflict")?.reason,
+    "EmailConflict",
   );
   assert.equal(
     backupReport.occurrences.find((r) => r.occurrenceId === "backup-backup-contact-mismatch")
@@ -546,7 +662,44 @@ try {
     ).rows[0].actor_principal,
     "administrative:legacy-backup-cohort",
   );
+  assert.deepEqual(
+    (
+      await pool.query(
+        "SELECT event_kind,actor_principal,details->>'outcomeCode' AS outcome FROM auth.identity_security_audit WHERE subject_person_id=$1",
+        ["person-backup-passwordless"],
+      )
+    ).rows,
+    [
+      {
+        event_kind: "recovery-identity-provisioned-administratively",
+        actor_principal: "administrative:legacy-backup-cohort",
+        outcome: "recovery-pending",
+      },
+    ],
+  );
   assert.deepEqual(await importIdentityCohort(pool, backupSnapshot), backupReport);
+  assert.deepEqual(
+    (
+      await pool.query(
+        "SELECT source_user_id,import_mode,account_id IS NULL AS passwordless FROM auth.account_cohort_imports WHERE source_user_id LIKE 'backup-%' ORDER BY source_user_id",
+      )
+    ).rows,
+    [
+      { source_user_id: "backup-accepted", import_mode: "CredentialImported", passwordless: false },
+      {
+        source_user_id: "backup-empty-password",
+        import_mode: "RecoveryPending",
+        passwordless: true,
+      },
+      { source_user_id: "backup-passwordless", import_mode: "RecoveryPending", passwordless: true },
+    ],
+  );
+  assert.equal((await pool.query("SELECT count(*)::int n FROM auth.verification")).rows[0].n, 0);
+  assert.equal(
+    (await pool.query("SELECT count(*)::int n FROM auth.password_reset_email_outbox")).rows[0].n,
+    0,
+  );
+  assert.equal((await pool.query("SELECT count(*)::int n FROM auth.session")).rows[0].n, 0);
   const authPort = await freePort(),
     origin = `http://127.0.0.1:${authPort}`;
   const config: AuthEngineConfig = {
@@ -637,10 +790,42 @@ try {
     0,
     "attestation must not invent verification flag",
   );
+  const claimEmail = "backup-passwordless@example.invalid";
+  assert.equal(
+    (await login(claimEmail, values[0]!)).status,
+    401,
+    "unclaimed identity cannot sign in",
+  );
+  assert.equal((await login("backup-unsupported@example.invalid", values[0]!)).status, 401);
+  assert.equal(
+    (
+      await pool.query('SELECT "emailVerified" FROM auth."user" WHERE id=$1', [
+        "person-backup-passwordless",
+      ])
+    ).rows[0].emailVerified,
+    false,
+  );
+  assert.equal(
+    (
+      await pool.query('SELECT count(*)::int n FROM auth."account" WHERE "userId"=$1', [
+        "person-backup-passwordless",
+      ])
+    ).rows[0].n,
+    0,
+  );
+  assert.equal(
+    (
+      await pool.query('SELECT count(*)::int n FROM auth.session WHERE "userId"=$1', [
+        "person-backup-passwordless",
+      ])
+    ).rows[0].n,
+    0,
+  );
   const deliveryToken = randomBytes(24).toString("hex");
   secrets.push(deliveryToken);
   let deliveredUrl = "",
-    deliveryAttempts = 0;
+    deliveryAttempts = 0,
+    expectedRecipient = "cohort-accepted-0@example.invalid";
   sink = createHttpServer(async (req, res) => {
     if (req.headers.authorization !== `Bearer ${deliveryToken}`) {
       res.writeHead(401).end();
@@ -651,10 +836,7 @@ try {
       for await (const chunk of req) body += chunk;
       const value = JSON.parse(body);
       deliveryAttempts++;
-      if (
-        value.recipient !== "cohort-accepted-0@example.invalid" ||
-        typeof value.text !== "string"
-      ) {
+      if (value.recipient !== expectedRecipient || typeof value.text !== "string") {
         res.writeHead(422).end();
         return;
       }
@@ -717,6 +899,105 @@ try {
     stored,
     "replay must not undo reset",
   );
+  expectedRecipient = claimEmail;
+  deliveredUrl = "";
+  assert.equal(
+    (
+      await post("/api/auth/request-password-reset", {
+        email: "backup-unsupported@example.invalid",
+        redirectTo: "http://127.0.0.1:5174/tilbakestill-passord",
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (await pool.query("SELECT count(*)::int n FROM auth.password_reset_email_outbox")).rows[0].n,
+    1,
+  );
+  assert.equal(
+    (
+      await post("/api/auth/request-password-reset", {
+        email: claimEmail,
+        redirectTo: "http://127.0.0.1:5174/tilbakestill-passord",
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await pool.query(
+        "SELECT count(*)::int n FROM auth.password_reset_email_outbox WHERE subject_person_id=$1 AND status='Pending'",
+        ["person-backup-passwordless"],
+      )
+    ).rows[0].n,
+    1,
+  );
+  assert.equal(
+    await drainPasswordResetMail(authPool!, config, delivery, "recovery@example.invalid"),
+    "Delivered",
+  );
+  assert.equal(deliveryAttempts, 2);
+  const claimRedirect = await fetch(deliveredUrl, { redirect: "manual" });
+  assert.equal(claimRedirect.status, 302);
+  const claimToken = new URL(claimRedirect.headers.get("location")!).searchParams.get("token")!;
+  secrets.push(claimToken);
+  const firstPassword = "Native-First-Password-Claim-0107-Å";
+  secrets.push(firstPassword);
+  assert.equal(
+    (await post("/api/auth/reset-password", { token: claimToken, newPassword: firstPassword }))
+      .status,
+    200,
+  );
+  assert.equal((await login(claimEmail, firstPassword)).status, 200);
+  assert.equal(
+    (
+      await post("/api/auth/reset-password", {
+        token: claimToken,
+        newPassword: "Second-Password-Must-Not-Work",
+      })
+    ).status,
+    400,
+  );
+  assert.equal((await login(claimEmail, "Second-Password-Must-Not-Work")).status, 401);
+  const claimedHash = (
+    await pool.query('SELECT password FROM auth."account" WHERE "userId"=$1', [
+      "person-backup-passwordless",
+    ])
+  ).rows[0].password as string;
+  secrets.push(claimedHash);
+  assert.ok(isNativePasswordHash(claimedHash));
+  assert.equal(
+    (
+      await pool.query('SELECT "emailVerified" FROM auth."user" WHERE id=$1', [
+        "person-backup-passwordless",
+      ])
+    ).rows[0].emailVerified,
+    false,
+  );
+  assert.deepEqual(await importIdentityCohort(pool, backupSnapshot), backupReport);
+  const claimedReplay = { ...backupSnapshot, snapshotId: "legacy-backup-claimed-replay" };
+  const claimedReplayReport = await importIdentityCohort(pool, claimedReplay);
+  assert.equal(claimedReplayReport.accepted, 3);
+  assert.equal(
+    claimedReplayReport.occurrences.find((r) => r.occurrenceId === "backup-backup-passwordless")
+      ?.reason,
+    "ExactReplay",
+  );
+  const changedClaimSource = structuredClone(backupSnapshot);
+  changedClaimSource.snapshotId = "legacy-backup-changed-claim-source";
+  (changedClaimSource.occurrences[1]!.row as Row).passwordHash = "";
+  await assert.rejects(
+    importIdentityCohort(pool, changedClaimSource),
+    (error) => error instanceof IdentityCohortFailure && error.code === "SourceIdentityConflict",
+  );
+  assert.equal(
+    (
+      await pool.query('SELECT password FROM auth."account" WHERE "userId"=$1', [
+        "person-backup-passwordless",
+      ])
+    ).rows[0].password,
+    claimedHash,
+  );
   await server!.stop(true);
   server = undefined;
   await authPool!.end();
@@ -740,10 +1021,40 @@ try {
     200,
     "actual restored legacy hash login",
   );
+  assert.equal(
+    (await login(claimEmail, firstPassword)).status,
+    200,
+    "restored first credential signs in",
+  );
+  const restoredPool = new Pool({ connectionString: restoredUrl });
+  try {
+    assert.deepEqual(await importIdentityCohort(restoredPool, backupSnapshot), backupReport);
+    const restoredReplay = await importIdentityCohort(restoredPool, {
+      ...backupSnapshot,
+      snapshotId: "legacy-backup-restored-replay",
+    });
+    assert.equal(
+      restoredReplay.occurrences.find((r) => r.occurrenceId === "backup-backup-passwordless")
+        ?.reason,
+      "ExactReplay",
+    );
+    assert.equal(
+      (
+        await restoredPool.query('SELECT password FROM auth."account" WHERE "userId"=$1', [
+          "person-backup-passwordless",
+        ])
+      ).rows[0].password,
+      claimedHash,
+      "restored replay must preserve claimed password",
+    );
+  } finally {
+    await restoredPool.end();
+  }
   evidence = {
     specId: "0107",
     revision,
     report: summarizeIdentityCohort(report),
+    backupReport: summarizeIdentityCohort(backupReport),
     passed: true,
     compatibility: {
       phpVersion: command(php, ["-r", "echo PHP_VERSION;"]),
@@ -762,8 +1073,13 @@ try {
       changedSnapshotRejected: true,
       changedInactiveSourceRejected: true,
       resetPreserved: true,
+      claimedSourceChangeRejected: true,
+      passwordlessCrossSnapshotReplay: true,
+      restoredCrossSnapshotReplay: true,
     },
     atomicFailureNoPartialIdentity: true,
+    recoveryFailureRolledBackPersonAndIdentity: true,
+    concurrentRecoveryInitial: true,
     immutableProvenance: true,
     profilesPreserved: true,
     emailVerificationNotInvented: true,
@@ -773,6 +1089,9 @@ try {
     reconciledProfileNameUsed: true,
     recovery: {
       acknowledgedAttempts: deliveryAttempts,
+      passwordlessFirstCredential: true,
+      tokenReuseRejected: true,
+      claimedPasswordPreservedByReplayAndRestore: true,
       oldPasswordDenied: true,
       newNativePasswordAccepted: true,
       oldSessionRevoked: true,
