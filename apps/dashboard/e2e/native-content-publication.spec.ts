@@ -198,37 +198,38 @@ test.describe("Native Content publication (spec 0062)", () => {
       await twoVersionRow.getByRole("button", { name: /To versjoner/ }).click();
       await expect(leader.page.getByLabel("Brødtekst")).toHaveValue("<p>Versjon én tekst</p>");
       const twoVersionArticleId = Number(await twoVersionRow.getAttribute("data-article-id"));
-      const concurrentRevision = await leader.page.evaluate(
-        async ({ articleId, apiOrigin }: { articleId: number; apiOrigin: string }) => {
-          const detailResponse = await fetch(`${apiOrigin}/api/content/articles/${articleId}`, {
-            credentials: "include",
-          });
-          const detail = (await detailResponse.json()) as Record<string, unknown>;
-          const etag = detailResponse.headers.get("etag");
-          if (etag === null) throw new Error("content detail response omitted ETag");
-          const reviseResponse = await fetch(`${apiOrigin}/api/content/articles/${articleId}`, {
-            method: "PATCH",
-            credentials: "include",
-            headers: {
-              "content-type": "application/merge-patch+json",
-              "Idempotency-Key": "leader-concurrent-revise",
-              "If-Match": etag,
-            },
-            body: JSON.stringify({
-              title: detail.title,
-              bodyHtml: "<p>Ekstern samtidig endring</p>",
-              departmentIds: detail.departmentIds,
-              sticky: detail.sticky,
-            }),
-          });
-          return {
-            detailStatus: detailResponse.status,
-            detail,
-            reviseStatus: reviseResponse.status,
-          };
-        },
-        { articleId: twoVersionArticleId, apiOrigin: contentApiOrigin },
-      );
+      const concurrentRevision = await leader.page.evaluate(async (articleId: number) => {
+        const detailResponse = await fetch("/dashboard/content", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ operation: "readArticle", articleId }),
+        });
+        const observation = (await detailResponse.json()) as {
+          readonly body: Record<string, unknown>;
+          readonly etag: string;
+        };
+        const reviseResponse = await fetch("/dashboard/content", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            operation: "reviseDraft",
+            commandId: "leader-concurrent-revise",
+            articleId,
+            etag: observation.etag,
+            title: observation.body.title,
+            bodyHtml: "<p>Ekstern samtidig endring</p>",
+            departmentIds: observation.body.departmentIds,
+            sticky: observation.body.sticky,
+          }),
+        });
+        return {
+          detailStatus: detailResponse.status,
+          detail: observation.body,
+          reviseStatus: reviseResponse.status,
+        };
+      }, twoVersionArticleId);
       expect(concurrentRevision.detailStatus).toBe(200);
       expect(concurrentRevision.detail.bodyHtml).toBe("<p>Versjon én tekst</p>");
       expect(concurrentRevision.detail.revision).toBe(1);
@@ -480,15 +481,12 @@ test.describe("Native Content publication (spec 0062)", () => {
         .analyze();
       expect(anonAccessibility.violations).toEqual([]);
 
-      // --- Request ledger confinement ----------------------------------
-      const bridgeRequests = browserRequests.filter((request) =>
-        request.pathname.startsWith("/content"),
+      // --- Request confinement -----------------------------------------
+      const bridgeRequests = browserRequests.filter(
+        (request) => request.pathname === "/dashboard/content",
       );
       const nativeContentRequests = browserRequests.filter((request) =>
         request.pathname.startsWith("/api/content/articles"),
-      );
-      const nativeMutations = nativeContentRequests.filter((request) =>
-        ["PATCH", "POST"].includes(request.method),
       );
       const publicRequests = browserRequests.filter(
         (request) =>
@@ -500,13 +498,7 @@ test.describe("Native Content publication (spec 0062)", () => {
       expect(publicRequests.some((request) => request.pathname === "/nyheter")).toBe(true);
       expect(publicRequests.some((request) => request.pathname.startsWith("/nyhet/"))).toBe(true);
       expect(bridgeRequests.length).toBeGreaterThanOrEqual(3);
-      expect(nativeMutations.length).toBeGreaterThanOrEqual(3);
-      for (const mutation of nativeMutations) {
-        expect(mutation.idempotencyKey).toBeTruthy();
-        expect(mutation.ifMatch).toMatch(/^"vkr2\./u);
-        expect(mutation.requestFields).not.toContain("commandId");
-        expect(mutation.requestFields).not.toContain("expectedRevision");
-      }
+      expect(nativeContentRequests).toEqual([]);
       expect(
         browserRequests.filter((request) => request.pathname === "/api/admin/schools"),
       ).toEqual([]);

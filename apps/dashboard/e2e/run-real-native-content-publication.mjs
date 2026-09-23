@@ -262,6 +262,20 @@ const startRecordingUpstream = async (ledger) => {
       }
 
       const body = await requestBody(request);
+      const idempotencyKey = request.headers["idempotency-key"];
+      if (typeof idempotencyKey === "string") entry.idempotencyKey = idempotencyKey;
+      const ifMatch = request.headers["if-match"];
+      if (typeof ifMatch === "string") entry.ifMatch = ifMatch;
+      if (body !== undefined) {
+        try {
+          const payload = JSON.parse(body.toString("utf8"));
+          if (typeof payload === "object" && payload !== null && !Array.isArray(payload)) {
+            entry.requestFields = Object.keys(payload).sort();
+          }
+        } catch {
+          // Non-JSON request bodies do not contribute field evidence.
+        }
+      }
       const headers = new Headers();
       for (const [name, value] of Object.entries(request.headers)) {
         if (value === undefined || ["connection", "content-length", "host"].includes(name))
@@ -512,7 +526,26 @@ try {
       (entry.method === "PATCH" && /^\/api\/content\/articles\/\d+$/u.test(entry.pathname)) ||
       (entry.method === "POST" &&
         /^\/api\/content\/articles\/\d+:(?:publish|unpublish)$/u.test(entry.pathname));
-    assert.equal(exact, true, `off-spec staff request observed: ${entry.method} ${entry.pathname}`);
+    assert.equal(
+      exact,
+      true,
+      "off-spec staff request observed: " + entry.method + " " + entry.pathname,
+    );
+  }
+  const staffMutations = staffRequests.filter((entry) => ["PATCH", "POST"].includes(entry.method));
+  assert.ok(staffMutations.length >= 3, "staff arc must mutate through the native API");
+  for (const mutation of staffMutations) {
+    assert.ok(
+      mutation.idempotencyKey,
+      "missing idempotency key: " + mutation.method + " " + mutation.pathname,
+    );
+    const createsArticle =
+      mutation.method === "POST" && mutation.pathname === "/api/content/articles";
+    if (!createsArticle) {
+      assert.match(mutation.ifMatch ?? "", /^"vkr2\./u);
+    }
+    assert.equal(mutation.requestFields?.includes("commandId"), false);
+    assert.equal(mutation.requestFields?.includes("expectedRevision"), false);
   }
   assert.deepEqual(
     ledger.filter(
@@ -536,7 +569,7 @@ try {
     seed: seedEvidence,
     browser: browserEvidence,
     requestLedger: {
-      bridgePath: "/content",
+      bridgePath: "/dashboard/content",
       workspaceRequests,
       forcedFailures: forcedFailures.length,
       forwardedSuccesses: forwardedSuccesses.length,
