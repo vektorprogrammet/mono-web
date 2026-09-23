@@ -13,7 +13,7 @@ Technical ownership lives in [architecture.md](architecture.md).
 3. Team membership is not volunteer affiliation.
 4. Interview assignment is not admission authority.
 5. A navigation label is not authorization.
-6. External recipients get narrow capabilities, not staff accounts by default.
+6. An authenticated human action uses IAM with only the required scope.
 7. The software records facts and enforces authority. An authorized human makes
    ambiguous business decisions.
 
@@ -29,12 +29,17 @@ Technical ownership lives in [architecture.md](architecture.md).
 | Volunteer               | Maintain own profile, availability, preferences, claims, and substitute interest | Own active affiliation                         | Team or administrative authority          |
 | Team member             | Perform work for an organizational unit                                          | Active appointment                             | Volunteer affiliation                     |
 | Team leader             | Manage scoped membership and team operations                                     | Active leadership appointment                  | Authority outside the unit or interval    |
-| School contact          | Provide school demand or feedback through a narrow capability                    | Named school and semester                      | Staff account or unrelated school access  |
+| School contact          | Provide demand or evidence to a coordinator; use IAM if acting in the app        | Named school and semester                      | Coordinator or unrelated school authority |
 | Receipt approver        | Read scoped receipt files and decide claims                                      | Active economy grant and claim scope           | General finance or payment authority      |
 | Coordinator             | Propose and confirm scoped school placements and coverage                        | Chapter, school, and semester scope            | National authority                        |
 | Global administrator    | Perform exceptional administrative actions                                       | Explicit active grant                          | Ownership of every business decision      |
 | System operator         | Run migration, backup, restore, deployment, and recovery                         | Production environment authority               | Business approval authority               |
 | Delivery worker         | Claim committed outbox work and record attempts                                  | Technical outbox lease                         | Power to create the business fact         |
+
+Sponsor-team members seek funding from businesses and organizations. Their team
+appointments do not create volunteer affiliation or finance approval authority.
+Sponsor presentation is content, not proof of a sponsorship agreement or income.
+Record only team activities that the application actually supports.
 
 ## End-to-end processes
 
@@ -81,20 +86,21 @@ Historical placement and assessment records must survive.
 ### Plan and deliver school service
 
 ```text
-school demand
-  + volunteer affiliation and availability
-  -> constrained proposal
-  -> coordinator confirmation
-  -> roster
-  -> absence or substitute resolution
-  -> teaching-service event
-  -> service history
+school demand + assistant supply
+  -> reviewed proposal
+  -> confirmed recurring roster
+  -> dated school commitment and scheduled assignments
+  -> absence and reassignment when needed
+  -> recorded transition evidence
+  -> Completed | Cancelled | Unfulfilled
 ```
 
-Native synthetic journeys cover demand, roster confirmation, absence, dispatch,
-attendance, and service closure. [State](../STATE.md) defines their observed
-scope. No-show handling, corrections, and required coordinator reports need a
-fresh operational-use check. A certificate is not a cutover gate by default.
+The native implementation proves roster confirmation, dated absence, sequential
+substitute offers, acknowledgement, attendance, and per-absence Covered or
+Uncovered closure with synthetic resources. These facts do not yet establish a
+dated commitment or a terminal school-service outcome. [State](../STATE.md)
+records the evidence boundary. No-show handling and required coordinator reports
+need an operational-use check; certificates are not a default cutover gate.
 
 ### Reimburse an expense
 
@@ -167,18 +173,19 @@ one business transition, the observable result, a denied case, and recovery from
 retry or failure. A different native workflow is valid when those properties
 hold. A row in an API catalogue is not sufficient proof.
 
-| Contract                            | Observable result that must survive replacement                                                                                                                                                              | Failure that must be rejected                                                                                                               |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and own profile            | One Person can claim or use an Account, recover access, and edit only their own profile. Account, affiliation, and role remain separate.                                                                     | Unmapped or inactive identity, reused recovery link, another Person's profile, or a stale grant.                                            |
-| Recruitment and onboarding          | A public application, assigned interview, recommendation, invitation, claim, affiliation request, and leader decision remain separate visible facts. A returning volunteer keeps their identity and history. | Closed-period or duplicate application, unassigned assessment, invalid invitation, cross-chapter action, or an inferred admission decision. |
-| Organization and authority          | Leaders manage effective-dated units, appointments, membership, and directory facts within their scope. Revocation affects the next action.                                                                  | Local title used as national authority, expired appointment, team interest used as membership, or team membership used as affiliation.      |
-| School demand and placement         | A coordinator sees demand and eligible supply, reviews proposal exceptions, then confirms a roster. Placement edits retain history and notify assigned people.                                               | Stale or unreviewed proposal, wrong school or semester, overlap, or history used to invent a current placement.                             |
-| Delivered service and coverage      | Confirmed rosters produce exact occurrences. Absence, sequential offers, addressed responses, coordinator acknowledgement, and Covered or Uncovered closure stay distinct.                                   | Unconfirmed slot, ineligible substitute, wrong recipient, concurrent offer, or accepted but unacknowledged coverage counted as service.     |
-| Expense reimbursement               | A claimant submits a claim and verified private file. A scoped approver decides it. A separately authorized recorder attaches immutable external settlement evidence.                                        | Another owner's file, cross-scope approval, file-less import, stale edit, or approval/refunded status presented as payment proof.           |
-| Communication and operational reads | Recipients see current status and authorized history. Committed notifications can recover after provider failure without a second business decision.                                                         | Lost outbox work, duplicate effect, confidential cross-scope read, or a report that confuses unknown, rejected, and absent facts.           |
+| Contract                            | Observable result that must survive replacement                                                                                                                                                                                               | Failure that must be rejected                                                                                                                      |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and own profile            | One Person can claim or use an Account, recover access, and edit only their own profile. Account, affiliation, and role remain separate.                                                                                                      | Unmapped or inactive identity, reused recovery link, another Person's profile, or a stale grant.                                                   |
+| Recruitment and onboarding          | A public application, assigned interview, recommendation, invitation, claim, affiliation request, and leader decision remain separate visible facts. A returning volunteer keeps their identity and history.                                  | Closed-period or duplicate application, unassigned assessment, invalid invitation, cross-chapter action, or an inferred admission decision.        |
+| Organization and authority          | Leaders manage effective-dated units, appointments, membership, and directory facts within their scope. Revocation affects the next action.                                                                                                   | Local title used as national authority, expired appointment, team interest used as membership, or team membership used as affiliation.             |
+| School demand and placement         | A coordinator sees demand and eligible supply, reviews proposal exceptions, then confirms a roster. Placement edits retain history and notify assigned people.                                                                                | Stale or unreviewed proposal, wrong school or semester, overlap, or history used to invent a current placement.                                    |
+| Dated service and coverage          | A school commitment names its service interval, demand, and scheduled assistants. Absence can trigger reassignment. Completion, cancellation, or unfulfilled service has distinct evidence; Covered or Uncovered describes each absence only. | A roster or accepted offer counted as attendance, an uncovered assistant counted as a failed whole session, or a terminal result without evidence. |
+| Expense reimbursement               | A claimant submits a claim and verified private file. A scoped approver decides it. A separately authorized recorder attaches immutable external settlement evidence.                                                                         | Another owner's file, cross-scope approval, file-less import, stale edit, or approval/refunded status presented as payment proof.                  |
+| Communication and operational reads | Recipients see current status and authorized history. Committed notifications can recover after provider failure without a second business decision.                                                                                          | Lost outbox work, duplicate effect, confidential cross-scope read, or a report that confuses unknown, rejected, and absent facts.                  |
 
 [Recruitment](system.md#recruitment-and-affiliation),
-[service](system.md#school-demand-and-placement),
+[placement](system.md#school-demand-and-placement),
+[dated service](system.md#dated-school-service),
 [coverage](system.md#substitute-coverage), and
 [economy](system.md#expense-reimbursement) define the detailed transitions.
 The native system adds explicit denials, revisions, idempotency, audit, private
@@ -206,15 +213,15 @@ The migration manifest records source identity, snapshot and watermark, mapping,
 transformation revision, disposition, target identity, and reason. Do not use
 aggregate equality to hide swapped or omitted identities.
 
-| Source cohort or boundary                                         | Current evidence                                                                                                                                                              | Required closure                                                                                                                                                                             |
-| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Person, profile, Account, and credentials                         | The 2024 backup rehearsal imports mapped People and supported hashes; it provisions eligible passwordless identities. One accepted Person still lacks a valid login email.    | Verify current identity and mailbox ownership, correct that address, decide unsupported hashes and aliases, and reconcile every new or changed account. Preserve any new password on replay. |
-| Departments, schools, semesters, and historical assistant service | The local driver imports explicit references and accepted service history. It does not turn history into present authority.                                                   | Reconcile rejected and ambiguous rows against a fresh source; preserve history without fabricating affiliation, placement, or human decisions.                                               |
-| Active affiliation and school placement                           | A synthetic assignment cohort exists, but the 2024 backup cannot establish current placements.                                                                                | Obtain fresh active assignments and explicit Person, chapter, semester, school, and slot mappings. Reject overlap and unowned targets; prove exact current reads.                            |
-| Active recruitment and organization work                          | The current backup cutover reader covers six tables, not all live applications, interviews, invitations, membership, or open demand.                                          | Inventory each active source writer and record. Import, attest empty, or arrange an approved operational handover for every open case. Verify current authority separately from role labels. |
-| Open service and delivery work                                    | Synthetic native coverage and notification journeys exist. The current source import does not account for every live roster, absence, offer, occurrence, or pending delivery. | Inventory open work at the fence. Reconcile accepted, pending, and failed effects without sending historical notifications or losing a promised action.                                      |
-| Receipts, payment accounts, private files, settlement             | The backup has receipt rows and paths but no authorized file bytes. Legacy account numbers are plaintext, and refunded status is not transfer evidence.                       | Obtain verified bytes and digests, map owners and departments, secure payment-account custody, quarantine missing evidence, and reconcile external settlement references separately.         |
-| Non-core retained data                                            | No full native feature clone is required.                                                                                                                                     | Inventory retention and export obligations; protect an archive and decide where readers find it after PHP shutdown.                                                                          |
+| Source cohort or boundary                                         | Current evidence                                                                                                                                                           | Required closure                                                                                                                                                                                                          |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Person, profile, Account, and credentials                         | The 2024 backup rehearsal imports mapped People and supported hashes; it provisions eligible passwordless identities. One accepted Person still lacks a valid login email. | Verify current identity and mailbox ownership, correct that address, decide unsupported hashes and aliases, and reconcile every new or changed account. Preserve any new password on replay.                              |
+| Departments, schools, semesters, and historical assistant service | The local driver imports explicit references and accepted service history. It does not turn history into present authority.                                                | Reconcile rejected and ambiguous rows against a fresh source; preserve history without fabricating affiliation, placement, or human decisions.                                                                            |
+| Active affiliation and school placement                           | A synthetic assignment cohort exists, but the 2024 backup cannot establish current placements.                                                                             | Obtain fresh active assignments and explicit Person, chapter, semester, school, and slot mappings. Reject overlap and unowned targets; prove exact current reads.                                                         |
+| Active recruitment and organization work                          | The current backup cutover reader covers six tables, not all live applications, interviews, invitations, membership, or open demand.                                       | Inventory each active source writer and record. Import, attest empty, or arrange an approved operational handover for every open case. Verify current authority separately from role labels.                              |
+| Open service and delivery work                                    | Synthetic roster, absence, substitute, and notification journeys exist. The source reader does not cover every dated school commitment or pending effect.                  | Inventory open commitments, assignments, absences, offers, outcomes, and delivery attempts at the fence. Import explicit evidence or quarantine; never replay historical notifications or infer completion from a roster. |
+| Receipts, payment accounts, private files, settlement             | The backup has receipt rows and paths but no authorized file bytes. Legacy account numbers are plaintext, and refunded status is not transfer evidence.                    | Obtain verified bytes and digests, map owners and departments, secure payment-account custody, quarantine missing evidence, and reconcile external settlement references separately.                                      |
+| Non-core retained data                                            | Legacy Sponsor records present names, links, and logo paths. They do not establish funding agreements or income. No full feature clone is required.                        | Retain required sponsor records and verified logo assets as content or archive. Inventory real financial obligations separately; do not derive them from presentation records.                                            |
 
 The existing cutover reader selects users, departments, semesters, schools,
 school-department links, and assistant history in one read-only InnoDB snapshot.

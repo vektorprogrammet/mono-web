@@ -1,6 +1,6 @@
 # Intended system
 
-**Status:** Target business model and product behavior. Revised 2026-09-22.
+**Status:** Target business model and product behavior. Revised 2026-09-23.
 
 This document explains the replacement system. It describes intent, not production
 state. [STATE.md](../STATE.md) records what is implemented and accepted.
@@ -11,27 +11,29 @@ Vektorprogrammet connects volunteer university students with partner schools tha
 need mathematics tutoring. The system also supports the organization that recruits,
 places, schedules, and follows up those volunteers.
 
-The operational core is:
+The operational core is a school-service commitment:
 
 ```text
-school demand + eligible volunteer supply
-              |
-              v
-       roster proposal
-              |
-              v
-   coordinator confirmation
-              |
-              v
-    delivered teaching service
-              |
-              v
-history, certificate, feedback, and coverage recovery
+school demand + eligible assistant supply
+  -> reviewed proposal
+  -> coordinator-confirmed roster
+  -> dated school-service commitment
+  -> absence and reassignment when needed
+  -> Completed | Cancelled | Unfulfilled
+  -> immutable evidence and service history
 ```
 
-Recruitment, onboarding, organization administration, expenses, events, surveys,
-content, and communication support this core. They are separate workflows, not one
-large aggregate.
+Recruitment, onboarding, organization administration, expense reimbursement,
+events, surveys, content, and communication support this core. They are
+separate workflows, not one aggregate.
+
+Sponsor teams seek support from businesses and organizations. Their funding
+supports voluntary school service, chapter operations, and internal social
+activities for student members.
+IAM identifies people and grants scoped authority across these activities.
+Team membership does not make a person an assistant, and sponsorship does not
+grant school-service or payment authority. The system does not automate every
+human team activity or assume that sponsor presentation is an income ledger.
 
 ## Business facts
 
@@ -42,7 +44,11 @@ large aggregate.
 - A **VolunteerAffiliation** records that a person can serve as an assistant in one
   local chapter. It has an independent lifecycle.
 - An **Appointment** records a position in an organizational unit for a time range.
-- A **Placement** records assigned teaching service at a school.
+- A **Placement** assigns an assistant to recurring school service in a semester.
+- A **SchoolServiceCommitment** binds a school, dated service interval, demand,
+  and the assistants scheduled to meet it. It does not replace a Placement.
+- An **Absence** records that one scheduled assistant cannot serve on that dated
+  commitment. It does not erase the placement or the school's need.
 - A **SemesterRef** identifies an external semester. Vektorprogrammet uses semesters
   but does not own their lifecycle.
 - Roles shown in a menu are projections. They are not the authority model.
@@ -142,10 +148,39 @@ The coordinator records demand for an active school, weekday, and teaching block
 A proposal snapshots that demand and the current active placements. Every mismatch
 is explicit, and confirmation requires an exact review of those exceptions.
 
-Confirmation creates one durable notification for each unique assigned volunteer.
-Without an absence, the coordinator records an occurrence with the exact confirmed
-roster. Proposal generation never changes a placement, and placement history
-remains after edits or removal.
+Confirmation freezes the roster snapshot and queues one notification per assigned
+assistant. It does not prove that service occurred on a specific date. Proposal
+generation never changes a placement. Placement history survives edits and removal.
+
+### Dated school service
+
+An authorized coordinator establishes a commitment for one school, date, and
+bounded service interval from a confirmed roster. It records the required number
+of assistants and their scheduled assignments. An absence affects one assignment.
+A substitute can cover that assignment without changing the confirmed roster or
+the assistant's semester placement.
+
+The interval starts before it ends, and required demand is positive. A reviewed
+proposal can still have no assigned assistant; this leaves visible unmet demand.
+It cannot become Completed without evidence that actual attendance met demand.
+
+The coordinator acts within the school and semester scope. The coordinator can
+record evidence received from a school contact and retain its source. If the
+contact acts in the application, IAM grants only the required school scope.
+
+The commitment stays open until an authorized actor records one terminal outcome:
+
+| Outcome     | Required evidence                                                                                                                                                    |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Completed   | An immutable occurrence records actual attendance for the same interval. Attendance and acknowledged substitutes meet the recorded demand.                           |
+| Cancelled   | The decision records the actor, time, reason, and source of the cancellation. It records no invented attendance.                                                     |
+| Unfulfilled | The decision records unmet demand, any actual attendance, the actor, time, and supporting evidence. An uncovered absence alone does not decide the whole commitment. |
+
+A request for better evidence leaves the commitment open. An elapsed end time
+marks it overdue for review; time alone does not prove completion or cancellation.
+A terminal decision is immutable. Concurrent or repeated commands cannot create
+a second terminal outcome. A later correction needs a separate authorized
+reversal contract; it cannot silently rewrite the original evidence.
 
 ### Substitute coverage
 
@@ -162,10 +197,15 @@ Only the addressed substitute can accept or decline. A coordinator can withdraw 
 unacknowledged offer or acknowledge one accepted offer. Provider failure does not
 roll back the offer. Retry uses the same immutable envelope and effect identity.
 
-Service closure records one occurrence with the confirmed roster minus absent
-people plus acknowledged substitutes. Each absence closes as `Covered` or
-`Uncovered`. Absence, offer, response, acknowledgement, delivery, occurrence, and
-closure remain separate durable facts. Pool membership alone implies none of them.
+When service occurs, its attendance records the confirmed roster minus absent
+assistants plus acknowledged substitutes. An absence closes as Covered or
+Uncovered against that occurrence. These outcomes describe one assignment,
+not the whole school commitment. Cancellation or unfulfilled service with no
+attendance records no invented occurrence. Resolve outstanding offers before a
+terminal decision. Pending notifications remain recoverable after the decision;
+provider failure does not prevent closure. Absence, offer, response,
+acknowledgement, occurrence, and session outcome remain separate durable facts.
+Pool membership implies none of them.
 
 ### Expense reimbursement
 

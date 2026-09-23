@@ -45,6 +45,13 @@ Implemented native journeys include:
 These journeys were observed with synthetic local resources. This is not
 production cutover evidence.
 
+The confirmed native roster is a recurring semester weekday/block snapshot.
+Date-specific absences, offers, and occurrences exist, but there is no separate
+bounded school-service commitment. Covered and Uncovered close one absence,
+not the school session. The native system has no session-level Completed,
+Cancelled, or Unfulfilled decision with required evidence. The intended model
+now separates these outcomes.
+
 A mounted local HTTP rehearsal now verifies receipt approval-queue reads by a
 scoped service bearer without a Person cookie. Unscoped and revoked grants,
 revoked credentials, and mixed human and machine credentials are denied. Human
@@ -118,6 +125,17 @@ The implemented recruitment sequence is complete under the current product model
 It keeps recommendation, invitation, account claim, affiliation, and placement as
 separate facts. It does not infer an admission decision. Adding one requires a new
 product decision that names the fact and its authority.
+
+The next local product journey is one dated school-service commitment from a
+confirmed roster through assignment-specific absence, reassignment, and an
+evidence-backed terminal outcome. Build its domain, persistence, HTTP, generated
+SDK, and coordinator/assistant reads as one contract. Exercise completion,
+cancellation, partial or unfulfilled service, retry, denial, and recovery with
+local synthetic state. Do not turn a historical placement into a dated session.
+
+Import of open school service needs a fresh, authorized read-only inventory of
+current source records and writers. The six-table backup reader cannot establish
+which commitments, absences, offers, or notifications are pending today.
 
 Close the remaining replacement gates in this order:
 
