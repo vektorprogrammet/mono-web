@@ -188,9 +188,7 @@ const personOrServiceSecurityLayer = Layer.effect(
           ),
         );
         if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
-          return rejectedCredential(
-            'VektorSession realm="native-api", Bearer realm="native-api"',
-          );
+          return rejectedCredential('VektorSession realm="native-api", Bearer realm="native-api"');
         }
         return yield* httpEffect;
       });
