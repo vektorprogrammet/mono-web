@@ -194,6 +194,12 @@ const errorResponse = (cause: unknown): Response => {
     }
   }
   const sqlCode = sqlField(cause, "code");
+  if (
+    sqlCode === "23P01" &&
+    sqlField(cause, "constraint") === "school_service_person_reservation_no_overlap"
+  ) {
+    return nativeProblemResponse("transaction.conflict", 409);
+  }
   if (sqlCode === "40001" || sqlCode === "40P01") {
     return nativeProblemResponse("transaction.conflict", 409);
   }
