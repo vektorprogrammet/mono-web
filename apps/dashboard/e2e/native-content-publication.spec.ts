@@ -395,7 +395,7 @@ test.describe("Native Content publication (spec 0062)", () => {
             credentials: "include",
             headers: {
               "content-type": "application/json",
-              "Idempotency-Key": "author-forced-publish",
+              "Idempotency-Key": "author-forced-publish-denial",
               "If-Match": etag,
             },
             body: "{}",
