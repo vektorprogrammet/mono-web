@@ -469,10 +469,12 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       .selectOption(manifest.coverage.candidateId);
     await dispatchCovered.getByRole("button", { name: "Send vikartilbud", exact: true }).click();
     await submittedAndRemoved(dispatchCovered);
+    const offerTitle = (serviceDate: string) =>
+      `Skole Beta, ${serviceDate} kl. 09:00–11:00 — Monday, bolk 2`;
     await wrongPage.reload();
     await expect(
       wrongPage.getByRole("form", {
-        name: `Vikartilbud: Skole Beta, ${manifest.coverage.serviceDate}, bolk 2`,
+        name: `Vikartilbud: ${offerTitle(manifest.coverage.serviceDate)}`,
         exact: true,
       }),
     ).toHaveCount(0);
@@ -482,7 +484,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await selectScope(candidatePage);
     await candidatePage.setViewportSize({ width: 390, height: 844 });
     const candidateOffer = candidatePage.getByRole("form", {
-      name: `Vikartilbud: Skole Beta, ${manifest.coverage.serviceDate}, bolk 2`,
+      name: `Vikartilbud: ${offerTitle(manifest.coverage.serviceDate)}`,
       exact: true,
     });
     await expect
@@ -506,7 +508,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await candidatePage.reload();
     const acceptedOfferArticle = candidatePage
       .getByRole("heading", {
-        name: `Skole Beta, ${manifest.coverage.serviceDate} — Monday, bolk 2`,
+        name: offerTitle(manifest.coverage.serviceDate),
         exact: true,
       })
       .locator("xpath=..");
@@ -523,7 +525,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     });
     await page.reload();
     await other.reload();
-    const acknowledgementName = `Dekningstilbud: ${manifest.coverage.candidateFirstName} ${manifest.coverage.candidateLastName}, ${manifest.coverage.serviceDate}`;
+    const acknowledgementName = `Dekningstilbud: ${manifest.coverage.candidateFirstName} ${manifest.coverage.candidateLastName}, ${offerTitle(manifest.coverage.serviceDate)}`;
     const acknowledgeCoverage = page.getByRole("form", { name: acknowledgementName, exact: true });
     const staleAcknowledgement = other.getByRole("form", {
       name: acknowledgementName,
@@ -545,7 +547,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await page.reload();
     const acknowledgedOfferArticle = page
       .getByRole("heading", {
-        name: `Skole Beta, ${manifest.coverage.serviceDate} — Monday, bolk 2`,
+        name: offerTitle(manifest.coverage.serviceDate),
         exact: true,
       })
       .locator("xpath=..");
@@ -631,7 +633,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       .toBe("Delivered");
     await candidatePage.reload();
     const declinedOffer = candidatePage.getByRole("form", {
-      name: `Vikartilbud: Skole Beta, ${manifest.coverage.secondServiceDate}, bolk 2`,
+      name: `Vikartilbud: ${offerTitle(manifest.coverage.secondServiceDate)}`,
       exact: true,
     });
     await declinedOffer.getByRole("button", { name: "Avslå tilbud", exact: true }).click();
@@ -664,7 +666,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await page.reload();
     const withdrawOffer = page
       .getByRole("form", {
-        name: `Dekningstilbud: ${manifest.coverage.candidateFirstName} ${manifest.coverage.candidateLastName}, ${manifest.coverage.secondServiceDate}`,
+        name: `Dekningstilbud: ${manifest.coverage.candidateFirstName} ${manifest.coverage.candidateLastName}, ${offerTitle(manifest.coverage.secondServiceDate)}`,
         exact: true,
       })
       .filter({ has: page.getByRole("button", { name: "Trekk tilbake tilbud", exact: true }) });
