@@ -420,6 +420,7 @@ const articleContext = (
   facts: {
     state: detail.status,
     ownerPersonId: createdByPersonId,
+    revisable: detail.canRevise,
     publishable: detail.canPublish,
     unpublishable: detail.status === "Published",
   },

@@ -231,7 +231,7 @@ export const ReviseArticleEndpoint = HttpApiEndpoint.patch(
       personNativeAccess({
         capability: "content.revise-article",
         canonicalScopeResolver: "content.article-by-id",
-        requirements: ["content.draft", "content.owner"],
+        requirements: ["content.draft", "content.revisable"],
         decisionTime: "Transaction",
       }),
     ),

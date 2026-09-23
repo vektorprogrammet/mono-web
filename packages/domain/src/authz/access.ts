@@ -192,7 +192,7 @@ export const REQUIREMENT_IDS = [
   "receipts.rejected",
   "receipts.approver-relationship",
   "content.draft",
-  "content.owner",
+  "content.revisable",
   "content.publishable",
   "content.unpublishable",
 ] as const;
@@ -640,10 +640,11 @@ export const REQUIREMENT_TYPES = {
     GenericRequirementContextSchema,
     stateIs("Draft"),
   ),
-  "content.owner": registration(
+  "content.revisable": registration(
     ["content.article-by-id"],
     GenericRequirementContextSchema,
-    ownedByPerson,
+    (_parameters, _principal, context) =>
+      genericFacts(context).revisable === true ? satisfied : failed("NotRevisable"),
   ),
   "content.publishable": registration(
     ["content.article-by-id"],
@@ -716,7 +717,7 @@ const resolverRequirements: Partial<
   "receipts.approval-queue": ["receipts.pending", "receipts.approver-relationship"],
   "content.article-by-id": [
     "content.draft",
-    "content.owner",
+    "content.revisable",
     "content.publishable",
     "content.unpublishable",
   ],

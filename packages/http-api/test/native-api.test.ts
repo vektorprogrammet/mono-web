@@ -719,7 +719,7 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     person(
       "content.revise-article",
       "content.article-by-id",
-      ["content.draft", "content.owner"],
+      ["content.draft", "content.revisable"],
       "Transaction",
     ),
   ],

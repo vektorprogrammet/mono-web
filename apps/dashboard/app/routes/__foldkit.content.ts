@@ -1,13 +1,16 @@
-import { ArticleId } from "@vektorprogrammet/http-api"
-import { ArticleMergePatch, CreateArticleRequest, IdempotencyKey, StrongETag } from "@vektorprogrammet/http-api";
+import { ArticleId } from "@vektorprogrammet/http-api";
+import {
+  ArticleMergePatch,
+  CreateArticleRequest,
+  IdempotencyKey,
+  StrongETag,
+} from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 import { data } from "react-router";
-import {
-  contentBridgeFailure,
-  type ContentBridgeErrorTag,
-} from "../foldkit/content/bridge";
+import { contentBridgeFailure, type ContentBridgeErrorTag } from "../foldkit/content/bridge";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
+import { nativeProblemFrom } from "../lib/native-problem";
 import type { Route } from "./+types/__foldkit.content";
 
 const responseHeaders = {
@@ -67,15 +70,14 @@ const tagFrom = (error: unknown): ContentBridgeErrorTag => {
   if (error instanceof Response && error.status >= 300 && error.status < 400) {
     return "UnauthenticatedActor";
   }
-  const code =
-    typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
-      ? error.code
-      : "";
+  const code = nativeProblemFrom(error)?.code ?? "";
   if (code === "credential.missing" || code === "credential.invalid") {
     return "UnauthenticatedActor";
   }
   if (code === "authority.denied" || code === "scope.not-found") return "NotInScope";
-  if (code === "resource.not-found") return "ArticleNotFound";
+  if (code === "resource.not-found" || code === "content.article-not-found") {
+    return "ArticleNotFound";
+  }
   if (code.includes("slug")) return "SlugConflict";
   if (code.includes("department")) return "DepartmentNotFound";
   if (code.startsWith("precondition.") || code.startsWith("idempotency.")) {
@@ -84,14 +86,19 @@ const tagFrom = (error: unknown): ContentBridgeErrorTag => {
   if (code.startsWith("validation.") || code === "request.malformed") {
     return "ContentDecodeError";
   }
+  if (code === "content.integrity-error" || code === "internal.error") {
+    return "ContentIntegrityError";
+  }
   if (code === "dependency.unavailable") return "Network";
   return "ContentPersistenceError";
 };
 
-const articleObservation = <A extends {
-  readonly body: unknown;
-  readonly headers: { readonly etag: StrongETag };
-}>(
+const articleObservation = <
+  A extends {
+    readonly body: unknown;
+    readonly headers: { readonly etag: StrongETag };
+  },
+>(
   result: A,
 ) => {
   if (result.body === undefined) throw new Error("Content response did not include a body");
