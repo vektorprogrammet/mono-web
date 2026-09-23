@@ -22,19 +22,11 @@ const upstreamFailure = (): Response =>
 
 const notFound = (): Response => new Response("Nyheten finnes ikke.", { status: 404 });
 
-const hasProblemCode = (error: unknown, code: string): error is { readonly code: string } =>
-  typeof error === "object" && error !== null && "code" in error && error.code === code;
-
-const hasResponseStatus = (error: unknown, status: number): boolean => {
-  if (typeof error !== "object" || error === null || !("reason" in error)) return false;
-  const reason = error.reason;
-  if (typeof reason !== "object" || reason === null || !("response" in reason)) return false;
-  const response = reason.response;
+const hasProblemCode = (error: unknown, code: string): boolean => {
+  if (typeof error !== "object" || error === null) return false;
+  const problem = "body" in error ? error.body : error;
   return (
-    typeof response === "object" &&
-    response !== null &&
-    "status" in response &&
-    response.status === status
+    typeof problem === "object" && problem !== null && "code" in problem && problem.code === code
   );
 };
 
@@ -110,11 +102,8 @@ export const loadNewsArticle = async (
         .slice(0, NEWS_TEASER_COUNT),
     };
   } catch (error) {
-    // This endpoint has one 404 alternative. Effect exposes decoded problems
-    // when possible and otherwise preserves the authoritative HTTP status.
-    if (hasProblemCode(error, "content.article-not-found") || hasResponseStatus(error, 404)) {
-      throw notFound();
-    }
+    // The generated SDK retains response headers around canonical problem bodies.
+    if (hasProblemCode(error, "content.article-not-found")) throw notFound();
     throw upstreamFailure();
   }
 };
