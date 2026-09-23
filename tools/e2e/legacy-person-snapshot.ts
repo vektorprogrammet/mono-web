@@ -53,7 +53,8 @@ export const buildLegacyPersonSnapshot = (
           {
             _tag: "CreatePerson" as const,
             sourceUserId: row.sourceUserId,
-            personId: ("legacy-person-" + row.sourceUserId.slice("legacy-user:".length)) as PersonId,
+            personId: ("legacy-person-" +
+              row.sourceUserId.slice("legacy-user:".length)) as PersonId,
             emailOwnership: {
               email: row.email as string,
               attestedBy: identity.attestedBy,

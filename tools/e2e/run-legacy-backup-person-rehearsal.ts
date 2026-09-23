@@ -36,7 +36,7 @@ import { PersonId } from "@vektorprogrammet/domain/organization";
 import { Effect, Redacted, Schema } from "effect";
 import { Pool } from "pg";
 import { buildLegacyPersonSnapshot, type LegacyUserJson } from "./legacy-person-snapshot";
-import { runLegacyServiceCutover } from "./run-legacy-service-cutover";
+import { CutoverStageFailure, runLegacyServiceCutover } from "./run-legacy-service-cutover";
 
 const moduleFile = fileURLToPath(import.meta.url);
 const repositoryRoot = resolve(dirname(moduleFile), "../..");
@@ -44,6 +44,8 @@ const expectedSourceSha256 = "0ee71a6d3009181f1711ca9ee73917a8945c340d1ecd9f729b
 const expectedSourceSize = 8_254_002;
 const expectedPersonReportFingerprint =
   "c756dd07171521c0db72abdef1f531255ac311ed5014aae667d8fab26f21c299";
+const expectedHistoricalStateFingerprint =
+  "803940f7aab3f9da92d61abd3b5e6cdb2b65bc01080bf14fd9f1013310a64457";
 const expectedLegacyShape = {
   tables: 65,
   entityTables: 48,
@@ -311,6 +313,39 @@ const nativeStateFingerprint = async (pool: Pool): Promise<string> => {
   });
 };
 
+const cutoverState = async (pool: Pool) => {
+  const rows = async (sql: string) => (await pool.query<Record<string, unknown>>(sql)).rows;
+  const counts = (
+    await pool.query<Record<string, string>>(`
+    SELECT (SELECT count(*) FROM public.assistant_service_history)::text AS history,
+           (SELECT count(*) FROM public.assistant_affiliation_history)::text AS affiliations,
+           (SELECT count(*) FROM public.organization_volunteer_affiliations)::text AS current_affiliations,
+           (SELECT count(*) FROM public.assistant_placements)::text AS current_placements
+  `)
+  ).rows[0]!;
+  return {
+    counts: {
+      history: toInt(counts.history),
+      affiliations: toInt(counts.affiliations),
+      current_affiliations: toInt(counts.current_affiliations),
+      current_placements: toInt(counts.current_placements),
+    },
+    fingerprint: digest({
+      occurrences: await rows(
+        "SELECT occurrence_id, disposition, reason, raw_row_digest, source_row_digest FROM public.historical_service_occurrences ORDER BY occurrence_id",
+      ),
+      history: await rows(
+        "SELECT source_history_id, source_user_id, person_id, department_id, semester_id, school_id, source_digest FROM public.assistant_service_history ORDER BY source_history_id",
+      ),
+      references: await rows(
+        "SELECT source_repository, snapshot_id, source_revision, reference_digest, source_id_mappings FROM public.historical_service_reference_provenance ORDER BY source_repository, snapshot_id",
+      ),
+      schools: await rows(
+        "SELECT school_id::text, name, contact_person, email, phone, language, active FROM public.schools_directory_schools ORDER BY school_id",
+      ),
+    }),
+  };
+};
 const expectFailure = async (
   effect: Promise<unknown>,
   code: PersonCohortFailure["code"],
@@ -385,6 +420,8 @@ const runRehearsal = async (temporaryRoot: string) => {
   let postgresStarted = false;
   let pool: Pool | undefined;
   let restoredPool: Pool | undefined;
+  let cutoverPool: Pool | undefined;
+  let restoredCutoverPool: Pool | undefined;
   let completedReport: Record<string, unknown> | undefined;
   let cleanupFailed = false;
   try {
@@ -404,8 +441,10 @@ const runRehearsal = async (temporaryRoot: string) => {
       redactStderr: true,
     });
     // Disposable socket-only source account: no writer grants and no remote transport.
-    await mysql(mysqlSocket,
-      "CREATE USER 'legacy_cutover_reader'@'localhost'; GRANT SELECT ON vektor.* TO 'legacy_cutover_reader'@'localhost'");
+    await mysql(
+      mysqlSocket,
+      "CREATE USER 'legacy_cutover_reader'@'localhost'; GRANT SELECT ON vektor.* TO 'legacy_cutover_reader'@'localhost'",
+    );
 
     const shape = JSON.parse(
       await mysql(
@@ -751,35 +790,195 @@ const runRehearsal = async (temporaryRoot: string) => {
     ).length;
     const reasons = reasonCounts(committedReport);
     const cutoverDatabase = "legacy_service_cutover_rehearsal";
-    await run(["createdb", "-h", postgresRoot, "-p", String(postgresPort),
-      "-U", "postgres", cutoverDatabase]);
+    await run([
+      "createdb",
+      "-h",
+      postgresRoot,
+      "-p",
+      String(postgresPort),
+      "-U",
+      "postgres",
+      cutoverDatabase,
+    ]);
     const cutoverTargetUrl = postgresUrl(postgresRoot, postgresPort, cutoverDatabase);
     await migrateNativeDatabase(cutoverTargetUrl);
     const cutoverSourceUrl = new URL("mysql://legacy_cutover_reader@localhost/vektor");
     cutoverSourceUrl.searchParams.set("socketPath", mysqlSocket);
     const cutoverOptions = {
-      sourceUrl: cutoverSourceUrl.toString(), targetUrl: cutoverTargetUrl,
-      targetDatabase: cutoverDatabase, snapshotId: "vektor-backup-2024-08-22-service",
+      sourceUrl: cutoverSourceUrl.toString(),
+      targetUrl: cutoverTargetUrl,
+      targetDatabase: cutoverDatabase,
+      snapshotId: "vektor-backup-2024-08-22-service",
       attestedBy: "legacy-backup-2024-08-22",
     };
-    const cutoverFirst = await runLegacyServiceCutover(cutoverOptions).catch(() => {
-      throw new Error("Local service cutover failed; details redacted");
+    cutoverPool = new Pool({ connectionString: cutoverTargetUrl, max: 2 });
+    await cutoverPool.query("CREATE TABLE public.unrelated_state (id integer PRIMARY KEY)");
+    await cutoverPool.query("INSERT INTO public.unrelated_state (id) VALUES (1)");
+    await assert.rejects(
+      runLegacyServiceCutover(cutoverOptions),
+      (cause: unknown) => cause instanceof CutoverStageFailure && cause.stage === "ReferenceSeed",
+    );
+    await cutoverPool.query("DROP TABLE public.unrelated_state");
+    await cutoverPool.query(`
+      CREATE OR REPLACE FUNCTION public.fail_historical_cutover_insert()
+      RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        RAISE EXCEPTION 'deliberate history cutover rollback';
+      END;
+      $$;
+      CREATE TRIGGER fail_historical_cutover_insert
+      BEFORE INSERT ON public.assistant_service_history
+      FOR EACH ROW EXECUTE FUNCTION public.fail_historical_cutover_insert();
+    `);
+    await assert.rejects(
+      runLegacyServiceCutover(cutoverOptions),
+      (cause: unknown) =>
+        cause instanceof CutoverStageFailure && cause.stage === "HistoricalImport",
+    );
+    const rolledBack = await cutoverPool.query<Record<string, string>>(`
+      SELECT (SELECT count(*) FROM public.historical_service_reference_provenance)::text AS refs,
+             (SELECT count(*) FROM public.person_profiles)::text AS people,
+             (SELECT count(*) FROM public.assistant_service_history)::text AS history,
+             (SELECT count(*) FROM public.historical_service_snapshots)::text AS snapshots
+    `);
+    assert.deepEqual(
+      rolledBack.rows[0],
+      { refs: "0", people: "0", history: "0", snapshots: "0" },
+      "Failed cutover left partial native state",
+    );
+    await cutoverPool.query(`
+      DROP TRIGGER fail_historical_cutover_insert ON public.assistant_service_history;
+      DROP FUNCTION public.fail_historical_cutover_insert();
+    `);
+    const cutoverFirst = await runLegacyServiceCutover(cutoverOptions).catch((cause: unknown) => {
+      throw new Error(
+        cause instanceof CutoverStageFailure
+          ? cause.message
+          : "Local service cutover failed; details redacted",
+      );
     });
-    assert.deepEqual({
-      departments: cutoverFirst.references.departments,
-      semesters: cutoverFirst.references.semesters,
-      schools: cutoverFirst.references.schools,
-      relationships: cutoverFirst.references.relationships,
-      historical: cutoverFirst.historicalService.input,
-    }, { departments: 5, semesters: 28, schools: 44, relationships: 43, historical: 1815 });
+    assert.deepEqual(
+      {
+        departments: cutoverFirst.references.departments,
+        semesters: cutoverFirst.references.semesters,
+        schools: cutoverFirst.references.schools,
+        relationships: cutoverFirst.references.relationships,
+        historical: cutoverFirst.historicalService.input,
+      },
+      { departments: 5, semesters: 28, schools: 44, relationships: 43, historical: 1815 },
+    );
     assert.equal(cutoverFirst.currentAssignments, "NotImported");
-    const cutoverReplay = await runLegacyServiceCutover(cutoverOptions).catch(() => {
-      throw new Error("Local service cutover replay failed; details redacted");
+    assert.deepEqual(
+      {
+        accepted: cutoverFirst.historicalService.accepted,
+        quarantined: cutoverFirst.historicalService.quarantined,
+        reasons: cutoverFirst.historicalService.reasons,
+      },
+      {
+        accepted: 1690,
+        quarantined: 125,
+        reasons: { DuplicateTarget: 10, Imported: 1690, InvalidRow: 105, MappingMissing: 10 },
+      },
+      "Real legacy history dispositions changed",
+    );
+    const cutoverBefore = await cutoverState(cutoverPool);
+    assert.equal(
+      cutoverBefore.fingerprint,
+      expectedHistoricalStateFingerprint,
+      "Real historical dispositions or native references changed",
+    );
+    assert.equal(cutoverBefore.counts.history, 1690);
+    assert.ok(
+      cutoverBefore.counts.affiliations > 0 &&
+        cutoverBefore.counts.affiliations <= cutoverBefore.counts.history,
+    );
+    assert.equal(cutoverBefore.counts.current_affiliations, 0);
+    assert.equal(cutoverBefore.counts.current_placements, 0);
+    const cutoverReplay = await runLegacyServiceCutover(cutoverOptions).catch((cause: unknown) => {
+      throw new Error(
+        cause instanceof CutoverStageFailure
+          ? cause.message
+          : "Local service cutover replay failed; details redacted",
+      );
     });
     assert.equal(cutoverReplay.references.stage, "ExactReplay");
     assert.equal(cutoverReplay.person.stage, "ExactReplay");
-    assert.deepEqual(cutoverReplay.historicalService, cutoverFirst.historicalService,
-      "Historical service replay diverged; details redacted");
+    assert.deepEqual(
+      cutoverReplay.historicalService,
+      cutoverFirst.historicalService,
+      "Historical service replay diverged; details redacted",
+    );
+    assert.deepEqual(
+      await cutoverState(cutoverPool),
+      cutoverBefore,
+      "Replay changed native historical content",
+    );
+    const cutoverDumpPath = join(privateRoot, "service-native.dump");
+    await run(
+      [
+        "pg_dump",
+        "-Fc",
+        "-h",
+        postgresRoot,
+        "-p",
+        String(postgresPort),
+        "-U",
+        "postgres",
+        "-d",
+        cutoverDatabase,
+        "-f",
+        cutoverDumpPath,
+      ],
+      { redactStderr: true },
+    );
+    await chmod(cutoverDumpPath, 0o600);
+    await secureRegularFile(cutoverDumpPath, 0o600);
+    const restoredCutoverDatabase = "legacy_service_cutover_restored";
+    await run([
+      "createdb",
+      "-h",
+      postgresRoot,
+      "-p",
+      String(postgresPort),
+      "-U",
+      "postgres",
+      restoredCutoverDatabase,
+    ]);
+    await run(
+      [
+        "pg_restore",
+        "--exit-on-error",
+        "-h",
+        postgresRoot,
+        "-p",
+        String(postgresPort),
+        "-U",
+        "postgres",
+        "-d",
+        restoredCutoverDatabase,
+        cutoverDumpPath,
+      ],
+      { redactStderr: true },
+    );
+    const restoredCutoverUrl = postgresUrl(postgresRoot, postgresPort, restoredCutoverDatabase);
+    restoredCutoverPool = new Pool({ connectionString: restoredCutoverUrl, max: 2 });
+    assert.deepEqual(
+      await cutoverState(restoredCutoverPool),
+      cutoverBefore,
+      "Restored historical content differs",
+    );
+    const restoredCutoverReplay = await runLegacyServiceCutover({
+      ...cutoverOptions,
+      targetUrl: restoredCutoverUrl,
+      targetDatabase: restoredCutoverDatabase,
+    });
+    assert.equal(restoredCutoverReplay.references.stage, "ExactReplay");
+    assert.equal(restoredCutoverReplay.person.stage, "ExactReplay");
+    assert.deepEqual(
+      await cutoverState(restoredCutoverPool),
+      cutoverBefore,
+      "Restored historical replay changed content",
+    );
     completedReport = {
       specification: "legacy-backup-person-rehearsal",
       result: "passed",
@@ -822,7 +1021,7 @@ const runRehearsal = async (temporaryRoot: string) => {
         reportFingerprint: digest(committedReport),
         counts: countsBeforeBackup,
       },
-      cutoverRehearsal: cutoverFirst,
+      cutoverRehearsal: { ...cutoverFirst, native: cutoverBefore },
       gates: {
         postgresTransport: "owner-only-unix-socket",
         rollbackLeavesNoPartialWrites: "passed",
@@ -832,11 +1031,13 @@ const runRehearsal = async (temporaryRoot: string) => {
         backupRestore: "equivalent",
         restoredReplay: "no-additional-writes",
         nativeOwnProfileRead: "passed",
+        cutoverRollbackLeavesNoPartialWrites: "passed",
+        cutoverBackupRestore: "equivalent",
+        cutoverRestoredReplay: "no-additional-writes",
         privateArtifacts: "owner-only-and-cleaned",
       },
       deferredCohorts: [
         "credential-and-account-recovery",
-        "historical-affiliations",
         "current-school-placements",
         "receipt-and-private-files",
       ],
@@ -853,6 +1054,9 @@ const runRehearsal = async (temporaryRoot: string) => {
       processCleanupFailed = true;
     };
     if (restoredPool !== undefined) await restoredPool.end().catch(recordCleanupFailure);
+    if (restoredCutoverPool !== undefined)
+      await restoredCutoverPool.end().catch(recordCleanupFailure);
+    if (cutoverPool !== undefined) await cutoverPool.end().catch(recordCleanupFailure);
     if (pool !== undefined) await pool.end().catch(recordCleanupFailure);
     if (postgresStarted) {
       await run(["pg_ctl", "-D", postgresRoot, "-m", "fast", "-t", "10", "-w", "stop"], {

@@ -44,19 +44,32 @@ The native architecture now uses one Effect backend runtime, one PostgreSQL
 ownership layer, generated HTTP and SDK contracts, transaction-bound authority,
 atomic audit/outbox/receipt writes, and Foldkit dashboard workflows.
 
-The private legacy backup Person/profile cohort has passed the permanent local
-rehearsal against isolated MariaDB and clean PostgreSQL services. The same native
-Person import path intended for final migration proved source-shape validation,
-explicit Person mapping, invalid and inactive-row quarantine, immutable provenance,
-rollback, concurrent import serialization, exact replay, changed-source rejection,
-backup/restore equivalence, native profile reads, private custody, and cleanup. No
-production resource or external provider was used.
+The private 2024-08-22 legacy backup has passed a local cutover rehearsal using a
+SELECT-only MariaDB account and a new disposable PostgreSQL database. The native
+Person importer reconciled 2,893 of 2,923 source people and quarantined 30. The
+same read-only cutover driver seeded 5 departments, 28 semesters, 44 schools, and
+43 school-department links, then reconciled all 1,815 assistant-service rows:
+1,690 imported and 125 quarantined (105 invalid, 10 missing mappings, 10 duplicate
+targets). The native history view contains 1,681 distinct historical affiliations;
+no current affiliation or placement was inferred. The local journey proved
+whole-cutover rollback after induced historical failure, fresh-target rejection,
+exact replay, backup/restore content equivalence, restored replay, and private
+cleanup. The established Person rollback, concurrent import, changed-source,
+and own-profile gates still pass.
 
-Real credential and account recovery, historical affiliation, current placement,
-receipt, and private-file cohorts remain. Their existing synthetic paths accept only
-explicit mappings and immutable Person evidence, preserve append-only source
-provenance, quarantine unsupported or conflicting data, and do not infer current
-authority from historical facts. Production import remains unperformed.
+The reusable cutover driver reads one consistent, read-only InnoDB source snapshot
+through a SELECT-only account; remote source and target connections require
+verified TLS. Its first import requires an explicitly selected, empty native
+database; replay verifies the same source evidence and target references. No
+production SELECT-only credential, connection route, or separate native target
+has been supplied or configured for this rehearsal. The
+2024 backup contains no 2026 current assignments, so it cannot establish current
+placements. Production import remains unperformed.
+
+Real credential and account recovery, current placement, receipt, private-file,
+and settlement-reference cohorts remain. A fresh production source read must also
+reconcile historical changes since the dated backup. Their existing synthetic
+paths do not infer current authority from historical facts.
 
 ## Next
 
@@ -67,8 +80,10 @@ product decision that names the fact and its authority.
 
 Close the remaining replacement gates in this order:
 
-1. Reconcile real credentials, account recovery, historical affiliation, current
-   placement, receipt, private-file, and settlement-reference data.
+1. Obtain a production SELECT-only source route and a new native database; rehearse
+   the live Person, reference, and historical-service cohorts without source writes.
+   Then reconcile credentials, account recovery, current placement, receipts,
+   private files, and settlement references.
 2. Configure and prove the authorized production mail, storage, and external
    settlement-evidence boundaries.
 3. Rehearse production writer transfer, recovery, and rollback.

@@ -61,9 +61,19 @@ export interface LegacySourceSnapshot {
   readonly history: ReadonlyArray<LegacyHistory>;
 }
 
-const sourceTables = ["user", "department", "semester", "school", "department_school", "assistant_history"];
+const sourceTables = [
+  "user",
+  "department",
+  "semester",
+  "school",
+  "department_school",
+  "assistant_history",
+];
 
-const select = async <T extends RowDataPacket>(connection: Connection, sql: string): Promise<T[]> => {
+const select = async <T extends RowDataPacket>(
+  connection: Connection,
+  sql: string,
+): Promise<T[]> => {
   const [rows] = await connection.query<T[]>(sql);
   return rows;
 };
@@ -73,10 +83,16 @@ const select = async <T extends RowDataPacket>(connection: Connection, sql: stri
 export const assertSelectOnlyGrants = (grants: ReadonlyArray<string>, database: string): void => {
   if (grants.length === 0) throw new Error("Source grants are not SELECT-only");
   for (const grant of grants) {
-    const match = /^GRANT (USAGE|SELECT) ON (\*\.\*|`?([A-Za-z0-9_]+)`?\.(?:\*|`?[A-Za-z0-9_]+`?)) TO /i.exec(grant);
-    if (!match || /\bWITH GRANT OPTION\b/i.test(grant) ||
-        (match[1]?.toUpperCase() === "USAGE" && match[2] !== "*.*") ||
-        (match[1]?.toUpperCase() === "SELECT" && match[2] === "*.*"))
+    const match =
+      /^GRANT (USAGE|SELECT) ON (\*\.\*|`?([A-Za-z0-9_]+)`?\.(?:\*|`?[A-Za-z0-9_]+`?)) TO /i.exec(
+        grant,
+      );
+    if (
+      !match ||
+      /\bWITH GRANT OPTION\b/i.test(grant) ||
+      (match[1]?.toUpperCase() === "USAGE" && match[2] !== "*.*") ||
+      (match[1]?.toUpperCase() === "SELECT" && match[2] === "*.*")
+    )
       throw new Error("Source grants are not SELECT-only for the chosen database");
     if (match[3] !== undefined && match[3] !== database)
       throw new Error("Source grants are not SELECT-only for the chosen database");
@@ -84,8 +100,16 @@ export const assertSelectOnlyGrants = (grants: ReadonlyArray<string>, database: 
 };
 
 /** All six InnoDB tables are read under one MariaDB repeatable-read, read-only snapshot. */
-export const readLegacySourceSnapshot = async (sourceUrl: string): Promise<LegacySourceSnapshot> => {
-  const url = new URL(sourceUrl);
+export const readLegacySourceSnapshot = async (
+  sourceUrl: string,
+): Promise<LegacySourceSnapshot> => {
+  const url = (() => {
+    try {
+      return new URL(sourceUrl);
+    } catch {
+      throw new Error("Source connection selection is invalid");
+    }
+  })();
   const database = decodeURIComponent(url.pathname.slice(1));
   if (url.protocol !== "mysql:" || !/^[A-Za-z0-9_]+$/.test(database) || !url.username)
     throw new Error("Source connection selection is invalid");
@@ -95,8 +119,14 @@ export const readLegacySourceSnapshot = async (sourceUrl: string): Promise<Legac
     throw new Error("Source transport options are not permitted");
   if (socketPath !== null && (!socketPath.startsWith("/") || sslCaEnv !== null))
     throw new Error("Local source socket selection is invalid");
-  if (socketPath === null && (!sslCaEnv || !/^[A-Z][A-Z0-9_]*$/.test(sslCaEnv) ||
-      !process.env[sslCaEnv] || !url.hostname || isIP(url.hostname) !== 0))
+  if (
+    socketPath === null &&
+    (!sslCaEnv ||
+      !/^[A-Z][A-Z0-9_]*$/.test(sslCaEnv) ||
+      !process.env[sslCaEnv] ||
+      !url.hostname ||
+      isIP(url.hostname) !== 0)
+  )
     throw new Error("Remote source requires a verified TLS CA and DNS identity");
   const connection = await createConnection({
     host: socketPath ? undefined : url.hostname,
@@ -105,20 +135,31 @@ export const readLegacySourceSnapshot = async (sourceUrl: string): Promise<Legac
     user: decodeURIComponent(url.username),
     password: decodeURIComponent(url.password),
     database,
-    ssl: socketPath ? undefined : { ca: process.env[sslCaEnv!], rejectUnauthorized: true, verifyIdentity: true },
+    ssl: socketPath
+      ? undefined
+      : { ca: process.env[sslCaEnv!], rejectUnauthorized: true, verifyIdentity: true },
     multipleStatements: false,
     supportBigNumbers: true,
     bigNumberStrings: true,
     dateStrings: true,
+  }).catch(() => {
+    throw new Error("Legacy source Connection failed; details redacted");
   });
+  let stage = "Grants";
   try {
     const grants = await select<RowDataPacket>(connection, "SHOW GRANTS FOR CURRENT_USER()");
-    assertSelectOnlyGrants(grants.map((row) => String(Object.values(row)[0])), database);
+    assertSelectOnlyGrants(
+      grants.map((row) => String(Object.values(row)[0])),
+      database,
+    );
+    stage = "DatabaseSelection";
     const selected = await select<RowDataPacket>(connection, "SELECT DATABASE() AS name");
     if (selected[0]?.name !== database) throw new Error("Source database differs from selection");
+    stage = "Transaction";
     await connection.query("SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ");
     await connection.query("START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY");
     try {
+      stage = "Engines";
       const engines = await select<RowDataPacket>(
         connection,
         `SELECT table_name AS tableName, engine
@@ -128,45 +169,70 @@ export const readLegacySourceSnapshot = async (sourceUrl: string): Promise<Legac
       );
       if (
         engines.length !== sourceTables.length ||
-        engines.some((row) => !sourceTables.includes(String(row.tableName)) || row.engine !== "InnoDB")
-      ) throw new Error("Source tables must all use InnoDB");
-      const users = await select<RowDataPacket & LegacyUserJson>(connection,
+        engines.some(
+          (row) => !sourceTables.includes(String(row.tableName)) || row.engine !== "InnoDB",
+        )
+      )
+        throw new Error("Source tables must all use InnoDB");
+      stage = "Users";
+      const users = await select<RowDataPacket & LegacyUserJson>(
+        connection,
         `SELECT id, is_active AS active, firstName, lastName, email, phone,
                 user_name AS username, companyEmail
-           FROM user ORDER BY id`);
+           FROM user ORDER BY id`,
+      );
+      stage = "Departments";
       const departments = Schema.decodeUnknownSync(Schema.Array(Department))(
-        await select<RowDataPacket>(connection,
+        await select<RowDataPacket>(
+          connection,
           `SELECT id, name, short_name AS shortName, email, address, city,
                   latitude, longitude, slackChannel, logo_path AS logoPath, active
-             FROM department ORDER BY id`),
+             FROM department ORDER BY id`,
+        ),
       );
+      stage = "Semesters";
       const semesters = Schema.decodeUnknownSync(Schema.Array(Semester))(
-        await select<RowDataPacket>(connection,
-          "SELECT id, semester_time AS semesterTime, year FROM semester ORDER BY id"),
+        await select<RowDataPacket>(
+          connection,
+          "SELECT id, semesterTime, year FROM semester ORDER BY id",
+        ),
       );
+      stage = "Schools";
       const schools = Schema.decodeUnknownSync(Schema.Array(School))(
-        await select<RowDataPacket>(connection,
+        await select<RowDataPacket>(
+          connection,
           `SELECT id, name, contactPerson, email, phone, international, active
-             FROM school ORDER BY id`),
+             FROM school ORDER BY id`,
+        ),
       );
+      stage = "Relationships";
       const relationships = Schema.decodeUnknownSync(Schema.Array(Relationship))(
-        await select<RowDataPacket>(connection,
+        await select<RowDataPacket>(
+          connection,
           `SELECT department_id AS departmentId, school_id AS schoolId
-             FROM department_school ORDER BY department_id, school_id`),
+             FROM department_school ORDER BY department_id, school_id`,
+        ),
       );
+      stage = "History";
       const history = Schema.decodeUnknownSync(Schema.Array(History))(
-        await select<RowDataPacket>(connection,
+        await select<RowDataPacket>(
+          connection,
           `SELECT id, user_id AS userId, department_id AS departmentId,
                   semester_id AS semesterId, school_id AS schoolId, workdays, bolk, day
-             FROM assistant_history ORDER BY id`),
+             FROM assistant_history ORDER BY id`,
+        ),
       );
       await connection.query("COMMIT");
       return { users, departments, semesters, schools, relationships, history };
     } catch {
       await connection.query("ROLLBACK");
-      throw new Error("Legacy source snapshot could not be read");
+      throw new Error("Legacy source " + stage + " failed; details redacted");
     }
+  } catch {
+    throw new Error("Legacy source " + stage + " failed; details redacted");
   } finally {
-    await connection.end();
+    await connection.end().catch(() => {
+      throw new Error("Legacy source Close failed; details redacted");
+    });
   }
 };

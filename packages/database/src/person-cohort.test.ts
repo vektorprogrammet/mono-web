@@ -114,10 +114,7 @@ describe("synthetic person cohort boundary", () => {
           return { rows: digest ? [{ snapshot_digest: digest }] : [] };
         }
         if (sql.startsWith("SELECT source_user_id, source_digest")) return { rows: [] };
-        if (
-          sql.startsWith("SELECT person_id") &&
-          sql.includes("FROM public.person_cohort_imports")
-        )
+        if (sql.startsWith("SELECT person_id") && sql.includes("FROM public.person_cohort_imports"))
           return { rows: [] };
         if (sql.startsWith("SELECT 1 FROM public.person_profiles"))
           return { rowCount: Number(current.profiles.has(String(values[0]))) };
@@ -175,12 +172,14 @@ describe("synthetic person cohort boundary", () => {
           };
         if (sql.includes("AS school_department_exists"))
           return {
-            rows: [{
-              department_exists: true,
-              semester_exists: true,
-              school_exists: true,
-              school_department_exists: true,
-            }],
+            rows: [
+              {
+                department_exists: true,
+                semester_exists: true,
+                school_exists: true,
+                school_department_exists: true,
+              },
+            ],
           };
         if (sql.startsWith("INSERT INTO public.historical_service_snapshots")) {
           current.historySnapshots.set(String(values[0]), String(values[5]));
@@ -235,12 +234,14 @@ describe("synthetic person cohort boundary", () => {
       transformationRevision: "0106",
       sourceKind: "Synthetic" as const,
       occurrences: [{ occurrenceId: "person-occurrence", row }],
-      mappings: [{
-        _tag: "CreatePerson",
-        sourceUserId: "user",
-        personId: "person",
-        emailOwnership: { email: row.email, attestedBy: "operator", evidenceRef: "attestation" },
-      }],
+      mappings: [
+        {
+          _tag: "CreatePerson",
+          sourceUserId: "user",
+          personId: "person",
+          emailOwnership: { email: row.email, attestedBy: "operator", evidenceRef: "attestation" },
+        },
+      ],
     };
     const serviceRow = {
       sourceHistoryId: "history",
@@ -259,18 +260,20 @@ describe("synthetic person cohort boundary", () => {
       transformationRevision: "0108",
       sourceKind: "Synthetic" as const,
       occurrences: [{ occurrenceId: "history-occurrence", row: serviceRow }],
-      mappings: [{
-        sourceHistoryId: "history",
-        sourceUserId: "user",
-        sourceDepartmentId: "department",
-        sourceSemesterId: "semester",
-        sourceSchoolId: "school",
-        personId: "person",
-        departmentId: "department",
-        semesterId: "semester",
-        schoolId: 1,
-        evidenceRef: "service-evidence",
-      }],
+      mappings: [
+        {
+          sourceHistoryId: "history",
+          sourceUserId: "user",
+          sourceDepartmentId: "department",
+          sourceSemesterId: "semester",
+          sourceSchoolId: "school",
+          personId: "person",
+          departmentId: "department",
+          semesterId: "semester",
+          schoolId: 1,
+          evidenceRef: "service-evidence",
+        },
+      ],
     };
 
     const tx = await pool.connect();
@@ -313,13 +316,18 @@ describe("synthetic person cohort boundary", () => {
     expect((await importPersonCohort(pool, personSnapshot)).replay).toBe(true);
     expect(await importHistoricalServiceCohort(pool, serviceSnapshot)).toEqual(service);
     expect(commands).toEqual([
-      "BEGIN", "ROLLBACK", "BEGIN", "COMMIT", "BEGIN", "COMMIT", "BEGIN", "COMMIT",
+      "BEGIN",
+      "ROLLBACK",
+      "BEGIN",
+      "COMMIT",
+      "BEGIN",
+      "COMMIT",
+      "BEGIN",
+      "COMMIT",
     ]);
     expect(connects).toBe(3);
     expect(releases).toBe(3);
     expect(locks.filter((sql) => sql.includes("native-person-cohort-import"))).toHaveLength(4);
-    expect(
-      locks.filter((sql) => sql.includes("native-historical-service-import")),
-    ).toHaveLength(4);
+    expect(locks.filter((sql) => sql.includes("native-historical-service-import"))).toHaveLength(4);
   });
 });

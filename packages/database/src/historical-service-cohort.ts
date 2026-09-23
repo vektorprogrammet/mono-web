@@ -254,7 +254,10 @@ export const importHistoricalServiceCohort = async (
       `SELECT snapshot_digest FROM public.historical_service_snapshots WHERE snapshot_key = $1`,
       [snapshotKey],
     );
-    if (prior.rows[0]?.snapshot_digest !== undefined && prior.rows[0].snapshot_digest !== snapshotDigest)
+    if (
+      prior.rows[0]?.snapshot_digest !== undefined &&
+      prior.rows[0].snapshot_digest !== snapshotDigest
+    )
       throw new HistoricalServiceFailure("SnapshotConflict");
 
     let sourceRelationships: ReadonlySet<string> | undefined;
@@ -289,19 +292,19 @@ export const importHistoricalServiceCohort = async (
         throw new HistoricalServiceFailure("ReferenceProvenanceConflict");
       }
       const departments = new Map(
-        references.departments.map(({ sourceDepartmentId, departmentId }) => [
-          sourceDepartmentId,
-          departmentId,
-        ] as const),
+        references.departments.map(
+          ({ sourceDepartmentId, departmentId }) => [sourceDepartmentId, departmentId] as const,
+        ),
       );
       const semesters = new Map(
-        references.semesters.map(({ sourceSemesterId, semesterId }) => [
-          sourceSemesterId,
-          semesterId,
-        ] as const),
+        references.semesters.map(
+          ({ sourceSemesterId, semesterId }) => [sourceSemesterId, semesterId] as const,
+        ),
       );
       const schools = new Map(
-        references.schools.map(({ sourceSchoolId, schoolId }) => [sourceSchoolId, schoolId] as const),
+        references.schools.map(
+          ({ sourceSchoolId, schoolId }) => [sourceSchoolId, schoolId] as const,
+        ),
       );
       sourceRelationships = new Set(
         references.relationships.map(({ sourceDepartmentId, sourceSchoolId }) =>
@@ -319,7 +322,14 @@ export const importHistoricalServiceCohort = async (
             schools.get(sourceSchoolId) !== schoolId,
         ) ||
         snapshot.mappings.some(
-          ({ sourceDepartmentId, departmentId, sourceSemesterId, semesterId, sourceSchoolId, schoolId }) =>
+          ({
+            sourceDepartmentId,
+            departmentId,
+            sourceSemesterId,
+            semesterId,
+            sourceSchoolId,
+            schoolId,
+          }) =>
             departments.get(sourceDepartmentId) !== departmentId ||
             semesters.get(sourceSemesterId) !== semesterId ||
             schools.get(sourceSchoolId) !== schoolId,

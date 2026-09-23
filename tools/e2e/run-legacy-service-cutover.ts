@@ -1,17 +1,26 @@
 import { createHash } from "node:crypto";
+import { isIP } from "node:net";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
-import { importPersonCohort, type PersonCohortReport, type PersonCohortSnapshot } from "@vektorprogrammet/database/person-cohort";
+import {
+  importPersonCohort,
+  type PersonCohortReport,
+  type PersonCohortSnapshot,
+} from "@vektorprogrammet/database/person-cohort";
 import {
   decodeHistoricalServiceSnapshot,
   historicalServiceSourceRowDigest,
   importHistoricalServiceCohort,
   type HistoricalServiceReport,
 } from "@vektorprogrammet/database/historical-service-cohort";
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import {
-  buildLegacyReferences, departmentId, schoolId, seedLegacyReferences, semesterId,
+  buildLegacyReferences,
+  departmentId,
+  schoolId,
+  seedLegacyReferences,
+  semesterId,
 } from "./legacy-cutover-references";
 import { buildLegacyPersonSnapshot } from "./legacy-person-snapshot";
 import { readLegacySourceSnapshot, type LegacySourceSnapshot } from "./legacy-source-snapshot";
@@ -31,10 +40,48 @@ interface CutoverOptions {
   readonly snapshotId: string;
   readonly attestedBy: string;
 }
+type CutoverStage =
+  | "SourceRead"
+  | "TargetConnect"
+  | "ReferenceSeed"
+  | "PersonProjection"
+  | "PersonImport"
+  | "HistoricalProjection"
+  | "HistoricalImport"
+  | "TargetCommit"
+  | "TargetRollback"
+  | "TargetClose";
 
-const reasons = (occurrences: ReadonlyArray<{ readonly reason: string }>): Record<string, number> => {
+export class CutoverStageFailure extends Error {
+  constructor(
+    readonly stage: CutoverStage,
+    readonly detail?: string,
+  ) {
+    super("Legacy cutover " + stage + (detail ? "/" + detail : "") + " failed; details redacted");
+    this.name = "CutoverStageFailure";
+  }
+}
+
+const inStage = async <A>(stage: CutoverStage, operation: () => Promise<A>): Promise<A> => {
+  try {
+    return await operation();
+  } catch (error) {
+    const detail =
+      stage === "SourceRead" && error instanceof Error
+        ? /^Legacy source (Connection|Grants|DatabaseSelection|Transaction|Engines|Users|Departments|Semesters|Schools|Relationships|History) failed; details redacted$/.exec(
+            error.message,
+          )?.[1]
+        : undefined;
+    throw new CutoverStageFailure(stage, detail);
+  }
+};
+
+const reasons = (
+  occurrences: ReadonlyArray<{ readonly reason: string }>,
+): Record<string, number> => {
   const counts: Record<string, number> = {};
-  for (const occurrence of occurrences) counts[occurrence.reason] = (counts[occurrence.reason] ?? 0) + 1;
+  for (const occurrence of occurrences)
+    counts[occurrence.reason] = (counts[occurrence.reason] ?? 0) + 1;
   return Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)));
 };
 
@@ -43,23 +90,40 @@ export const buildLegacyHistoricalSnapshot = (
   source: LegacySourceSnapshot,
   person: PersonCohortReport,
   personSnapshot: PersonCohortSnapshot,
-  identity: { readonly snapshotId: string; readonly sourceRevision: string;
-    readonly transformationRevision: string; readonly referenceDigest: string },
+  identity: {
+    readonly snapshotId: string;
+    readonly sourceRevision: string;
+    readonly transformationRevision: string;
+    readonly referenceDigest: string;
+  },
 ) => {
-  const acceptedPeople = new Set(person.occurrences
-    .filter((occurrence) => occurrence.disposition === "Accepted")
-    .map((occurrence) => occurrence.occurrenceId));
-  const personEvidence = new Map(personSnapshot.mappings
-    .filter((mapping) => acceptedPeople.has(`legacy-user-row-${mapping.sourceUserId.slice("legacy-user:".length)}`))
-    .map((mapping) => [mapping.sourceUserId, {
-      personId: mapping.personId,
-      evidenceRef: mapping.emailOwnership.evidenceRef,
-    }] as const));
+  const acceptedPeople = new Set(
+    person.occurrences
+      .filter((occurrence) => occurrence.disposition === "Accepted")
+      .map((occurrence) => occurrence.occurrenceId),
+  );
+  const personEvidence = new Map(
+    personSnapshot.mappings
+      .filter((mapping) =>
+        acceptedPeople.has(`legacy-user-row-${mapping.sourceUserId.slice("legacy-user:".length)}`),
+      )
+      .map(
+        (mapping) =>
+          [
+            mapping.sourceUserId,
+            {
+              personId: mapping.personId,
+              evidenceRef: mapping.emailOwnership.evidenceRef,
+            },
+          ] as const,
+      ),
+  );
   const occurrences = source.history.map((sourceRow) => {
     const row = {
       sourceHistoryId: sourceHistoryId(sourceRow.id),
       sourceUserId: sourceRow.userId === null ? null : sourceUserId(sourceRow.userId),
-      sourceDepartmentId: sourceRow.departmentId === null ? null : departmentId(sourceRow.departmentId),
+      sourceDepartmentId:
+        sourceRow.departmentId === null ? null : departmentId(sourceRow.departmentId),
       sourceSemesterId: sourceRow.semesterId === null ? null : semesterId(sourceRow.semesterId),
       sourceSchoolId: sourceRow.schoolId === null ? null : sourceSchoolId(sourceRow.schoolId),
       workdays: sourceRow.workdays,
@@ -73,22 +137,29 @@ export const buildLegacyHistoricalSnapshot = (
     };
   });
   const mappings = source.history.flatMap((row) => {
-    if (row.userId === null || row.departmentId === null || row.semesterId === null || row.schoolId === null)
+    if (
+      row.userId === null ||
+      row.departmentId === null ||
+      row.semesterId === null ||
+      row.schoolId === null
+    )
       return [];
     const person = personEvidence.get(sourceUserId(row.userId));
     if (!person) return [];
-    return [{
-      sourceHistoryId: sourceHistoryId(row.id),
-      sourceUserId: sourceUserId(row.userId),
-      sourceDepartmentId: departmentId(row.departmentId),
-      sourceSemesterId: semesterId(row.semesterId),
-      sourceSchoolId: sourceSchoolId(row.schoolId),
-      personId: person.personId,
-      departmentId: departmentId(row.departmentId),
-      semesterId: semesterId(row.semesterId),
-      schoolId: schoolId(row.schoolId),
-      evidenceRef: person.evidenceRef,
-    }];
+    return [
+      {
+        sourceHistoryId: sourceHistoryId(row.id),
+        sourceUserId: sourceUserId(row.userId),
+        sourceDepartmentId: departmentId(row.departmentId),
+        sourceSemesterId: semesterId(row.semesterId),
+        sourceSchoolId: sourceSchoolId(row.schoolId),
+        personId: person.personId,
+        departmentId: departmentId(row.departmentId),
+        semesterId: semesterId(row.semesterId),
+        schoolId: schoolId(row.schoolId),
+        evidenceRef: person.evidenceRef,
+      },
+    ];
   });
   return decodeHistoricalServiceSnapshot({
     sourceRepository: repository,
@@ -104,85 +175,205 @@ export const buildLegacyHistoricalSnapshot = (
 
 /** A reusable subset of the final migration: Person, source directories, historical service. */
 export const runLegacyServiceCutover = async (options: CutoverOptions) => {
-  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(options.snapshotId) ||
-      !/^[A-Za-z0-9._:-]{1,128}$/.test(options.attestedBy) ||
-      !/^[A-Za-z0-9_]+$/.test(options.targetDatabase) ||
-      options.sourceUrl === options.targetUrl)
+  if (
+    !/^[A-Za-z0-9._:-]{1,128}$/.test(options.snapshotId) ||
+    !/^[A-Za-z0-9._:-]{1,128}$/.test(options.attestedBy) ||
+    !/^[A-Za-z0-9_]+$/.test(options.targetDatabase) ||
+    options.sourceUrl === options.targetUrl
+  )
     throw new Error("Explicit source, target, snapshot and attestation selections are required");
-  const targetSelection = new URL(options.targetUrl);
-  if (!["postgres:", "postgresql:"].includes(targetSelection.protocol) ||
-      decodeURIComponent(targetSelection.pathname.slice(1)) !== options.targetDatabase)
+  const targetSelection = (() => {
+    try {
+      return new URL(options.targetUrl);
+    } catch {
+      throw new Error("Target connection selection is invalid");
+    }
+  })();
+  if (
+    !["postgres:", "postgresql:"].includes(targetSelection.protocol) ||
+    decodeURIComponent(targetSelection.pathname.slice(1)) !== options.targetDatabase
+  )
     throw new Error("Target database selection differs from connection URL");
 
-  const source = await readLegacySourceSnapshot(options.sourceUrl);
+  const socketPath = targetSelection.searchParams.get("host");
+  const caEnv = targetSelection.searchParams.get("sslCaEnv");
+  if (
+    [...targetSelection.searchParams.keys()].some(
+      (key) => !["host", "port", "sslCaEnv"].includes(key),
+    )
+  )
+    throw new Error("Target transport options are not permitted");
+  if (socketPath !== null) {
+    if (!socketPath.startsWith("/") || caEnv !== null || targetSelection.hostname !== "localhost")
+      throw new Error("Local target socket selection is invalid");
+  } else if (
+    !caEnv ||
+    !/^[A-Z][A-Z0-9_]*$/.test(caEnv) ||
+    !process.env[caEnv] ||
+    !targetSelection.hostname ||
+    isIP(targetSelection.hostname) !== 0
+  )
+    throw new Error("Remote target requires a verified TLS CA and DNS identity");
+  targetSelection.searchParams.delete("sslCaEnv");
+  const source = await inStage("SourceRead", () => readLegacySourceSnapshot(options.sourceUrl));
   const sourceRevision = digest(source);
-  const transformationRevision = sha256(await readFile(fileURLToPath(import.meta.url), "utf8")).slice(0, 32);
+  if (source.history.length === 0)
+    throw new Error("Legacy service source is empty; target untouched");
+  const transformationRevision = sha256(
+    canonicalJson(
+      await Promise.all(
+        [
+          fileURLToPath(import.meta.url),
+          fileURLToPath(new URL("./legacy-source-snapshot.ts", import.meta.url)),
+          fileURLToPath(new URL("./legacy-person-snapshot.ts", import.meta.url)),
+          fileURLToPath(new URL("./legacy-cutover-references.ts", import.meta.url)),
+          fileURLToPath(import.meta.resolve("@vektorprogrammet/database/person-cohort")),
+          fileURLToPath(
+            import.meta.resolve("@vektorprogrammet/database/historical-service-cohort"),
+          ),
+        ].map((path) => readFile(path, "utf8")),
+      ),
+    ),
+  ).slice(0, 32);
   const identity = { sourceRepository: repository, sourceRevision, snapshotId: options.snapshotId };
   const references = buildLegacyReferences(source);
-  const pool = new Pool({ connectionString: options.targetUrl, max: 3,
-    application_name: "legacy-service-cohort-cutover" });
+  const pool = new Pool({
+    connectionString: targetSelection.toString(),
+    max: 3,
+    ssl: socketPath === null ? { ca: process.env[caEnv!], rejectUnauthorized: true } : undefined,
+    application_name: "legacy-service-cohort-cutover",
+  });
+  let tx: PoolClient | undefined;
   try {
-    const selected = await pool.query<{ database: string }>("SELECT current_database() AS database");
-    if (selected.rows[0]?.database !== options.targetDatabase)
-      throw new Error("Connected native database differs from explicit target");
-    const referenceStage = await seedLegacyReferences(pool, identity, references);
-    const personSnapshot = buildLegacyPersonSnapshot(source.users, {
-      sourceRevision, transformationRevision, snapshotId: options.snapshotId,
-      attestedBy: options.attestedBy,
+    tx = await inStage("TargetConnect", () => pool.connect());
+    const client = tx;
+    await inStage("TargetConnect", async () => {
+      await client.query("BEGIN");
+      const selected = await client.query<{ database: string }>(
+        "SELECT current_database() AS database",
+      );
+      if (selected.rows[0]?.database !== options.targetDatabase)
+        throw new Error("Connected native database differs from explicit target");
     });
-    const person = await importPersonCohort(pool, personSnapshot);
-    const historicalSnapshot = buildLegacyHistoricalSnapshot(source, person, personSnapshot, {
-      sourceRevision, transformationRevision, snapshotId: options.snapshotId,
-      referenceDigest: references.referenceDigest,
-    });
-    const historical: HistoricalServiceReport = await importHistoricalServiceCohort(pool, historicalSnapshot);
+    const referenceStage = await inStage("ReferenceSeed", () =>
+      seedLegacyReferences(pool, identity, references, client),
+    );
+    const personSnapshot = await inStage("PersonProjection", async () =>
+      buildLegacyPersonSnapshot(source.users, {
+        sourceRevision,
+        transformationRevision,
+        snapshotId: options.snapshotId,
+        attestedBy: options.attestedBy,
+      }),
+    );
+    const person = await inStage("PersonImport", () =>
+      importPersonCohort(pool, personSnapshot, client),
+    );
+    const historicalSnapshot = await inStage("HistoricalProjection", async () =>
+      buildLegacyHistoricalSnapshot(source, person, personSnapshot, {
+        sourceRevision,
+        transformationRevision,
+        snapshotId: options.snapshotId,
+        referenceDigest: references.referenceDigest,
+      }),
+    );
+    const historical: HistoricalServiceReport = await inStage("HistoricalImport", () =>
+      importHistoricalServiceCohort(pool, historicalSnapshot, client),
+    );
+    if (historical.accepted === 0)
+      throw new CutoverStageFailure("HistoricalImport", "NoAcceptedService");
+    await inStage("TargetCommit", () => client.query("COMMIT"));
     return {
       scope: "PersonReferencesAndHistoricalServiceOnly",
       currentAssignments: "NotImported",
       source: { snapshotId: options.snapshotId, revision: sourceRevision },
-      references: { stage: referenceStage, departments: references.rows.departments.length,
-        semesters: references.rows.semesters.length, schools: references.rows.schools.length,
-        relationships: references.rows.relationships.length, digest: references.referenceDigest },
-      person: { stage: person.replay ? "ExactReplay" : "Imported", input: person.input,
-        accepted: person.accepted, quarantined: person.quarantined, reasons: reasons(person.occurrences) },
-      historicalService: { stage: "Reconciled", currentState: historical.currentState,
+      references: {
+        stage: referenceStage,
+        departments: references.rows.departments.length,
+        semesters: references.rows.semesters.length,
+        schools: references.rows.schools.length,
+        relationships: references.rows.relationships.length,
+        digest: references.referenceDigest,
+      },
+      person: {
+        stage: person.replay ? "ExactReplay" : "Imported",
+        input: person.input,
+        accepted: person.accepted,
+        quarantined: person.quarantined,
+        reasons: reasons(person.occurrences),
+      },
+      historicalService: {
+        stage: "Reconciled",
+        currentState: historical.currentState,
         input: historical.input,
-        accepted: historical.accepted, quarantined: historical.quarantined,
-        reasons: reasons(historical.occurrences) },
+        accepted: historical.accepted,
+        quarantined: historical.quarantined,
+        reasons: reasons(historical.occurrences),
+      },
     };
+  } catch (error) {
+    if (tx) {
+      const client = tx;
+      await inStage("TargetRollback", () => client.query("ROLLBACK"));
+    }
+    throw error;
   } finally {
-    await pool.end();
+    tx?.release();
+    await inStage("TargetClose", () => pool.end());
   }
 };
 
-const usage = "Usage: bun run run-legacy-service-cutover.ts --source-url-env=NAME --target-url-env=NAME --target-database=NAME --snapshot-id=ID --attested-by=ID (remote MariaDB URL requires ?sslCaEnv=NAME; local rehearsal uses ?socketPath=/absolute/socket)";
+const usage =
+  "Usage: bun run run-legacy-service-cutover.ts --source-url-env=NAME --target-url-env=NAME --target-database=NAME --snapshot-id=ID --attested-by=ID (remote MariaDB URL requires ?sslCaEnv=NAME; local rehearsal uses ?socketPath=/absolute/socket)";
 if (import.meta.main) {
   if (process.argv.length === 3 && process.argv[2] === "--help") {
     console.log(usage);
   } else {
     try {
-      const argumentsByName = Object.fromEntries(process.argv.slice(2).map((argument) => {
-        const match = /^--([a-z-]+)=([^\s]+)$/.exec(argument);
-        if (!match) throw new Error("Invalid options");
-        return [match[1], match[2]];
-      }));
-      const names = ["source-url-env", "target-url-env", "target-database", "snapshot-id", "attested-by"];
-      if (Object.keys(argumentsByName).length !== names.length ||
-          names.some((name) => !argumentsByName[name])) throw new Error("Required option missing");
+      const argumentsByName = Object.fromEntries(
+        process.argv.slice(2).map((argument) => {
+          const match = /^--([a-z-]+)=([^\s]+)$/.exec(argument);
+          if (!match) throw new Error("Invalid options");
+          return [match[1], match[2]];
+        }),
+      );
+      const names = [
+        "source-url-env",
+        "target-url-env",
+        "target-database",
+        "snapshot-id",
+        "attested-by",
+      ];
+      if (
+        Object.keys(argumentsByName).length !== names.length ||
+        names.some((name) => !argumentsByName[name])
+      )
+        throw new Error("Required option missing");
       const sourceEnv = argumentsByName["source-url-env"]!;
       const targetEnv = argumentsByName["target-url-env"]!;
-      if (!/^[A-Z][A-Z0-9_]*$/.test(sourceEnv) || !/^[A-Z][A-Z0-9_]*$/.test(targetEnv) ||
-          sourceEnv === targetEnv || !process.env[sourceEnv] || !process.env[targetEnv])
+      if (
+        !/^[A-Z][A-Z0-9_]*$/.test(sourceEnv) ||
+        !/^[A-Z][A-Z0-9_]*$/.test(targetEnv) ||
+        sourceEnv === targetEnv ||
+        !process.env[sourceEnv] ||
+        !process.env[targetEnv]
+      )
         throw new Error("Connection environment selection is invalid");
       const result = await runLegacyServiceCutover({
-        sourceUrl: process.env[sourceEnv]!, targetUrl: process.env[targetEnv]!,
+        sourceUrl: process.env[sourceEnv]!,
+        targetUrl: process.env[targetEnv]!,
         targetDatabase: argumentsByName["target-database"]!,
-        snapshotId: argumentsByName["snapshot-id"]!, attestedBy: argumentsByName["attested-by"]!,
+        snapshotId: argumentsByName["snapshot-id"]!,
+        attestedBy: argumentsByName["attested-by"]!,
       });
       console.log(JSON.stringify(result));
-    } catch {
+    } catch (error) {
       // Driver and SQL exceptions can contain credentials or Person fields. No row-level diagnostics.
-      console.error("Legacy cohort cutover failed; details redacted. No completion report was issued.");
+      console.error(
+        error instanceof CutoverStageFailure
+          ? error.message
+          : "Legacy cohort cutover failed; details redacted. No completion report was issued.",
+      );
       process.exitCode = 1;
     }
   }
