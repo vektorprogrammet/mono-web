@@ -43,8 +43,7 @@ export class PlacementFailure extends Data.TaggedError("PlacementFailure")<{
     | "offer.owner-invalid"
     | "offer.response-invalid"
     | "offer.withdraw-invalid"
-    | "coverage.acknowledgement-invalid"
-;
+    | "coverage.acknowledgement-invalid";
   readonly status: 403 | 404 | 409 | 422;
 }> {}
 
@@ -224,7 +223,9 @@ export const isEligibleSchoolServiceAttendance = (
   if (new Set(attendees).size !== attendees.length) return false;
   const absentIds = new Set(absences.map((absence) => absence.personId));
   const eligible = new Set([
-    ...commitment.assignments.filter((assignment) => !absentIds.has(assignment.personId)).map((assignment) => assignment.personId),
+    ...commitment.assignments
+      .filter((assignment) => !absentIds.has(assignment.personId))
+      .map((assignment) => assignment.personId),
     ...acknowledgements.map((acknowledgement) => acknowledgement.candidatePersonId),
   ]);
   return attendees.every((personId) => eligible.has(personId));

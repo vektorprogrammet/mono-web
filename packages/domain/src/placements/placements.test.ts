@@ -229,7 +229,6 @@ describe("school service proposal boundaries", () => {
     expect(
       hasExactSchoolServiceExceptionReview(proposal, [...exceptionIds, exceptionIds[0]!]),
     ).toBe(false);
-
   });
 
   it("limits actual attendance to nonabsent scheduled or acknowledged people", () => {
@@ -274,15 +273,43 @@ describe("school service proposal boundaries", () => {
       startTime: "09:00",
       endTime: "11:00",
       requiredVolunteers: 2,
-      assignments: confirmed.assignments.filter((assignment) => assignment.schoolId === absence.schoolId && assignment.day === absence.day && assignment.block === absence.block),
+      assignments: confirmed.assignments.filter(
+        (assignment) =>
+          assignment.schoolId === absence.schoolId &&
+          assignment.day === absence.day &&
+          assignment.block === absence.block,
+      ),
       createdAt: "2026-09-20T09:00:00.000Z",
       createdBy: PersonId.make("coordinator"),
       decision: null,
       overdue: true,
     } as const;
-    expect(isEligibleSchoolServiceAttendance(commitment, [absence], [acknowledgement], [PersonId.make("person-2")])).toBe(true);
-    expect(isEligibleSchoolServiceAttendance(commitment, [absence], [acknowledgement], [])).toBe(true);
-    expect(isEligibleSchoolServiceAttendance(commitment, [absence], [acknowledgement], [PersonId.make("person-1")])).toBe(false);
-    expect(isEligibleSchoolServiceAttendance(commitment, [absence], [acknowledgement], [PersonId.make("person-2"), PersonId.make("person-2")])).toBe(false);
+    expect(
+      isEligibleSchoolServiceAttendance(
+        commitment,
+        [absence],
+        [acknowledgement],
+        [PersonId.make("person-2")],
+      ),
+    ).toBe(true);
+    expect(isEligibleSchoolServiceAttendance(commitment, [absence], [acknowledgement], [])).toBe(
+      true,
+    );
+    expect(
+      isEligibleSchoolServiceAttendance(
+        commitment,
+        [absence],
+        [acknowledgement],
+        [PersonId.make("person-1")],
+      ),
+    ).toBe(false);
+    expect(
+      isEligibleSchoolServiceAttendance(
+        commitment,
+        [absence],
+        [acknowledgement],
+        [PersonId.make("person-2"), PersonId.make("person-2")],
+      ),
+    ).toBe(false);
   });
 });

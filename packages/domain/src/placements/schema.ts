@@ -56,9 +56,19 @@ export const SchoolServiceDemand = Schema.Struct({
 export const SchoolServiceProposalId = Schema.String.pipe(
   Schema.check(Schema.isPattern(/^school-service-proposal-[a-f0-9]{64}$/)),
 );
-export const SchoolServiceCommitmentId = Schema.String.pipe(Schema.check(Schema.isPattern(/^school-service-commitment-[a-f0-9]{64}$/)));
-export const SchoolServiceTime = Schema.String.pipe(Schema.check(Schema.isPattern(/^([01][0-9]|2[0-3]):[0-5][0-9]$/)));
-export const SchoolServiceEvidenceText = Schema.String.pipe(Schema.check(Schema.makeFilter((value) => value.trim().length > 0 && value.length <= 500, { message: "nonblank text of at most 500 characters" })));
+export const SchoolServiceCommitmentId = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^school-service-commitment-[a-f0-9]{64}$/)),
+);
+export const SchoolServiceTime = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^([01][0-9]|2[0-3]):[0-5][0-9]$/)),
+);
+export const SchoolServiceEvidenceText = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => value.trim().length > 0 && value.length <= 500, {
+      message: "nonblank text of at most 500 characters",
+    }),
+  ),
+);
 export const SchoolServiceOccurrenceId = Schema.String.pipe(
   Schema.check(Schema.isPattern(/^school-service-occurrence-[a-f0-9]{64}$/)),
 );
@@ -379,9 +389,25 @@ export const CoverageCommand = Schema.Union([
     action: Schema.Literal("AcknowledgeCoverage"),
     offerId: SchoolServiceSubstituteOfferId,
   }),
-  Schema.Struct({ action: Schema.Literal("CompleteService"), commitmentId: SchoolServiceCommitmentId, attendedPersonIds: Schema.Array(PersonId), evidenceSource: SchoolServiceEvidenceText }),
-  Schema.Struct({ action: Schema.Literal("CancelService"), commitmentId: SchoolServiceCommitmentId, reason: SchoolServiceEvidenceText, evidenceSource: SchoolServiceEvidenceText }),
-  Schema.Struct({ action: Schema.Literal("MarkUnfulfilledService"), commitmentId: SchoolServiceCommitmentId, attendedPersonIds: Schema.Array(PersonId), reason: SchoolServiceEvidenceText, evidenceSource: SchoolServiceEvidenceText }),
+  Schema.Struct({
+    action: Schema.Literal("CompleteService"),
+    commitmentId: SchoolServiceCommitmentId,
+    attendedPersonIds: Schema.Array(PersonId),
+    evidenceSource: SchoolServiceEvidenceText,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("CancelService"),
+    commitmentId: SchoolServiceCommitmentId,
+    reason: SchoolServiceEvidenceText,
+    evidenceSource: SchoolServiceEvidenceText,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("MarkUnfulfilledService"),
+    commitmentId: SchoolServiceCommitmentId,
+    attendedPersonIds: Schema.Array(PersonId),
+    reason: SchoolServiceEvidenceText,
+    evidenceSource: SchoolServiceEvidenceText,
+  }),
 ]);
 export const PlacementCommand = Schema.Union([
   Schema.Struct({
@@ -413,7 +439,16 @@ export const PlacementCommand = Schema.Union([
     proposalId: SchoolServiceProposalId,
     reviewedExceptionIds: Schema.Array(Schema.String),
   }),
-  Schema.Struct({ action: Schema.Literal("ScheduleService"), proposalId: SchoolServiceProposalId, schoolId: SchoolId, day: TeachingDay, block: TeachingBlock, serviceDate: IsoServiceDate, startTime: SchoolServiceTime, endTime: SchoolServiceTime }),
+  Schema.Struct({
+    action: Schema.Literal("ScheduleService"),
+    proposalId: SchoolServiceProposalId,
+    schoolId: SchoolId,
+    day: TeachingDay,
+    block: TeachingBlock,
+    serviceDate: IsoServiceDate,
+    startTime: SchoolServiceTime,
+    endTime: SchoolServiceTime,
+  }),
 ]);
 
 export type PlacementScope = typeof PlacementScope.Type;

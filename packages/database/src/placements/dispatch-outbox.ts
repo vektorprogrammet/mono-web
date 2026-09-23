@@ -180,7 +180,9 @@ const claimInTransaction = (sql: DatabaseShape, claimId: string, claimedAt: stri
             day: canonical.day,
             block: canonical.block,
             serviceDate: canonical.serviceDate,
-            ...(canonical.startTime === null || canonical.endTime === null ? {} : { startTime: canonical.startTime, endTime: canonical.endTime }),
+            ...(canonical.startTime === null || canonical.endTime === null
+              ? {}
+              : { startTime: canonical.startTime, endTime: canonical.endTime }),
             dispatchedAt: canonical.dispatchedAt,
           };
     if (

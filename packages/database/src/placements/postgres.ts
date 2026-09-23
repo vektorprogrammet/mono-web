@@ -250,9 +250,17 @@ export const mutatePlacementBoard = (
         const proposal = yield* readSchoolServiceProposal(sql, scope, command.proposalId);
         if (proposal?.status !== "Confirmed") return yield* fail("commitment.target-invalid");
         if (command.startTime >= command.endTime) return yield* fail("commitment.interval-invalid");
-        const demand = proposal.demands.find((entry) => entry.schoolId === command.schoolId && entry.day === command.day && entry.block === command.block);
-        if (demand === undefined || demand.requiredVolunteers <= 0 ||
-          !board.schools.some((school) => school.schoolId === command.schoolId)) {
+        const demand = proposal.demands.find(
+          (entry) =>
+            entry.schoolId === command.schoolId &&
+            entry.day === command.day &&
+            entry.block === command.block,
+        );
+        if (
+          demand === undefined ||
+          demand.requiredVolunteers <= 0 ||
+          !board.schools.some((school) => school.schoolId === command.schoolId)
+        ) {
           return yield* fail("commitment.target-invalid");
         }
         const validDate = yield* sql`SELECT 1 FROM public.admission_period_semesters
@@ -265,25 +273,33 @@ export const mutatePlacementBoard = (
         const duplicate = yield* sql`SELECT 1 FROM public.school_service_commitments
           WHERE department_id=${scope.departmentId} AND school_id=${command.schoolId}
             AND service_date=CAST(${command.serviceDate} AS date) AND block=${command.block}`;
-        if (duplicate.length > 0) return yield* fail("commitment.duplicate",409);
+        if (duplicate.length > 0) return yield* fail("commitment.duplicate", 409);
         const historical = yield* sql`SELECT 1 FROM public.school_service_occurrences
           WHERE department_id=${scope.departmentId} AND school_id=${command.schoolId}
             AND occurred_on=CAST(${command.serviceDate} AS date) AND block=${command.block}`;
-        if (historical.length > 0) return yield* fail("commitment.duplicate",409);
+        if (historical.length > 0) return yield* fail("commitment.duplicate", 409);
         const oldAbsence = yield* sql`SELECT 1 FROM public.school_service_absences
           WHERE department_id=${scope.departmentId} AND school_id=${command.schoolId}
             AND service_date=CAST(${command.serviceDate} AS date) AND block=${command.block}`;
-        if (oldAbsence.length > 0) return yield* fail("commitment.duplicate",409);
-        const assignments = proposal.assignments.filter((entry) => entry.schoolId === command.schoolId && entry.day === command.day && entry.block === command.block);
-        const schoolName = board.schools.find((school) => school.schoolId === command.schoolId)!.name;
-        const occupied = yield* sql`SELECT 1 FROM jsonb_array_elements(${sql.json(assignments)}) AS assignment
+        if (oldAbsence.length > 0) return yield* fail("commitment.duplicate", 409);
+        const assignments = proposal.assignments.filter(
+          (entry) =>
+            entry.schoolId === command.schoolId &&
+            entry.day === command.day &&
+            entry.block === command.block,
+        );
+        const schoolName = board.schools.find(
+          (school) => school.schoolId === command.schoolId,
+        )!.name;
+        const occupied =
+          yield* sql`SELECT 1 FROM jsonb_array_elements(${sql.json(assignments)}) AS assignment
           JOIN public.school_service_person_reservations AS reservation
             ON reservation.person_id=assignment->>'personId'
           WHERE reservation.service_interval && tsrange(
             CAST(${command.serviceDate} AS date)+CAST(${command.startTime} AS time),
             CAST(${command.serviceDate} AS date)+CAST(${command.endTime} AS time),'[)')
           LIMIT 1`;
-        if (occupied.length > 0) return yield* fail("commitment.duplicate",409);
+        if (occupied.length > 0) return yield* fail("commitment.duplicate", 409);
         yield* sql`INSERT INTO public.school_service_commitments(
           commitment_id,proposal_id,department_id,semester_id,school_id,school_name,day,block,
           service_date,start_time,end_time,required_volunteers,assignment_snapshot,created_at,created_by_person_id
