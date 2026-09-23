@@ -497,7 +497,20 @@ test.describe("Native Content publication (spec 0062)", () => {
       expect(publicRequests.some((request) => request.pathname === "/nyheter")).toBe(true);
       expect(publicRequests.some((request) => request.pathname.startsWith("/nyhet/"))).toBe(true);
       expect(bridgeRequests.length).toBeGreaterThanOrEqual(3);
-      expect(nativeContentRequests).toEqual([]);
+      expect(nativeContentRequests).toEqual([
+        expect.objectContaining({ method: "GET", pathname: "/api/content/articles/5" }),
+        expect.objectContaining({
+          method: "PATCH",
+          pathname: "/api/content/articles/5",
+          idempotencyKey: "author-published-revise-denial",
+        }),
+        expect.objectContaining({ method: "GET", pathname: "/api/content/articles/1" }),
+        expect.objectContaining({
+          method: "POST",
+          pathname: "/api/content/articles/1:publish",
+          idempotencyKey: "author-forced-publish-denial",
+        }),
+      ]);
       expect(
         browserRequests.filter((request) => request.pathname === "/api/admin/schools"),
       ).toEqual([]);
