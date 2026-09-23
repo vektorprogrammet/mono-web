@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
 import { createConnection, createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -308,6 +308,8 @@ const closeServer = (server) =>
 const temporaryRoot = await mkdtemp(join(tmpdir(), "native-content-publication-0062-"));
 const postgresData = join(temporaryRoot, "postgres");
 const browserEvidencePath = join(temporaryRoot, "browser-evidence.json");
+const homepageDevVarsPath = join(homepageRoot, ".dev.vars");
+let homepageDevVarsCreated = false;
 let postgres;
 let backend;
 let dashboard;
@@ -319,6 +321,8 @@ try {
   await Promise.all(
     [postgresPort, dashboardPort, backendPort, upstreamPort, homepagePort].map(assertPortAvailable),
   );
+  await writeFile(homepageDevVarsPath, `API_URL=${upstreamOrigin}\n`, { flag: "wx" });
+  homepageDevVarsCreated = true;
   const version = run("postgres", ["--version"], { label: "PostgreSQL version" }).stdout.trim();
   assert.match(version, /PostgreSQL\) 17\./u, "the Content journey requires PostgreSQL 17");
   run(
@@ -562,5 +566,6 @@ try {
   await closeServer(recordingUpstream).catch(() => undefined);
   await stop(backend);
   await stop(postgres);
+  if (homepageDevVarsCreated) await rm(homepageDevVarsPath, { force: true });
   await rm(temporaryRoot, { recursive: true, force: true });
 }
