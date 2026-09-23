@@ -358,18 +358,34 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
         { timeout: 15_000 },
       )
       .toContain("Delivered");
-    const scheduleForm = page.locator('form:has(input[name="action"][value="ScheduleService"]):has(input[name="block"][value="2"])');
+    const scheduleForm = page.locator(
+      'form:has(input[name="action"][value="ScheduleService"]):has(input[name="block"][value="2"])',
+    );
     const schedule = async (serviceDate: string) => {
       await scheduleForm.locator('input[type="date"]').fill(serviceDate);
       await scheduleForm.locator('input[type="time"]').nth(0).fill("09:00");
       await scheduleForm.locator('input[type="time"]').nth(1).fill("11:00");
       await scheduleForm.getByRole("button", { name: "Planlegg denne datoen" }).click();
-      await expect.poll(async () => (await readBoard(page)).commitments.some((item: { proposalId: string; serviceDate: string; schoolId: number; block: string }) =>
-        item.proposalId === serviceProposalId && item.serviceDate === serviceDate && item.schoolId === manifest.schoolId && item.block === "2")).toBe(true);
+      await expect
+        .poll(async () =>
+          (await readBoard(page)).commitments.some(
+            (item: { proposalId: string; serviceDate: string; schoolId: number; block: string }) =>
+              item.proposalId === serviceProposalId &&
+              item.serviceDate === serviceDate &&
+              item.schoolId === manifest.schoolId &&
+              item.block === "2",
+          ),
+        )
+        .toBe(true);
       await page.reload();
       const board = await readBoard(page);
-      const commitment = board.commitments.find((item: { proposalId: string; serviceDate: string; schoolId: number; block: string }) =>
-        item.proposalId === serviceProposalId && item.serviceDate === serviceDate && item.schoolId === manifest.schoolId && item.block === "2");
+      const commitment = board.commitments.find(
+        (item: { proposalId: string; serviceDate: string; schoolId: number; block: string }) =>
+          item.proposalId === serviceProposalId &&
+          item.serviceDate === serviceDate &&
+          item.schoolId === manifest.schoolId &&
+          item.block === "2",
+      );
       expect(commitment).toBeDefined();
       expect(commitment.decision).toBeNull();
       return commitment;
@@ -378,22 +394,39 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     const secondCommitment = await schedule(manifest.coverage.secondServiceDate);
     const cancelledCommitment = await schedule(manifest.coverage.cancelledServiceDate);
     await self.reload();
-    const ownAbsence = self.locator(`form:has(input[name="action"][value="ReportAbsence"]):has(input[name="commitmentId"][value="${firstCommitment.commitmentId}"])`);
-    const reportAbsenceButton = ownAbsence.getByRole("button", { name: "Rapporter fravær for denne tjenesten" });
+    const ownAbsence = self.locator(
+      `form:has(input[name="action"][value="ReportAbsence"]):has(input[name="commitmentId"][value="${firstCommitment.commitmentId}"])`,
+    );
+    const reportAbsenceButton = ownAbsence.getByRole("button", {
+      name: "Rapporter fravær for denne tjenesten",
+    });
     await reportAbsenceButton.focus();
     await expect(reportAbsenceButton).toBeFocused();
     let absencePosts = 0;
     self.on("request", (request) => {
-      if (request.method() === "POST" && new URL(request.url()).pathname.endsWith("/assistenter.data") &&
-        new URLSearchParams(request.postData() ?? "").get("action") === "ReportAbsence") absencePosts++;
+      if (
+        request.method() === "POST" &&
+        new URL(request.url()).pathname.endsWith("/assistenter.data") &&
+        new URLSearchParams(request.postData() ?? "").get("action") === "ReportAbsence"
+      )
+        absencePosts++;
     });
     await reportAbsenceButton.click();
-    await expect.poll(async () => (await readCoverageBoard(page)).absences.some((item: { commitmentId: string; personId: string }) =>
-      item.commitmentId === firstCommitment.commitmentId && item.personId === manifest.volunteerId)).toBe(true);
+    await expect
+      .poll(async () =>
+        (await readCoverageBoard(page)).absences.some(
+          (item: { commitmentId: string; personId: string }) =>
+            item.commitmentId === firstCommitment.commitmentId &&
+            item.personId === manifest.volunteerId,
+        ),
+      )
+      .toBe(true);
     expect(absencePosts).toBe(1);
     await self.reload();
     await axe(self, "own dated absence persisted on mobile");
-    expect(await self.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(true);
+    expect(await self.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
+      true,
+    );
     const reportedCoverage = await readCoverageBoard(page);
     const coveredAbsence = reportedCoverage.absences.find(
       (absence: { proposalId: string; personId: string; serviceDate: string }) =>
@@ -497,28 +530,56 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
         exact: true,
       }),
     ).toBeVisible();
-    await page.locator(`article[data-commitment-id="${firstCommitment.commitmentId}"]`).getByRole("button", { name: "Registrer beslutning for denne datoen" }).click();
+    await page
+      .locator(`article[data-commitment-id="${firstCommitment.commitmentId}"]`)
+      .getByRole("button", { name: "Registrer beslutning for denne datoen" })
+      .click();
     const completedForm = page.getByRole("form", {
-      name: `Beslutning for Skole Beta, ${manifest.coverage.serviceDate} kl. 09:00-11:00, bolk 2`, exact: true,
+      name: `Beslutning for Skole Beta, ${manifest.coverage.serviceDate} kl. 09:00–11:00, bolk 2`,
+      exact: true,
     });
-    await completedForm.locator('select').selectOption("CompleteService");
-    await completedForm.locator(`input[name="attendedPersonId"][value="${manifest.leaderId}"]`).check();
-    await completedForm.locator(`input[name="attendedPersonId"][value="${manifest.coverage.candidateId}"]`).check();
-    await completedForm.locator('input[name="evidenceSource"]').fill("Skole Beta kontakt, telefon 2024-03-04");
+    await completedForm.locator("select").selectOption("CompleteService");
+    await completedForm
+      .locator(`input[name="attendedPersonId"][value="${manifest.leaderId}"]`)
+      .check();
+    await completedForm
+      .locator(`input[name="attendedPersonId"][value="${manifest.coverage.candidateId}"]`)
+      .check();
+    await completedForm
+      .locator('input[name="evidenceSource"]')
+      .fill("Skole Beta kontakt, telefon 2024-03-04");
     await completedForm.getByRole("button", { name: "Lagre uforanderlig beslutning" }).click();
     await submittedAndRemoved(completedForm);
     await page.reload();
-    const completed = (await readCoverageBoard(page)).commitments.find((item: { commitmentId: string }) => item.commitmentId === firstCommitment.commitmentId);
-    expect(completed.decision).toMatchObject({ outcome: "Completed", evidenceSource: "Skole Beta kontakt, telefon 2024-03-04" });
-    const leaderAbsence = page.locator(`form:has(input[name="action"][value="ReportAbsenceForVolunteer"]):has(input[name="commitmentId"][value="${secondCommitment.commitmentId}"])`);
-    await leaderAbsence.getByRole("combobox", { name: "Frivillig", exact: true }).selectOption(manifest.leaderId);
+    const completed = (await readCoverageBoard(page)).commitments.find(
+      (item: { commitmentId: string }) => item.commitmentId === firstCommitment.commitmentId,
+    );
+    expect(completed.decision).toMatchObject({
+      outcome: "Completed",
+      evidenceSource: "Skole Beta kontakt, telefon 2024-03-04",
+    });
+    const leaderAbsence = page.locator(
+      `form:has(input[name="action"][value="ReportAbsenceForVolunteer"]):has(input[name="commitmentId"][value="${secondCommitment.commitmentId}"])`,
+    );
+    await leaderAbsence
+      .getByRole("combobox", { name: "Frivillig", exact: true })
+      .selectOption(manifest.leaderId);
     await leaderAbsence.getByRole("button", { name: /Rapporter fravær/ }).click();
-    await expect.poll(async () => (await readCoverageBoard(page)).absences.some((item: { commitmentId: string; personId: string }) =>
-      item.commitmentId === secondCommitment.commitmentId && item.personId === manifest.leaderId)).toBe(true);
+    await expect
+      .poll(async () =>
+        (await readCoverageBoard(page)).absences.some(
+          (item: { commitmentId: string; personId: string }) =>
+            item.commitmentId === secondCommitment.commitmentId &&
+            item.personId === manifest.leaderId,
+        ),
+      )
+      .toBe(true);
     await page.reload();
     const afterLeaderAbsence = await readCoverageBoard(page);
-    const uncoveredAbsence = afterLeaderAbsence.absences.find((item: { commitmentId: string; personId: string }) =>
-      item.commitmentId === secondCommitment.commitmentId && item.personId === manifest.leaderId);
+    const uncoveredAbsence = afterLeaderAbsence.absences.find(
+      (item: { commitmentId: string; personId: string }) =>
+        item.commitmentId === secondCommitment.commitmentId && item.personId === manifest.leaderId,
+    );
     expect(uncoveredAbsence).toBeDefined();
     const dispatchUncovered = page.getByRole("form", {
       name: `Vikardispatch: ${uncoveredAbsence.absenceId}`,
@@ -586,33 +647,67 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await withdrawOffer.getByRole("button", { name: "Trekk tilbake tilbud", exact: true }).click();
     await submittedAndRemoved(withdrawOffer);
     await page.reload();
-    await page.locator(`article[data-commitment-id="${secondCommitment.commitmentId}"]`).getByRole("button", { name: "Registrer beslutning for denne datoen" }).click();
+    await page
+      .locator(`article[data-commitment-id="${secondCommitment.commitmentId}"]`)
+      .getByRole("button", { name: "Registrer beslutning for denne datoen" })
+      .click();
     const unfulfilledForm = page.getByRole("form", {
-      name: `Beslutning for Skole Beta, ${manifest.coverage.secondServiceDate} kl. 09:00-11:00, bolk 2`, exact: true,
+      name: `Beslutning for Skole Beta, ${manifest.coverage.secondServiceDate} kl. 09:00–11:00, bolk 2`,
+      exact: true,
     });
-    await unfulfilledForm.locator('select').selectOption("MarkUnfulfilledService");
-    await unfulfilledForm.locator(`input[name="attendedPersonId"][value="${manifest.volunteerId}"]`).check();
-    await unfulfilledForm.locator('input[name="evidenceSource"]').fill("Skole Beta kontakt, telefon 2024-03-11");
+    await unfulfilledForm.locator("select").selectOption("MarkUnfulfilledService");
+    await unfulfilledForm
+      .locator(`input[name="attendedPersonId"][value="${manifest.volunteerId}"]`)
+      .check();
+    await unfulfilledForm
+      .locator('input[name="evidenceSource"]')
+      .fill("Skole Beta kontakt, telefon 2024-03-11");
     await unfulfilledForm.locator('textarea[name="reason"]').fill("Bare én av to frivillige møtte");
     await unfulfilledForm.getByRole("button", { name: "Lagre uforanderlig beslutning" }).click();
     await submittedAndRemoved(unfulfilledForm);
     await page.reload();
-    await page.locator(`article[data-commitment-id="${cancelledCommitment.commitmentId}"]`).getByRole("button", { name: "Registrer beslutning for denne datoen" }).click();
+    await page
+      .locator(`article[data-commitment-id="${cancelledCommitment.commitmentId}"]`)
+      .getByRole("button", { name: "Registrer beslutning for denne datoen" })
+      .click();
     const cancelledForm = page.getByRole("form", {
-      name: `Beslutning for Skole Beta, ${manifest.coverage.cancelledServiceDate} kl. 09:00-11:00, bolk 2`, exact: true,
+      name: `Beslutning for Skole Beta, ${manifest.coverage.cancelledServiceDate} kl. 09:00–11:00, bolk 2`,
+      exact: true,
     });
-    await cancelledForm.locator('select').selectOption("CancelService");
-    await cancelledForm.locator('input[name="evidenceSource"]').fill("Skole Beta kontakt, telefon 2024-03-18");
+    await cancelledForm.locator("select").selectOption("CancelService");
+    await cancelledForm
+      .locator('input[name="evidenceSource"]')
+      .fill("Skole Beta kontakt, telefon 2024-03-18");
     await cancelledForm.locator('textarea[name="reason"]').fill("Skolen avlyste tjenesten");
     await cancelledForm.getByRole("button", { name: "Lagre uforanderlig beslutning" }).click();
     await submittedAndRemoved(cancelledForm);
     await page.reload();
     const finalCoverage = await readCoverageBoard(page);
-    expect(finalCoverage.commitments.find((item: { commitmentId: string }) => item.commitmentId === secondCommitment.commitmentId)?.decision).toMatchObject({ outcome: "Unfulfilled", attendedPersonIds: [manifest.volunteerId] });
-    expect(finalCoverage.commitments.find((item: { commitmentId: string }) => item.commitmentId === cancelledCommitment.commitmentId)?.decision).toMatchObject({ outcome: "Cancelled", attendedPersonIds: [], reason: "Skolen avlyste tjenesten" });
-    expect(finalCoverage.occurrences.filter((item: { commitmentId: string }) => item.commitmentId === cancelledCommitment.commitmentId)).toHaveLength(0);
-    const coveredOccurrence = finalCoverage.occurrences.find((item: { commitmentId: string }) => item.commitmentId === firstCommitment.commitmentId);
-    const uncoveredOccurrence = finalCoverage.occurrences.find((item: { commitmentId: string }) => item.commitmentId === secondCommitment.commitmentId);
+    expect(
+      finalCoverage.commitments.find(
+        (item: { commitmentId: string }) => item.commitmentId === secondCommitment.commitmentId,
+      )?.decision,
+    ).toMatchObject({ outcome: "Unfulfilled", attendedPersonIds: [manifest.volunteerId] });
+    expect(
+      finalCoverage.commitments.find(
+        (item: { commitmentId: string }) => item.commitmentId === cancelledCommitment.commitmentId,
+      )?.decision,
+    ).toMatchObject({
+      outcome: "Cancelled",
+      attendedPersonIds: [],
+      reason: "Skolen avlyste tjenesten",
+    });
+    expect(
+      finalCoverage.occurrences.filter(
+        (item: { commitmentId: string }) => item.commitmentId === cancelledCommitment.commitmentId,
+      ),
+    ).toHaveLength(0);
+    const coveredOccurrence = finalCoverage.occurrences.find(
+      (item: { commitmentId: string }) => item.commitmentId === firstCommitment.commitmentId,
+    );
+    const uncoveredOccurrence = finalCoverage.occurrences.find(
+      (item: { commitmentId: string }) => item.commitmentId === secondCommitment.commitmentId,
+    );
     const coveredOfferFact = finalCoverage.offers.find(
       (offer: { absenceId: string }) => offer.absenceId === coveredAbsence.absenceId,
     );
@@ -638,8 +733,16 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       [manifest.leaderId, manifest.coverage.candidateId].sort(),
     );
     expect([...uncoveredOccurrence.attendedPersonIds].sort()).toEqual([manifest.volunteerId]);
-    expect(finalCoverage.closures.find((item: { absenceId: string }) => item.absenceId === coveredAbsence.absenceId)?.outcome).toBe("Covered");
-    expect(finalCoverage.closures.find((item: { absenceId: string }) => item.absenceId === uncoveredAbsence.absenceId)?.outcome).toBe("Uncovered");
+    expect(
+      finalCoverage.closures.find(
+        (item: { absenceId: string }) => item.absenceId === coveredAbsence.absenceId,
+      )?.outcome,
+    ).toBe("Covered");
+    expect(
+      finalCoverage.closures.find(
+        (item: { absenceId: string }) => item.absenceId === uncoveredAbsence.absenceId,
+      )?.outcome,
+    ).toBe("Uncovered");
     const browserCoverageExpected = {
       absencePosts,
       proposalId: serviceProposalId,
