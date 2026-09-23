@@ -628,6 +628,7 @@ try {
       leaderId,
       JSON.stringify([
         { schoolId: 961, day: "Monday", block: "1", requiredVolunteers: 1, revision: 1 },
+        { schoolId: 961, day: "Monday", block: "2", requiredVolunteers: 1, revision: 1 },
         { schoolId: 961, day: "Tuesday", block: "1", requiredVolunteers: 1, revision: 1 },
         { schoolId: 961, day: "Wednesday", block: "1", requiredVolunteers: 2, revision: 1 },
         { schoolId: 961, day: "Thursday", block: "1", requiredVolunteers: 1, revision: 1 },
@@ -643,6 +644,16 @@ try {
           schoolName: "Skole Alfa",
           day: "Monday",
           block: "1",
+        },
+        {
+          placementId: `placement-${"4".repeat(64)}`,
+          personId: volunteerId,
+          firstName: "Irene",
+          lastName: "Intervjuer",
+          schoolId: 961,
+          schoolName: "Skole Alfa",
+          day: "Monday",
+          block: "2",
         },
         {
           placementId: `placement-${"d".repeat(64)}`,
@@ -821,6 +832,27 @@ try {
       )
     ).rows[0].commitment_id,
     null,
+  );
+  const beforeOverlap = await readBoard();
+  await expectStatus(
+    await request(
+      boardPath,
+      leader,
+      {
+        ...schedule("Monday", serviceDates.Monday),
+        block: "2",
+        startTime: "10:00",
+        endTime: "12:00",
+      },
+      beforeOverlap.etag,
+    ),
+    409,
+    "commitment.duplicate",
+  );
+  assert.equal(
+    (await readBoard()).etag,
+    beforeOverlap.etag,
+    "overlapping person appointment has no write",
   );
   assert.equal((await request(ownCoveragePath)).status, 401);
   assert.equal((await request(coverageBoardPath)).status, 401);
