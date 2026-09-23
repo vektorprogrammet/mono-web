@@ -84,8 +84,6 @@ export const PlacementProblem = problemUnion("PlacementProblem", [
   ["offer.response-invalid", 409],
   ["offer.withdraw-invalid", 409],
   ["coverage.acknowledgement-invalid", 409],
-  ["coverage.pending-offer", 409],
-  ["coverage.attendance-invalid", 422],
 
   ["precondition.required", 428],
   ["precondition.failed", 412],

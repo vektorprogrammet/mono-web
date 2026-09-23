@@ -406,12 +406,6 @@ export const NativeProblemRegistry = {
     status: 409,
     detail: "Only the current accepted, eligible substitute offer can be acknowledged.",
   },
-  "coverage.pending-offer": {
-    type: "urn:vektorprogrammet:problem:v0.2:coverage.pending-offer",
-    title: "Coverage has a pending offer",
-    status: 409,
-    detail: "Resolve this absence's offered or accepted substitute before closing its coverage.",
-  },
 
   "scope.invalid": {
     type: "urn:vektorprogrammet:problem:v0.2:scope.invalid",
