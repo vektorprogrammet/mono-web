@@ -520,6 +520,7 @@ try {
   );
   for (const entry of staffRequests) {
     const exact =
+      (entry.method === "OPTIONS" && entry.pathname.startsWith("/api/content/articles")) ||
       (entry.method === "GET" && entry.pathname === "/api/content/articles") ||
       (entry.method === "POST" && entry.pathname === "/api/content/articles") ||
       (entry.method === "GET" && /^\/api\/content\/articles\/\d+$/u.test(entry.pathname)) ||
