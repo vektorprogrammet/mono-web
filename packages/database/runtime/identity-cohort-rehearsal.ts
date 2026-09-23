@@ -16,6 +16,7 @@ import { makePasswordRecovery, drainPasswordResetMail } from "../src/password-re
 import { identityRequestContext } from "../../../apps/backend/src/session-security.js";
 import { mailDeliveryConfig, makeHttpMailDelivery } from "../../../apps/backend/src/mail/http.js";
 import { importIdentityCohort, IdentityCohortFailure } from "../src/identity-cohort.js";
+import { summarizeIdentityCohort } from "../src/identity-cohort-cli.js";
 import { importPersonCohort } from "../src/person-cohort.js";
 import { isNativePasswordHash, verifyNativeOrLegacyPassword } from "../src/password-codec.js";
 declare const Bun: {
@@ -213,7 +214,7 @@ try {
     sourceRevision: "synthetic-source-0107",
     snapshotId: "cohort-0107",
     transformationRevision: "0107-v1",
-    synthetic: true,
+    sourceKind: "Synthetic" as const,
     occurrences,
     mappings,
   };
@@ -251,7 +252,7 @@ try {
       sourceRevision: `person-source-${source.sourceUserId}`,
       snapshotId: `person-${source.sourceUserId}`,
       transformationRevision: "0107-v1",
-      synthetic: true,
+      sourceKind: "Synthetic",
       occurrences: [
         {
           occurrenceId: `person-${source.sourceUserId}`,
@@ -445,6 +446,91 @@ try {
     ).rows[0],
     { users: 1, accounts: 1, imports: 1 },
   );
+  // Synthetic source facts exercise the LegacyBackup path without reading a private backup.
+  const backupRow: Row = {
+    sourceUserId: "backup-accepted",
+    active: true,
+    email: "backup-accepted@example.invalid",
+    passwordHash: hashes[0]!,
+  };
+  const passwordlessRow: Row = {
+    sourceUserId: "backup-passwordless",
+    active: true,
+    email: "backup-passwordless@example.invalid",
+    passwordHash: null,
+  };
+  const mismatchedRow: Row = {
+    sourceUserId: "backup-contact-mismatch",
+    active: true,
+    email: "backup-contact-mismatch@example.invalid",
+    passwordHash: hashes[0]!,
+  };
+  for (const row of [backupRow, passwordlessRow, mismatchedRow]) await reconcilePerson(row);
+  await pool.query(
+    "UPDATE public.person_contact_profiles SET email=$1 WHERE person_id=$2",
+    ["different@example.invalid", "person-backup-contact-mismatch"],
+  );
+  const backupSnapshot = {
+    ...snapshot,
+    snapshotId: "legacy-backup-synthetic-rehearsal",
+    sourceKind: "LegacyBackup" as const,
+    occurrences: [backupRow, passwordlessRow, mismatchedRow].map((row) => ({
+      occurrenceId: `backup-${row.sourceUserId}`,
+      row,
+    })),
+    mappings: [backupRow, passwordlessRow, mismatchedRow].map((row) => ({
+      sourceUserId: row.sourceUserId,
+      personId: `person-${row.sourceUserId}`,
+      emailOwnership: {
+        email: row.email,
+        attestedBy: "synthetic-operator",
+        evidenceRef: `attestation-${row.sourceUserId}`,
+      },
+    })),
+  };
+  const shared = await pool.connect();
+  try {
+    await shared.query("BEGIN");
+    assert.equal((await importIdentityCohort(pool, backupSnapshot, shared)).accepted, 1);
+    await shared.query("ROLLBACK");
+  } finally {
+    shared.release();
+  }
+  assert.equal(
+    (await pool.query('SELECT 1 FROM auth."user" WHERE id=$1', ["person-backup-accepted"]))
+      .rowCount,
+    0,
+  );
+  const backupReport = await importIdentityCohort(pool, backupSnapshot);
+  assert.equal(backupReport.accepted, 1);
+  assert.equal(
+    backupReport.occurrences.find((r) => r.occurrenceId === "backup-backup-passwordless")?.reason,
+    "MissingPassword",
+  );
+  assert.equal(
+    backupReport.occurrences.find((r) => r.occurrenceId === "backup-backup-contact-mismatch")?.reason,
+    "EmailConflict",
+  );
+  assert.equal(
+    (await pool.query('SELECT password FROM auth."account" WHERE "userId"=$1', ["person-backup-accepted"])).rows[0].password,
+    hashes[0],
+  );
+  assert.equal(
+    (await pool.query('SELECT 1 FROM auth."account" WHERE "userId"=$1', ["person-backup-passwordless"])).rowCount,
+    0,
+  );
+  assert.equal(
+    (await pool.query('SELECT source_kind FROM auth.credential_cohort_snapshots WHERE snapshot_key=$1', [backupReport.snapshotKey])).rows[0].source_kind,
+    "LegacyBackup",
+  );
+  assert.equal(
+    (await pool.query(
+      'SELECT actor_principal FROM auth.identity_security_audit WHERE subject_person_id=$1 AND event_kind=$2',
+      ["person-backup-accepted", "account-provisioned-administratively"],
+    )).rows[0].actor_principal,
+    "administrative:legacy-backup-cohort",
+  );
+  assert.deepEqual(await importIdentityCohort(pool, backupSnapshot), backupReport);
   const authPort = await freePort(),
     origin = `http://127.0.0.1:${authPort}`;
   const config: AuthEngineConfig = {
@@ -551,7 +637,7 @@ try {
         res.writeHead(422).end();
         return;
       }
-      const match = value.text.match(/https:\/\/[^\s]+\/api\/auth\/reset-password\/[^\s]+/u);
+      const match = value.text.match(/https?:\/\/[^\s]+\/api\/auth\/reset-password\/[^\s]+/u);
       if (!match) {
         res.writeHead(422).end();
         return;
@@ -636,7 +722,7 @@ try {
   evidence = {
     specId: "0107",
     revision,
-    report,
+    report: summarizeIdentityCohort(report),
     passed: true,
     compatibility: {
       phpVersion: command(php, ["-r", "echo PHP_VERSION;"]),

@@ -442,6 +442,11 @@ export const databaseMigrationDefinitions = [
     name: "historical-service-legacy-backup",
     url: new URL("../migrations/0055-historical-service-legacy-backup.sql", import.meta.url),
   },
+  {
+    id: "56_legacy-backup-credential-cohort",
+    name: "legacy-backup-credential-cohort",
+    url: new URL("../migrations/0056-legacy-backup-credential-cohort.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

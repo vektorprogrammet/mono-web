@@ -24,10 +24,10 @@ export const IdentityCohortSnapshot = Schema.Struct({
   sourceRevision: Id,
   snapshotId: Id,
   transformationRevision: Id,
-  synthetic: Schema.Literal(true),
+  sourceKind: Schema.Union([Schema.Literal("Synthetic"), Schema.Literal("LegacyBackup")]),
   occurrences: Schema.Array(Schema.Struct({ occurrenceId: Id, row: Schema.Unknown })).pipe(
     Schema.check(Schema.isMinLength(1)),
-    Schema.check(Schema.isMaxLength(1000)),
+    Schema.check(Schema.isMaxLength(10000)),
   ),
   mappings: Schema.Array(
     Schema.Struct({
@@ -35,7 +35,7 @@ export const IdentityCohortSnapshot = Schema.Struct({
       personId: Id,
       emailOwnership: Schema.Struct({ email: ContactEmail, attestedBy: Id, evidenceRef: Id }),
     }),
-  ).pipe(Schema.check(Schema.isMaxLength(1000))),
+  ).pipe(Schema.check(Schema.isMaxLength(10000))),
 });
 export type IdentityCohortSnapshot = typeof IdentityCohortSnapshot.Type;
 export class IdentityCohortFailure extends Error {
@@ -81,6 +81,9 @@ export interface CohortReport {
   aliases: "LegacyUsernameAndCompanyEmailUnsupported";
 }
 const digest = (value: unknown) => createHash("sha256").update(canonicalJson(value)).digest("hex");
+const sourceIdOf = (row: unknown): string | undefined =>
+  typeof row === "object" && row !== null && "sourceUserId" in row &&
+  typeof row.sourceUserId === "string" ? row.sourceUserId : undefined;
 export const decodeIdentityCohort = (input: unknown): IdentityCohortSnapshot => {
   try {
     const snapshot = Schema.decodeUnknownSync(IdentityCohortSnapshot)(input, {
@@ -111,7 +114,11 @@ const report = async (tx: PoolClient, key: string): Promise<CohortReport> => {
   };
 };
 /** All source occurrences and credential writes are one transaction; no engine adapter's separate pool. */
-export const importIdentityCohort = async (pool: Pool, input: unknown): Promise<CohortReport> => {
+export const importIdentityCohort = async (
+  pool: Pool,
+  input: unknown,
+  client?: PoolClient,
+): Promise<CohortReport> => {
   const snapshot = decodeIdentityCohort(input);
   const key = digest([snapshot.sourceRepository, snapshot.snapshotId]);
   const snapshotDigest = digest(snapshot);
@@ -125,10 +132,27 @@ export const importIdentityCohort = async (pool: Pool, input: unknown): Promise<
       return { ...occurrence, value: undefined };
     }
   });
-  const mappingsFor = (id: string) => snapshot.mappings.filter((m) => m.sourceUserId === id);
-  const tx = await pool.connect();
+  const mappingsBySource = new Map<string, typeof snapshot.mappings[number][]>();
+  const targetCounts = new Map<string, number>();
+  for (const mapping of snapshot.mappings) {
+    const mappings = mappingsBySource.get(mapping.sourceUserId) ?? [];
+    mappings.push(mapping);
+    mappingsBySource.set(mapping.sourceUserId, mappings);
+    targetCounts.set(mapping.personId, (targetCounts.get(mapping.personId) ?? 0) + 1);
+  }
+  const sourceCounts = new Map<string, number>();
+  const emailCounts = new Map<string, number>();
+  for (const occurrence of decoded) {
+    const sourceId = sourceIdOf(occurrence.row);
+    if (sourceId) sourceCounts.set(sourceId, (sourceCounts.get(sourceId) ?? 0) + 1);
+    if (occurrence.value) {
+      const email = occurrence.value.email.toLowerCase();
+      emailCounts.set(email, (emailCounts.get(email) ?? 0) + 1);
+    }
+  }
+  const tx = client ?? (await pool.connect());
   try {
-    await tx.query("BEGIN");
+    if (!client) await tx.query("BEGIN");
     // One import boundary owns writes; Read Committed takes fresh snapshots after this lock.
     await tx.query(
       "SELECT pg_advisory_xact_lock(hashtextextended('native-credential-cohort-import',0))",
@@ -141,11 +165,11 @@ export const importIdentityCohort = async (pool: Pool, input: unknown): Promise<
       if (prior.rows[0].snapshot_digest !== snapshotDigest)
         throw new IdentityCohortFailure("SnapshotConflict");
       const result = await report(tx, key);
-      await tx.query("COMMIT");
+      if (!client) await tx.query("COMMIT");
       return result;
     }
     await tx.query(
-      `INSERT INTO auth.credential_cohort_snapshots(snapshot_key,source_repository,snapshot_id,source_revision,transformation_revision,snapshot_digest,occurrence_count) VALUES($1,$2,$3,$4,$5,$6,$7)`,
+      `INSERT INTO auth.credential_cohort_snapshots(snapshot_key,source_repository,snapshot_id,source_revision,transformation_revision,snapshot_digest,occurrence_count,source_kind) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
       [
         key,
         snapshot.sourceRepository,
@@ -154,20 +178,15 @@ export const importIdentityCohort = async (pool: Pool, input: unknown): Promise<
         snapshot.transformationRevision,
         snapshotDigest,
         snapshot.occurrences.length,
+        snapshot.sourceKind,
       ],
     );
     for (const occurrence of decoded) {
       const row = occurrence.value;
       let reason: CohortReason | undefined;
-      const mappings = row ? mappingsFor(row.sourceUserId) : [];
+      const mappings = row ? (mappingsBySource.get(row.sourceUserId) ?? []) : [];
       const mapping = mappings.length === 1 ? mappings[0] : undefined;
-      const sourceId =
-        typeof occurrence.row === "object" &&
-        occurrence.row !== null &&
-        "sourceUserId" in occurrence.row &&
-        typeof occurrence.row.sourceUserId === "string"
-          ? occurrence.row.sourceUserId
-          : undefined;
+      const sourceId = sourceIdOf(occurrence.row);
       if (sourceId) {
         const previousSource = await tx.query<{ source_digest: string }>(
           "SELECT source_digest FROM auth.credential_cohort_imports WHERE source_repository=$1 AND source_user_id=$2",
@@ -180,19 +199,8 @@ export const importIdentityCohort = async (pool: Pool, input: unknown): Promise<
           throw new IdentityCohortFailure("SourceIdentityConflict");
       }
       if (!row) reason = "InvalidRow";
-      else if (
-        decoded.filter(
-          (r) =>
-            typeof r.row === "object" &&
-            r.row !== null &&
-            "sourceUserId" in r.row &&
-            r.row.sourceUserId === row.sourceUserId,
-        ).length > 1
-      )
-        reason = "DuplicateSource";
-      else if (
-        decoded.filter((r) => r.value?.email.toLowerCase() === row.email.toLowerCase()).length > 1
-      )
+      else if ((sourceCounts.get(row.sourceUserId) ?? 0) > 1) reason = "DuplicateSource";
+      else if ((emailCounts.get(row.email.toLowerCase()) ?? 0) > 1)
         reason = "DuplicateEmail";
       else if (!row.active) reason = "Inactive";
       else if (row.passwordHash === null || row.passwordHash === "") reason = "MissingPassword";
@@ -201,15 +209,11 @@ export const importIdentityCohort = async (pool: Pool, input: unknown): Promise<
       else if (mappings.length > 1) reason = "MappingAmbiguous";
       else if (mapping!.emailOwnership.email.toLowerCase() !== row.email.toLowerCase())
         reason = "EmailUnattested";
-      else if (
-        snapshot.mappings.some(
-          (m) => m.personId === mapping!.personId && m.sourceUserId !== row.sourceUserId,
-        )
-      )
+      else if ((targetCounts.get(mapping!.personId) ?? 0) > 1)
         reason = "DuplicateTarget";
       let sourceDigest: string | undefined;
       let accountId: string | undefined;
-      let person: { first_name: string; last_name: string } | undefined;
+      let person: { first_name: string; last_name: string; contact_email: string | null } | undefined;
       if (!reason && row && mapping) {
         sourceDigest = digest({ row, mapping });
         accountId = `cohort-${digest([snapshot.sourceRepository, row.sourceUserId])}`;
@@ -231,18 +235,21 @@ export const importIdentityCohort = async (pool: Pool, input: unknown): Promise<
           reason = "ExactReplay";
         } else {
           person = (
-            await tx.query<{ first_name: string; last_name: string }>(
-              `SELECT p.first_name, p.last_name
+            await tx.query<{ first_name: string; last_name: string; contact_email: string | null }>(
+              `SELECT p.first_name, p.last_name, c.email AS contact_email
                  FROM public.person_cohort_imports i
                  JOIN public.person_profiles p ON p.person_id = i.person_id
+                 JOIN public.person_contact_profiles c ON c.person_id = i.person_id
                 WHERE i.source_repository = $1
                   AND i.source_user_id = $2
                   AND i.person_id = $3
-                  FOR SHARE OF i, p`,
+                  FOR SHARE OF i, p, c`,
               [snapshot.sourceRepository, row.sourceUserId, mapping.personId],
             )
           ).rows[0];
           if (!person) reason = "PersonReconciliationMissing";
+          else if (person.contact_email?.toLowerCase() !== row.email.toLowerCase())
+            reason = "EmailConflict";
           else if (
             (await tx.query('SELECT 1 FROM auth."user" WHERE id=$1', [mapping.personId])).rowCount
           )
@@ -286,10 +293,13 @@ export const importIdentityCohort = async (pool: Pool, input: unknown): Promise<
           ],
         );
         await tx.query(
-          `INSERT INTO auth.identity_security_audit(event_id,event_kind,subject_person_id,actor_principal,details) VALUES($1,'account-provisioned-administratively',$2,'administrative:synthetic-cohort',$3::jsonb)`,
+          `INSERT INTO auth.identity_security_audit(event_id,event_kind,subject_person_id,actor_principal,details) VALUES($1,'account-provisioned-administratively',$2,$3,$4::jsonb)`,
           [
             `cohort-${sourceDigest}`,
             mapping.personId,
+            snapshot.sourceKind === "LegacyBackup"
+              ? "administrative:legacy-backup-cohort"
+              : "administrative:synthetic-cohort",
             JSON.stringify({ outcomeCode: "account-provisioned", affectedSessionCount: 0 }),
           ],
         );
@@ -298,14 +308,14 @@ export const importIdentityCohort = async (pool: Pool, input: unknown): Promise<
     const result = await report(tx, key);
     if (result.input !== snapshot.occurrences.length)
       throw new IdentityCohortFailure("PersistenceFailure");
-    await tx.query("COMMIT");
+    if (!client) await tx.query("COMMIT");
     return result;
   } catch (cause) {
-    await tx.query("ROLLBACK");
+    if (!client) await tx.query("ROLLBACK");
     throw cause instanceof IdentityCohortFailure
       ? cause
       : new IdentityCohortFailure("PersistenceFailure");
   } finally {
-    tx.release();
+    if (!client) tx.release();
   }
 };

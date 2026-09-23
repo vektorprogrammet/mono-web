@@ -13,6 +13,7 @@
     "./contact": "./src/contact/index.ts",
     "./content": "./src/content/index.ts",
     "./historical-service-cohort": "./src/historical-service-cohort.ts",
+    "./identity-cohort": "./src/identity-cohort.ts",
     "./onboarding": "./src/onboarding/index.ts",
     "./organization": "./src/organization/index.ts",
     "./placements": "./src/placements/index.ts",
