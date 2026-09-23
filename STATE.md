@@ -44,34 +44,37 @@ The native architecture now uses one Effect backend runtime, one PostgreSQL
 ownership layer, generated HTTP and SDK contracts, transaction-bound authority,
 atomic audit/outbox/receipt writes, and Foldkit dashboard workflows.
 
-The private 2024-08-22 legacy backup has passed a local cutover rehearsal using a
-SELECT-only MariaDB account and a new disposable PostgreSQL database. The native
-Person importer reconciled 2,893 of 2,923 source people and quarantined 30. The
-same read-only cutover driver seeded 5 departments, 28 semesters, 44 schools, and
-43 school-department links, then reconciled all 1,815 assistant-service rows:
-1,690 imported and 125 quarantined (105 invalid, 10 missing mappings, 10 duplicate
-targets). The native history view contains 1,681 distinct historical affiliations;
-no current affiliation or placement was inferred. The local journey proved
+A local cutover rehearsal used the private 2024-08-22 legacy backup. The
+rehearsal used a MariaDB account with SELECT-only grants and a separate
+PostgreSQL database. The native Person importer reconciled 2,893 of 2,923
+source people and quarantined 30. The cutover driver seeded 5 departments, 28
+semesters, 44 schools, and 43 school-department links. It reconciled all 1,815
+assistant-service rows: 1,690 imported and 125 quarantined (105 invalid, 10
+missing mappings, 10 duplicate targets). The native history view contains 1,681
+distinct historical affiliations. The import did not infer a current affiliation
+or placement. The local journey proved
 whole-cutover rollback after induced historical failure, fresh-target rejection,
 exact replay, backup/restore content equivalence, restored replay, and private
 cleanup. The established Person rollback, concurrent import, changed-source,
 and own-profile gates still pass.
 
 The reusable cutover driver reads one consistent, read-only InnoDB source snapshot
-through a SELECT-only account; remote source and target connections require
-verified TLS. Its first import requires an explicitly selected, empty native
-database; replay verifies the same source evidence and target references. An
-owner-only local PostgreSQL 17 target is provisioned via devenv, with a separate
-empty, migrated database reserved for a live read-only source rehearsal. No
-production SELECT-only MariaDB credential or connection route has been supplied.
-The local target is not production infrastructure. The 2024 backup contains no
-2026 current assignments, so it cannot establish current placements. Production
-import remains unperformed.
+through a SELECT-only account. Its first import requires an explicitly selected,
+empty native database; replay verifies the same source evidence and target
+references. Devenv provisions a local MariaDB restored from the pinned backup.
+It also provisions an isolated PostgreSQL 17 target. The import reconciled the
+supported Person, directory, and historical-service cohorts in a fresh database.
+Exact replay made no further writes. A deliberate historical-import failure left
+a second fresh target empty. This is a backup rehearsal, not a production migration. The
+rehearsal did not access or change the live system. It did not transfer writer
+authority. The backup has zero assignments for 2024 Høst. Its 92 assignments
+for 2024 Vår were historical by the backup date. Thus, the backup cannot prove
+current 2026 placements or the eventual live contents.
 
-Real credential and account recovery, current placement, receipt, private-file,
-and settlement-reference cohorts remain. A fresh production source read must also
-reconcile historical changes since the dated backup. Their existing synthetic
-paths do not infer current authority from historical facts.
+Credential and account recovery, current placement, receipt, private-file, and
+settlement-reference cohorts remain. At eventual cutover, changes since this
+backup must be reconciled; local rehearsal requires no production access. Their
+existing synthetic paths do not infer current authority from historical facts.
 
 ## Next
 
