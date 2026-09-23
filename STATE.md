@@ -56,9 +56,11 @@ mappings, and 10 with duplicate targets. The native history view contains
 The same transaction reconciled all 2,923 source account rows. It imported
 1,482 unchanged supported hashes and provisioned 1,410 passwordless native
 user identities without credentials, sessions, mail, or email-verification
-flags. It quarantined 31 rows: 13 inactive, 5 invalid, and 13 without accepted
-Person mappings. One accepted Person has an invalid account row and no native
-login identity. It needs explicit correction before production cutover.
+flags. It quarantined 31 rows: 13 inactive, 5 invalid, and 13 without accepted Person mappings.
+One accepted Person has an account email without a domain dot. The native
+login email schema rejects it, so that Person has no native login identity.
+A verified address correction is required before production cutover; do not
+relax login validation or invent an address from the backup.
 Legacy usernames and company emails remain unsupported login aliases. The
 import did not infer a current affiliation or placement.
 
@@ -88,6 +90,17 @@ files, and settlement references remain. The local backup does not prove
 current mailbox ownership or current production identity. Synthetic
 operational paths do not infer current authority from historical facts.
 
+The 2024 backup contains 2,206 receipt rows: 2,169 marked refunded, 32
+rejected, and 5 pending. All have distinct visual IDs and absolute file paths.
+2,142 owners resolve to accepted People; 64 owners were not accepted because
+they are inactive. The authorized backup package contains only SQL, not the
+2,206 file contents. Legacy account numbers are plaintext source fields;
+the native receipt requires encrypted payment-account custody. A legacy
+refunded status proves neither a payment transfer nor native settlement
+evidence. Do not import file-less receipts or mark them settled. A verified
+file archive, explicit owner and department mapping, payment-account custody,
+and settlement references are still needed for the receipt migration.
+
 ## Next
 
 The implemented recruitment sequence is complete under the current product model.
@@ -97,9 +110,11 @@ product decision that names the fact and its authority.
 
 Close the remaining replacement gates in this order:
 
-1. Reconcile the one accepted Person with an invalid account row. Then reconcile
-   unsupported credentials, legacy aliases, receipts, private files, and
-   settlement references. Current placement needs a fresh authorized source.
+1. Obtain a verified address correction for the one accepted Person without a
+   login identity. Reconcile unsupported credentials and legacy aliases.
+   Obtain receipt file bytes and payment-account custody before importing
+   receipts; reconcile settlement references separately. Current placement
+   needs a fresh authorized source.
 2. Configure and prove authorized mail, storage, and settlement-evidence boundaries.
 3. When authorized, obtain a production SELECT-only source route and a new native
    database. Reconcile changes since the backup without source writes.
