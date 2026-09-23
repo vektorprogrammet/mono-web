@@ -31,10 +31,11 @@ Implemented native journeys include:
   registration, interview assignment, scheduling, response, conduct,
   recommendation, reporting, and immutable completed-assessment corrections;
 - onboarding invitation, account claim or link, volunteer-affiliation request
-  and establishment, manual school placement, coordinator-confirmed school
-  service, own and coordinator absence reporting, sequential substitute dispatch,
-  addressed acceptance or decline, coordinator acknowledgement, delivery
-  recovery, exact attendance, and immutable Covered or Uncovered closure;
+  and establishment, manual school placement, and coordinator-confirmed roster;
+- dated school-service commitments, assignment-specific absence reporting,
+  sequential substitute dispatch, addressed acceptance or decline, coordinator
+  acknowledgement, delivery recovery, actual attendance, and immutable
+  Completed, Cancelled, or Unfulfilled decisions;
 - expense submission, private-file custody, scoped approval, rejection,
   reopening, separately authorized immutable settlement evidence, and
   acknowledged owner-notification recovery;
@@ -45,12 +46,13 @@ Implemented native journeys include:
 These journeys were observed with synthetic local resources. This is not
 production cutover evidence.
 
-The confirmed native roster is a recurring semester weekday/block snapshot.
-Date-specific absences, offers, and occurrences exist, but there is no separate
-bounded school-service commitment. Covered and Uncovered close one absence,
-not the school session. The native system has no session-level Completed,
-Cancelled, or Unfulfilled decision with required evidence. The intended model
-now separates these outcomes.
+The confirmed native roster is a recurring semester weekday/block snapshot. A
+coordinator can schedule a bounded commitment for one date from this roster.
+Absences and substitute offers attach to that date. A terminal decision records
+actual attendance and evidence. Cancellation creates no attendance occurrence;
+partial service remains Unfulfilled. The local PostgreSQL, HTTP, and Chromium
+journey passed with synthetic state, including scoped denial, retries, and
+desktop/mobile accessibility checks. It does not prove current production data.
 
 A mounted local HTTP rehearsal now verifies receipt approval-queue reads by a
 scoped service bearer without a Person cookie. Unscoped and revoked grants,
@@ -125,13 +127,6 @@ The implemented recruitment sequence is complete under the current product model
 It keeps recommendation, invitation, account claim, affiliation, and placement as
 separate facts. It does not infer an admission decision. Adding one requires a new
 product decision that names the fact and its authority.
-
-The next local product journey is one dated school-service commitment from a
-confirmed roster through assignment-specific absence, reassignment, and an
-evidence-backed terminal outcome. Build its domain, persistence, HTTP, generated
-SDK, and coordinator/assistant reads as one contract. Exercise completion,
-cancellation, partial or unfulfilled service, retry, denial, and recovery with
-local synthetic state. Do not turn a historical placement into a dated session.
 
 Import of open school service needs a fresh, authorized read-only inventory of
 current source records and writers. The six-table backup reader cannot establish
