@@ -314,11 +314,25 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await demand.getByLabel("Frivillige som trengs").fill("2");
     await demand.getByRole("button", { name: "Legg til skolebehov" }).click();
     await saved(demand);
+    await demand
+      .getByRole("combobox", { name: "Skole", exact: true })
+      .selectOption(String(manifest.schoolId));
     await demand.getByRole("combobox", { name: "Ukedag", exact: true }).selectOption("Tuesday");
     await demand.getByRole("combobox", { name: "Bolk", exact: true }).selectOption("1");
     await demand.getByLabel("Frivillige som trengs").fill("1");
     await demand.getByRole("button", { name: "Legg til skolebehov" }).click();
     await saved(demand);
+    await expect
+      .poll(async () =>
+        (await readBoard(page)).demands.some(
+          (item: { schoolId: number; day: string; block: string; requiredVolunteers: number }) =>
+            item.schoolId === manifest.schoolId &&
+            item.day === "Tuesday" &&
+            item.block === "1" &&
+            item.requiredVolunteers === 1,
+        ),
+      )
+      .toBe(true);
     await page.reload();
     const generate = page.getByRole("form", { name: "Lag nytt tjenesteforslag", exact: true });
     const proposalAction = page.waitForResponse(
