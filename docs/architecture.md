@@ -69,9 +69,32 @@ Required rules:
 - Do not add a microservice until an observed operational need requires an
   independent deployment boundary.
 
+## Interface contracts
+
+The same business contract crosses several interfaces. A route, schema, or table
+is not the business contract by itself. Each interface owns one kind of trust.
+
+| Caller to receiver                | Required contract                                                                                                                                                                                                                                                     | Hidden implementation                                           |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Human browser to native server    | The generated external HTTP contract defines requests, responses, errors, cache rules, revisions, and idempotency. Protected operations resolve the actor and current scope; public flows use explicit capabilities. Better Auth owns its separate credential routes. | Browser state, page structure, PHP routes, and database rows.   |
+| Service to native server          | A machine operation needs an explicit service identity, capability, resource scope, and credential policy. Denial and revocation must hold without a browser session. Internal ingress and network rules add isolation but do not grant business authority.           | Provider tokens, transport plumbing, and the receiving handler. |
+| Native server to domain service   | A command names the actor, intended transition, expected revision, and observable failure. Queries read owned facts under the same authority.                                                                                                                         | HTTP envelopes and persistence models.                          |
+| Domain service to PostgreSQL      | The repository preserves constraints, isolation, compare-and-set revisions, immutable evidence, audit, and outbox work in one transaction. Rejected or competing commands leave no partial business state.                                                            | SQL layout, table names, and index choices.                     |
+| Native server to provider         | An asynchronous outbox envelope identifies one committed effect. Delivery can retry without repeating the business decision. Private-file reads prove custody and scope.                                                                                              | Mail, storage, SMS, and deployment vendors.                     |
+| Migration source to native target | A selected read-only source snapshot, explicit mappings, row dispositions, immutable provenance, replay rules, and a fenced final delta establish native facts. Import never fabricates human decisions or sends historical notifications.                            | Legacy schema and transformation machinery.                     |
+
+The external HTTP root and generated SDK describe application operations, most
+of them human-facing. A machine operation is not authorized by its location.
+The internal HTTP root is separate from public OpenAPI. Its receipt-evidence route
+currently accepts a scoped Person cookie; an internal path is not automatically
+a service-principal API. OAuth introspection has its own isolated route. A
+machine-facing operation must prove the service credential and grant through the
+actual HTTP path, not only through a handler test.
+
 ## Domain services
 
-The current domain package exposes service contracts for these capability groups:
+The domain package defines facts, policies, and service contracts across these
+capability groups:
 
 - Identity
 - Profile
@@ -90,7 +113,10 @@ The current domain package exposes service contracts for these capability groups
 - Notification delivery
 
 A service contract uses domain commands, facts, failures, and observations. It does
-not expose database rows or transport objects.
+not expose database rows or transport objects. Not every group has a service yet:
+Placements and Substitutes currently export schemas and policy, while the backend
+also calls PostgreSQL functions directly. Keep the domain decision separate from
+its SQL implementation when closing those server-to-database contracts.
 
 ## Boundary encoding
 

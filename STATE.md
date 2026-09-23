@@ -12,6 +12,11 @@ Worker Previews, probes their public documents and assets, updates one review co
 and deletes both previews when the pull request closes. The provider journey remains
 unobserved because no Cloudflare deployment or credential use was authorized.
 
+The frozen provider contract says the Worker applies PostgreSQL migrations through
+Hyperdrive. The current Worker uses DatabaseRuntimeLive, which rejects migrations
+and requires an existing schema. Resolve this ownership mismatch before claiming
+the provider journey.
+
 The native replacement has substantial local functionality. Production still
 runs the legacy PHP application.
 
@@ -39,6 +44,12 @@ Implemented native journeys include:
 
 These journeys were observed with synthetic local resources. This is not
 production cutover evidence.
+
+A mounted local HTTP rehearsal now verifies receipt approval-queue reads by a
+scoped service bearer without a Person cookie. Unscoped and revoked grants,
+revoked credentials, and mixed human and machine credentials are denied. Human
+cookie and OAuth user-bearer reads still work. No deployed service credential
+was exercised.
 
 The native architecture now uses one Effect backend runtime, one PostgreSQL
 ownership layer, generated HTTP and SDK contracts, transaction-bound authority,

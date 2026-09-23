@@ -88,15 +88,13 @@ school demand
   -> roster
   -> absence or substitute resolution
   -> teaching-service event
-  -> history and certificate
+  -> service history
 ```
 
-The current native implementation proves demand, affiliation, placement, roster
-confirmation, acknowledged roster notification, absence reporting, sequential
-substitute dispatch, addressed response, coordinator acknowledgement, delivery
-recovery, exact attendance, and immutable Covered or Uncovered closure. It also
-proves substitute-pool and selected school-survey journeys. Remaining service work
-includes no-show handling, certificates, corrections, and complete reporting.
+Native synthetic journeys cover demand, roster confirmation, absence, dispatch,
+attendance, and service closure. [State](../STATE.md) defines their observed
+scope. No-show handling, corrections, and required coordinator reports need a
+fresh operational-use check. A certificate is not a cutover gate by default.
 
 ### Reimburse an expense
 
@@ -137,9 +135,9 @@ authorized actor creates survey
   -> authorized export may run
 ```
 
-Current native coverage includes selected survey and school-feedback paths. Full
-survey administration, audience policy, result publication, and export remain to be
-closed as one operational journey.
+The native system has scoped creation, anonymous response, closure, policy-
+controlled results, counts, and CSV export. Generic survey feature parity is
+not a cutover gate unless an active service path requires it.
 
 ## Service ownership
 
@@ -156,76 +154,109 @@ closed as one operational journey.
 | Surveys                   | Survey owner and participant        | Surveys                      | Export storage or delivery                        |
 | Audit and delivery        | System operator                     | Database and backend workers | PostgreSQL and providers                          |
 
-## Migration gaps
+## Replacement contract ledger
 
-| Area                | Closed native boundary                                                                                                                  | Remaining work                                                                                           |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Recruitment         | Application, invitations, scheduling, recommendation, reporting, completed-assessment correction, applicant progress                    | Real cohort reconciliation; a future admission decision requires a separately defined fact and authority |
-| Identity            | Native sessions, OAuth, account claim, password recovery, profile                                                                       | Real Person and Account reconciliation, unsupported credentials and aliases                              |
-| Placement           | Affiliation, placement, demand, roster confirmation, notifications, absence, exact occurrence, and Covered or Uncovered service closure | No-show, correction, complete history, certificate, and reporting outcomes                               |
-| Substitute coverage | Pool membership, eligibility, sequential dispatch, response, acknowledgement, delivery recovery, and closure                            | Wider notification channels and complete operational reporting                                           |
-| Economy             | Claim, private file, approval, rejection, reopen, outbox retry, immutable settlement evidence, and owner notification recovery          | External bank or payment execution remains outside the product                                           |
-| Organization        | Units, memberships, team interest, scoped authority                                                                                     | Verify all national and cross-chapter operations; retire linear legacy roles                             |
-| Surveys             | Scoped administration, anonymous response, closure, audience policy, results, response counts, and CSV export                           | External distribution and long-term export retention                                                     |
-| Reporting           | Several recruitment, receipt, and operational projections                                                                               | Complete statistics, exports, certificate, and service-delivery reports                                  |
-| Production          | Local synthetic PostgreSQL, browser, API, recovery, delivery, and development-provider compositions                                     | Real-data rehearsal, exact-revision deployment proof, writer transfer, rollback, and legacy shutdown     |
+Migration preserves the work people can complete and the facts they can trust.
+It does not preserve PHP routes, database tables, screens, status-code accidents,
+or the legacy role hierarchy. [The intended system](system.md) owns business
+meaning. [The architecture](architecture.md#interface-contracts) owns interface
+seams. [State](../STATE.md) owns current implementation and proof status.
 
-## Known retained-data constraints
+For each contract below, acceptance needs an authorized actor, starting facts,
+one business transition, the observable result, a denied case, and recovery from
+retry or failure. A different native workflow is valid when those properties
+hold. A row in an API catalogue is not sufficient proof.
 
-Two Symfony uniqueness rules are not enforced in the production database:
+| Contract                            | Observable result that must survive replacement                                                                                                                                                              | Failure that must be rejected                                                                                                               |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and own profile            | One Person can claim or use an Account, recover access, and edit only their own profile. Account, affiliation, and role remain separate.                                                                     | Unmapped or inactive identity, reused recovery link, another Person's profile, or a stale grant.                                            |
+| Recruitment and onboarding          | A public application, assigned interview, recommendation, invitation, claim, affiliation request, and leader decision remain separate visible facts. A returning volunteer keeps their identity and history. | Closed-period or duplicate application, unassigned assessment, invalid invitation, cross-chapter action, or an inferred admission decision. |
+| Organization and authority          | Leaders manage effective-dated units, appointments, membership, and directory facts within their scope. Revocation affects the next action.                                                                  | Local title used as national authority, expired appointment, team interest used as membership, or team membership used as affiliation.      |
+| School demand and placement         | A coordinator sees demand and eligible supply, reviews proposal exceptions, then confirms a roster. Placement edits retain history and notify assigned people.                                               | Stale or unreviewed proposal, wrong school or semester, overlap, or history used to invent a current placement.                             |
+| Delivered service and coverage      | Confirmed rosters produce exact occurrences. Absence, sequential offers, addressed responses, coordinator acknowledgement, and Covered or Uncovered closure stay distinct.                                   | Unconfirmed slot, ineligible substitute, wrong recipient, concurrent offer, or accepted but unacknowledged coverage counted as service.     |
+| Expense reimbursement               | A claimant submits a claim and verified private file. A scoped approver decides it. A separately authorized recorder attaches immutable external settlement evidence.                                        | Another owner's file, cross-scope approval, file-less import, stale edit, or approval/refunded status presented as payment proof.           |
+| Communication and operational reads | Recipients see current status and authorized history. Committed notifications can recover after provider failure without a second business decision.                                                         | Lost outbox work, duplicate effect, confidential cross-scope read, or a report that confuses unknown, rejected, and absent facts.           |
 
-- `assistant_history(user_id, school_id, semester_id, bolk)`: 332 backup rows
-  stored both teaching blocks in one value. Split those rows, reconcile remaining
-  same-block duplicates, and run a fresh live scan before adding the index.
-- `team_membership(user_id, team_id, start_semester_id, position_id)`: a historical
-  backup contained seven duplicate groups after valid multi-position memberships
-  were excluded. Reconcile them and run a fresh live scan before adding the index.
+[Recruitment](system.md#recruitment-and-affiliation),
+[service](system.md#school-demand-and-placement),
+[coverage](system.md#substitute-coverage), and
+[economy](system.md#expense-reimbursement) define the detailed transitions.
+The native system adds explicit denials, revisions, idempotency, audit, private
+file custody, and settlement separation. These are stronger contracts, not
+reasons to copy legacy implementation. Legacy error codes such as an incidental
+500 on duplicate input are not parity requirements.
 
-The 2024 backup is evidence about that snapshot only. Production cleanup is an
-operator-authorized data change. Do not automate deletion of ambiguous history.
+No-show handling, service corrections, and coordinator reporting need a fresh
+operational-use check. If an active core journey depends on one, either provide
+the outcome in native software or approve a safe, explicit transition process.
+Do not silently classify an active obligation as a peripheral feature.
 
-## Production authority boundary
+Changelogs, historical articles, generic events and surveys, certificate
+requests, and nonessential statistics are not cutover gates by default.
+Retain their data in a protected, accessible archive when legal or operational
+retention requires it. School feedback used in active service follow-up is a
+separate contract from general survey parity.
 
-Local development may use synthetic PostgreSQL, loopback HTTP, disposable private
-storage, and test provider layers.
+## Migration accounting
 
-The following actions require separate operator authority:
+Every legacy fact in an active core journey needs one declared disposition:
+**import as current**, **import as history**, **retain in an archive**,
+**quarantine for a human decision**, or **prove no active instance exists**.
+The migration manifest records source identity, snapshot and watermark, mapping,
+transformation revision, disposition, target identity, and reason. Do not use
+aggregate equality to hide swapped or omitted identities.
 
-- read or modify production data;
-- use real credentials or provider accounts;
-- send real email or notifications;
-- deploy or change DNS;
-- import final data;
-- transfer write ownership;
-- disable legacy writers;
-- perform rollback or irreversible cleanup.
+| Source cohort or boundary                                         | Current evidence                                                                                                                                                              | Required closure                                                                                                                                                                             |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Person, profile, Account, and credentials                         | The 2024 backup rehearsal imports mapped People and supported hashes; it provisions eligible passwordless identities. One accepted Person still lacks a valid login email.    | Verify current identity and mailbox ownership, correct that address, decide unsupported hashes and aliases, and reconcile every new or changed account. Preserve any new password on replay. |
+| Departments, schools, semesters, and historical assistant service | The local driver imports explicit references and accepted service history. It does not turn history into present authority.                                                   | Reconcile rejected and ambiguous rows against a fresh source; preserve history without fabricating affiliation, placement, or human decisions.                                               |
+| Active affiliation and school placement                           | A synthetic assignment cohort exists, but the 2024 backup cannot establish current placements.                                                                                | Obtain fresh active assignments and explicit Person, chapter, semester, school, and slot mappings. Reject overlap and unowned targets; prove exact current reads.                            |
+| Active recruitment and organization work                          | The current backup cutover reader covers six tables, not all live applications, interviews, invitations, membership, or open demand.                                          | Inventory each active source writer and record. Import, attest empty, or arrange an approved operational handover for every open case. Verify current authority separately from role labels. |
+| Open service and delivery work                                    | Synthetic native coverage and notification journeys exist. The current source import does not account for every live roster, absence, offer, occurrence, or pending delivery. | Inventory open work at the fence. Reconcile accepted, pending, and failed effects without sending historical notifications or losing a promised action.                                      |
+| Receipts, payment accounts, private files, settlement             | The backup has receipt rows and paths but no authorized file bytes. Legacy account numbers are plaintext, and refunded status is not transfer evidence.                       | Obtain verified bytes and digests, map owners and departments, secure payment-account custody, quarantine missing evidence, and reconcile external settlement references separately.         |
+| Non-core retained data                                            | No full native feature clone is required.                                                                                                                                     | Inventory retention and export obligations; protect an archive and decide where readers find it after PHP shutdown.                                                                          |
 
-Before cutover, prove on the exact candidate revision:
+The existing cutover reader selects users, departments, semesters, schools,
+school-department links, and assistant history in one read-only InnoDB snapshot.
+Its one target transaction imports references, Person, history, and Accounts.
+It does **not** import every cohort above. The 2024 backup is not a final source
+snapshot. See [State](../STATE.md#production-gates) for local counts and limits.
 
-1. identity and cohort reconciliation;
-2. private-file and receipt import;
-3. historical affiliation and placement mapping;
-4. notification transport and suppression rules;
-5. backup and restore;
-6. native writer ownership;
-7. rollback after writer transfer;
-8. operator-observable health and failure diagnostics.
+Two legacy uniqueness assumptions need fresh reconciliation. The backup has
+assistant-history rows with combined teaching blocks and duplicate membership
+groups after valid multiple positions are excluded. Do not discard these rows
+or add a unique constraint until the current source and intended meaning agree.
 
-## Final sprint order
+## Interface and provider closure
 
-Complete migration and replacement gates, not optional legacy features:
+| Seam                        | Required proof before claiming the contract                                                                                                                                                        | Current limit                                                                                                                                                                                                    |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Human client to server      | Run applicant, volunteer, coordinator, and finance journeys through the generated external HTTP and SDK surface, including denial, stale write, retry, and recovery.                               | Local synthetic journeys are not production user proof. Better Auth credential routes remain separate from native OpenAPI.                                                                                       |
+| Service to server           | Exercise a real service credential through the mounted HTTP ingress, scoped grant lookup, revocation, and denial without a Person cookie. Treat source-network rules as additional isolation.      | Local mounted HTTP proves scoped service approval-queue reads, denial, revocation, and human access. No deployed service credential or provider proof exists. Internal receipt evidence still requires a Person. |
+| Server to PostgreSQL        | Show an authorized command commits its fact, revision, evidence, audit, and outbox together; denial, conflict, or crash leaves no partial business state. Prove restore and replay.                | Direct placement/substitute database calls remain to be checked against the intended domain-service seam.                                                                                                        |
+| Server to providers         | Prove real mail, private storage, delivery acknowledgement, restart recovery, and settlement-evidence authority on the exact candidate revision. Add SMS only where an active journey requires it. | No authorized deployed provider journey exists. [State](../STATE.md) records the unresolved schema-migration ownership mismatch.                                                                                 |
+| Migration to native storage | Prove every source occurrence has a disposition, changed source is refused, exact replay writes nothing new, and rollback and restored replay retain owned facts and file bytes.                   | The current rehearsal proves only the named local cohorts. No final live delta, receipt archive, or writer transfer has been observed.                                                                           |
 
-1. Rehearse the real legacy Person and profile cohort on disposable local databases.
-2. Reconcile credentials, aliases, affiliations, placements, receipts, private
-   files, and settlement references through separate accepted cohorts.
-3. Prove the exact candidate revision through development deployment and the
-   applicant, volunteer, coordinator, economy, and administrator journeys.
-4. Rehearse backup, restore, writer transfer, recovery, and rollback.
-5. Request production authority only after all prior gates pass.
+## Cutover gates and authority
 
-Changelog, legacy arrangements, legacy surveys, historical articles, certificate
-requests, and nonessential statistics are not cutover gates. Preserve retained data
-as an archive when no native operational workflow needs it.
+1. With operator authority, inventory the current production readers, writers,
+   pending work, and retained data. Mark each active case against this ledger.
+2. Freeze explicit identity, reference, account, history, current-state, and file
+   mappings. Reconcile every quarantine or approve its operational disposition.
+3. Prove the exact candidate version with real required providers and a new
+   native database. Verify denial, recovery, backup, restore, and private bytes.
+4. Read a fresh source snapshot under SELECT-only access. Record its watermark.
+   Apply a reconciled delta, or rebuild a clean target when changed-source
+   refusal prevents safe replay.
+5. Fence legacy writers before native authority starts. Verify one writer,
+   current facts, pending effects, and the rollback path after native writes.
+6. Transfer or reverse ownership only with separate operator authorization.
+   Retire PHP only after all required readers and writers have moved.
 
-Each journey gets one active contract in `docs/specs/`. Remove the contract after
-its durable intent is in this map, the system document, code, and observable checks.
+A continued legacy writer, unexplained delta, missing file, unresolved active
+case, wrong-scope reader, or unavailable rollback blocks cutover. Production
+replacement remains unauthorized; local evidence does not change that boundary.
+
+After native writes begin, restarting PHP without reconciling those writes can
+lose acknowledged work. A rollback must account for each native-only fact and
+pending external effect before legacy writer authority returns.
