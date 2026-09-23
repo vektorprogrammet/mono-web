@@ -10,6 +10,7 @@ import {
 } from "@vektorprogrammet/domain/profile";
 
 const Id = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9._:-]{1,128}$/)));
+const Sha256 = Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-f0-9]{64}$/)));
 const Label = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1)),
   Schema.check(Schema.isMaxLength(256)),
@@ -51,12 +52,15 @@ export const PersonCohortSnapshot = Schema.Struct({
   sourceRevision: Id,
   snapshotId: Id,
   transformationRevision: Id,
-  synthetic: Schema.Literal(true),
-  occurrences: Schema.Array(Schema.Struct({ occurrenceId: Id, row: Schema.Unknown })).pipe(
-    Schema.check(Schema.isMinLength(1)),
-    Schema.check(Schema.isMaxLength(1000)),
-  ),
-  mappings: Schema.Array(PersonMapping).pipe(Schema.check(Schema.isMaxLength(1000))),
+  sourceKind: Schema.Literals(["Synthetic", "LegacyBackup"]),
+  occurrences: Schema.Array(
+    Schema.Struct({
+      occurrenceId: Id,
+      row: Schema.Unknown,
+      sourceRowDigest: Schema.optional(Sha256),
+    }),
+  ).pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(10_000))),
+  mappings: Schema.Array(PersonMapping).pipe(Schema.check(Schema.isMaxLength(10_000))),
 });
 export type PersonCohortSnapshot = typeof PersonCohortSnapshot.Type;
 type LegacyPersonRow = typeof LegacyPersonRow.Type;
@@ -101,6 +105,7 @@ export interface PersonCohortOccurrence {
 
 export interface PersonCohortReport {
   readonly snapshotKey: string;
+  readonly replay: boolean;
   readonly input: number;
   readonly accepted: number;
   readonly quarantined: number;
@@ -110,6 +115,14 @@ export interface PersonCohortReport {
 }
 
 const digest = (value: unknown) => createHash("sha256").update(canonicalJson(value)).digest("hex");
+export const personCohortSourceRowDigest = (row: unknown): string => digest(row);
+export const isPersonCohortMappableRow = (row: unknown): boolean => {
+  try {
+    return Schema.decodeUnknownSync(LegacyPersonRow)(row, { onExcessProperty: "error" }).active;
+  } catch {
+    return false;
+  }
+};
 const sourceIdOf = (row: unknown): string | undefined =>
   typeof row === "object" &&
   row !== null &&
@@ -131,13 +144,25 @@ export const decodePersonCohort = (input: unknown): PersonCohortSnapshot => {
       snapshot.occurrences.length
     )
       throw new Error();
+    if (
+      snapshot.sourceKind === "LegacyBackup" &&
+      snapshot.occurrences.some(
+        ({ row, sourceRowDigest }) =>
+          sourceRowDigest === undefined || sourceRowDigest !== personCohortSourceRowDigest(row),
+      )
+    )
+      throw new Error();
     return snapshot;
   } catch {
     throw new PersonCohortFailure("InvalidSnapshot");
   }
 };
 
-const cohortReport = async (tx: PoolClient, snapshotKey: string): Promise<PersonCohortReport> => {
+const cohortReport = async (
+  tx: PoolClient,
+  snapshotKey: string,
+  replay: boolean,
+): Promise<PersonCohortReport> => {
   const rows = await tx.query<PersonCohortOccurrence>(
     `SELECT occurrence_id AS "occurrenceId", disposition, reason
        FROM public.person_cohort_occurrences
@@ -148,6 +173,7 @@ const cohortReport = async (tx: PoolClient, snapshotKey: string): Promise<Person
   const accepted = rows.rows.filter(({ disposition }) => disposition === "Accepted").length;
   return {
     snapshotKey,
+    replay,
     input: rows.rows.length,
     accepted,
     quarantined: rows.rows.length - accepted,
@@ -205,7 +231,7 @@ export const importPersonCohort = async (
     if (prior.rows[0]) {
       if (prior.rows[0].snapshot_digest !== snapshotDigest)
         throw new PersonCohortFailure("SnapshotConflict");
-      const result = await cohortReport(tx, snapshotKey);
+      const result = await cohortReport(tx, snapshotKey, true);
       await tx.query("COMMIT");
       return result;
     }
@@ -363,7 +389,7 @@ export const importPersonCohort = async (
       }
     }
 
-    const result = await cohortReport(tx, snapshotKey);
+    const result = await cohortReport(tx, snapshotKey, false);
     if (result.input !== snapshot.occurrences.length)
       throw new PersonCohortFailure("PersistenceFailure");
     await tx.query("COMMIT");

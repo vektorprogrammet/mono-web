@@ -432,6 +432,11 @@ export const databaseMigrationDefinitions = [
     name: "password-reset-provider-reference",
     url: new URL("../migrations/0053-password-reset-provider-reference.sql", import.meta.url),
   },
+  {
+    id: "54_person-cohort-capacity",
+    name: "person-cohort-capacity",
+    url: new URL("../migrations/0054-person-cohort-capacity.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

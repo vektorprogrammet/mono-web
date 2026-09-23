@@ -2,7 +2,7 @@ import { Effect, Redacted } from "effect";
 import { Pool } from "pg";
 import { parseDisposableCohortDatabaseUrl, readPrivateCohortJson } from "./cohort-cli.js";
 import { DatabaseLive } from "./layers.js";
-import { PersonCohortFailure, importPersonCohort } from "./person-cohort.js";
+import { decodePersonCohort, PersonCohortFailure, importPersonCohort } from "./person-cohort.js";
 import { databaseHealth } from "./service.js";
 
 const invalidSnapshot = () => new PersonCohortFailure("InvalidSnapshot");
@@ -17,7 +17,10 @@ export const runPersonCohortCli = async (): Promise<void> => {
   )
     throw invalidSnapshot();
   const url = disposablePersonCohortDatabaseUrl(process.env.PERSON_COHORT_PG_URL);
-  const input = await readPrivateCohortJson(process.env.PERSON_COHORT_INPUT, invalidSnapshot);
+  const input = decodePersonCohort(
+    await readPrivateCohortJson(process.env.PERSON_COHORT_INPUT, invalidSnapshot),
+  );
+  if (input.sourceKind !== "Synthetic") throw invalidSnapshot();
   await Effect.runPromise(
     databaseHealth.pipe(
       Effect.provide(DatabaseLive({ url: Redacted.make(url), maxConnections: 1 })),

@@ -3,9 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "rehearsal:legacy-person": "bun run run-legacy-backup-person-rehearsal.ts"
+  },
   "dependencies": {
     "@vektorprogrammet/database": "workspace:*",
     "@vektorprogrammet/domain": "workspace:*",
-    "effect": "catalog:effect-v4"
+    "effect": "catalog:effect-v4",
+    "pg": "8"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/pg": "^8.23.1",
+    "typescript": "7.0.2"
   }
 }

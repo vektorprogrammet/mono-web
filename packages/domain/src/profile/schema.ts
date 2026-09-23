@@ -19,7 +19,7 @@ const Email = Schema.String.pipe(
           separator > 0 &&
           separator === value.lastIndexOf("@") &&
           separator < value.length - 1 &&
-          !/[\p{White_Space}\p{Cc}\p{Cf}]/u.test(value)
+          /^[!-~]+$/u.test(value)
         );
       },
       { message: "a valid email address" },

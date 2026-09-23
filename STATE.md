@@ -44,21 +44,19 @@ The native architecture now uses one Effect backend runtime, one PostgreSQL
 ownership layer, generated HTTP and SDK contracts, transaction-bound authority,
 atomic audit/outbox/receipt writes, and Foldkit dashboard workflows.
 
-The synthetic local Person reconciliation path creates or explicitly links
-Person/profile records before credentials and historical operations can depend on
-those identities. The reconciled Account path accepts only matching immutable
-Person evidence, imports one supported credential, quarantines unsupported aliases
-and conflicts, preserves replay, and exercises native sign-in, recovery, and
-restore. The historical service path accepts only explicitly mapped Person,
-department, semester, and school references; preserves append-only source
-provenance; derives historical affiliation; and leaves all current operational
-state unchanged. The synthetic current-assignment path accepts only active rows
-with declared snapshot and source-row digests, immutable accepted Person evidence,
-and explicit Person, department, semester, and school mappings. It establishes
-existing canonical affiliations and placements at revision 1 without fabricating
-human audit actions; preserves deterministic identity, append-only provenance,
-quarantine, replay, rollback, concurrency, excluded-authority, and backup/restore
-behavior. Real cohort mapping and production import remain unperformed.
+The private legacy backup Person/profile cohort has passed the permanent local
+rehearsal against isolated MariaDB and clean PostgreSQL services. The same native
+Person import path intended for final migration proved source-shape validation,
+explicit Person mapping, invalid and inactive-row quarantine, immutable provenance,
+rollback, concurrent import serialization, exact replay, changed-source rejection,
+backup/restore equivalence, native profile reads, private custody, and cleanup. No
+production resource or external provider was used.
+
+Real credential and account recovery, historical affiliation, current placement,
+receipt, and private-file cohorts remain. Their existing synthetic paths accept only
+explicit mappings and immutable Person evidence, preserve append-only source
+provenance, quarantine unsupported or conflicting data, and do not infer current
+authority from historical facts. Production import remains unperformed.
 
 ## Next
 
@@ -69,8 +67,8 @@ product decision that names the fact and its authority.
 
 Close the remaining replacement gates in this order:
 
-1. Reconcile real identity, credentials, files, affiliation, placement, receipt,
-   and settlement-reference data.
+1. Reconcile real credentials, account recovery, historical affiliation, current
+   placement, receipt, private-file, and settlement-reference data.
 2. Configure and prove the authorized production mail, storage, and external
    settlement-evidence boundaries.
 3. Rehearse production writer transfer, recovery, and rollback.
@@ -85,9 +83,8 @@ Production replacement is not authorized or rehearsed.
 
 Before cutover:
 
-- reconcile Account, Person, profile, legacy aliases, and unsupported
-  credentials;
-- reconcile historical affiliations, placements, receipts, and private files;
+- reconcile Account credentials, legacy aliases, unsupported credentials,
+  historical affiliations, placements, receipts, and private files;
 - configure and prove real mail, SMS, storage, and payment authority;
 - run the final data import against an authorized production snapshot;
 - fence legacy writers before native ownership starts;

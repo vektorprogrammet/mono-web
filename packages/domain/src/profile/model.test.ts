@@ -1,6 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import { PersonProfile, personProfileDisplayName } from "./schema.js";
+import { PersonContactEmail, PersonProfile, personProfileDisplayName } from "./schema.js";
 
 it("derives strict PersonProfile persistence variants", () => {
   expect(Object.keys(PersonProfile.fields).sort()).toEqual([
@@ -35,3 +35,7 @@ it.effect("decodes canonical names and rejects excess fields", () =>
     expect(String(failure)).toContain("displayName");
   }),
 );
+it("matches the persisted visible-ASCII email boundary", () => {
+  expect(() => Schema.decodeUnknownSync(PersonContactEmail)("ada@example.invalid")).not.toThrow();
+  expect(() => Schema.decodeUnknownSync(PersonContactEmail)("søker@example.invalid")).toThrow();
+});

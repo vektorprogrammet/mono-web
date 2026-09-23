@@ -23,9 +23,7 @@ const databaseLayer = DatabaseLive({
 });
 const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
 const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
-const profileLayer = ProfileLive.pipe(
-  Layer.provide(Layer.merge(databaseLayer, organizationLayer)),
-);
+const profileLayer = ProfileLive.pipe(Layer.provide(Layer.merge(databaseLayer, organizationLayer)));
 const authorityLayers = Layer.mergeAll(
   databaseLayer,
   admissionsLayer,
@@ -48,10 +46,7 @@ try {
         deliverNextRecruitmentInvitationResponse(
           "native-invitation-response-recording-claim-" + String(index + 1),
           "2031-09-15T12:00:0" + String(index + 1) + ".000Z",
-        ).pipe(
-          Effect.provide(recording.layer),
-          Effect.provide(authorityLayers),
-        ),
+        ).pipe(Effect.provide(recording.layer), Effect.provide(authorityLayers)),
       ),
     );
     if (result._tag !== "Delivered") {
@@ -73,8 +68,8 @@ try {
   if (providerNetworkRequests !== 0) {
     throw new Error("The recording NotificationGateway performed network access");
   }
-  const responseRequests = recording.responseRequests.map((request) =>
-    JSON.parse(invitationResponsePayloadForEvidence(request)) as unknown,
+  const responseRequests = recording.responseRequests.map(
+    (request) => JSON.parse(invitationResponsePayloadForEvidence(request)) as unknown,
   );
   process.stdout.write(
     JSON.stringify({ results, responseRequests, providerNetworkRequests }) + "\n",

@@ -243,6 +243,12 @@
         "@vektorprogrammet/database": "workspace:*",
         "@vektorprogrammet/domain": "workspace:*",
         "effect": "catalog:effect-v4",
+        "pg": "8",
+      },
+      "devDependencies": {
+        "@types/node": "^22",
+        "@types/pg": "^8.23.1",
+        "typescript": "7.0.2",
       },
     },
     "tools/parity": {

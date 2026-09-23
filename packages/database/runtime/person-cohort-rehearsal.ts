@@ -10,7 +10,11 @@ import { Effect, Redacted } from "effect";
 import { Pool } from "pg";
 import { databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "../src/layers.js";
-import { PersonCohortFailure, importPersonCohort } from "../src/person-cohort.js";
+import {
+  PersonCohortFailure,
+  importPersonCohort,
+  type PersonCohortReport,
+} from "../src/person-cohort.js";
 
 const root = resolve(import.meta.dirname, "../../..");
 const command = (name: string, args: ReadonlyArray<string>) =>
@@ -225,7 +229,7 @@ try {
     sourceRevision: "synthetic-source-0106",
     snapshotId: "person-cohort-0106",
     transformationRevision: "0106-v1",
-    synthetic: true,
+    sourceKind: "Synthetic" as const,
     occurrences,
     mappings,
   };
@@ -247,9 +251,11 @@ try {
       }),
     );
 
-  const cliReport = runCli();
+  const cliReport = runCli() as PersonCohortReport;
+  assert.equal(cliReport.replay, false);
   const report = await importPersonCohort(pool, snapshot);
-  assert.deepEqual(cliReport, report, "guarded CLI returns the persisted report");
+  assert.equal(report.replay, true);
+  assert.deepEqual(report.occurrences, cliReport.occurrences);
   assert.equal(report.input, occurrences.length);
   assert.equal(report.accepted, 2);
   assert.equal(report.quarantined, occurrences.length - 2);
@@ -275,8 +281,9 @@ try {
     importPersonCohort(pool, concurrentSnapshot),
     importPersonCohort(pool, concurrentSnapshot),
   ]);
-  assert.deepEqual(concurrent[0], concurrent[1]);
-  assert.equal(concurrent[0].accepted, 1);
+  assert.deepEqual(concurrent.map(({ replay }) => replay).sort(), [false, true]);
+  assert.deepEqual(concurrent[0]!.occurrences, concurrent[1]!.occurrences);
+  assert.equal(concurrent[0]!.accepted, 1);
   const concurrentCounts = (
     await pool.query<{
       profile_count: string;

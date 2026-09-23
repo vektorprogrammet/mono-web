@@ -29,9 +29,7 @@ const databaseLayer = DatabaseLive({
 });
 const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
 const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
-const profileLayer = ProfileLive.pipe(
-  Layer.provide(Layer.merge(databaseLayer, organizationLayer)),
-);
+const profileLayer = ProfileLive.pipe(Layer.provide(Layer.merge(databaseLayer, organizationLayer)));
 const authorityLayers = Layer.mergeAll(
   databaseLayer,
   admissionsLayer,
@@ -59,7 +57,9 @@ try {
     throw new Error(`Expected one recorded invitation delivery, received ${result._tag}`);
   }
   if (recording.requests.length !== 1) {
-    throw new Error(`Expected one canonical notification request, received ${recording.requests.length}`);
+    throw new Error(
+      `Expected one canonical notification request, received ${recording.requests.length}`,
+    );
   }
   if (providerNetworkRequests !== 0) {
     throw new Error("The recording NotificationGateway performed a network request");
@@ -68,8 +68,8 @@ try {
     throw new Error("Recording evidence does not identify the claimed notification request");
   }
 
-  const requests = recording.requests.map((request) =>
-    JSON.parse(invitationPayloadForEvidence(request)) as unknown,
+  const requests = recording.requests.map(
+    (request) => JSON.parse(invitationPayloadForEvidence(request)) as unknown,
   );
   const evidence = {
     result: result._tag,

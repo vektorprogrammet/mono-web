@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { disposablePersonCohortDatabaseUrl } from "./person-cohort-cli.js";
-import { decodePersonCohort } from "./person-cohort.js";
+import { decodePersonCohort, personCohortSourceRowDigest } from "./person-cohort.js";
 
 describe("synthetic person cohort boundary", () => {
   const fixture = {
@@ -8,7 +8,7 @@ describe("synthetic person cohort boundary", () => {
     sourceRevision: "revision",
     snapshotId: "snapshot",
     transformationRevision: "0106",
-    synthetic: true,
+    sourceKind: "Synthetic" as const,
     occurrences: [{ occurrenceId: "one", row: {} }],
     mappings: [],
   };
@@ -21,7 +21,27 @@ describe("synthetic person cohort boundary", () => {
         occurrences: [...fixture.occurrences, ...fixture.occurrences],
       }),
     ).toThrow("InvalidSnapshot");
-    expect(() => decodePersonCohort({ ...fixture, synthetic: false })).toThrow("InvalidSnapshot");
+    const legacyRow = {};
+    expect(
+      decodePersonCohort({
+        ...fixture,
+        sourceKind: "LegacyBackup",
+        occurrences: [
+          {
+            occurrenceId: "one",
+            row: legacyRow,
+            sourceRowDigest: personCohortSourceRowDigest(legacyRow),
+          },
+        ],
+      }).sourceKind,
+    ).toBe("LegacyBackup");
+    expect(() =>
+      decodePersonCohort({
+        ...fixture,
+        sourceKind: "LegacyBackup",
+        occurrences: [{ occurrenceId: "one", row: legacyRow }],
+      }),
+    ).toThrow("InvalidSnapshot");
   });
 
   it("requires numeric loopback and the disposable person namespace", () => {
