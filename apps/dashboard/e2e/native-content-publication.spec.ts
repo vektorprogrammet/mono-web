@@ -88,7 +88,7 @@ const signIn = async (
   person: { readonly email: string; readonly password: string },
   redirectTo: string,
 ) => {
-  await page.goto(`/login?redirectTo=${encodeURIComponent(redirectTo)}`);
+  await page.goto(`/dashboard/login?redirectTo=${encodeURIComponent(redirectTo)}`);
   await page.getByLabel("E-post").fill(person.email);
   await page.getByLabel("Passord", { exact: true }).fill(person.password);
   await page.getByRole("button", { name: "Logg inn" }).click({ noWaitAfter: true });
@@ -198,13 +198,7 @@ test.describe("Native Content publication (spec 0062)", () => {
       await expect(leader.page.getByLabel("Brødtekst")).toHaveValue("<p>Versjon én tekst</p>");
       const twoVersionArticleId = Number(await twoVersionRow.getAttribute("data-article-id"));
       const concurrentRevision = await leader.page.evaluate(
-        async ({
-          articleId,
-          apiOrigin,
-        }: {
-          articleId: number;
-          apiOrigin: string;
-        }) => {
+        async ({ articleId, apiOrigin }: { articleId: number; apiOrigin: string }) => {
           const detailResponse = await fetch(`${apiOrigin}/api/content/articles/${articleId}`, {
             credentials: "include",
           });
@@ -295,7 +289,10 @@ test.describe("Native Content publication (spec 0062)", () => {
               sticky: false,
             }),
           });
-          return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+          return {
+            status: response.status,
+            body: (await response.json()) as Record<string, unknown>,
+          };
         },
         {
           articleId: twoVersionArticleId,
@@ -400,7 +397,10 @@ test.describe("Native Content publication (spec 0062)", () => {
             },
             body: "{}",
           });
-          return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+          return {
+            status: response.status,
+            body: (await response.json()) as Record<string, unknown>,
+          };
         },
         { articleId: authorDraftId, apiOrigin: contentApiOrigin },
       );

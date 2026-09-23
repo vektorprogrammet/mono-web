@@ -459,7 +459,7 @@ try {
       label: "Dashboard",
     },
   );
-  await waitForHttp(`${dashboardOrigin}/login`, "Dashboard startup");
+  await waitForHttp(`${dashboardOrigin}/dashboard/login`, "Dashboard startup");
 
   const browser = await runAsync(
     "node",
