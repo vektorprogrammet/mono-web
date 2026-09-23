@@ -60,11 +60,13 @@ and own-profile gates still pass.
 The reusable cutover driver reads one consistent, read-only InnoDB source snapshot
 through a SELECT-only account; remote source and target connections require
 verified TLS. Its first import requires an explicitly selected, empty native
-database; replay verifies the same source evidence and target references. No
-production SELECT-only credential, connection route, or separate native target
-has been supplied or configured for this rehearsal. The
-2024 backup contains no 2026 current assignments, so it cannot establish current
-placements. Production import remains unperformed.
+database; replay verifies the same source evidence and target references. An
+owner-only local PostgreSQL 17 target is provisioned via devenv, with a separate
+empty, migrated database reserved for a live read-only source rehearsal. No
+production SELECT-only MariaDB credential or connection route has been supplied.
+The local target is not production infrastructure. The 2024 backup contains no
+2026 current assignments, so it cannot establish current placements. Production
+import remains unperformed.
 
 Real credential and account recovery, current placement, receipt, private-file,
 and settlement-reference cohorts remain. A fresh production source read must also
