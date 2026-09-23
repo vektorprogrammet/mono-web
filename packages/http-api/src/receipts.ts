@@ -17,7 +17,12 @@ import {
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, personNativeAccess } from "./access.js";
-import { operationAnnotations, PersonSecurity, SessionSecurity } from "./common.js";
+import {
+  operationAnnotations,
+  PersonOrServiceSecurity,
+  PersonSecurity,
+  SessionSecurity,
+} from "./common.js";
 import {
   InternalReadReceiptEvidenceProblem,
   ReceiptsApproveReceiptProblem,
@@ -475,7 +480,7 @@ export const ListReceiptsForApprovalEndpoint = HttpApiEndpoint.get(
     error: endpointProblemResponses(ReceiptsListReceiptsForApprovalProblem),
   },
 )
-  .middleware(PersonSecurity)
+  .middleware(PersonOrServiceSecurity)
   .pipe((endpoint) => annotateAccessSpec(endpoint, RECEIPT_APPROVAL_QUEUE_ACCESS))
   .annotateMerge(
     operationAnnotations(

@@ -1,5 +1,4 @@
 import {
-  AuthorizationInstant,
   CredentialEvidenceRef,
   ServicePrincipalId,
   ServicePrincipalGrantAuthority,
@@ -60,6 +59,7 @@ import {
 } from "../test/native-http.js";
 import { runTestPromise } from "../../test/runtime.js";
 import type { ReceiptApiConfig } from "./config.js";
+import { resolveRequestCredentialAtInstant } from "../authority.js";
 import type { ReceiptFileStore } from "./filesystem.js";
 import type { ReceiptApiHttpOptions } from "./http.js";
 
@@ -99,6 +99,8 @@ const departmentOne = DepartmentId.make("department-one");
 const evaluatedAt = "2026-08-24T12:00:00.000Z";
 const receiptId = "receipt-one";
 const visualId = "visual-one";
+const serviceBearer = "receipt-service-token";
+const personBearer = "receipt-person-credential";
 
 const config: ReceiptApiConfig = {
   stagingRoot: "/tmp/receipt-http-test-staging",
@@ -244,6 +246,7 @@ const harness = (options: HarnessOptions = {}) => {
   let authorizationPrincipalCalls = 0;
   const authorizationChecks: Array<string> = [];
   let revokedAuthority: RevocableReceiptAuthority | undefined;
+  let revokedServiceBearer = false;
 
   const sourceReceipt = (command: Record<string, unknown>): ProjectionRow => {
     if (command._tag === "SubmitReceipt") {
@@ -667,7 +670,25 @@ const harness = (options: HarnessOptions = {}) => {
     signOut: async () => ({ setCookies: [] }),
   } satisfies IdentityShape);
   const oauthCredentialAuthority = OAuthCredentialAuthority.of({
-    resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
+    resolve: async (request, expected) => {
+      if (
+        request.headers.get("authorization") === `Bearer ${personBearer}` &&
+        expected !== "OAuthServiceBearer"
+      ) {
+        return {
+          _tag: "Accepted" as const,
+          mechanism: { _tag: "OAuthUserBearer" as const },
+          principal: { _tag: "Person" as const, personId },
+          evidenceRef: CredentialEvidenceRef.make("oauth:Person:receipt-user:client:1970000000"),
+        };
+      }
+      return options.serviceApproval !== undefined &&
+        request.headers.get("authorization") === `Bearer ${serviceBearer}` &&
+        expected === "Either" &&
+        !revokedServiceBearer
+        ? serviceCredential!
+        : { _tag: "Rejected" as const, reason: "Revoked" as const };
+    },
     resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
   });
   const run = <A, E>(
@@ -699,11 +720,11 @@ const harness = (options: HarnessOptions = {}) => {
       ...(serviceCredential === undefined
         ? {}
         : {
-            resolveApprovalCredential: () =>
-              Effect.succeed({
-                credential: serviceCredential,
-                authorizationInstant: AuthorizationInstant.make(evaluatedAt),
-              }),
+            resolveApprovalCredential: (request: Request) =>
+              resolveRequestCredentialAtInstant(request, "Either", { now: () => evaluatedAt }).pipe(
+                Effect.provideService(Identity, identity),
+                Effect.provideService(OAuthCredentialAuthority, oauthCredentialAuthority),
+              ),
           }),
       resolveAuthorizationPrincipal: () =>
         Effect.suspend(() => {
@@ -723,7 +744,7 @@ const harness = (options: HarnessOptions = {}) => {
         return new Uint8Array([1, 2, 3, 4]);
       },
     },
-  } satisfies ReceiptApiHttpOptions<UnauthenticatedActor, never>;
+  } satisfies ReceiptApiHttpOptions<UnauthenticatedActor | IdentityEngineError, never>;
   return {
     http: makeReceiptApiHttp(httpOptions, services),
     internalHttp: makeInternalReceiptTestHttp(httpOptions, services),
@@ -756,6 +777,9 @@ const harness = (options: HarnessOptions = {}) => {
     },
     revokeAuthority: (authority: RevocableReceiptAuthority) => {
       revokedAuthority = authority;
+    },
+    revokeServiceBearer: () => {
+      revokedServiceBearer = true;
     },
     authorizationChecks: () => authorizationChecks,
     authorizationPrincipalCalls: () => authorizationPrincipalCalls,
@@ -1399,6 +1423,8 @@ describe("receipt v0.2 HTTP contract", () => {
       const listed = await request(
         service.http,
         `/api/receipt-approval-queue?status=${receipt.status}`,
+        { headers: { authorization: `Bearer ${serviceBearer}` } },
+        false,
       );
       expect(listed.status).toBe(200);
       const body = await readJson(listed);
@@ -1416,6 +1442,86 @@ describe("receipt v0.2 HTTP contract", () => {
       });
       expect(accepted.status).toBe(200);
     }
+  });
+
+  it("authenticates scoped service bearers at HTTP ingress without widening person access", async () => {
+    const scoped = pendingReceipt();
+    const excluded = pendingReceipt({ receiptId: "receipt-other", visualId: "visual-other" });
+    const grant = makeServicePrincipalReceiptGrant({
+      grantId: "service-scoped",
+      servicePrincipalId: "service0102",
+      clientId: "client0102",
+      protectedResource: NATIVE_API_PROTECTED_RESOURCE,
+      operationId: RECEIPT_APPROVAL_QUEUE_OPERATION,
+      capabilityId: "approveReceipt",
+      resourceKind: "receipt",
+      receiptId,
+      startAt: "2026-01-01T00:00:00Z",
+      endAt: null,
+      revokedAt: null,
+      revision: 0,
+    });
+    const candidate = (row: ProjectionRow, currentGrant: typeof grant) => ({
+      grant: currentGrant,
+      receipt: {
+        ...row,
+        receiptId: Schema.decodeUnknownSync(ReceiptResource.fields.receiptId)(row.receiptId),
+        visualId: Schema.decodeUnknownSync(ReceiptResource.fields.visualId)(row.visualId),
+        ownerPersonId: personId,
+      },
+    });
+    const serviceApproval = {
+      servicePrincipalId: grant.servicePrincipalId,
+      clientId: grant.clientId,
+      protectedResource: NATIVE_API_PROTECTED_RESOURCE,
+      candidates: [
+        candidate(scoped, grant),
+        candidate(
+          excluded,
+          makeServicePrincipalReceiptGrant({
+            ...grant,
+            grantId: "service-revoked",
+            receiptId: "receipt-other",
+            revokedAt: evaluatedAt,
+          }),
+        ),
+      ],
+      rules: [],
+    } satisfies ServicePrincipalReceiptGrantAuthority;
+    const state = harness({ serviceApproval, approvalRows: [scoped] });
+    const bearer = { headers: { authorization: `Bearer ${serviceBearer}` } };
+    const listed = await request(state.http, "/api/receipt-approval-queue", bearer, false);
+    expect(listed.status).toBe(200);
+    expect(await readJson(listed)).toMatchObject({
+      totalItems: 1,
+      items: [{ receiptId }],
+    });
+    expect(state.authorizationPrincipalCalls()).toBe(0);
+    const serviceOnPersonOnly = await request(state.http, "/api/receipts", bearer, false);
+    expect(serviceOnPersonOnly.status).toBe(401);
+    const unscoped = harness({
+      serviceApproval: { ...serviceApproval, candidates: [serviceApproval.candidates[1]!] },
+    });
+    const denied = await request(unscoped.http, "/api/receipt-approval-queue", bearer, false);
+    expect(denied.status).toBe(403);
+    expect(await readJson(denied)).toMatchObject({ error: { tag: "ReceiptScopeDenied" } });
+    const mixed = await request(state.http, "/api/receipt-approval-queue", bearer);
+    expect(mixed.status).toBe(401);
+    state.revokeServiceBearer();
+    const revoked = await request(state.http, "/api/receipt-approval-queue", bearer, false);
+    expect(revoked.status).toBe(401);
+    const person = harness({ approvalRows: [scoped] });
+    const human = await request(person.http, "/api/receipt-approval-queue");
+    expect(human.status).toBe(200);
+    expect(await readJson(human)).toMatchObject({ totalItems: 1, items: [{ receiptId }] });
+    const userBearer = await request(
+      state.http,
+      "/api/receipt-approval-queue",
+      { headers: { authorization: `Bearer ${personBearer}` } },
+      false,
+    );
+    expect(userBearer.status).toBe(200);
+    expect(await readJson(userBearer)).toMatchObject({ totalItems: 1, items: [{ receiptId }] });
   });
 
   it("uses the queue's canonical receipt ETag for approval and reopening commands", async () => {

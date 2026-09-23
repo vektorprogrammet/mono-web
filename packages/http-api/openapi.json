@@ -12959,6 +12959,11 @@
         "name": "X-Recruitment-Invitation-Capability",
         "type": "apiKey"
       },
+      "oauthServiceBearer": {
+        "description": "Native OAuth service access token for a current ServicePrincipal.",
+        "scheme": "Bearer",
+        "type": "http"
+      },
       "oauthUserBearer": {
         "description": "Native OAuth delegated access token for a current Person principal.",
         "scheme": "Bearer",

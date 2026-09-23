@@ -36,6 +36,7 @@ import {
 } from "@vektorprogrammet/domain/authz";
 import type { RecruitmentActor } from "@vektorprogrammet/domain/recruitment";
 import { Effect, Schema } from "effect";
+import { hasBetterAuthSessionCredential } from "./session-security.js";
 
 /**
  * Flow: request Cookie -> Identity.resolveSession -> canonical PersonId +
@@ -88,6 +89,13 @@ const requestCredentialEffect = (
   IdentityEngineError | UnauthenticatedActor,
   Identity | OAuthCredentialAuthority
 > => {
+  if (
+    expected === "Either" &&
+    request.headers.has("authorization") &&
+    hasBetterAuthSessionCredential(request.headers.get("cookie"))
+  ) {
+    return Effect.fail(new UnauthenticatedActor({ message: "authentication required" }));
+  }
   if (request.headers.has("authorization")) {
     return OAuthCredentialAuthority.use(({ resolve }) =>
       Effect.tryPromise({
@@ -137,6 +145,13 @@ const requestCredentialInTransactionEffect = (
   IdentityEngineError | UnauthenticatedActor,
   Database | IdentitySnapshot | OAuthCredentialAuthority
 > => {
+  if (
+    expected === "Either" &&
+    request.headers.has("authorization") &&
+    hasBetterAuthSessionCredential(request.headers.get("cookie"))
+  ) {
+    return Effect.fail(new UnauthenticatedActor({ message: "authentication required" }));
+  }
   if (request.headers.has("authorization")) {
     return OAuthCredentialAuthority.use(({ resolveInTransaction }) =>
       resolveInTransaction(request, expected, new Date(authorizationInstant)),

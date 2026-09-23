@@ -1,6 +1,7 @@
 import {
   ContactSsrSecurity,
   InvitationCapabilitySecurity,
+  PersonOrServiceSecurity,
   PersonSecurity,
   RequestSchemaErrorMiddleware,
   SessionSecurity,
@@ -15,6 +16,7 @@ import { HttpApiError, HttpApiMiddleware } from "effect/unstable/httpapi";
 import {
   resolveAuthenticatedPerson,
   resolveAuthenticatedSession,
+  resolveRequestCredentialAtInstant,
   resolveRequestPerson,
 } from "../authority.js";
 import type { ContactConfig } from "../contact/config.js";
@@ -167,6 +169,38 @@ const personSecurityLayer = Layer.effect(
     });
   }),
 );
+const personOrServiceSecurityLayer = Layer.effect(
+  PersonOrServiceSecurity,
+  Effect.gen(function* () {
+    const identity = yield* Identity;
+    const oauthCredentialAuthority = yield* OAuthCredentialAuthority;
+    const authenticate = <A, E, R>(httpEffect: Effect.Effect<A, E, R>) =>
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const webRequest = new Request(new URL(request.url, "http://native-api.invalid"), {
+          method: request.method,
+          headers: request.headers,
+        });
+        const authentication = yield* Effect.result(
+          resolveRequestCredentialAtInstant(webRequest, "Either").pipe(
+            Effect.provideService(Identity, identity),
+            Effect.provideService(OAuthCredentialAuthority, oauthCredentialAuthority),
+          ),
+        );
+        if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
+          return rejectedCredential(
+            'VektorSession realm="native-api", Bearer realm="native-api"',
+          );
+        }
+        return yield* httpEffect;
+      });
+    return PersonOrServiceSecurity.of({
+      cookieHeader: authenticate,
+      oauthUserBearer: authenticate,
+      oauthServiceBearer: authenticate,
+    });
+  }),
+);
 
 const invitationCapabilitySecurityLayer = Layer.succeed(
   InvitationCapabilitySecurity,
@@ -211,6 +245,7 @@ export const makeNativeHttpApiMiddlewareLayer = (contact?: ContactConfig) =>
     contactSsrSecurityLayer(contact),
     sessionSecurityLayer,
     personSecurityLayer,
+    personOrServiceSecurityLayer,
     invitationCapabilitySecurityLayer,
     RequestSchemaErrorLive,
   );
