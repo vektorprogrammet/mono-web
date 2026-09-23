@@ -271,7 +271,7 @@ export const makeExternalNativeApiRouterLayer = (
       "*",
       "*",
       Effect.sync(() =>
-        HttpServerResponse.fromWeb(jsonResponse({ error: { tag: "RouteNotFound" } }, 404)),
+        HttpServerResponse.fromWeb(nativeProblemResponse("resource.not-found", 404)),
       ),
     ),
   );
@@ -310,7 +310,7 @@ export const makeInternalNativeApiRouterLayer = (
       "*",
       "*",
       Effect.sync(() =>
-        HttpServerResponse.fromWeb(jsonResponse({ error: { tag: "RouteNotFound" } }, 404)),
+        HttpServerResponse.fromWeb(nativeProblemResponse("resource.not-found", 404)),
       ),
     ),
   );

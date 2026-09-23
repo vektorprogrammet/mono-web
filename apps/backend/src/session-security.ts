@@ -64,8 +64,16 @@ export const makeNativeSessionBoundaryPolicy = (
     throw new Error("NATIVE_IDENTITY_TRUSTED_ORIGINS must not contain duplicates");
   }
   if (deployment === "local") {
-    if (trustedOrigins.length !== 1 || trustedOrigins[0] !== "http://127.0.0.1:5174") {
-      throw new Error("local native identity composition requires http://127.0.0.1:5174");
+    const origin = trustedOrigins.length === 1 ? new URL(trustedOrigins[0]!) : undefined;
+    if (
+      origin === undefined ||
+      origin.protocol !== "http:" ||
+      origin.hostname !== "127.0.0.1" ||
+      origin.port === ""
+    ) {
+      throw new Error(
+        "local native identity composition requires one fixed-port http://127.0.0.1 origin",
+      );
     }
     return { deployment, trustedOrigins, secureCookies: false };
   }

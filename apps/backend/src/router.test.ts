@@ -371,14 +371,17 @@ describe("unified backend router", () => {
         "The requested resource was not found.",
       ),
     });
-    expect({ status: missing.status, body: await missing.json() }).toEqual({
-      status: 404,
-      body: { error: { tag: "RouteNotFound" } },
-    });
-    expect({ status: internalEvidence.status, body: await internalEvidence.json() }).toEqual({
-      status: 404,
-      body: { error: { tag: "RouteNotFound" } },
-    });
+    for (const response of [missing, internalEvidence]) {
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status: 404,
+        body: expectedProblem(
+          "resource.not-found",
+          "Resource not found",
+          404,
+          "The requested resource was not found.",
+        ),
+      });
+    }
   });
 
   it("leaves every off-spec content alias at the unified 404 boundary", async () => {
@@ -393,7 +396,12 @@ describe("unified backend router", () => {
     for (const response of responses) {
       expect({ status: response.status, body: await response.json() }).toEqual({
         status: 404,
-        body: { error: { tag: "RouteNotFound" } },
+        body: expectedProblem(
+          "resource.not-found",
+          "Resource not found",
+          404,
+          "The requested resource was not found.",
+        ),
       });
     }
   });

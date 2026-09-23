@@ -354,6 +354,25 @@ describe("native HTTP semantics", () => {
       }),
     ).toEqual({ _tag: "Ready", methods: ["GET", "PATCH"] });
   });
+  it("accepts one explicit fixed-port loopback origin for local composition", () => {
+    expect(
+      makeNativeSessionBoundaryPolicy({
+        NATIVE_IDENTITY_DEPLOYMENT: "local",
+        NATIVE_IDENTITY_TRUSTED_ORIGINS: '["http://127.0.0.1:45261"]',
+      }),
+    ).toEqual({
+      deployment: "local",
+      trustedOrigins: ["http://127.0.0.1:45261"],
+      secureCookies: false,
+    });
+    expect(() =>
+      makeNativeSessionBoundaryPolicy({
+        NATIVE_IDENTITY_DEPLOYMENT: "local",
+        NATIVE_IDENTITY_TRUSTED_ORIGINS: '["http://localhost:45261"]',
+      }),
+    ).toThrow("fixed-port http://127.0.0.1 origin");
+  });
+
   it("enforces frozen origins and credentialed CORS response fields", () => {
     const policy = makeNativeSessionBoundaryPolicy({
       NATIVE_IDENTITY_DEPLOYMENT: "preview",

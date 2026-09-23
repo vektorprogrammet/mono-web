@@ -362,6 +362,9 @@ try {
     BETTER_AUTH_SECRET: betterAuthSecret,
     NATIVE_IDENTITY_DEPLOYMENT: "local",
     NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
+    OAUTH_CANONICAL_ORIGIN: backendOrigin,
+    OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
+    OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     ADMISSION_AUTH_TOKENS: "{}",
     RECEIPT_AUTH_TOKENS: "{}",
@@ -391,11 +394,11 @@ try {
     assert.equal(response.status, 404, `${method} ${pathname} must not be served`);
     assert.match(response.headers.get("content-type") ?? "", /application\/problem\+json/u);
     assert.deepEqual(await response.json(), {
-      type: "urn:vektorprogrammet:problem:v0.2:route.not-found",
-      title: "Route not found",
+      type: "urn:vektorprogrammet:problem:v0.2:resource.not-found",
+      title: "Resource not found",
       status: 404,
-      code: "route.not-found",
-      detail: "The requested route does not exist.",
+      code: "resource.not-found",
+      detail: "The requested resource was not found.",
     });
     offSpecAliasChecks.push({ method, pathname, status: response.status });
   }
