@@ -390,12 +390,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
         ),
         scheduleForm.getByRole("button", { name: "Planlegg denne datoen" }).click(),
       ]);
-      console.log(
-        "SCHEDULE-RESPONSE",
-        scheduleResponse.status(),
-        scheduleResponse.url(),
-        await page.getByRole("alert").allTextContents(),
-      );
+      expect(scheduleResponse.status()).toBe(200);
       await expect
         .poll(async () =>
           (await readBoard(page)).commitments.some(
@@ -577,7 +572,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       .check();
     await completedForm
       .locator('input[name="evidenceSource"]')
-      .fill("Skole Beta kontakt, telefon 2024-03-04");
+      .fill(`Skole Beta kontakt, telefon ${manifest.coverage.serviceDate}`);
     await completedForm.getByRole("button", { name: "Lagre uforanderlig beslutning" }).click();
     await submittedAndRemoved(completedForm);
     await page.reload();
@@ -586,7 +581,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     );
     expect(completed.decision).toMatchObject({
       outcome: "Completed",
-      evidenceSource: "Skole Beta kontakt, telefon 2024-03-04",
+      evidenceSource: `Skole Beta kontakt, telefon ${manifest.coverage.serviceDate}`,
     });
     const leaderAbsence = page.locator(
       `form:has(input[name="action"][value="ReportAbsenceForVolunteer"]):has(input[name="commitmentId"][value="${secondCommitment.commitmentId}"])`,
@@ -691,7 +686,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       .check();
     await unfulfilledForm
       .locator('input[name="evidenceSource"]')
-      .fill("Skole Beta kontakt, telefon 2024-03-11");
+      .fill(`Skole Beta kontakt, telefon ${manifest.coverage.secondServiceDate}`);
     await unfulfilledForm.locator('textarea[name="reason"]').fill("Bare én av to frivillige møtte");
     await unfulfilledForm.getByRole("button", { name: "Lagre uforanderlig beslutning" }).click();
     await submittedAndRemoved(unfulfilledForm);
@@ -707,7 +702,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await cancelledForm.locator("select").selectOption("CancelService");
     await cancelledForm
       .locator('input[name="evidenceSource"]')
-      .fill("Skole Beta kontakt, telefon 2024-03-18");
+      .fill(`Skole Beta kontakt, telefon ${manifest.coverage.cancelledServiceDate}`);
     await cancelledForm.locator('textarea[name="reason"]').fill("Skolen avlyste tjenesten");
     await cancelledForm.getByRole("button", { name: "Lagre uforanderlig beslutning" }).click();
     await submittedAndRemoved(cancelledForm);

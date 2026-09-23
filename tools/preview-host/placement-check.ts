@@ -1722,9 +1722,9 @@ try {
       candidateId: substitute.personId,
       candidateFirstName: substitute.firstName,
       candidateLastName: substitute.lastName,
-      serviceDate: "2024-03-04",
-      secondServiceDate: "2024-03-11",
-      cancelledServiceDate: "2024-03-18",
+      serviceDate: "2024-03-11",
+      secondServiceDate: "2024-03-18",
+      cancelledServiceDate: "2024-03-25",
       api: apiCoverageEvidence,
     },
   };
@@ -1912,9 +1912,9 @@ try {
     assert.deepEqual(
       browserDecisions.map((item) => item.evidenceSource),
       [
-        "Skole Beta kontakt, telefon 2024-03-04",
-        "Skole Beta kontakt, telefon 2024-03-11",
-        "Skole Beta kontakt, telefon 2024-03-18",
+        `Skole Beta kontakt, telefon ${manifest.coverage.serviceDate}`,
+        `Skole Beta kontakt, telefon ${manifest.coverage.secondServiceDate}`,
+        `Skole Beta kontakt, telefon ${manifest.coverage.cancelledServiceDate}`,
       ],
     );
     assert.deepEqual(
@@ -1938,13 +1938,13 @@ try {
         absenceId: browserCoverageExpected.coveredAbsenceId,
         personId: volunteerId,
         reporterPersonId: volunteerId,
-        serviceDate: "2024-03-04",
+        serviceDate: manifest.coverage.serviceDate,
       },
       {
         absenceId: browserCoverageExpected.uncoveredAbsenceId,
         personId: leaderId,
         reporterPersonId: leaderId,
-        serviceDate: "2024-03-11",
+        serviceDate: manifest.coverage.secondServiceDate,
       },
     ]);
     const browserOffers = (
@@ -2066,13 +2066,13 @@ try {
       [
         {
           occurrenceId: browserCoverageExpected.occurrenceId,
-          occurredOn: "2024-03-04",
+          occurredOn: manifest.coverage.serviceDate,
           attendedPersonIds: [leaderId, substitute.personId].sort(),
           recordedByPersonId: leaderId,
         },
         {
           occurrenceId: browserCoverageExpected.uncoveredOccurrenceId,
-          occurredOn: "2024-03-11",
+          occurredOn: manifest.coverage.secondServiceDate,
           attendedPersonIds: [volunteerId],
           recordedByPersonId: leaderId,
         },
