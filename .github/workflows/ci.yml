@@ -238,7 +238,7 @@ jobs:
       DEFAULT_FROM_EMAIL: ci@example.invalid
       ECONOMY_EMAIL: ci@example.invalid
       DEFAULT_SURVEY_EMAIL: ci@example.invalid
-      IPINFO_TOKEN: ci-disabled
+      IPINFO_TOKEN: ""
       GEO_IGNORED_ASNS: "[]"
     defaults:
       run:
