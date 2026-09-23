@@ -8,19 +8,12 @@ export const embedDatedService = (container: HTMLElement, input: Input): (() => 
   const program = Runtime.makeElement({
     Model,
     container,
-    init: () => {
-      console.info("DATED-SERVICE-INIT");
-      return [makeInitialModel(input), []];
-    },
+    init: () => [makeInitialModel(input), []],
     update,
-    view: (model, h) => {
-      console.info("DATED-SERVICE-VIEW");
-      return view(model, h);
-    },
+    view,
     devTools: false,
     slow: false,
     crash: {
-      report: ({ error }) => console.error("DATED-SERVICE-CRASH", error),
       view: (_context, h) =>
         h.section(
           [h.Role("alert")],
@@ -28,7 +21,6 @@ export const embedDatedService = (container: HTMLElement, input: Input): (() => 
         ),
     },
   });
-  console.info("DATED-SERVICE-EMBED");
   const handle = Runtime.embed(program);
   return () => handle.dispose();
 };

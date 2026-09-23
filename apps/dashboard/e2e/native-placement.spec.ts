@@ -98,10 +98,6 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     other = await concurrent.newPage();
   const gates: string[] = [];
   const errors: string[] = [];
-  const foldkitEvents: string[] = [];
-  page.on("console", (entry) => {
-    if (entry.text().startsWith("DATED-SERVICE-")) foldkitEvents.push(entry.text());
-  });
   const monitor = (current: Page) => current.on("pageerror", (error) => errors.push(error.message));
   for (const current of [page, self, other]) monitor(current);
   try {
@@ -376,24 +372,9 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
         { timeout: 15_000 },
       )
       .toContain("Delivered");
-    console.log(
-      "DATED-SERVICE-DIAGNOSTIC",
-      await page.locator("vektor-dated-school-service").evaluate((element) => ({
-        registered: Boolean(customElements.get("vektor-dated-school-service")),
-        proposalStatus: JSON.parse(element.getAttribute("data-state") ?? "{}").board?.proposal
-          ?.status,
-        content: element.textContent?.slice(0, 1200),
-        scheduleForms: element.querySelectorAll(
-          'form input[name="action"][value="ScheduleService"]',
-        ).length,
-        html: element.innerHTML.slice(0, 800),
-        shadowHtml: element.shadowRoot?.innerHTML.slice(0, 800),
-        connected: element.isConnected,
-        children: element.childElementCount,
-      })),
-    );
-    console.log("DATED-SERVICE-PAGE-ERRORS", errors);
-    console.log("DATED-SERVICE-EVENTS", foldkitEvents);
+    await expect(
+      page.getByRole("heading", { name: "Planlegg datert skoletjeneste" }),
+    ).toBeVisible();
     const scheduleForm = page.locator(
       'form:has(input[name="action"][value="ScheduleService"]):has(input[name="block"][value="2"])',
     );

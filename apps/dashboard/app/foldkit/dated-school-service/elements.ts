@@ -15,6 +15,7 @@ export const registerDatedServiceElement = (): void => {
       connectedCallback(): void {
         if (this.#dispose) return;
         const container = document.createElement("div");
+        container.id = "foldkit-dated-school-service";
         this.replaceChildren(container);
         try {
           const raw = this.getAttribute("data-state");
@@ -30,7 +31,6 @@ export const registerDatedServiceElement = (): void => {
       }
 
       disconnectedCallback(): void {
-        console.info("DATED-SERVICE-DISCONNECT");
         this.#dispose?.();
         this.#dispose = undefined;
       }
