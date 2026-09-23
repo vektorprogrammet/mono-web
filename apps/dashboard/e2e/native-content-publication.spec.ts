@@ -274,8 +274,7 @@ test.describe("Native Content publication (spec 0062)", () => {
           const detailResponse = await fetch(`${apiOrigin}/api/content/articles/${articleId}`, {
             credentials: "include",
           });
-          const etag = detailResponse.headers.get("etag");
-          if (etag === null) throw new Error("content detail response omitted ETag");
+          const etag = '"member-published-revision-denial"';
           const response = await fetch(`${apiOrigin}/api/content/articles/${articleId}`, {
             method: "PATCH",
             credentials: "include",
@@ -292,6 +291,7 @@ test.describe("Native Content publication (spec 0062)", () => {
             }),
           });
           return {
+            detailStatus: detailResponse.status,
             status: response.status,
             body: (await response.json()) as Record<string, unknown>,
           };
@@ -302,6 +302,7 @@ test.describe("Native Content publication (spec 0062)", () => {
           apiOrigin: contentApiOrigin,
         },
       );
+      expect(publishedMemberRevision.detailStatus).toBe(403);
       expect(publishedMemberRevision.status).toBe(403);
       expect(publishedMemberRevision.body).toMatchObject({
         status: 403,
