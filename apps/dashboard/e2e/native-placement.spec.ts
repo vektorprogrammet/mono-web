@@ -372,6 +372,18 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
         { timeout: 15_000 },
       )
       .toContain("Delivered");
+    console.log(
+      "DATED-SERVICE-DIAGNOSTIC",
+      await page.locator("vektor-dated-school-service").evaluate((element) => ({
+        registered: Boolean(customElements.get("vektor-dated-school-service")),
+        proposalStatus: JSON.parse(element.getAttribute("data-state") ?? "{}").board?.proposal
+          ?.status,
+        content: element.textContent?.slice(0, 1200),
+        scheduleForms: element.querySelectorAll(
+          'form input[name="action"][value="ScheduleService"]',
+        ).length,
+      })),
+    );
     const scheduleForm = page.locator(
       'form:has(input[name="action"][value="ScheduleService"]):has(input[name="block"][value="2"])',
     );
