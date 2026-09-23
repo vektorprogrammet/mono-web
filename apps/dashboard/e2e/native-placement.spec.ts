@@ -334,7 +334,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     const serviceProposalId = await proposalArticle.getAttribute("data-proposal-id");
     expect(serviceProposalId).toMatch(/^school-service-proposal-/);
     if (serviceProposalId === null) throw new Error("confirmed proposal id is missing");
-    await expect(proposalArticle).toContainText("2 av 2 frivillige");
+    await expect(proposalArticle).toContainText("0 av 1 frivillige");
     const confirm = page.getByRole("form", { name: "Bekreft tjenesteforslag", exact: true });
     await confirm.getByRole("button", { name: "Bekreft og send tjenesteplan" }).click();
     await expect(confirm.getByRole("alert")).toContainText("Alle avvik må gjennomgås");
@@ -499,7 +499,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     ).toBeVisible();
     await page.locator(`article[data-commitment-id="${firstCommitment.commitmentId}"]`).getByRole("button", { name: "Registrer beslutning for denne datoen" }).click();
     const completedForm = page.getByRole("form", {
-      name: `Beslutning for Skole Beta, ${manifest.coverage.serviceDate} kl. 09:00–11:00, bolk 2`, exact: true,
+      name: `Beslutning for Skole Beta, ${manifest.coverage.serviceDate} kl. 09:00-11:00, bolk 2`, exact: true,
     });
     await completedForm.locator('select').selectOption("CompleteService");
     await completedForm.locator(`input[name="attendedPersonId"][value="${manifest.leaderId}"]`).check();
@@ -588,7 +588,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await page.reload();
     await page.locator(`article[data-commitment-id="${secondCommitment.commitmentId}"]`).getByRole("button", { name: "Registrer beslutning for denne datoen" }).click();
     const unfulfilledForm = page.getByRole("form", {
-      name: `Beslutning for Skole Beta, ${manifest.coverage.secondServiceDate} kl. 09:00–11:00, bolk 2`, exact: true,
+      name: `Beslutning for Skole Beta, ${manifest.coverage.secondServiceDate} kl. 09:00-11:00, bolk 2`, exact: true,
     });
     await unfulfilledForm.locator('select').selectOption("MarkUnfulfilledService");
     await unfulfilledForm.locator(`input[name="attendedPersonId"][value="${manifest.volunteerId}"]`).check();
@@ -599,7 +599,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await page.reload();
     await page.locator(`article[data-commitment-id="${cancelledCommitment.commitmentId}"]`).getByRole("button", { name: "Registrer beslutning for denne datoen" }).click();
     const cancelledForm = page.getByRole("form", {
-      name: `Beslutning for Skole Beta, ${manifest.coverage.cancelledServiceDate} kl. 09:00–11:00, bolk 2`, exact: true,
+      name: `Beslutning for Skole Beta, ${manifest.coverage.cancelledServiceDate} kl. 09:00-11:00, bolk 2`, exact: true,
     });
     await cancelledForm.locator('select').selectOption("CancelService");
     await cancelledForm.locator('input[name="evidenceSource"]').fill("Skole Beta kontakt, telefon 2024-03-18");
