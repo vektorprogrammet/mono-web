@@ -51,7 +51,13 @@ describe("historical service boundary", () => {
   it("quarantines missing, mismatched, and malformed backup rows without discarding the cohort", async () => {
     const rows = new Map<string, Array<{ occurrenceId: string; disposition: string; reason: string }>>();
     const snapshots = new Map<string, string>();
-
+    const referenceRows = new Map<string, {
+      source_revision: string;
+      reference_digest: string;
+      source_id_mappings: unknown;
+    }>();
+    const referenceKey = (repository: string, snapshotId: string) =>
+      JSON.stringify([repository, snapshotId]);
     const priorHistory: Array<Record<string, unknown>> = [];
     const pool = {
       connect: async () => ({
@@ -62,7 +68,15 @@ describe("historical service boundary", () => {
             const snapshotDigest = snapshots.get(String(values[0]));
             return { rows: snapshotDigest ? [{ snapshot_digest: snapshotDigest }] : [] };
           }
+          if (sql.startsWith("SELECT source_revision, reference_digest, source_id_mappings")) {
+            const evidence = referenceRows.get(referenceKey(String(values[0]), String(values[1])));
+            return { rows: evidence ? [evidence] : [] };
+          }
           if (sql.startsWith("SELECT history.source_history_id")) return { rows: priorHistory };
+          if (sql.startsWith("SELECT 1 FROM public.person_cohort_imports")) return { rowCount: 1 };
+          if (sql.includes("AS school_department_exists"))
+            return { rows: [{ department_exists: true, semester_exists: true,
+              school_exists: true, school_department_exists: true }] };
           if (sql.startsWith("INSERT INTO public.historical_service_snapshots")) {
             snapshots.set(String(values[0]), String(values[5]));
             return { rows: [] };
@@ -77,6 +91,19 @@ describe("historical service boundary", () => {
                 reason: String(values[3]),
               },
             ]);
+            return { rows: [] };
+          }
+          if (sql.startsWith("INSERT INTO public.assistant_service_history")) {
+            priorHistory.push({
+              source_history_id: String(values[1]),
+              source_digest: String(values[10]),
+              raw_row_digest: historicalServiceSourceRowDigest(raw),
+              source_kind: "LegacyBackup",
+              person_id: String(values[3]),
+              school_id: String(values[6]),
+              semester_id: String(values[5]),
+              block: String(values[9]),
+            });
             return { rows: [] };
           }
           if (sql.startsWith('SELECT occurrence_id AS "occurrenceId"'))
@@ -100,9 +127,35 @@ describe("historical service boundary", () => {
       block: "Bolk 1",
       day: "Mandag",
     };
+    const referenceDigest = "a".repeat(64);
+    const referenceMappings = {
+      departments: [{ sourceDepartmentId: "department", departmentId: "department" }],
+      semesters: [{ sourceSemesterId: "semester", semesterId: "semester" }],
+      schools: [{ sourceSchoolId: "school", schoolId: 1 }],
+      relationships: [{ sourceDepartmentId: "department", sourceSchoolId: "school",
+        departmentId: "department", schoolId: 1 }],
+    };
+    const referenceEvidence = {
+      source_revision: fixture.sourceRevision,
+      reference_digest: referenceDigest,
+      source_id_mappings: referenceMappings,
+    };
+    const sourceMapping = {
+      sourceHistoryId: "valid",
+      sourceUserId: "user",
+      sourceDepartmentId: "department",
+      sourceSemesterId: "semester",
+      sourceSchoolId: "school",
+      personId: "person",
+      departmentId: "department",
+      semesterId: "semester",
+      schoolId: 1,
+      evidenceRef: "history-valid",
+    };
     const snapshot = {
       ...fixture,
       sourceKind: "LegacyBackup" as const,
+      referenceDigest,
       occurrences: [
         { occurrenceId: "valid", row: raw, sourceRowDigest: historicalServiceSourceRowDigest(raw) },
         {
@@ -122,6 +175,12 @@ describe("historical service boundary", () => {
         },
       ],
     };
+    expect(() => decodeHistoricalServiceSnapshot({ ...snapshot, referenceDigest: undefined }))
+      .toThrow("InvalidSnapshot");
+    await expect(importHistoricalServiceCohort(pool, snapshot)).rejects.toMatchObject({
+      code: "ReferenceProvenanceMissing",
+    });
+    referenceRows.set(referenceKey(snapshot.sourceRepository, snapshot.snapshotId), referenceEvidence);
     const first = await importHistoricalServiceCohort(pool, snapshot);
     expect(first.accepted).toBe(0);
     expect(
@@ -138,40 +197,75 @@ describe("historical service boundary", () => {
       importHistoricalServiceCohort(pool, { ...snapshot, sourceRevision: "changed" }),
     ).rejects.toMatchObject({ code: "SnapshotConflict" } satisfies Partial<HistoricalServiceFailure>);
 
-    priorHistory.push({
-      source_history_id: "valid",
-      source_digest: "0".repeat(64),
-      raw_row_digest: historicalServiceSourceRowDigest(raw),
-      source_kind: "LegacyBackup",
-      person_id: "person",
-      school_id: "1",
-      semester_id: "semester",
-      block: "1",
+    const mappedSnapshot = {
+      ...snapshot,
+      snapshotId: "reference-conflict",
+      occurrences: [{ occurrenceId: "valid", row: raw, sourceRowDigest: historicalServiceSourceRowDigest(raw) }],
+      mappings: [sourceMapping],
+    };
+    const mappedKey = referenceKey(snapshot.sourceRepository, mappedSnapshot.snapshotId);
+    referenceRows.set(mappedKey, { ...referenceEvidence, source_revision: "changed" });
+    await expect(importHistoricalServiceCohort(pool, mappedSnapshot)).rejects.toMatchObject({
+      code: "ReferenceProvenanceConflict",
     });
+    referenceRows.set(mappedKey, { ...referenceEvidence, reference_digest: "b".repeat(64) });
+    await expect(importHistoricalServiceCohort(pool, mappedSnapshot)).rejects.toMatchObject({
+      code: "ReferenceProvenanceConflict",
+    });
+    referenceRows.set(mappedKey, {
+      ...referenceEvidence,
+      source_id_mappings: {
+        ...referenceMappings,
+        schools: [{ sourceSchoolId: "school", schoolId: 2 }],
+        relationships: [{ sourceDepartmentId: "department", sourceSchoolId: "school",
+          departmentId: "department", schoolId: 2 }],
+      },
+    });
+    await expect(importHistoricalServiceCohort(pool, mappedSnapshot)).rejects.toMatchObject({
+      code: "ReferenceProvenanceConflict",
+    });
+    referenceRows.set(mappedKey, referenceEvidence);
+    const imported = await importHistoricalServiceCohort(pool, mappedSnapshot);
+    expect(imported.occurrences).toEqual([
+      { occurrenceId: "valid", disposition: "Accepted", reason: "Imported" },
+    ]);
+    expect(await importHistoricalServiceCohort(pool, mappedSnapshot)).toEqual(imported);
+
+    const staleRow = { ...raw, sourceHistoryId: "stale" };
+    const staleSnapshot = {
+      ...mappedSnapshot,
+      snapshotId: "stale-directory-relationship",
+      occurrences: [{
+        occurrenceId: "stale",
+        row: staleRow,
+        sourceRowDigest: historicalServiceSourceRowDigest(staleRow),
+      }],
+      mappings: [{ ...sourceMapping, sourceHistoryId: "stale" }],
+    };
+    referenceRows.set(referenceKey(snapshot.sourceRepository, staleSnapshot.snapshotId), {
+      ...referenceEvidence,
+      source_id_mappings: { ...referenceMappings, relationships: [] },
+    });
+    expect((await importHistoricalServiceCohort(pool, staleSnapshot)).occurrences).toEqual([{
+      occurrenceId: "stale",
+      disposition: "Quarantined",
+      reason: "SchoolDepartmentMismatch",
+    }]);
+
     const changedRow = { ...raw, day: "Tirsdag" };
-    await expect(
-      importHistoricalServiceCohort(pool, {
-        ...snapshot,
-        snapshotId: "another-snapshot",
-        occurrences: [{
-          occurrenceId: "valid",
-          row: changedRow,
-          sourceRowDigest: historicalServiceSourceRowDigest(changedRow),
-        }],
-        mappings: [{
-          sourceHistoryId: "valid",
-          sourceUserId: "user",
-          sourceDepartmentId: "department",
-          sourceSemesterId: "semester",
-          sourceSchoolId: "school",
-          personId: "person",
-          departmentId: "department",
-          semesterId: "semester",
-          schoolId: 1,
-          evidenceRef: "history-valid",
-        }],
-      }),
-    ).rejects.toMatchObject({ code: "SourceIdentityConflict" } satisfies Partial<HistoricalServiceFailure>);
+    const anotherSnapshot = {
+      ...mappedSnapshot,
+      snapshotId: "another-snapshot",
+      occurrences: [{
+        occurrenceId: "valid",
+        row: changedRow,
+        sourceRowDigest: historicalServiceSourceRowDigest(changedRow),
+      }],
+    };
+    referenceRows.set(referenceKey(snapshot.sourceRepository, anotherSnapshot.snapshotId), referenceEvidence);
+    await expect(importHistoricalServiceCohort(pool, anotherSnapshot)).rejects.toMatchObject({
+      code: "SourceIdentityConflict",
+    } satisfies Partial<HistoricalServiceFailure>);
   });
 
   it("accepts the real backup cohort size and rejects snapshots beyond the schema cap", () => {
@@ -180,8 +274,12 @@ describe("historical service boundary", () => {
       row: {},
       sourceRowDigest: historicalServiceSourceRowDigest({}),
     }));
-    expect(decodeHistoricalServiceSnapshot({ ...fixture, sourceKind: "LegacyBackup", occurrences }).occurrences)
-      .toHaveLength(1_815);
+    expect(decodeHistoricalServiceSnapshot({
+      ...fixture,
+      sourceKind: "LegacyBackup",
+      referenceDigest: "a".repeat(64),
+      occurrences,
+    }).occurrences).toHaveLength(1_815);
     expect(() => decodeHistoricalServiceSnapshot({
       ...fixture,
       occurrences: Array.from({ length: 10_001 }, (_, index) => ({ occurrenceId: String(index), row: {} })),

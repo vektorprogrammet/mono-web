@@ -33,12 +33,24 @@ const HistoricalServiceMapping = Schema.Struct({
   schoolId: SchoolId,
   evidenceRef: Id,
 });
-export const HistoricalServiceSnapshot = Schema.Struct({
+const HistoricalServiceReferenceMappings = Schema.Struct({
+  departments: Schema.Array(Schema.Struct({ sourceDepartmentId: Id, departmentId: DepartmentId })),
+  semesters: Schema.Array(Schema.Struct({ sourceSemesterId: Id, semesterId: SemesterId })),
+  schools: Schema.Array(Schema.Struct({ sourceSchoolId: Id, schoolId: SchoolId })),
+  relationships: Schema.Array(
+    Schema.Struct({
+      sourceDepartmentId: Id,
+      sourceSchoolId: Id,
+      departmentId: DepartmentId,
+      schoolId: SchoolId,
+    }),
+  ),
+});
+const HistoricalServiceSnapshotFields = {
   sourceRepository: Label,
   sourceRevision: Id,
   snapshotId: Id,
   transformationRevision: Id,
-  sourceKind: Schema.Literals(["Synthetic", "LegacyBackup"]),
   occurrences: Schema.Array(
     Schema.Struct({
       occurrenceId: Id,
@@ -47,7 +59,15 @@ export const HistoricalServiceSnapshot = Schema.Struct({
     }),
   ).pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(10_000))),
   mappings: Schema.Array(HistoricalServiceMapping).pipe(Schema.check(Schema.isMaxLength(10_000))),
-});
+};
+export const HistoricalServiceSnapshot = Schema.Union([
+  Schema.Struct({ ...HistoricalServiceSnapshotFields, sourceKind: Schema.Literal("Synthetic") }),
+  Schema.Struct({
+    ...HistoricalServiceSnapshotFields,
+    sourceKind: Schema.Literal("LegacyBackup"),
+    referenceDigest: Schema.String.pipe(Schema.check(Schema.isPattern(Sha256))),
+  }),
+]);
 export type HistoricalServiceSnapshot = typeof HistoricalServiceSnapshot.Type;
 type LegacyServiceRow = typeof LegacyServiceRow.Type;
 type HistoricalServiceMapping = typeof HistoricalServiceMapping.Type;
@@ -60,6 +80,8 @@ export class HistoricalServiceFailure extends Error {
       | "InvalidSnapshot"
       | "SnapshotConflict"
       | "SourceIdentityConflict"
+      | "ReferenceProvenanceMissing"
+      | "ReferenceProvenanceConflict"
       | "PersistenceFailure",
   ) {
     super(code);
@@ -230,9 +252,80 @@ export const importHistoricalServiceCohort = async (
       `SELECT snapshot_digest FROM public.historical_service_snapshots WHERE snapshot_key = $1`,
       [snapshotKey],
     );
+    if (prior.rows[0]?.snapshot_digest !== undefined && prior.rows[0].snapshot_digest !== snapshotDigest)
+      throw new HistoricalServiceFailure("SnapshotConflict");
+
+    let sourceRelationships: ReadonlySet<string> | undefined;
+    if (snapshot.sourceKind === "LegacyBackup") {
+      const evidence = (
+        await tx.query<{
+          source_revision: string;
+          reference_digest: string;
+          source_id_mappings: unknown;
+        }>(
+          `SELECT source_revision, reference_digest, source_id_mappings
+             FROM public.historical_service_reference_provenance
+            WHERE source_repository = $1 AND snapshot_id = $2
+            FOR SHARE`,
+          [snapshot.sourceRepository, snapshot.snapshotId],
+        )
+      ).rows[0];
+      if (!evidence) throw new HistoricalServiceFailure("ReferenceProvenanceMissing");
+      if (
+        evidence.source_revision !== snapshot.sourceRevision ||
+        evidence.reference_digest !== snapshot.referenceDigest
+      )
+        throw new HistoricalServiceFailure("ReferenceProvenanceConflict");
+
+      let references: typeof HistoricalServiceReferenceMappings.Type;
+      try {
+        references = Schema.decodeUnknownSync(HistoricalServiceReferenceMappings)(
+          evidence.source_id_mappings,
+          { onExcessProperty: "error" },
+        );
+      } catch {
+        throw new HistoricalServiceFailure("ReferenceProvenanceConflict");
+      }
+      const departments = new Map(
+        references.departments.map(({ sourceDepartmentId, departmentId }) => [
+          sourceDepartmentId,
+          departmentId,
+        ] as const),
+      );
+      const semesters = new Map(
+        references.semesters.map(({ sourceSemesterId, semesterId }) => [
+          sourceSemesterId,
+          semesterId,
+        ] as const),
+      );
+      const schools = new Map(
+        references.schools.map(({ sourceSchoolId, schoolId }) => [sourceSchoolId, schoolId] as const),
+      );
+      sourceRelationships = new Set(
+        references.relationships.map(({ sourceDepartmentId, sourceSchoolId }) =>
+          canonicalJson([sourceDepartmentId, sourceSchoolId]),
+        ),
+      );
+      if (
+        departments.size !== references.departments.length ||
+        semesters.size !== references.semesters.length ||
+        schools.size !== references.schools.length ||
+        sourceRelationships.size !== references.relationships.length ||
+        references.relationships.some(
+          ({ sourceDepartmentId, sourceSchoolId, departmentId, schoolId }) =>
+            departments.get(sourceDepartmentId) !== departmentId ||
+            schools.get(sourceSchoolId) !== schoolId,
+        ) ||
+        snapshot.mappings.some(
+          ({ sourceDepartmentId, departmentId, sourceSemesterId, semesterId, sourceSchoolId, schoolId }) =>
+            departments.get(sourceDepartmentId) !== departmentId ||
+            semesters.get(sourceSemesterId) !== semesterId ||
+            schools.get(sourceSchoolId) !== schoolId,
+        )
+      )
+        throw new HistoricalServiceFailure("ReferenceProvenanceConflict");
+    }
     if (prior.rows[0]) {
-      if (prior.rows[0].snapshot_digest !== snapshotDigest)
-        throw new HistoricalServiceFailure("SnapshotConflict");
       const result = await cohortReport(tx, snapshotKey);
       await tx.query("COMMIT");
       return result;
@@ -352,7 +445,14 @@ export const importHistoricalServiceCohort = async (
               !references.school_exists
             )
               reason = "NativeReferenceMissing";
-            else if (!references.school_department_exists) reason = "SchoolDepartmentMismatch";
+            else if (
+              !references.school_department_exists ||
+              (sourceRelationships !== undefined &&
+                !sourceRelationships.has(
+                  canonicalJson([row.sourceDepartmentId, row.sourceSchoolId]),
+                ))
+            )
+              reason = "SchoolDepartmentMismatch";
             else {
               const slots = targetSlots(mapping!, nativeBlock(row.block));
               if (slots.some((slot) => (targetCounts.get(slot) ?? 0) > 1))
