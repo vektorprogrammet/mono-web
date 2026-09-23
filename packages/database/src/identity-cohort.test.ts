@@ -27,10 +27,12 @@ describe("synthetic credential cohort boundary", () => {
     expect(decodeIdentityCohort({ ...fixture, sourceKind: "LegacyBackup" }).sourceKind).toBe(
       "LegacyBackup",
     );
-    expect(() =>
-      decodeSyntheticIdentityCohort({ ...fixture, sourceKind: "LegacyBackup" }),
-    ).toThrow("InvalidSnapshot");
-    expect(() => decodeIdentityCohort({ ...fixture, sourceKind: "Unknown" })).toThrow("InvalidSnapshot");
+    expect(() => decodeSyntheticIdentityCohort({ ...fixture, sourceKind: "LegacyBackup" })).toThrow(
+      "InvalidSnapshot",
+    );
+    expect(() => decodeIdentityCohort({ ...fixture, sourceKind: "Unknown" })).toThrow(
+      "InvalidSnapshot",
+    );
   });
   it("publishes aggregate dispositions without source identifiers", () => {
     const summary = summarizeIdentityCohort({
@@ -39,7 +41,11 @@ describe("synthetic credential cohort boundary", () => {
       accepted: 0,
       quarantined: 1,
       occurrences: [
-        { occurrenceId: "private-source-id", disposition: "Quarantined", reason: "UnsupportedHash" },
+        {
+          occurrenceId: "private-source-id",
+          disposition: "Quarantined",
+          reason: "UnsupportedHash",
+        },
       ],
       aliases: "LegacyUsernameAndCompanyEmailUnsupported",
     });
