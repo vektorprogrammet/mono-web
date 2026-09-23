@@ -382,8 +382,13 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
         scheduleForms: element.querySelectorAll(
           'form input[name="action"][value="ScheduleService"]',
         ).length,
+        html: element.innerHTML.slice(0, 800),
+        shadowHtml: element.shadowRoot?.innerHTML.slice(0, 800),
+        connected: element.isConnected,
+        children: element.childElementCount,
       })),
     );
+    console.log("DATED-SERVICE-PAGE-ERRORS", errors);
     const scheduleForm = page.locator(
       'form:has(input[name="action"][value="ScheduleService"]):has(input[name="block"][value="2"])',
     );
