@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 const articleNotFoundProblem = {
-  type: "urn:vektorprogrammet:problem:v0.2:content.article-not-found",
-  title: "Article not found",
-  status: 404,
-  code: "content.article-not-found",
-  detail: "The requested article does not exist.",
+  _tag: "HttpClientError",
+  reason: {
+    _tag: "StatusCodeError",
+    response: { status: 404 },
+  },
 } as const;
 
 const mocks = vi.hoisted(() => {
