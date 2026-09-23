@@ -732,6 +732,12 @@ const responseStatusLabel = {
 } as const;
 const closureOutcomeLabel = { Covered: "Dekket", Uncovered: "Ikke dekket" } as const;
 type CoverageOffer = (typeof CoverageBoardResource.Type)["offers"][number];
+const offerServiceTitle = (offer: CoverageOffer): string => {
+  const interval = offer.startTime === null || offer.endTime === null
+    ? "tidspunkt ikke registrert for historisk tilbud"
+    : `kl. ${offer.startTime}–${offer.endTime}`;
+  return `${offer.schoolName}, ${offer.serviceDate} ${interval} — ${offer.day}, bolk ${offer.block}`;
+};
 type CoverageResponse = (typeof CoverageBoardResource.Type)["responses"][number];
 type CoverageAcknowledgement = (typeof CoverageBoardResource.Type)["acknowledgements"][number];
 type CoverageCandidate = (typeof CoverageBoardResource.Type)["candidates"][number];
@@ -820,7 +826,7 @@ function OwnCoveragePanel({
           return (
             <article key={offer.offerId} className="min-w-0 space-y-3 rounded-md border p-4">
               <h4 className="break-words font-medium">
-                {offer.schoolName}, {offer.serviceDate} — {offer.day}, bolk {offer.block}
+                {offerServiceTitle(offer)}
               </h4>
               <OfferLifecycle
                 offer={offer}
@@ -833,7 +839,7 @@ function OwnCoveragePanel({
                   etag={coverage.etag}
                   refreshResource="ownCoverage"
                   hidden={{ ...scope, action: "RespondToOffer", offerId: offer.offerId }}
-                  label={`Vikartilbud: ${offer.schoolName}, ${offer.serviceDate}, bolk ${offer.block}`}
+                  label={`Vikartilbud: ${offerServiceTitle(offer)}`}
                 >
                   <div className="flex flex-wrap gap-3">
                     <Button type="submit" name="response" value="Accept">
@@ -1004,7 +1010,7 @@ function CoordinatorCoveragePanel({
           return (
             <article key={offer.offerId} className="min-w-0 space-y-3 rounded-md border p-4">
               <h4 className="break-words font-medium">
-                {offer.schoolName}, {offer.serviceDate} — {offer.day}, bolk {offer.block}
+                {offerServiceTitle(offer)}
               </h4>
               <OfferLifecycle
                 offer={offer}
@@ -1018,7 +1024,7 @@ function CoordinatorCoveragePanel({
                   etag={coverage.etag}
                   refreshResource="coverage"
                   hidden={{ ...scope, offerId: offer.offerId }}
-                  label={`Dekningstilbud: ${offer.candidateFirstName} ${offer.candidateLastName}, ${offer.serviceDate}`}
+                  label={`Dekningstilbud: ${offer.candidateFirstName} ${offer.candidateLastName}, ${offerServiceTitle(offer)}`}
                 >
                   <div className="flex flex-wrap gap-3">
                     {offer.status === "Accepted" && (
