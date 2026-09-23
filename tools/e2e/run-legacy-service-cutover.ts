@@ -14,6 +14,11 @@ import {
   importHistoricalServiceCohort,
   type HistoricalServiceReport,
 } from "@vektorprogrammet/database/historical-service-cohort";
+import {
+  decodeIdentityCohort,
+  importIdentityCohort,
+  type CohortReport as IdentityCohortReport,
+} from "@vektorprogrammet/database/identity-cohort";
 import { Pool, type PoolClient } from "pg";
 import {
   buildLegacyReferences,
@@ -48,6 +53,8 @@ type CutoverStage =
   | "PersonImport"
   | "HistoricalProjection"
   | "HistoricalImport"
+  | "CredentialProjection"
+  | "CredentialImport"
   | "TargetCommit"
   | "TargetRollback"
   | "TargetClose";
@@ -68,7 +75,7 @@ const inStage = async <A>(stage: CutoverStage, operation: () => Promise<A>): Pro
   } catch (error) {
     const detail =
       stage === "SourceRead" && error instanceof Error
-        ? /^Legacy source (Connection|Grants|DatabaseSelection|Transaction|Engines|Users|Departments|Semesters|Schools|Relationships|History) failed; details redacted$/.exec(
+        ? /^Legacy source (Connection|Grants|DatabaseSelection|Transaction|Engines|Users|Credentials|Departments|Semesters|Schools|Relationships|History) failed; details redacted$/.exec(
             error.message,
           )?.[1]
         : undefined;
@@ -173,7 +180,54 @@ export const buildLegacyHistoricalSnapshot = (
   });
 };
 
-/** A reusable subset of the final migration: Person, source directories, historical service. */
+/** Project credential rows only through accepted Person reconciliation. */
+export const buildLegacyCredentialSnapshot = (
+  source: LegacySourceSnapshot,
+  person: PersonCohortReport,
+  personSnapshot: PersonCohortSnapshot,
+  identity: { readonly snapshotId: string; readonly transformationRevision: string },
+) => {
+  const accepted = new Set(
+    person.occurrences
+      .filter((occurrence) => occurrence.disposition === "Accepted")
+      .map((occurrence) => occurrence.occurrenceId),
+  );
+  const users = new Map(source.users.map((user) => [String(user.id), user]));
+  const occurrences = source.credentials.map((credential) => {
+    const sourceId = String(credential.id);
+    const user = users.get(sourceId);
+    return {
+      occurrenceId: "legacy-user-row-" + sourceId,
+      row: {
+        sourceUserId: sourceUserId(sourceId),
+        active: user?.active === 1 || user?.active === "1" || user?.active === true,
+        email: user?.email,
+        passwordHash: credential.passwordHash,
+        username: user?.username,
+        companyEmail: user?.companyEmail,
+      },
+    };
+  });
+  return decodeIdentityCohort({
+    sourceRepository: repository,
+    sourceRevision: digest(source.credentials),
+    snapshotId: identity.snapshotId,
+    transformationRevision: identity.transformationRevision,
+    sourceKind: "LegacyBackup",
+    occurrences,
+    mappings: personSnapshot.mappings
+      .filter((mapping) =>
+        accepted.has("legacy-user-row-" + mapping.sourceUserId.slice("legacy-user:".length)),
+      )
+      .map((mapping) => ({
+        sourceUserId: mapping.sourceUserId,
+        personId: mapping.personId,
+        emailOwnership: mapping.emailOwnership,
+      })),
+  });
+};
+
+/** Imports Person, directories, historical service, and owned credentials only. */
 export const runLegacyServiceCutover = async (options: CutoverOptions) => {
   if (
     !/^[A-Za-z0-9._:-]{1,128}$/.test(options.snapshotId) ||
@@ -216,7 +270,8 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
     throw new Error("Remote target requires a verified TLS CA and DNS identity");
   targetSelection.searchParams.delete("sslCaEnv");
   const source = await inStage("SourceRead", () => readLegacySourceSnapshot(options.sourceUrl));
-  const sourceRevision = digest(source);
+  const { credentials, ...personAndServiceSource } = source;
+  const sourceRevision = digest(personAndServiceSource);
   if (source.history.length === 0)
     throw new Error("Legacy service source is empty; target untouched");
   const transformationRevision = sha256(
@@ -231,6 +286,7 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
           fileURLToPath(
             import.meta.resolve("@vektorprogrammet/database/historical-service-cohort"),
           ),
+          fileURLToPath(import.meta.resolve("@vektorprogrammet/database/identity-cohort")),
         ].map((path) => readFile(path, "utf8")),
       ),
     ),
@@ -282,11 +338,24 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
     );
     if (historical.accepted === 0)
       throw new CutoverStageFailure("HistoricalImport", "NoAcceptedService");
+    const credentialSnapshot = await inStage("CredentialProjection", async () =>
+      buildLegacyCredentialSnapshot(source, person, personSnapshot, {
+        snapshotId: options.snapshotId,
+        transformationRevision,
+      }),
+    );
+    const credentialsReport: IdentityCohortReport = await inStage("CredentialImport", () =>
+      importIdentityCohort(pool, credentialSnapshot, client),
+    );
     await inStage("TargetCommit", () => client.query("COMMIT"));
     return {
-      scope: "PersonReferencesAndHistoricalServiceOnly",
+      scope: "PersonReferencesHistoricalServiceAndAccounts",
       currentAssignments: "NotImported",
-      source: { snapshotId: options.snapshotId, revision: sourceRevision },
+      source: {
+        snapshotId: options.snapshotId,
+        revision: sourceRevision,
+        credentialRevision: digest(credentials),
+      },
       references: {
         stage: referenceStage,
         departments: references.rows.departments.length,
@@ -309,6 +378,14 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
         accepted: historical.accepted,
         quarantined: historical.quarantined,
         reasons: reasons(historical.occurrences),
+      },
+      credentials: {
+        stage: "Reconciled",
+        input: credentialsReport.input,
+        accepted: credentialsReport.accepted,
+        quarantined: credentialsReport.quarantined,
+        reasons: reasons(credentialsReport.occurrences),
+        dispositionFingerprint: digest(credentialsReport.occurrences),
       },
     };
   } catch (error) {

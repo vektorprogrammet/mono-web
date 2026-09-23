@@ -9,6 +9,7 @@ const SourceId = Schema.Union([
 ]);
 const TextOrNull = Schema.NullOr(Schema.String);
 const Flag = Schema.Union([Schema.Int, Schema.String, Schema.Boolean]);
+const Credential = Schema.Struct({ id: SourceId, passwordHash: TextOrNull });
 const Department = Schema.Struct({
   id: SourceId,
   name: Schema.String,
@@ -51,9 +52,11 @@ export type LegacyDepartment = typeof Department.Type;
 export type LegacySemester = typeof Semester.Type;
 export type LegacySchool = typeof School.Type;
 export type LegacyRelationship = typeof Relationship.Type;
+export type LegacyCredential = typeof Credential.Type;
 export type LegacyHistory = typeof History.Type;
 export interface LegacySourceSnapshot {
   readonly users: ReadonlyArray<LegacyUserJson>;
+  readonly credentials: ReadonlyArray<LegacyCredential>;
   readonly departments: ReadonlyArray<LegacyDepartment>;
   readonly semesters: ReadonlyArray<LegacySemester>;
   readonly schools: ReadonlyArray<LegacySchool>;
@@ -99,7 +102,7 @@ export const assertSelectOnlyGrants = (grants: ReadonlyArray<string>, database: 
   }
 };
 
-/** All six InnoDB tables are read under one MariaDB repeatable-read, read-only snapshot. */
+/** Six InnoDB tables, including user credentials, share one read-only snapshot. */
 export const readLegacySourceSnapshot = async (
   sourceUrl: string,
 ): Promise<LegacySourceSnapshot> => {
@@ -181,6 +184,18 @@ export const readLegacySourceSnapshot = async (
                 user_name AS username, companyEmail
            FROM user ORDER BY id`,
       );
+      stage = "Credentials";
+      const credentials = Schema.decodeUnknownSync(Schema.Array(Credential))(
+        await select<RowDataPacket>(
+          connection,
+          "SELECT id, password AS passwordHash FROM user ORDER BY id",
+        ),
+      );
+      if (
+        credentials.length !== users.length ||
+        users.some((user, index) => String(user.id) !== String(credentials[index]?.id))
+      )
+        throw new Error("Credential rows differ from users");
       stage = "Departments";
       const departments = Schema.decodeUnknownSync(Schema.Array(Department))(
         await select<RowDataPacket>(
@@ -223,7 +238,7 @@ export const readLegacySourceSnapshot = async (
         ),
       );
       await connection.query("COMMIT");
-      return { users, departments, semesters, schools, relationships, history };
+      return { users, credentials, departments, semesters, schools, relationships, history };
     } catch {
       await connection.query("ROLLBACK");
       throw new Error("Legacy source " + stage + " failed; details redacted");

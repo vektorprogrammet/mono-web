@@ -33,7 +33,8 @@ export const IdentityCohortSnapshot = Schema.Struct({
     Schema.Struct({
       sourceUserId: Id,
       personId: Id,
-      emailOwnership: Schema.Struct({ email: ContactEmail, attestedBy: Id, evidenceRef: Id }),
+      // Person evidence may use an email that native login rejects; quarantine that row, not the cohort.
+      emailOwnership: Schema.Struct({ email: Schema.String, attestedBy: Id, evidenceRef: Id }),
     }),
   ).pipe(Schema.check(Schema.isMaxLength(10000))),
 });
@@ -82,8 +83,12 @@ export interface CohortReport {
 }
 const digest = (value: unknown) => createHash("sha256").update(canonicalJson(value)).digest("hex");
 const sourceIdOf = (row: unknown): string | undefined =>
-  typeof row === "object" && row !== null && "sourceUserId" in row &&
-  typeof row.sourceUserId === "string" ? row.sourceUserId : undefined;
+  typeof row === "object" &&
+  row !== null &&
+  "sourceUserId" in row &&
+  typeof row.sourceUserId === "string"
+    ? row.sourceUserId
+    : undefined;
 export const decodeIdentityCohort = (input: unknown): IdentityCohortSnapshot => {
   try {
     const snapshot = Schema.decodeUnknownSync(IdentityCohortSnapshot)(input, {
@@ -132,7 +137,7 @@ export const importIdentityCohort = async (
       return { ...occurrence, value: undefined };
     }
   });
-  const mappingsBySource = new Map<string, typeof snapshot.mappings[number][]>();
+  const mappingsBySource = new Map<string, (typeof snapshot.mappings)[number][]>();
   const targetCounts = new Map<string, number>();
   for (const mapping of snapshot.mappings) {
     const mappings = mappingsBySource.get(mapping.sourceUserId) ?? [];
@@ -200,8 +205,7 @@ export const importIdentityCohort = async (
       }
       if (!row) reason = "InvalidRow";
       else if ((sourceCounts.get(row.sourceUserId) ?? 0) > 1) reason = "DuplicateSource";
-      else if ((emailCounts.get(row.email.toLowerCase()) ?? 0) > 1)
-        reason = "DuplicateEmail";
+      else if ((emailCounts.get(row.email.toLowerCase()) ?? 0) > 1) reason = "DuplicateEmail";
       else if (!row.active) reason = "Inactive";
       else if (row.passwordHash === null || row.passwordHash === "") reason = "MissingPassword";
       else if (!isSupportedLegacyPasswordHash(row.passwordHash)) reason = "UnsupportedHash";
@@ -209,11 +213,12 @@ export const importIdentityCohort = async (
       else if (mappings.length > 1) reason = "MappingAmbiguous";
       else if (mapping!.emailOwnership.email.toLowerCase() !== row.email.toLowerCase())
         reason = "EmailUnattested";
-      else if ((targetCounts.get(mapping!.personId) ?? 0) > 1)
-        reason = "DuplicateTarget";
+      else if ((targetCounts.get(mapping!.personId) ?? 0) > 1) reason = "DuplicateTarget";
       let sourceDigest: string | undefined;
       let accountId: string | undefined;
-      let person: { first_name: string; last_name: string; contact_email: string | null } | undefined;
+      let person:
+        | { first_name: string; last_name: string; contact_email: string | null }
+        | undefined;
       if (!reason && row && mapping) {
         sourceDigest = digest({ row, mapping });
         accountId = `cohort-${digest([snapshot.sourceRepository, row.sourceUserId])}`;

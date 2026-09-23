@@ -64,11 +64,13 @@ become native login identities. Credential import is a separate Account operatio
 A supported legacy credential creates an Account only when its source repository,
 source user, and target Person match immutable accepted Person-reconciliation
 evidence. The canonical private email requires explicit ownership evidence, and
-the Account name is projected from the reconciled Person profile. Existing Account
-targets, conflicting emails, unsupported credentials, and unsupported aliases are
-quarantined without partial authentication writes. Exact replay preserves one
-Account and one evidence chain; password recovery replaces the retained legacy
-hash with a native credential and revokes older sessions.
+the Account name comes from the reconciled Person profile. Existing Account
+targets, conflicting emails, invalid rows, and unsupported credentials are
+quarantined without partial authentication writes. Legacy aliases do not
+become login identities, but their presence does not block a valid canonical
+credential. A passwordless Person gets no invented Account or password. Exact
+replay preserves one Account and one evidence chain. Password recovery replaces
+the retained legacy hash with a native credential and revokes older sessions.
 
 Legacy assistant service is append-only history. Each accepted row retains its
 source identity and requires accepted Person evidence plus explicit department,

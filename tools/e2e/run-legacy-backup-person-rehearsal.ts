@@ -46,6 +46,8 @@ const expectedPersonReportFingerprint =
   "c756dd07171521c0db72abdef1f531255ac311ed5014aae667d8fab26f21c299";
 const expectedHistoricalStateFingerprint =
   "803940f7aab3f9da92d61abd3b5e6cdb2b65bc01080bf14fd9f1013310a64457";
+const expectedCredentialDispositionFingerprint =
+  "430e8dd75a4b3c10d855a89f195c6ac6aa43e51d2d9046fd63f0dc74951a4824";
 const expectedLegacyShape = {
   tables: 65,
   entityTables: 48,
@@ -316,32 +318,61 @@ const nativeStateFingerprint = async (pool: Pool): Promise<string> => {
 const cutoverState = async (pool: Pool) => {
   const rows = async (sql: string) => (await pool.query<Record<string, unknown>>(sql)).rows;
   const counts = (
-    await pool.query<Record<string, string>>(`
-    SELECT (SELECT count(*) FROM public.assistant_service_history)::text AS history,
-           (SELECT count(*) FROM public.assistant_affiliation_history)::text AS affiliations,
-           (SELECT count(*) FROM public.organization_volunteer_affiliations)::text AS current_affiliations,
-           (SELECT count(*) FROM public.assistant_placements)::text AS current_placements
-  `)
+    await pool.query<Record<string, string>>(`SELECT
+      (SELECT count(*) FROM public.assistant_service_history)::text AS history,
+      (SELECT count(*) FROM public.assistant_affiliation_history)::text AS affiliations,
+      (SELECT count(*) FROM public.organization_volunteer_affiliations)::text AS current_affiliations,
+      (SELECT count(*) FROM public.assistant_placements)::text AS current_placements,
+      (SELECT count(*) FROM auth."user")::text AS accounts,
+      (SELECT count(*) FROM auth."account" WHERE "providerId"='credential')::text AS credentials,
+      (SELECT count(*) FROM auth.credential_cohort_imports)::text AS credential_imports,
+      (SELECT count(*) FROM auth.credential_cohort_occurrences)::text AS credential_occurrences,
+      (SELECT count(*) FROM auth.identity_security_audit)::text AS credential_audit`)
   ).rows[0]!;
+  const historicalFingerprint = digest({
+    occurrences: await rows(
+      "SELECT occurrence_id, disposition, reason, raw_row_digest, source_row_digest FROM public.historical_service_occurrences ORDER BY occurrence_id",
+    ),
+    history: await rows(
+      "SELECT source_history_id, source_user_id, person_id, department_id, semester_id, school_id, source_digest FROM public.assistant_service_history ORDER BY source_history_id",
+    ),
+    references: await rows(
+      "SELECT source_repository, snapshot_id, source_revision, reference_digest, source_id_mappings FROM public.historical_service_reference_provenance ORDER BY source_repository, snapshot_id",
+    ),
+    schools: await rows(
+      "SELECT school_id::text, name, contact_person, email, phone, language, active FROM public.schools_directory_schools ORDER BY school_id",
+    ),
+  });
   return {
     counts: {
       history: toInt(counts.history),
       affiliations: toInt(counts.affiliations),
       current_affiliations: toInt(counts.current_affiliations),
       current_placements: toInt(counts.current_placements),
+      accounts: toInt(counts.accounts),
+      credentials: toInt(counts.credentials),
+      credential_imports: toInt(counts.credential_imports),
+      credential_occurrences: toInt(counts.credential_occurrences),
+      credential_audit: toInt(counts.credential_audit),
     },
+    historicalFingerprint,
     fingerprint: digest({
+      historicalFingerprint,
+      users: await rows('SELECT id, name, email, "emailVerified" FROM auth."user" ORDER BY id'),
+      credentials: await rows(
+        'SELECT id, "userId", "providerId", issuer, password FROM auth."account" ORDER BY id',
+      ),
+      snapshots: await rows(
+        "SELECT snapshot_key, source_kind, source_revision, snapshot_digest, occurrence_count FROM auth.credential_cohort_snapshots ORDER BY snapshot_key",
+      ),
       occurrences: await rows(
-        "SELECT occurrence_id, disposition, reason, raw_row_digest, source_row_digest FROM public.historical_service_occurrences ORDER BY occurrence_id",
+        "SELECT snapshot_key, occurrence_id, disposition, reason FROM auth.credential_cohort_occurrences ORDER BY snapshot_key, occurrence_id",
       ),
-      history: await rows(
-        "SELECT source_history_id, source_user_id, person_id, department_id, semester_id, school_id, source_digest FROM public.assistant_service_history ORDER BY source_history_id",
+      imports: await rows(
+        "SELECT source_repository, source_user_id, person_id, account_id, source_digest, snapshot_key, occurrence_id FROM auth.credential_cohort_imports ORDER BY source_repository, source_user_id",
       ),
-      references: await rows(
-        "SELECT source_repository, snapshot_id, source_revision, reference_digest, source_id_mappings FROM public.historical_service_reference_provenance ORDER BY source_repository, snapshot_id",
-      ),
-      schools: await rows(
-        "SELECT school_id::text, name, contact_person, email, phone, language, active FROM public.schools_directory_schools ORDER BY school_id",
+      audit: await rows(
+        "SELECT event_id, event_kind, subject_person_id, actor_principal, details FROM auth.identity_security_audit ORDER BY event_id",
       ),
     }),
   };
@@ -835,20 +866,58 @@ const runRehearsal = async (temporaryRoot: string) => {
       (cause: unknown) =>
         cause instanceof CutoverStageFailure && cause.stage === "HistoricalImport",
     );
-    const rolledBack = await cutoverPool.query<Record<string, string>>(`
-      SELECT (SELECT count(*) FROM public.historical_service_reference_provenance)::text AS refs,
-             (SELECT count(*) FROM public.person_profiles)::text AS people,
-             (SELECT count(*) FROM public.assistant_service_history)::text AS history,
-             (SELECT count(*) FROM public.historical_service_snapshots)::text AS snapshots
-    `);
+    const rollbackCountsSql = `SELECT
+      (SELECT count(*) FROM public.historical_service_reference_provenance)::text AS refs,
+      (SELECT count(*) FROM public.person_profiles)::text AS people,
+      (SELECT count(*) FROM public.assistant_service_history)::text AS history,
+      (SELECT count(*) FROM public.historical_service_snapshots)::text AS snapshots,
+      (SELECT count(*) FROM auth."user")::text AS accounts,
+      (SELECT count(*) FROM auth."account")::text AS credentials,
+      (SELECT count(*) FROM auth.credential_cohort_imports)::text AS imports,
+      (SELECT count(*) FROM auth.identity_security_audit)::text AS audit`;
+    const rolledBack = await cutoverPool.query<Record<string, string>>(rollbackCountsSql);
     assert.deepEqual(
       rolledBack.rows[0],
-      { refs: "0", people: "0", history: "0", snapshots: "0" },
+      {
+        refs: "0",
+        people: "0",
+        history: "0",
+        snapshots: "0",
+        accounts: "0",
+        credentials: "0",
+        imports: "0",
+        audit: "0",
+      },
       "Failed cutover left partial native state",
     );
     await cutoverPool.query(`
       DROP TRIGGER fail_historical_cutover_insert ON public.assistant_service_history;
       DROP FUNCTION public.fail_historical_cutover_insert();
+    `);
+    await cutoverPool.query(`
+      CREATE OR REPLACE FUNCTION auth.fail_credential_cutover_insert()
+      RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        RAISE EXCEPTION 'deliberate account cutover rollback';
+      END;
+      $$;
+      CREATE TRIGGER fail_credential_cutover_insert
+      BEFORE INSERT ON auth.credential_cohort_imports
+      FOR EACH ROW EXECUTE FUNCTION auth.fail_credential_cutover_insert();
+    `);
+    await assert.rejects(
+      runLegacyServiceCutover(cutoverOptions),
+      (cause: unknown) =>
+        cause instanceof CutoverStageFailure && cause.stage === "CredentialImport",
+    );
+    assert.deepEqual(
+      (await cutoverPool.query<Record<string, string>>(rollbackCountsSql)).rows[0],
+      rolledBack.rows[0],
+      "Credential failure left partial Person, history, account, or audit state",
+    );
+    await cutoverPool.query(`
+      DROP TRIGGER fail_credential_cutover_insert ON auth.credential_cohort_imports;
+      DROP FUNCTION auth.fail_credential_cutover_insert();
     `);
     const cutoverFirst = await runLegacyServiceCutover(cutoverOptions).catch((cause: unknown) => {
       throw new Error(
@@ -881,9 +950,27 @@ const runRehearsal = async (temporaryRoot: string) => {
       },
       "Real legacy history dispositions changed",
     );
+    assert.deepEqual(
+      cutoverFirst.credentials,
+      {
+        stage: "Reconciled",
+        input: 2923,
+        accepted: 1482,
+        quarantined: 1441,
+        reasons: {
+          Imported: 1482,
+          Inactive: 13,
+          InvalidRow: 5,
+          MappingMissing: 2,
+          MissingPassword: 1421,
+        },
+        dispositionFingerprint: expectedCredentialDispositionFingerprint,
+      },
+      "Real legacy credential dispositions changed",
+    );
     const cutoverBefore = await cutoverState(cutoverPool);
     assert.equal(
-      cutoverBefore.fingerprint,
+      cutoverBefore.historicalFingerprint,
       expectedHistoricalStateFingerprint,
       "Real historical dispositions or native references changed",
     );
@@ -894,6 +981,11 @@ const runRehearsal = async (temporaryRoot: string) => {
     );
     assert.equal(cutoverBefore.counts.current_affiliations, 0);
     assert.equal(cutoverBefore.counts.current_placements, 0);
+    assert.equal(cutoverBefore.counts.accounts, cutoverFirst.credentials.accepted);
+    assert.equal(cutoverBefore.counts.credentials, cutoverFirst.credentials.accepted);
+    assert.equal(cutoverBefore.counts.credential_imports, cutoverFirst.credentials.accepted);
+    assert.equal(cutoverBefore.counts.credential_occurrences, 2923);
+    assert.equal(cutoverBefore.counts.credential_audit, cutoverFirst.credentials.accepted);
     const cutoverReplay = await runLegacyServiceCutover(cutoverOptions).catch((cause: unknown) => {
       throw new Error(
         cause instanceof CutoverStageFailure
@@ -908,6 +1000,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       cutoverFirst.historicalService,
       "Historical service replay diverged; details redacted",
     );
+    assert.deepEqual(cutoverReplay.credentials, cutoverFirst.credentials);
     assert.deepEqual(
       await cutoverState(cutoverPool),
       cutoverBefore,
@@ -974,13 +1067,14 @@ const runRehearsal = async (temporaryRoot: string) => {
     });
     assert.equal(restoredCutoverReplay.references.stage, "ExactReplay");
     assert.equal(restoredCutoverReplay.person.stage, "ExactReplay");
+    assert.deepEqual(restoredCutoverReplay.credentials, cutoverFirst.credentials);
     assert.deepEqual(
       await cutoverState(restoredCutoverPool),
       cutoverBefore,
       "Restored historical replay changed content",
     );
     completedReport = {
-      specification: "legacy-backup-person-rehearsal",
+      specification: "legacy-backup-person-and-accounts-rehearsal",
       result: "passed",
       source: {
         sha256: sourceSha256,
@@ -1037,7 +1131,7 @@ const runRehearsal = async (temporaryRoot: string) => {
         privateArtifacts: "owner-only-and-cleaned",
       },
       deferredCohorts: [
-        "credential-and-account-recovery",
+        "passwordless-account-recovery-and-legacy-aliases",
         "current-school-placements",
         "receipt-and-private-files",
       ],

@@ -44,37 +44,41 @@ The native architecture now uses one Effect backend runtime, one PostgreSQL
 ownership layer, generated HTTP and SDK contracts, transaction-bound authority,
 atomic audit/outbox/receipt writes, and Foldkit dashboard workflows.
 
-A local cutover rehearsal used the private 2024-08-22 legacy backup. The
-rehearsal used a MariaDB account with SELECT-only grants and a separate
-PostgreSQL database. The native Person importer reconciled 2,893 of 2,923
-source people and quarantined 30. The cutover driver seeded 5 departments, 28
-semesters, 44 schools, and 43 school-department links. It reconciled all 1,815
-assistant-service rows: 1,690 imported and 125 quarantined (105 invalid, 10
-missing mappings, 10 duplicate targets). The native history view contains 1,681
-distinct historical affiliations. The import did not infer a current affiliation
-or placement. The local journey proved
-whole-cutover rollback after induced historical failure, fresh-target rejection,
-exact replay, backup/restore content equivalence, restored replay, and private
-cleanup. The established Person rollback, concurrent import, changed-source,
-and own-profile gates still pass.
+A local cutover rehearsal used the private 2024-08-22 legacy backup.
+The MariaDB source account had SELECT-only grants. A separate PostgreSQL
+17 database received the native import. The driver reconciled 2,893 of
+2,923 source people and quarantined 30. It seeded 5 departments, 28 semesters,
+44 schools, and 43 school-department links. It imported 1,690 of 1,815
+assistant-service rows. It quarantined 125 rows: 105 invalid, 10 without
+mappings, and 10 with duplicate targets. The native history view contains
+1,681 distinct historical affiliations.
 
-The reusable cutover driver reads one consistent, read-only InnoDB source snapshot
-through a SELECT-only account. Its first import requires an explicitly selected,
-empty native database; replay verifies the same source evidence and target
-references. Devenv provisions a local MariaDB restored from the pinned backup.
-It also provisions an isolated PostgreSQL 17 target. The import reconciled the
-supported Person, directory, and historical-service cohorts in a fresh database.
-Exact replay made no further writes. A deliberate historical-import failure left
-a second fresh target empty. This is a backup rehearsal, not a production migration. The
-rehearsal did not access or change the live system. It did not transfer writer
-authority. The backup has zero assignments for 2024 Høst. Its 92 assignments
-for 2024 Vår were historical by the backup date. Thus, the backup cannot prove
-current 2026 placements or the eventual live contents.
+The same transaction reconciled all 2,923 credential rows. It created 1,482
+Person-bound Accounts with unchanged supported legacy hashes. It quarantined
+1,441 rows: 1,421 without passwords, 13 inactive, 5 invalid, and 2 without
+accepted Person mappings. Legacy usernames and company email addresses remain
+unsupported login aliases. The import did not infer a current affiliation or
+placement. A synthetic LegacyBackup Account signed in through native Better
+Auth with a known password. Real backup passwords are unknown; the rehearsal
+did not authenticate a real person.
 
-Credential and account recovery, current placement, receipt, private-file, and
-settlement-reference cohorts remain. At eventual cutover, changes since this
-backup must be reconciled; local rehearsal requires no production access. Their
-existing synthetic paths do not infer current authority from historical facts.
+The local journey proved rollback after induced historical and credential
+failures, fresh-target rejection, exact replay, backup/restore content
+equivalence, restored replay, and private cleanup. The Person rollback,
+concurrent import, changed-source, and own-profile gates also passed.
+
+The driver reads one consistent, read-only InnoDB source snapshot. It requires
+an explicitly selected, empty native database for first import. Replay checks
+the same source evidence and target references. Devenv provisions the local
+source and a separate native PostgreSQL target. This is a backup rehearsal.
+It did not access or change the live system or transfer writer authority.
+The backup has zero assignments for 2024 Høst. Its 92 assignments for 2024 Vår
+were historical when the backup was made. It cannot prove current placements
+or eventual live contents. Changes since this backup need reconciliation.
+
+Passwordless account recovery, unsupported credentials, aliases, current
+placement, receipt, private-file, and settlement-reference cohorts remain.
+Their synthetic paths do not infer current authority from historical facts.
 
 ## Next
 
@@ -85,13 +89,13 @@ product decision that names the fact and its authority.
 
 Close the remaining replacement gates in this order:
 
-1. Obtain a production SELECT-only source route and a new native database; rehearse
-   the live Person, reference, and historical-service cohorts without source writes.
-   Then reconcile credentials, account recovery, current placement, receipts,
-   private files, and settlement references.
-2. Configure and prove the authorized production mail, storage, and external
-   settlement-evidence boundaries.
-3. Rehearse production writer transfer, recovery, and rollback.
+1. Reconcile passwordless accounts, unsupported hashes, aliases, receipts, private
+   files, and settlement references with local backup evidence. Current placement
+   needs a later fresh, authorized source snapshot.
+2. Configure and prove authorized mail, storage, and settlement-evidence boundaries.
+3. When authorized, obtain a production SELECT-only source route and a new native
+   database. Reconcile changes since the backup without source writes.
+4. Rehearse writer transfer, recovery, and rollback after separate authorization.
 
 Create one active file under `docs/specs/` for the next journey. Remove it when
 the accepted behavior is represented by [docs/system.md](docs/system.md), code,
@@ -103,8 +107,8 @@ Production replacement is not authorized or rehearsed.
 
 Before cutover:
 
-- reconcile Account credentials, legacy aliases, unsupported credentials,
-  historical affiliations, placements, receipts, and private files;
+- reconcile current Account credentials and recovery, legacy aliases, unsupported
+  credentials, historical affiliations, placements, receipts, and private files;
 - configure and prove real mail, SMS, storage, and payment authority;
 - run the final data import against an authorized production snapshot;
 - fence legacy writers before native ownership starts;

@@ -9,3 +9,5 @@ ALTER TABLE auth.credential_cohort_snapshots
 ALTER TABLE auth.credential_cohort_snapshots
   ADD CONSTRAINT credential_cohort_snapshots_occurrence_count_check
   CHECK (occurrence_count BETWEEN 1 AND 10000);
+
+ALTER TABLE auth.credential_cohort_snapshots ALTER COLUMN source_kind DROP DEFAULT;

@@ -466,10 +466,10 @@ try {
     passwordHash: hashes[0]!,
   };
   for (const row of [backupRow, passwordlessRow, mismatchedRow]) await reconcilePerson(row);
-  await pool.query(
-    "UPDATE public.person_contact_profiles SET email=$1 WHERE person_id=$2",
-    ["different@example.invalid", "person-backup-contact-mismatch"],
-  );
+  await pool.query("UPDATE public.person_contact_profiles SET email=$1 WHERE person_id=$2", [
+    "different@example.invalid",
+    "person-backup-contact-mismatch",
+  ]);
   const backupSnapshot = {
     ...snapshot,
     snapshotId: "legacy-backup-synthetic-rehearsal",
@@ -508,26 +508,42 @@ try {
     "MissingPassword",
   );
   assert.equal(
-    backupReport.occurrences.find((r) => r.occurrenceId === "backup-backup-contact-mismatch")?.reason,
+    backupReport.occurrences.find((r) => r.occurrenceId === "backup-backup-contact-mismatch")
+      ?.reason,
     "EmailConflict",
   );
   assert.equal(
-    (await pool.query('SELECT password FROM auth."account" WHERE "userId"=$1', ["person-backup-accepted"])).rows[0].password,
+    (
+      await pool.query('SELECT password FROM auth."account" WHERE "userId"=$1', [
+        "person-backup-accepted",
+      ])
+    ).rows[0].password,
     hashes[0],
   );
   assert.equal(
-    (await pool.query('SELECT 1 FROM auth."account" WHERE "userId"=$1', ["person-backup-passwordless"])).rowCount,
+    (
+      await pool.query('SELECT 1 FROM auth."account" WHERE "userId"=$1', [
+        "person-backup-passwordless",
+      ])
+    ).rowCount,
     0,
   );
   assert.equal(
-    (await pool.query('SELECT source_kind FROM auth.credential_cohort_snapshots WHERE snapshot_key=$1', [backupReport.snapshotKey])).rows[0].source_kind,
+    (
+      await pool.query(
+        "SELECT source_kind FROM auth.credential_cohort_snapshots WHERE snapshot_key=$1",
+        [backupReport.snapshotKey],
+      )
+    ).rows[0].source_kind,
     "LegacyBackup",
   );
   assert.equal(
-    (await pool.query(
-      'SELECT actor_principal FROM auth.identity_security_audit WHERE subject_person_id=$1 AND event_kind=$2',
-      ["person-backup-accepted", "account-provisioned-administratively"],
-    )).rows[0].actor_principal,
+    (
+      await pool.query(
+        "SELECT actor_principal FROM auth.identity_security_audit WHERE subject_person_id=$1 AND event_kind=$2",
+        ["person-backup-accepted", "account-provisioned-administratively"],
+      )
+    ).rows[0].actor_principal,
     "administrative:legacy-backup-cohort",
   );
   assert.deepEqual(await importIdentityCohort(pool, backupSnapshot), backupReport);
@@ -589,6 +605,11 @@ try {
       secrets.push(oldCookie);
     }
   }
+  assert.equal(
+    (await login("backup-accepted@example.invalid", values[0]!)).status,
+    200,
+    "LegacyBackup cohort credential signs in through Better Auth",
+  );
   assert.equal(
     (await pool.query('SELECT name FROM auth."user" WHERE id=$1', ["person-accepted-0"])).rows[0]
       ?.name,
