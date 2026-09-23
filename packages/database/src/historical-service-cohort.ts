@@ -196,10 +196,11 @@ const cohortReport = async (
   };
 };
 
-/** One serialized transaction owns append-only history and reconciliation evidence. */
+/** History and reconciliation evidence share the caller transaction when supplied. */
 export const importHistoricalServiceCohort = async (
   pool: Pool,
   input: unknown,
+  client?: PoolClient,
 ): Promise<HistoricalServiceReport> => {
   const snapshot = decodeHistoricalServiceSnapshot(input);
   const snapshotKey = digest([snapshot.sourceRepository, snapshot.snapshotId]);
@@ -242,9 +243,10 @@ export const importHistoricalServiceCohort = async (
       increment(targetCounts, slot);
   }
 
-  const tx = await pool.connect();
+  const tx = client ?? (await pool.connect());
+  const ownsTransaction = client === undefined;
   try {
-    await tx.query("BEGIN");
+    if (ownsTransaction) await tx.query("BEGIN");
     await tx.query(
       "SELECT pg_advisory_xact_lock(hashtextextended('native-historical-service-import', 0))",
     );
@@ -327,7 +329,7 @@ export const importHistoricalServiceCohort = async (
     }
     if (prior.rows[0]) {
       const result = await cohortReport(tx, snapshotKey);
-      await tx.query("COMMIT");
+      if (ownsTransaction) await tx.query("COMMIT");
       return result;
     }
 
@@ -509,14 +511,14 @@ export const importHistoricalServiceCohort = async (
     const result = await cohortReport(tx, snapshotKey);
     if (result.input !== snapshot.occurrences.length)
       throw new HistoricalServiceFailure("PersistenceFailure");
-    await tx.query("COMMIT");
+    if (ownsTransaction) await tx.query("COMMIT");
     return result;
   } catch (cause) {
-    await tx.query("ROLLBACK");
+    if (ownsTransaction) await tx.query("ROLLBACK");
     throw cause instanceof HistoricalServiceFailure
       ? cause
       : new HistoricalServiceFailure("PersistenceFailure");
   } finally {
-    tx.release();
+    if (ownsTransaction) tx.release();
   }
 };

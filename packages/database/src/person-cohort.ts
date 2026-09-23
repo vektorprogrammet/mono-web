@@ -183,10 +183,11 @@ const cohortReport = async (
   };
 };
 
-/** One serialized transaction owns Person/profile writes and immutable source evidence. */
+/** Person/profile writes and source evidence share the caller transaction when supplied. */
 export const importPersonCohort = async (
   pool: Pool,
   input: unknown,
+  client?: PoolClient,
 ): Promise<PersonCohortReport> => {
   const snapshot = decodePersonCohort(input);
   const snapshotKey = digest([snapshot.sourceRepository, snapshot.snapshotId]);
@@ -218,9 +219,10 @@ export const importPersonCohort = async (
     increment(emailCounts, occurrence.value?.email.toLowerCase());
   }
 
-  const tx = await pool.connect();
+  const tx = client ?? (await pool.connect());
+  const ownsTransaction = client === undefined;
   try {
-    await tx.query("BEGIN");
+    if (ownsTransaction) await tx.query("BEGIN");
     await tx.query(
       "SELECT pg_advisory_xact_lock(hashtextextended('native-person-cohort-import', 0))",
     );
@@ -232,7 +234,7 @@ export const importPersonCohort = async (
       if (prior.rows[0].snapshot_digest !== snapshotDigest)
         throw new PersonCohortFailure("SnapshotConflict");
       const result = await cohortReport(tx, snapshotKey, true);
-      await tx.query("COMMIT");
+      if (ownsTransaction) await tx.query("COMMIT");
       return result;
     }
 
@@ -392,14 +394,14 @@ export const importPersonCohort = async (
     const result = await cohortReport(tx, snapshotKey, false);
     if (result.input !== snapshot.occurrences.length)
       throw new PersonCohortFailure("PersistenceFailure");
-    await tx.query("COMMIT");
+    if (ownsTransaction) await tx.query("COMMIT");
     return result;
   } catch (cause) {
-    await tx.query("ROLLBACK");
+    if (ownsTransaction) await tx.query("ROLLBACK");
     throw cause instanceof PersonCohortFailure
       ? cause
       : new PersonCohortFailure("PersistenceFailure");
   } finally {
-    tx.release();
+    if (ownsTransaction) tx.release();
   }
 };
