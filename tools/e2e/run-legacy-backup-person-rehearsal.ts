@@ -25,7 +25,6 @@ import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import {
   decodePersonCohort,
   importPersonCohort,
-  isPersonCohortMappableRow,
   personCohortSourceRowDigest,
   PersonCohortFailure,
   type PersonCohortReport,
@@ -33,9 +32,11 @@ import {
 } from "@vektorprogrammet/database/person-cohort";
 import { readOwnProfile } from "@vektorprogrammet/database/profile";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
-import { PersonId, type PersonId as PersonIdType } from "@vektorprogrammet/domain/organization";
+import { PersonId } from "@vektorprogrammet/domain/organization";
 import { Effect, Redacted, Schema } from "effect";
 import { Pool } from "pg";
+import { buildLegacyPersonSnapshot, type LegacyUserJson } from "./legacy-person-snapshot";
+import { runLegacyServiceCutover } from "./run-legacy-service-cutover";
 
 const moduleFile = fileURLToPath(import.meta.url);
 const repositoryRoot = resolve(dirname(moduleFile), "../..");
@@ -221,68 +222,6 @@ const doctrineEntityTables = async (): Promise<ReadonlySet<string>> => {
   return tables;
 };
 
-interface LegacyUserJson {
-  readonly id: number | string;
-  readonly active: number | string | boolean;
-  readonly firstName: unknown;
-  readonly lastName: unknown;
-  readonly email: unknown;
-  readonly phone: unknown;
-  readonly username: unknown;
-  readonly companyEmail: unknown;
-}
-
-const buildPersonSnapshot = (
-  sourceRevision: string,
-  transformationRevision: string,
-  rows: ReadonlyArray<LegacyUserJson>,
-): PersonCohortSnapshot => {
-  const occurrences = rows.map((source) => {
-    const sourceUserId = `legacy-user:${String(source.id)}`;
-    const row = {
-      sourceUserId,
-      active: source.active === 1 || source.active === "1" || source.active === true,
-      firstName: source.firstName,
-      lastName: source.lastName,
-      email: source.email,
-      phone: source.phone,
-      username: source.username,
-      companyEmail: source.companyEmail,
-    };
-    return {
-      occurrenceId: `legacy-user-row-${String(source.id)}`,
-      row,
-      sourceRowDigest: personCohortSourceRowDigest(row),
-    };
-  });
-  const mappings = occurrences.flatMap(({ row, sourceRowDigest }) =>
-    isPersonCohortMappableRow(row)
-      ? [
-          {
-            _tag: "CreatePerson" as const,
-            sourceUserId: row.sourceUserId,
-            personId: ("legacy-person-" +
-              row.sourceUserId.slice("legacy-user:".length)) as PersonIdType,
-            emailOwnership: {
-              email: row.email as string,
-              attestedBy: "legacy-backup-2024-08-22",
-              evidenceRef: sourceRowDigest,
-            },
-          },
-        ]
-      : [],
-  );
-  return decodePersonCohort({
-    sourceRepository: "vektorprogrammet/vektorprogrammet",
-    sourceRevision,
-    snapshotId: "vektor-backup-2024-08-22",
-    transformationRevision,
-    sourceKind: "LegacyBackup",
-    occurrences,
-    mappings,
-  });
-};
-
 const startNativeDatabase = async (dataRoot: string, port: number): Promise<void> => {
   await run([
     "initdb",
@@ -464,6 +403,9 @@ const runRehearsal = async (temporaryRoot: string) => {
       stdin: sourceBytes,
       redactStderr: true,
     });
+    // Disposable socket-only source account: no writer grants and no remote transport.
+    await mysql(mysqlSocket,
+      "CREATE USER 'legacy_cutover_reader'@'localhost'; GRANT SELECT ON vektor.* TO 'legacy_cutover_reader'@'localhost'");
 
     const shape = JSON.parse(
       await mysql(
@@ -601,7 +543,12 @@ const runRehearsal = async (temporaryRoot: string) => {
     assert.equal(users.length, expectedLegacyShape.people);
 
     const toolRevision = sha256(await readFile(moduleFile, "utf8"));
-    const snapshot = buildPersonSnapshot(sourceSha256, toolRevision.slice(0, 32), users);
+    const snapshot = buildLegacyPersonSnapshot(users, {
+      sourceRevision: sourceSha256,
+      transformationRevision: toolRevision.slice(0, 32),
+      snapshotId: "vektor-backup-2024-08-22",
+      attestedBy: "legacy-backup-2024-08-22",
+    });
     const cohortPath = join(privateRoot, "person-cohort.json");
     await writeFile(cohortPath, canonicalJson(snapshot), { mode: 0o600 });
     await chmod(cohortPath, 0o600);
@@ -803,6 +750,36 @@ const runRehearsal = async (temporaryRoot: string) => {
         (typeof companyEmail === "string" && companyEmail !== ""),
     ).length;
     const reasons = reasonCounts(committedReport);
+    const cutoverDatabase = "legacy_service_cutover_rehearsal";
+    await run(["createdb", "-h", postgresRoot, "-p", String(postgresPort),
+      "-U", "postgres", cutoverDatabase]);
+    const cutoverTargetUrl = postgresUrl(postgresRoot, postgresPort, cutoverDatabase);
+    await migrateNativeDatabase(cutoverTargetUrl);
+    const cutoverSourceUrl = new URL("mysql://legacy_cutover_reader@localhost/vektor");
+    cutoverSourceUrl.searchParams.set("socketPath", mysqlSocket);
+    const cutoverOptions = {
+      sourceUrl: cutoverSourceUrl.toString(), targetUrl: cutoverTargetUrl,
+      targetDatabase: cutoverDatabase, snapshotId: "vektor-backup-2024-08-22-service",
+      attestedBy: "legacy-backup-2024-08-22",
+    };
+    const cutoverFirst = await runLegacyServiceCutover(cutoverOptions).catch(() => {
+      throw new Error("Local service cutover failed; details redacted");
+    });
+    assert.deepEqual({
+      departments: cutoverFirst.references.departments,
+      semesters: cutoverFirst.references.semesters,
+      schools: cutoverFirst.references.schools,
+      relationships: cutoverFirst.references.relationships,
+      historical: cutoverFirst.historicalService.input,
+    }, { departments: 5, semesters: 28, schools: 44, relationships: 43, historical: 1815 });
+    assert.equal(cutoverFirst.currentAssignments, "NotImported");
+    const cutoverReplay = await runLegacyServiceCutover(cutoverOptions).catch(() => {
+      throw new Error("Local service cutover replay failed; details redacted");
+    });
+    assert.equal(cutoverReplay.references.stage, "ExactReplay");
+    assert.equal(cutoverReplay.person.stage, "ExactReplay");
+    assert.deepEqual(cutoverReplay.historicalService, cutoverFirst.historicalService,
+      "Historical service replay diverged; details redacted");
     completedReport = {
       specification: "legacy-backup-person-rehearsal",
       result: "passed",
@@ -845,6 +822,7 @@ const runRehearsal = async (temporaryRoot: string) => {
         reportFingerprint: digest(committedReport),
         counts: countsBeforeBackup,
       },
+      cutoverRehearsal: cutoverFirst,
       gates: {
         postgresTransport: "owner-only-unix-socket",
         rollbackLeavesNoPartialWrites: "passed",

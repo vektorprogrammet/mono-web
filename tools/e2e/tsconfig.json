@@ -4,5 +4,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["run-legacy-backup-person-rehearsal.ts"]
+  "include": ["run-legacy-backup-person-rehearsal.ts", "run-legacy-service-cutover.ts"]
 }

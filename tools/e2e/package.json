@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "check-types": "tsc --noEmit",
-    "rehearsal:legacy-person": "bun run run-legacy-backup-person-rehearsal.ts"
+    "rehearsal:legacy-person": "bun run run-legacy-backup-person-rehearsal.ts",
+    "cutover:legacy-service": "bun run run-legacy-service-cutover.ts"
   },
   "dependencies": {
     "@vektorprogrammet/database": "workspace:*",
     "@vektorprogrammet/domain": "workspace:*",
     "effect": "catalog:effect-v4",
+    "mysql2": "^3.15.3",
     "pg": "8"
   },
   "devDependencies": {
