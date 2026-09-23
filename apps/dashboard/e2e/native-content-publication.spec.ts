@@ -88,7 +88,8 @@ const signIn = async (
   person: { readonly email: string; readonly password: string },
   redirectTo: string,
 ) => {
-  await page.goto(`/dashboard/login?redirectTo=${encodeURIComponent(redirectTo)}`);
+  const routeWithinMount = redirectTo.replace(/^\/dashboard(?=\/)/u, "");
+  await page.goto(`/dashboard/login?redirectTo=${encodeURIComponent(routeWithinMount)}`);
   await page.getByLabel("E-post").fill(person.email);
   await page.getByLabel("Passord", { exact: true }).fill(person.password);
   await page.getByRole("button", { name: "Logg inn" }).click({ noWaitAfter: true });
