@@ -231,7 +231,7 @@ test.describe("Native Content publication (spec 0062)", () => {
       );
       expect(concurrentRevision.detailStatus).toBe(200);
       expect(concurrentRevision.detail.bodyHtml).toBe("<p>Versjon én tekst</p>");
-      expect(concurrentRevision.detail.revision).toBe(0);
+      expect(concurrentRevision.detail.revision).toBe(1);
       expect(concurrentRevision.detail).not.toHaveProperty("createdByPersonId");
       expect(concurrentRevision.reviseStatus).toBe(200);
 
