@@ -1,9 +1,5 @@
-import {
-  AuthEngine,
-  AuthLive,
-  DatabaseLive,
-  type AuthEngineService,
-} from "@vektorprogrammet/database";
+import { AuthEngine, AuthLive, type AuthEngineService } from "@vektorprogrammet/database/auth";
+import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { ReturningAssistantsLive } from "@vektorprogrammet/database/application";
 import { ContentLive, ContentManagementLive } from "@vektorprogrammet/database/content";
@@ -104,7 +100,7 @@ export const makeCloudflareBackend = async (env: CloudflareBackendEnv): Promise<
     BACKEND_PG_URL: bindings.hyperdrive.connectionString,
   });
   const timeout = env.MAIL_TIMEOUT_MS === undefined ? 10_000 : Number(env.MAIL_TIMEOUT_MS);
-  const databaseLayer = DatabaseLive({
+  const databaseLayer = DatabaseRuntimeLive({
     url: Redacted.make(bindings.hyperdrive.connectionString),
     applicationName: "vektorprogrammet-cloudflare-worker",
     maxConnections: 8,

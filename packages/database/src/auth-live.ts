@@ -23,7 +23,7 @@ import {
   type IdentitySessionMutationSuccess,
   type IdentityShape,
 } from "@vektorprogrammet/domain/identity";
-import { DatabasePgPool } from "./layers.js";
+import { DatabasePgPool } from "./pg-pool.js";
 import { makePasswordRecovery } from "./password-recovery.js";
 import { makeAuthEngine, type AuthEngineConfig } from "./auth-engine.js";
 import {
