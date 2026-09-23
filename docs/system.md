@@ -83,6 +83,21 @@ preserves the import evidence and any password set after import. Password
 recovery replaces a retained legacy hash and revokes older sessions. The
 backup alone does not prove current mailbox ownership.
 
+New passwords use Argon2id with the existing native NFKC normalization policy.
+The [credential module](../packages/database/src/password-codec.ts) owns encoding,
+cost, input limits, and bounded hashing admission. Existing native scrypt and
+supported PHP bcrypt hashes remain verification formats with their original
+normalization and byte semantics. Successful sign-in upgrades an outdated hash
+under the new policy. The complete submitted password becomes the new credential;
+legacy bcrypt truncation does not carry into the upgraded password.
+
+An upgrade requires the stored credential to match the hash that authentication
+verified. If a concurrent reset or upgrade wins, the stale sign-in fails. The
+account lifecycle removes its new session and clears its cookie. Current
+credentials receive the same check before the response leaves the server.
+Incorrect passwords cannot change credentials. Hashing overload is a temporary
+service failure, not an incorrect-password result.
+
 Legacy assistant service is append-only history. Each accepted row retains its
 source identity and requires accepted Person evidence plus explicit department,
 semester, and school mappings. Historical affiliation is derived from accepted

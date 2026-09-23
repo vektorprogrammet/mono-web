@@ -17,6 +17,26 @@ Hyperdrive. The current Worker uses DatabaseRuntimeLive, which rejects migration
 and requires an existing schema. Resolve this ownership mismatch before claiming
 the provider journey.
 
+Credential migration now writes Argon2id and reads existing native scrypt and
+supported PHP bcrypt credentials. Successful sign-in upgrades an outdated hash
+with an exact-hash database condition. A concurrent reset wins; stale sign-in
+sessions and cookies are removed. Current Argon2id credentials receive the same
+reset-race protection. Hashing admission and input size are bounded.
+
+A synthetic local journey exercised Better Auth HTTP and direct API sign-in
+against disposable PostgreSQL, owned password recovery, and a local mail sink.
+It verified denial, upgrades, reset-token replay rejection, and both reset-race
+paths. The account rehearsal retains the real engine/database race regression.
+Independent PHP 8.4.25 fixtures verified bcrypt byte semantics and Argon2id
+compatibility. Raw PHP compatibility is broader than the legacy Symfony login
+encoder, which rejects passwords longer than 72 bytes.
+
+The codec passed on Node 24.20.0 and local workerd, including concurrent requests
+and explicit overload. Local workerd used compatibility date 2026-09-21; the
+product selects 2026-09-22. Worker-plus-PostgreSQL authentication was not exercised.
+Measured process memory and CPU do not prove Cloudflare isolate resource limits.
+Provider resource qualification remains required before production use.
+
 The native replacement has substantial local functionality. Production still
 runs the legacy PHP application.
 
@@ -123,26 +143,30 @@ and settlement references are still needed for the receipt migration.
 
 ## Next
 
-The implemented recruitment sequence is complete under the current product model.
-It keeps recommendation, invitation, account claim, affiliation, and placement as
-separate facts. It does not infer an admission decision. Adding one requires a new
-product decision that names the fact and its authority.
+Recruitment keeps recommendation, invitation, account claim, affiliation, and
+placement separate. It does not infer an admission decision. The existing
+journeys do not complete ongoing organization, school, or recruitment maintenance.
 
-Import of open school service needs a fresh, authorized read-only inventory of
-current source records and writers. The six-table backup reader cannot establish
-which commitments, absences, offers, or notifications are pending today.
+The authenticated read-only audit observed autumn recruitment in all three active
+chapters and 16 pending expense claims across eight owners. Empty displayed
+rosters do not establish that external schedules are empty. Browser observations
+are not a consistent source snapshot. The six-table backup reader does not cover
+current recruitment, appointments, demand, expenses, or outstanding messages.
 
 Close the remaining replacement gates in this order:
 
-1. Obtain a verified address correction for the one accepted Person without a
-   login identity. Reconcile unsupported credentials and legacy aliases.
-   Obtain receipt file bytes and payment-account custody before importing
-   receipts; reconcile settlement references separately. Current placement
-   needs a fresh authorized source.
-2. Configure and prove authorized mail, storage, and settlement-evidence boundaries.
-3. When authorized, obtain a production SELECT-only source route and a new native
-   database. Reconcile changes since the backup without source writes.
-4. Rehearse writer transfer, recovery, and rollback after separate authorization.
+1. Implement appointment, leadership, term-end, and offboarding administration.
+   Keep Person identity, scoped authority, and retained external-account duties separate.
+2. Implement school maintenance, questionnaire authoring, interviewer changes,
+   and mailing-list controls. Resolve standalone team recruitment and reminders.
+3. Obtain an authorized current source snapshot and reconcile active operational
+   records. Correct the known invalid account email with verified evidence.
+   Reconcile aliases and unsupported credentials. Obtain receipt files and
+   payment-account custody; reconcile settlement references separately.
+4. Resolve provider schema ownership and verify required mail, storage, recovery,
+   and Worker credential resource behavior with authorized provider access.
+5. Rehearse final reconciliation, writer transfer, recovery, and rollback.
+   Production cutover requires separate authorization.
 
 Create one active file under `docs/specs/` for the next journey. Remove it when
 the accepted behavior is represented by [docs/system.md](docs/system.md), code,
@@ -156,7 +180,8 @@ Before cutover:
 
 - reconcile current Account credentials and recovery, legacy aliases, unsupported
   credentials, historical affiliations, placements, receipts, and private files;
-- configure and prove real mail, SMS, storage, and payment authority;
+- prove required mail and private-file delivery, retained SMS or external-account
+  integrations, and separately authorized settlement evidence;
 - run the final data import against an authorized production snapshot;
 - fence legacy writers before native ownership starts;
 - prove backup, restore, rollback, delivery recovery, and reconciliation;

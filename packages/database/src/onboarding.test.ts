@@ -11,7 +11,7 @@ import {
 import { Effect } from "effect";
 import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
-import { provisionOnboardingAccount, hashOnboardingPassword } from "./onboarding-account.js";
+import { provisionOnboardingAccount } from "./onboarding-account.js";
 import {
   drainOnboardingDelivery,
   expireOnboardingSecrets,
@@ -296,11 +296,6 @@ describe("applicant account authority", () => {
     const board = await runtime.runPromise(readOnboardingBoard(dept));
     expect(board.items.find((item) => item.applicationId === "onboard-app-3")?.state).toBe(
       "Revoked",
-    );
-  });
-  it("uses installed Better Auth hashing", async () => {
-    expect(await hashOnboardingPassword("Long synthetic password")).not.toBe(
-      "Long synthetic password",
     );
   });
 });

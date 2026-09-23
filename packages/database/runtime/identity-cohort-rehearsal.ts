@@ -19,6 +19,7 @@ import { importIdentityCohort, IdentityCohortFailure } from "../src/identity-coh
 import { summarizeIdentityCohort } from "../src/identity-cohort-cli.js";
 import { importPersonCohort } from "../src/person-cohort.js";
 import { isNativePasswordHash, verifyNativeOrLegacyPassword } from "../src/password-codec.js";
+import { proveCredentialResetRace } from "../src/test-support/credential-race.js";
 declare const Bun: {
   version: string;
   serve(options: {
@@ -724,8 +725,9 @@ try {
       fetch: (request) =>
         recovery.handler(engine.handler, request, identityRequestContext(request)),
     });
+    return engine;
   };
-  startEngine(config);
+  const initialEngine = startEngine(config);
   const post = async (path: string, body: unknown): Promise<Response> => {
     for (let attempt = 0; attempt < 6; attempt++) {
       const response = await fetch(origin + path, {
@@ -758,6 +760,23 @@ try {
       secrets.push(oldCookie);
     }
   }
+  const upgradedBeforeReplay = (
+    await pool.query('SELECT password FROM auth."account" WHERE "userId"=$1', ["person-accepted-1"])
+  ).rows[0].password;
+  secrets.push(upgradedBeforeReplay);
+  assert.ok(
+    isNativePasswordHash(upgradedBeforeReplay),
+    "successful legacy sign-in upgrades to Argon2id",
+  );
+  await importIdentityCohort(pool, snapshot);
+  assert.ok(
+    (
+      await pool.query('SELECT password FROM auth."account" WHERE "userId"=$1', [
+        "person-accepted-1",
+      ])
+    ).rows[0].password === upgradedBeforeReplay,
+    "replay cannot restore a legacy hash",
+  );
   assert.equal(
     (await login("backup-accepted@example.invalid", values[0]!)).status,
     200,
@@ -998,6 +1017,35 @@ try {
     ).rows[0].password,
     claimedHash,
   );
+  await proveCredentialResetRace({
+    engine: initialEngine,
+    pool,
+    legacyHash: hashes[0]!,
+    password: values[0]!,
+    resetPassword: newPassword,
+    origin: config.oauth.dashboardOrigin,
+    reset: async (email) => {
+      expectedRecipient = email;
+      assert.equal(
+        (
+          await post("/api/auth/request-password-reset", {
+            email,
+            redirectTo: `${config.oauth.dashboardOrigin}/tilbakestill-passord`,
+          })
+        ).status,
+        200,
+      );
+      assert.equal(
+        await drainPasswordResetMail(authPool!, config, delivery, "recovery@example.invalid"),
+        "Delivered",
+      );
+      const redirect = await fetch(deliveredUrl, { redirect: "manual" });
+      assert.equal(redirect.status, 302);
+      const token = new URL(redirect.headers.get("location")!).searchParams.get("token")!;
+      secrets.push(token);
+      assert.equal((await post("/api/auth/reset-password", { token, newPassword })).status, 200);
+    },
+  });
   await server!.stop(true);
   server = undefined;
   await authPool!.end();
@@ -1019,7 +1067,7 @@ try {
   assert.equal(
     (await login("cohort-accepted-1@example.invalid", values[1]!)).status,
     200,
-    "actual restored legacy hash login",
+    "actual restored upgraded hash login",
   );
   assert.equal(
     (await login(claimEmail, firstPassword)).status,
@@ -1095,8 +1143,10 @@ try {
       oldPasswordDenied: true,
       newNativePasswordAccepted: true,
       oldSessionRevoked: true,
+      concurrentResetWinsOverLegacyAndNativeSignIn: true,
+      staleNewSessionRemoved: true,
     },
-    restore: { nonemptyBackupSha256: backupDigest, nativeHashLogin: true, legacyHashLogin: true },
+    restore: { nonemptyBackupSha256: backupDigest, nativeHashLogin: true, upgradedHashLogin: true },
     scope:
       "Synthetic Person-reconciled/attested cohort; actual BetterAuth HTTP and canonical recovery wrapper/ACK adapter; legacy aliases quarantined; no real source, provider, production, real attestation or full legacy cohort claim",
   };

@@ -42,7 +42,7 @@ Package manifests are authoritative for exact scripts.
 | `apps/backend`      | Native Effect HTTP process and workers                   |
 | `apps/homepage`     | Public React application                                 |
 | `apps/dashboard`    | Authenticated React Router and Foldkit application       |
-| `apps/server`       | Retained Symfony source and current production backend   |
+| `apps/server`       | Retained Symfony modernization source                    |
 | `packages/domain`   | Business values, transitions, failures, and authority    |
 | `packages/database` | PostgreSQL schema, persistence, locks, audit, and outbox |
 | `packages/http-api` | HTTP contracts, middleware declarations, and OpenAPI     |

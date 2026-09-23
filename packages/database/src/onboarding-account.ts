@@ -1,10 +1,9 @@
 import { Database } from "./service.js";
 import { OnboardingFailure, type AccountProvisionInput } from "@vektorprogrammet/domain/onboarding";
 import { Effect } from "effect";
-import { hashPassword } from "better-auth/crypto";
+import { nativePasswordHash } from "./password-codec.js";
 import { createLocalAccountIssuer } from "better-auth";
-/** Installed Better Auth 1.7.1 hash implementation; no parallel credential algorithm. */
-export const hashOnboardingPassword = (password: string) => hashPassword(password);
+export const hashOnboardingPassword = nativePasswordHash;
 /** Runs on the caller's Database transaction, including Person/link/token consumption. */
 export const provisionOnboardingAccount = (input: AccountProvisionInput) =>
   Database.use((sql) =>

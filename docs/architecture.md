@@ -24,9 +24,15 @@ apps/dashboard ----> packages/sdk ----> packages/http-api
 packages/domain <--- database, HTTP adapters, and applications depend on it
 ```
 
-`apps/server` is retained Symfony source and the current production backend. It is
-not part of the target dependency graph. Remove it only after an authorized cutover
-has transferred every required writer and reader.
+`apps/server` retains Symfony modernization source, not an exact production
+snapshot. Import commit `da8d3e8b` names the monolith modernization branch as its
+source. [PR #1592](https://github.com/vektorprogrammet/vektorprogrammet/pull/1592)
+describes that separate upgrade. Production contracts use the operator-designated
+legacy `master` baseline and observed live workflows. The retained server
+OpenAPI snapshot therefore does not define production operational parity.
+
+The Symfony code is outside the target dependency graph. An authorized cutover
+must transfer every required writer and reader before the legacy system retires.
 
 ## Ownership
 
