@@ -1,4 +1,4 @@
-import { ArticleId } from "@vektorprogrammet/http-api"
+import { ArticleId } from "@vektorprogrammet/http-api";
 import { Effect, Schema as S } from "effect";
 import {
   ContentArticleObservationSchema,
@@ -17,7 +17,10 @@ import {
 } from "./bridge";
 
 export interface ContentWorkspaceOperations {
-  readonly readContentWorkspace: () => Effect.Effect<ContentWorkspaceBootstrap, ContentBridgeFailure>;
+  readonly readContentWorkspace: () => Effect.Effect<
+    ContentWorkspaceBootstrap,
+    ContentBridgeFailure
+  >;
   readonly readArticle: (input: {
     readonly articleId: typeof ArticleId.Type;
   }) => Effect.Effect<ContentArticleObservation, ContentBridgeFailure>;
@@ -82,31 +85,35 @@ const request = <A>(
     }),
   );
 
-const transition = (command: ContentTransitionCommand, operation: "publish" | "unpublish") =>
-  request(S.Struct({}), "/content", "POST", {
+const transition = (
+  bridgeUrl: string,
+  command: ContentTransitionCommand,
+  operation: "publish" | "unpublish",
+) =>
+  request(S.Struct({}), bridgeUrl, "POST", {
     operation,
     ...S.encodeSync(ContentTransitionCommandSchema)(command),
   }).pipe(Effect.asVoid);
 
-export const createBrowserContentWorkspaceClient = (): ContentWorkspaceClient => ({
+export const createBrowserContentWorkspaceClient = (bridgeUrl: string): ContentWorkspaceClient => ({
   content: {
-    readContentWorkspace: () => request(ContentWorkspaceBootstrapSchema, "/content", "GET"),
+    readContentWorkspace: () => request(ContentWorkspaceBootstrapSchema, bridgeUrl, "GET"),
     readArticle: ({ articleId }) =>
-      request(ContentArticleObservationSchema, "/content", "POST", {
+      request(ContentArticleObservationSchema, bridgeUrl, "POST", {
         operation: "readArticle",
         articleId,
       }),
     createArticle: (command) =>
-      request(ContentArticleObservationSchema, "/content", "POST", {
+      request(ContentArticleObservationSchema, bridgeUrl, "POST", {
         operation: "createDraft",
         ...S.encodeSync(ContentCreateCommandSchema)(command),
       }),
     reviseArticle: (command) =>
-      request(ContentArticleObservationSchema, "/content", "POST", {
+      request(ContentArticleObservationSchema, bridgeUrl, "POST", {
         operation: "reviseDraft",
         ...S.encodeSync(ContentReviseCommandSchema)(command),
       }),
-    publishArticle: (command) => transition(command, "publish"),
-    unpublishArticle: (command) => transition(command, "unpublish"),
+    publishArticle: (command) => transition(bridgeUrl, command, "publish"),
+    unpublishArticle: (command) => transition(bridgeUrl, command, "unpublish"),
   },
 });

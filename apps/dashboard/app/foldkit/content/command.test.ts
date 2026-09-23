@@ -1,5 +1,5 @@
-import { ArticleId } from "@vektorprogrammet/http-api"
-import { DepartmentId } from "@vektorprogrammet/http-api"
+import { ArticleId } from "@vektorprogrammet/http-api";
+import { DepartmentId } from "@vektorprogrammet/http-api";
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -79,7 +79,7 @@ describe("Content workspace failure classification", () => {
       ),
     );
     const failure = await Effect.runPromise(
-      createBrowserContentWorkspaceClient()
+      createBrowserContentWorkspaceClient("/content")
         .content.createArticle({
           commandId: IdempotencyKey.make("department-gone-command"),
           title: "Tittel",
@@ -130,11 +130,13 @@ describe("Content workspace failure classification", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await Effect.runPromise(
-      createBrowserContentWorkspaceClient().content.readArticle({ articleId: ArticleId.make(7) }),
+      createBrowserContentWorkspaceClient("/dashboard/content").content.readArticle({
+        articleId: ArticleId.make(7),
+      }),
     );
     expect(result).toEqual(observation);
     expect(fetchMock).toHaveBeenCalledWith(
-      "/content",
+      "/dashboard/content",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ operation: "readArticle", articleId: 7 }),
@@ -153,7 +155,7 @@ describe("Content workspace failure classification", () => {
       ),
     );
     const failure = await Effect.runPromise(
-      createBrowserContentWorkspaceClient()
+      createBrowserContentWorkspaceClient("/content")
         .content.readContentWorkspace()
         .pipe(
           Effect.map(() => undefined),

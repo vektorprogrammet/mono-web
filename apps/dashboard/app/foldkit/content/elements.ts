@@ -2,6 +2,7 @@ import { createBrowserContentWorkspaceClient } from "./browser-client";
 import { embedContentWorkspace } from "./main";
 
 export const CONTENT_WORKSPACE_ELEMENT = "vektor-article-workspace";
+export const CONTENT_WORKSPACE_BRIDGE_ATTRIBUTE = "bridge-url";
 
 export const registerContentWorkspaceElement = (): void => {
   if (typeof window === "undefined" || typeof customElements === "undefined") return;
@@ -19,8 +20,12 @@ export const registerContentWorkspaceElement = (): void => {
         this.replaceChildren(this.#container);
 
         try {
+          const bridgeUrl = this.getAttribute(CONTENT_WORKSPACE_BRIDGE_ATTRIBUTE);
+          if (bridgeUrl === null || !bridgeUrl.startsWith("/") || bridgeUrl.startsWith("//")) {
+            throw new TypeError("Content workspace bridge-url must be a same-origin absolute path");
+          }
           this.#dispose = embedContentWorkspace(this.#container, {
-            client: createBrowserContentWorkspaceClient(),
+            client: createBrowserContentWorkspaceClient(bridgeUrl),
           });
         } catch {
           const error = document.createElement("section");
