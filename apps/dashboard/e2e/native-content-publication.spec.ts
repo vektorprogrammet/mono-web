@@ -274,7 +274,7 @@ test.describe("Native Content publication (spec 0062)", () => {
           const detailResponse = await fetch(`${apiOrigin}/api/content/articles/${articleId}`, {
             credentials: "include",
           });
-          const etag = '"member-published-revision-denial"';
+          const etag = '"vkr2.u07rIftJrsco7ukQ6cx0H6e8Axg_EHPO4atC27n8zhk"';
           const response = await fetch(`${apiOrigin}/api/content/articles/${articleId}`, {
             method: "PATCH",
             credentials: "include",
