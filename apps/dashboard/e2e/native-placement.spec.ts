@@ -382,7 +382,20 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       await scheduleForm.locator('input[type="date"]').fill(serviceDate);
       await scheduleForm.locator('input[type="time"]').nth(0).fill("09:00");
       await scheduleForm.locator('input[type="time"]').nth(1).fill("11:00");
-      await scheduleForm.getByRole("button", { name: "Planlegg denne datoen" }).click();
+      const [scheduleResponse] = await Promise.all([
+        page.waitForResponse(
+          (response) =>
+            response.request().method() === "POST" &&
+            new URL(response.url()).pathname.includes("assistenter"),
+        ),
+        scheduleForm.getByRole("button", { name: "Planlegg denne datoen" }).click(),
+      ]);
+      console.log(
+        "SCHEDULE-RESPONSE",
+        scheduleResponse.status(),
+        scheduleResponse.url(),
+        await page.getByRole("alert").allTextContents(),
+      );
       await expect
         .poll(async () =>
           (await readBoard(page)).commitments.some(
