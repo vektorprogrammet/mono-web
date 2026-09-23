@@ -1,8 +1,9 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   DEV_MAIN_STAGE,
   LOCAL_ONLY_STAGE,
+  WORKER_PREVIEW_STAGE,
+  WORKERS_DEV_HOST_SUFFIX,
   homepageDomain,
   resolveHomepageRequest,
   stageFromHost,
@@ -12,6 +13,26 @@ describe("homepage stage and host contract", () => {
   it("maps the persistent development host exactly", () => {
     expect(stageFromHost("vektor.phibkro.org")).toBe(DEV_MAIN_STAGE);
     expect(homepageDomain(DEV_MAIN_STAGE)).toBe("vektor.phibkro.org");
+  });
+
+  it("accepts workers.dev only through explicit Worker Preview configuration", () => {
+    expect(
+      resolveHomepageRequest("pr-42-homepage.account.workers.dev", {
+        stage: WORKER_PREVIEW_STAGE,
+        hostSuffix: WORKERS_DEV_HOST_SUFFIX,
+      }),
+    ).toEqual({
+      stage: WORKER_PREVIEW_STAGE,
+      host: "pr-42-homepage.account.workers.dev",
+    });
+
+    expect(() => resolveHomepageRequest("pr-42-homepage.account.workers.dev")).toThrow();
+    expect(() =>
+      resolveHomepageRequest("vektorprogrammet.no", {
+        stage: WORKER_PREVIEW_STAGE,
+        hostSuffix: WORKERS_DEV_HOST_SUFFIX,
+      }),
+    ).toThrow();
   });
 
   it("maps bounded two-digit preview stages and preserves three-digit grammar", () => {
@@ -61,67 +82,5 @@ describe("homepage stage and host contract", () => {
     ]) {
       expect(() => stageFromHost(host)).toThrow();
     }
-  });
-
-  it("declares the frozen Worker, container-backed Durable Object, websites, and support resources", () => {
-    const declaration = readFileSync(
-      new URL("../../../infra/alchemy/alchemy.run.ts", import.meta.url),
-      "utf8",
-    );
-    const apexDeclaration = readFileSync(
-      new URL("../../../infra/alchemy/preview/apex.ts", import.meta.url),
-      "utf8",
-    );
-    const apexWorkerResource = readFileSync(
-      new URL("../../../infra/alchemy/preview/apex-worker-resource.ts", import.meta.url),
-      "utf8",
-    );
-    const resources = JSON.parse(
-      readFileSync(new URL("../../../infra/preview/resources.json", import.meta.url), "utf8"),
-    ) as Array<{ type: string; id: string; name: string }>;
-
-    expect(declaration).toContain('Alchemy.Stack(\n  "vektor"');
-    expect(declaration).toContain("Alchemy.localState()");
-    expect(declaration).toContain("Cloudflare.state()");
-    expect(declaration).toContain('Cloudflare.Website.Vite("Homepage"');
-    expect(declaration).toContain('Cloudflare.Website.Vite("Dashboard"');
-    expect(declaration).toContain("yield* PreviewWorker(homepage, dashboard)");
-    expect(declaration).toContain("container: PREVIEW_IDENTITY.containerInstance");
-    expect(declaration).not.toContain("PreviewSpine");
-    expect(declaration).toContain("stage === APEX_IDENTITY.stage");
-    expect(declaration).toContain("stateBackendForStage(stage)");
-    expect(apexDeclaration.match(/workersDev: false/g)).toHaveLength(2);
-    expect(apexWorkerResource).toContain("workersDev: false");
-    expect(apexWorkerResource).toContain("domain: APEX_IDENTITY.hostname");
-    expect(apexWorkerResource).toContain("routes: [{ pattern: `${APEX_IDENTITY.apiHostname}/*` }]");
-
-    expect(resources).toEqual([
-      { type: "worker", id: "vektor-p20-worker", name: "vektor-p20-worker" },
-      {
-        type: "durable-object-namespace",
-        id: "vektor-p20-preview-container-namespace",
-        name: "vektor-p20-preview-container-namespace",
-      },
-      {
-        type: "durable-object-migration",
-        id: "vektor-p20-preview-container-migration",
-        name: "vektor-p20-preview-container-migration",
-      },
-      { type: "container", id: "vektor-p20-container", name: "vektor-p20-container" },
-      {
-        type: "container-image",
-        id: "vektor-p20-container-image",
-        name: "vektor-p20-container-image",
-      },
-      { type: "homepage", id: "vektor-p20-homepage", name: "vektor-p20-homepage" },
-      { type: "dashboard", id: "vektor-p20-dashboard", name: "vektor-p20-dashboard" },
-      { type: "route", id: "vektor-p20-route", name: "vektor-p20-route" },
-      { type: "dns-tls", id: "vektor-p20-dns-tls", name: "vektor-p20-dns-tls" },
-      {
-        type: "seed-artifact",
-        id: "vektor-p20-seed-artifact",
-        name: "vektor-p20-seed-artifact",
-      },
-    ]);
   });
 });

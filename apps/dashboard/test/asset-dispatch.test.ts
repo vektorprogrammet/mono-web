@@ -89,6 +89,35 @@ describe("handleDashboardWorkerRequest", () => {
     expect(assets.fetch).not.toHaveBeenCalled();
     expect(applicationHandler).not.toHaveBeenCalled();
   });
+
+  it("serves a Worker Preview URL without granting unrelated hosts", async () => {
+    const assets = { fetch: vi.fn(async () => new Response("asset", { status: 404 })) };
+    const applicationHandler = vi.fn(async () => new Response("dashboard"));
+    const previewEnv = {
+      ASSETS: assets,
+      PREVIEW_HOST_SUFFIX: ".workers.dev",
+      PREVIEW_STAGE: "worker-preview",
+    };
+
+    const accepted = await handleDashboardWorkerRequest(
+      new Request("https://pr-42-dashboard.account.workers.dev/login", {
+        headers: { Host: "pr-42-dashboard.account.workers.dev" },
+      }),
+      previewEnv,
+      applicationHandler,
+    );
+    expect(accepted.status).toBe(200);
+    expect(accepted.headers.get("x-mono-web-stage")).toBe("worker-preview");
+
+    const denied = await handleDashboardWorkerRequest(
+      new Request("https://vektorprogrammet.no/login", {
+        headers: { Host: "vektorprogrammet.no" },
+      }),
+      previewEnv,
+      applicationHandler,
+    );
+    expect(denied.status).toBe(421);
+  });
 });
 
 describe("school survey path codec", () => {

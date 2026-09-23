@@ -1,11 +1,16 @@
 import { dashboardApplicationRequest, dashboardAssetResponse } from "./asset-dispatch";
-import { validateDashboardPreviewStage } from "./preview-stage";
+import {
+  type DashboardPreviewStage,
+  isDashboardPreviewHost,
+  validateDashboardPreviewStage,
+} from "./preview-stage";
 
 export interface DashboardWorkerEnv {
   readonly ASSETS: {
     fetch(request: Request): Promise<Response>;
   };
-  readonly PREVIEW_HOST: string;
+  readonly PREVIEW_HOST?: string;
+  readonly PREVIEW_HOST_SUFFIX?: string;
   readonly PREVIEW_STAGE: string;
 }
 
@@ -28,9 +33,13 @@ export const handleDashboardWorkerRequest = async (
   env: DashboardWorkerEnv,
   applicationHandler: DashboardApplicationHandler,
 ): Promise<Response> => {
-  let stage: string;
+  let stage: DashboardPreviewStage;
   try {
-    stage = validateDashboardPreviewStage(env.PREVIEW_STAGE, env.PREVIEW_HOST);
+    stage = validateDashboardPreviewStage(
+      env.PREVIEW_STAGE,
+      env.PREVIEW_HOST,
+      env.PREVIEW_HOST_SUFFIX,
+    );
   } catch {
     return new Response("Invalid dashboard preview stage", {
       status: 503,
@@ -39,7 +48,7 @@ export const handleDashboardWorkerRequest = async (
   }
 
   const host = request.headers.get("host")?.toLowerCase() ?? "";
-  if (host !== env.PREVIEW_HOST) {
+  if (!isDashboardPreviewHost(stage, host, env.PREVIEW_HOST, env.PREVIEW_HOST_SUFFIX)) {
     return new Response("Unsupported dashboard host", {
       status: 421,
       headers: { "Cache-Control": "no-store" },

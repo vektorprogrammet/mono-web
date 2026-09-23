@@ -3,7 +3,15 @@ import { SiFacebook } from "@icons-pack/react-simple-icons";
 import { FolderOpen, Mail, MapPin } from "lucide-react";
 import { motion } from "motion/react";
 import { useLayoutEffect, useRef, useState } from "react";
-import { Link, NavLink, Outlet, type To, useLocation, useLoaderData } from "react-router";
+import {
+  Link,
+  NavLink,
+  Outlet,
+  type RouterContextProvider,
+  type To,
+  useLoaderData,
+  useLocation,
+} from "react-router";
 import { Button } from "~/components/ui/button";
 import {
   Drawer,
@@ -16,15 +24,18 @@ import {
 } from "~/components/ui/drawer";
 import { BUILD_COMMIT, BUILD_CONTENT_DIGEST, BUILD_ROUTE_DIGEST } from "~/lib/build-provenance";
 import { DEV_CONTENT, DEV_CONTENT_SOURCE } from "~/lib/dev-content";
-import { resolveHomepageRequest, type HomepageRequest } from "~/lib/host";
+import { homepageRequestContext, resolveHomepageRequest, type HomepageRequest } from "~/lib/host";
 import "~/home.css";
 import { navRoutes } from "~/nav-routes";
 
 type HomeLoaderArgs = {
   request: Request;
+  context: Readonly<RouterContextProvider>;
 };
 
-export function loader({ request }: HomeLoaderArgs): HomepageRequest {
+export function loader({ request, context }: HomeLoaderArgs): HomepageRequest {
+  const resolved = context.get(homepageRequestContext);
+  if (resolved !== undefined) return resolved;
   const host = request.headers.get("host");
   if (!host) throw new Response("Missing Host", { status: 421 });
   return resolveHomepageRequest(host);
@@ -152,10 +163,7 @@ function NavTabs({ routes }: { routes: Array<{ name: string; path: To }> }) {
 function LoginButtons() {
   return (
     <div className="flex space-x-4 overflow-clip rounded-full">
-      <Link
-        to={"/login?redirectTo=%2Fdashboard"}
-        prefetch="intent"
-      >
+      <Link to={"/login?redirectTo=%2Fdashboard"} prefetch="intent">
         {"Logg inn"}
       </Link>
     </div>

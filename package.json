@@ -17,6 +17,7 @@
     "test": "turbo test",
     "lint": "oxlint .",
     "changelog": "bun scripts/changelog.ts",
+    "deploy:preview": "bun scripts/deploy-preview.ts",
     "changelog:check": "bun scripts/changelog.ts --check",
     "dev:homepage": "turbo -F @monoweb/homepage dev",
     "dev:dashboard": "turbo -F @monoweb/dashboard dev",
@@ -42,7 +43,7 @@
     "oxlint-tsgolint": "7.0.2001",
     "turbo": "^2.8.12",
     "typescript": "7.0.2",
-    "wrangler": "4.120.1"
+    "wrangler": "4.136.1"
   },
   "engines": {
     "node": ">=22"

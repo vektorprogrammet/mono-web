@@ -1,0 +1,20 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "vektor-vektor-apex-homepage-dev-main-36wofid2qirnhveq",
+  "preview_urls": true,
+  "main": "../../apps/homepage/build/server/index.js",
+  "compatibility_date": "2026-09-22",
+  "compatibility_flags": ["nodejs_compat", "nodejs_compat_populate_process_env"],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "../../apps/homepage/build/client",
+    "run_worker_first": true
+  },
+  "previews": {
+    "vars": {
+      "API_URL": "https://origin-api.vektor.phibkro.org",
+      "PREVIEW_HOST_SUFFIX": ".workers.dev",
+      "PREVIEW_STAGE": "worker-preview"
+    }
+  }
+}

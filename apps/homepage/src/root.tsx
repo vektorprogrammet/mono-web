@@ -1,9 +1,17 @@
 import { useEffect, type ReactNode } from "react";
-import { Links, Meta, Outlet, Scripts, ScrollRestoration, useRouteLoaderData } from "react-router";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  type RouterContextProvider,
+  useRouteLoaderData,
+} from "react-router";
 import "~/index.css";
 import icon from "/images/vektor-logo-circle.svg";
 import logo from "/images/vektor-logo.svg";
-import { resolveHomepageRequest, type HomepageRequest } from "~/lib/host";
+import { homepageRequestContext, resolveHomepageRequest, type HomepageRequest } from "~/lib/host";
 
 declare global {
   interface Window {
@@ -12,9 +20,12 @@ declare global {
 }
 type RootLoaderArgs = {
   request: Request;
+  context: Readonly<RouterContextProvider>;
 };
 
-export function loader({ request }: RootLoaderArgs): HomepageRequest {
+export function loader({ request, context }: RootLoaderArgs): HomepageRequest {
+  const resolved = context.get(homepageRequestContext);
+  if (resolved !== undefined) return resolved;
   const host = request.headers.get("host");
   if (!host) throw new Response("Missing Host", { status: 421 });
   return resolveHomepageRequest(host);

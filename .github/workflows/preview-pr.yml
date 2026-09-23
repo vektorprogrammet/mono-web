@@ -1,128 +1,213 @@
-name: PR preview p20
+name: Worker Previews
 
 on:
-  pull_request:
+  pull_request_target:
     branches: [main]
     types: [opened, reopened, synchronize, closed]
-  workflow_dispatch:
-    inputs:
-      action:
-        description: reconcile or main-dev
-        required: true
-        default: reconcile
-        type: choice
-        options: [reconcile, main-dev]
-      head_sha:
-        description: exact approved head SHA
-        required: false
-        type: string
-  schedule:
-    - cron: "17 * * * *"
 
 permissions:
   contents: read
-  pull-requests: read
-  actions: read
 
 concurrency:
-  group: preview-vektor-p20
-  cancel-in-progress: false
+  group: worker-previews-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 env:
-  PREVIEW_REPOSITORY: vektorprogrammet/mono-web
-  PREVIEW_APP: vektor
-  PREVIEW_STAGE: p20
-  PREVIEW_TARGET: p20
-  PREVIEW_PR: "21"
-  PREVIEW_HOST: p20.vektor.phibkro.org
-  PREVIEW_CONTAINER: vektor-p20-container
+  PREVIEW_NAME: pr-${{ github.event.pull_request.number }}
 
 jobs:
-  credential-free:
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 21 && github.event.action != 'closed' }}
+  build:
+    if: ${{ github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
-    outputs:
-      head_sha: ${{ steps.head.outputs.sha }}
-      source_digest: ${{ steps.digest.outputs.source_digest }}
-      route_digest: ${{ steps.route.outputs.route_digest }}
-      seed_digest: ${{ steps.seed.outputs.seed_digest }}
+    permissions:
+      contents: read
+    env:
+      API_URL: https://origin-api.vektor.phibkro.org
+      DASHBOARD_MOUNT: /
+      PREVIEW_HOST_SUFFIX: .workers.dev
+      PREVIEW_STAGE: worker-preview
+      VITE_API_URL: https://vektor.phibkro.org
     steps:
-      - name: Checkout exact pull request revision
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Checkout exact pull-request revision without credentials
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
-      - name: Record exact head
-        id: head
-        env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: printf 'sha=%s\n' "$HEAD_SHA" >> "$GITHUB_OUTPUT"
-      - name: Verify source policy and canonical archive digest
-        id: digest
-        env:
-          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
-          EXPECTED_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-        run: |
-          set -Eeuo pipefail
-          node infra/preview/trusted/digest.mjs --head-sha "$EXPECTED_HEAD" --repository "$EXPECTED_REPOSITORY" --output "$RUNNER_TEMP/source-digest.json"
-          printf 'source_digest=%s\n' "$(node -e 'const fs=require("node:fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).archiveDigest)' "$RUNNER_TEMP/source-digest.json")" >> "$GITHUB_OUTPUT"
-      - name: Generate deterministic synthetic seed twice
-        id: seed
-        run: |
-          set -Eeuo pipefail
-          bun apps/server/infra/preview/generate-seed.ts --output-dir "$RUNNER_TEMP/seed-a"
-          bun apps/server/infra/preview/verify-seed.ts --output-dir "$RUNNER_TEMP/seed-a" > "$RUNNER_TEMP/seed-a.json"
-          bun apps/server/infra/preview/generate-seed.ts --output-dir "$RUNNER_TEMP/seed-b"
-          bun apps/server/infra/preview/verify-seed.ts --output-dir "$RUNNER_TEMP/seed-b" > "$RUNNER_TEMP/seed-b.json"
-          test "$(sha256sum "$RUNNER_TEMP/seed-a/seed.sql" | cut -d' ' -f1)" = "$(sha256sum "$RUNNER_TEMP/seed-b/seed.sql" | cut -d' ' -f1)"
-          printf 'seed_digest=sha256:%s\n' "$(sha256sum "$RUNNER_TEMP/seed-a/seed.sql" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-      - name: Generate and verify frozen route contract
-        id: route
-        run: |
-          set -Eeuo pipefail
-          bun -e 'const m=await import("./infra/preview/routes/route-contract.ts"); const c=m.assertFrozenRouteContract(); process.stdout.write(c.contractDigest)' > "$RUNNER_TEMP/route-contract.digest"
-          printf 'route_digest=%s\n' "$(cat "$RUNNER_TEMP/route-contract.digest")" >> "$GITHUB_OUTPUT"
-      - name: Upload reviewed seed artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+
+      - uses: oven-sh/setup-bun@v2
         with:
-          name: preview-p20-seed-${{ github.event.pull_request.head.sha }}
-          path: ${{ runner.temp }}/seed-a
-          retention-days: 1
+          bun-version: 1.3.10
+
+      - name: Install frozen dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build public homepage Preview
+        working-directory: apps/homepage
+        run: bun run build
+
+      - name: Build staff dashboard Preview
+        working-directory: apps/dashboard
+        run: bun run build
+
+      - name: Upload credential-free Preview bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: worker-preview-build-${{ github.event.pull_request.head.sha }}
+          path: |
+            apps/homepage/build
+            apps/dashboard/build
           if-no-files-found: error
+          retention-days: 1
 
-  trusted-delivery:
-    needs: credential-free
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 21 && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository }}
-    uses: ./.github/workflows/preview-trusted.yml
-    with:
-      event: ${{ github.event.action }}
-      repository: ${{ github.repository }}
-      pull_request_number: 21
-      head_sha: ${{ needs.credential-free.outputs.head_sha }}
-      stage: p20
-      target: p20
-      plan_only: true
-      expected_source_digest: ${{ needs.credential-free.outputs.source_digest }}
-      image_digest: ${{ needs.credential-free.outputs.source_digest }}
-      seed_digest: ${{ needs.credential-free.outputs.seed_digest }}
-      route_contract_digest: ${{ needs.credential-free.outputs.route_digest }}
-      resources_json: '[{"type":"worker","id":"vektor-p20-worker"},{"type":"durable-object-namespace","id":"vektor-p20-preview-container-namespace"},{"type":"durable-object-migration","id":"vektor-p20-preview-container-migration"},{"type":"container","id":"vektor-p20-container","name":"vektor-p20-container"},{"type":"container-image","id":"vektor-p20-container-image"},{"type":"homepage","id":"vektor-p20-homepage"},{"type":"dashboard","id":"vektor-p20-dashboard"},{"type":"route","id":"vektor-p20-route"},{"type":"dns-tls","id":"vektor-p20-dns-tls"},{"type":"seed-artifact","id":"vektor-p20-seed-artifact"}]'
-      remote_state: vektor/p20
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout trusted deployment code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
 
-  close:
-    if: ${{ github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.number == 21 && github.event.pull_request.head.repo.full_name == github.repository }}
-    uses: ./.github/workflows/preview-cleanup.yml
-    with:
-      event: closed
-      repository: ${{ github.repository }}
-      pull_request_number: 21
-      head_sha: ${{ github.event.pull_request.head.sha }}
-      stage: p20
-      target: p20
-      source_digest: sha256:${{ github.event.pull_request.head.sha }}
-      image_digest: sha256:${{ github.event.pull_request.head.sha }}
-      seed_digest: sha256:${{ github.event.pull_request.head.sha }}
-      route_contract_digest: sha256:${{ github.event.pull_request.head.sha }}
-      resources_json: '[{"type":"worker","id":"vektor-p20-worker"},{"type":"durable-object-namespace","id":"vektor-p20-preview-container-namespace"},{"type":"durable-object-migration","id":"vektor-p20-preview-container-migration"},{"type":"container","id":"vektor-p20-container","name":"vektor-p20-container"},{"type":"container-image","id":"vektor-p20-container-image"},{"type":"homepage","id":"vektor-p20-homepage"},{"type":"dashboard","id":"vektor-p20-dashboard"},{"type":"route","id":"vektor-p20-route"},{"type":"dns-tls","id":"vektor-p20-dns-tls"},{"type":"seed-artifact","id":"vektor-p20-seed-artifact"}]'
-      remote_state: vektor/p20
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
+      - name: Install trusted frozen dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Download exact pull-request bundles
+        uses: actions/download-artifact@v4
+        with:
+          name: worker-preview-build-${{ github.event.pull_request.head.sha }}
+          path: .
+
+      - name: Create or update isolated Worker Previews
+        id: preview
+        env:
+          CI: "true"
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          PREVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bun run deploy:preview -- "${{ github.event.pull_request.number }}"
+
+      - name: Probe application documents and built assets
+        env:
+          DASHBOARD_URL: ${{ steps.preview.outputs.dashboard_url }}
+          HOMEPAGE_URL: ${{ steps.preview.outputs.homepage_url }}
+        run: |
+          set -Eeuo pipefail
+          probe() {
+            local url="$1"
+            local body="$2"
+            local headers="$3"
+            for _ in {1..12}; do
+              if curl --fail --location --silent --show-error --dump-header "$headers" --output "$body" "$url"; then
+                grep -Eiq '^x-mono-web-stage: worker-preview\r?$' "$headers"
+                return 0
+              fi
+              sleep 5
+            done
+            return 1
+          }
+          probe "$HOMEPAGE_URL/health" "$RUNNER_TEMP/homepage-health.json" "$RUNNER_TEMP/homepage-health.headers"
+          jq -e '.stage == "worker-preview"' "$RUNNER_TEMP/homepage-health.json" >/dev/null
+          probe "$HOMEPAGE_URL/" "$RUNNER_TEMP/homepage.html" "$RUNNER_TEMP/homepage.headers"
+          homepage_asset="$(grep -oE '/assets/[^"[:space:]?]+' "$RUNNER_TEMP/homepage.html" | head -n 1)"
+          test -n "$homepage_asset"
+          curl --fail --silent --show-error "$HOMEPAGE_URL$homepage_asset" >/dev/null
+          probe "$DASHBOARD_URL/login" "$RUNNER_TEMP/dashboard.html" "$RUNNER_TEMP/dashboard.headers"
+          dashboard_asset="$(grep -oE '/assets/[^"[:space:]?]+' "$RUNNER_TEMP/dashboard.html" | head -n 1)"
+          test -n "$dashboard_asset"
+          curl --fail --silent --show-error "$DASHBOARD_URL$dashboard_asset" >/dev/null
+
+      - name: Publish exact Preview and source links
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          COMMIT: ${{ steps.preview.outputs.commit }}
+          DASHBOARD_DEPLOYMENT_URL: ${{ steps.preview.outputs.dashboard_deployment_url }}
+          DASHBOARD_URL: ${{ steps.preview.outputs.dashboard_url }}
+          HOMEPAGE_DEPLOYMENT_URL: ${{ steps.preview.outputs.homepage_deployment_url }}
+          HOMEPAGE_URL: ${{ steps.preview.outputs.homepage_url }}
+          SOURCE_URL: ${{ steps.preview.outputs.source_url }}
+        run: |
+          set -Eeuo pipefail
+          comment="$RUNNER_TEMP/worker-previews.md"
+          cat > "$comment" <<EOF
+          <!-- monoweb-worker-previews -->
+          ## Worker Previews
+
+          | Surface | Latest pull-request revision | Exact deployment |
+          |---|---|---|
+          | Public homepage | [Open Preview]($HOMEPAGE_URL) | [Open immutable deployment]($HOMEPAGE_DEPLOYMENT_URL) |
+          | Staff dashboard | [Open Preview]($DASHBOARD_URL) | [Open immutable deployment]($DASHBOARD_DEPLOYMENT_URL) |
+
+          Source: [\`$COMMIT\`]($SOURCE_URL)
+          EOF
+          payload="$RUNNER_TEMP/worker-previews.json"
+          jq -Rs '{body: .}' "$comment" > "$payload"
+          comment_id="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" --jq '.[] | select(.body | contains("<!-- monoweb-worker-previews -->")) | .id' | head -n 1)"
+          if [[ -n "$comment_id" ]]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" --input "$payload" >/dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --input "$payload" >/dev/null
+          fi
+
+  cleanup:
+    if: ${{ github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout trusted cleanup code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
+      - name: Install trusted frozen dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Delete both Worker Previews
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          delete_preview() {
+            local config="$1"
+            local output
+            local status
+            set +e
+            output="$(./node_modules/.bin/wrangler preview delete --name "$PREVIEW_NAME" --skip-confirmation --ignore-base-config --config "$config" 2>&1)"
+            status=$?
+            set -e
+            printf '%s\n' "$output"
+            if (( status == 0 )); then return 0; fi
+            grep -Eiq 'not found|does not exist|404' <<<"$output"
+          }
+          result=0
+          delete_preview infra/previews/homepage.wrangler.json || result=1
+          delete_preview infra/previews/dashboard.wrangler.json || result=1
+          exit "$result"
+
+      - name: Remove Preview review comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -Eeuo pipefail
+          comment_id="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" --jq '.[] | select(.body | contains("<!-- monoweb-worker-previews -->")) | .id' | head -n 1)"
+          if [[ -n "$comment_id" ]]; then
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id"
+          fi

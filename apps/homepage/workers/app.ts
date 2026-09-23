@@ -11,13 +11,18 @@ import {
   BUILD_ROUTE_DIGEST,
 } from "../src/lib/build-provenance";
 import { DEV_CONTENT_SOURCE } from "../src/lib/dev-content";
-import { resolveHomepageRequest } from "../src/lib/host";
-import type { HomepageRequest } from "../src/lib/host";
+import {
+  homepageRequestContext,
+  resolveHomepageRequest,
+  type HomepageRequest,
+} from "../src/lib/host";
 
 type HomepageEnv = ContactWorkerBindings & {
   ASSETS: {
     fetch(request: Request): Promise<Response>;
   };
+  readonly PREVIEW_HOST_SUFFIX?: string;
+  readonly PREVIEW_STAGE?: string;
 };
 
 const requestHandler = createRequestHandler(
@@ -92,7 +97,10 @@ export default {
 
     let requestInfo: HomepageRequest;
     try {
-      requestInfo = resolveHomepageRequest(rawHost);
+      requestInfo = resolveHomepageRequest(rawHost, {
+        stage: env.PREVIEW_STAGE,
+        hostSuffix: env.PREVIEW_HOST_SUFFIX,
+      });
     } catch {
       return invalidHostResponse();
     }
@@ -107,6 +115,7 @@ export default {
     }
 
     const routerContext = new RouterContextProvider();
+    routerContext.set(homepageRequestContext, requestInfo);
     routerContext.set(contactIngressContext, authenticateContactIngress(request, env));
     const response = await requestHandler(request, routerContext);
     return withProvenance(response, requestInfo.stage, requestInfo.host);
