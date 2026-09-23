@@ -34,11 +34,6 @@ const schedule = (model: Model, h: HtmlBuilder<Message>): Html => {
   return h.section([h.Class("dated-service__section")], [
     h.h3([], ["Planlegg datert skoletjeneste"]),
     h.p([], ["Tjenesteplanen er et gjentakende forslag. Hver dato og tidsperiode blir en egen, låst forpliktelse med behov og bemanning fra den bekreftede planen."]),
-    h.div([h.Class("dated-service__fields")], [
-      h.label([], ["Dato", h.input([h.Type("date"), h.Value(model.scheduleDate), h.OnInput((value) => ChangedScheduleDate({ value }))])]),
-      h.label([], ["Fra (lokal skoletid)", h.input([h.Type("time"), h.Value(model.startTime), h.OnInput((value) => ChangedStartTime({ value }))])]),
-      h.label([], ["Til (lokal skoletid)", h.input([h.Type("time"), h.Value(model.endTime), h.OnInput((value) => ChangedEndTime({ value }))])]),
-    ]),
     ...proposal.demands.filter((demand) => demand.requiredVolunteers > 0).map((demand) => {
       const alreadyScheduled = existing.has(`${demand.schoolId}:${demand.day}:${demand.block}:${model.scheduleDate}`);
       const valid = Boolean(model.scheduleDate && model.startTime && model.endTime && model.startTime < model.endTime);
@@ -49,10 +44,12 @@ const schedule = (model: Model, h: HtmlBuilder<Message>): Html => {
         hidden(h, "schoolId", String(demand.schoolId)),
         hidden(h, "day", demand.day),
         hidden(h, "block", demand.block),
-        hidden(h, "serviceDate", model.scheduleDate),
-        hidden(h, "startTime", model.startTime),
-        hidden(h, "endTime", model.endTime),
         h.p([], [label]),
+        h.div([h.Class("dated-service__fields")], [
+          h.label([], ["Dato", h.input([h.Type("date"), h.Name("serviceDate"), h.Value(model.scheduleDate), h.OnInput((value) => ChangedScheduleDate({ value }))])]),
+          h.label([], ["Fra (lokal skoletid)", h.input([h.Type("time"), h.Name("startTime"), h.Value(model.startTime), h.OnInput((value) => ChangedStartTime({ value }))])]),
+          h.label([], ["Til (lokal skoletid)", h.input([h.Type("time"), h.Name("endTime"), h.Value(model.endTime), h.OnInput((value) => ChangedEndTime({ value }))])]),
+        ]),
         h.button([h.Type("submit"), h.Disabled(!valid || alreadyScheduled)], [alreadyScheduled ? "Datoen er allerede planlagt" : "Planlegg denne datoen"]),
       ]);
     }),
@@ -67,10 +64,12 @@ const own = (model: Model, h: HtmlBuilder<Message>): Html => {
     ownCoverage.commitments.length === 0 ? h.p([], ["Ingen daterte tjenester i valgt semester."]) : h.empty,
     ...ownCoverage.commitments.map((commitment) => {
       const absence = ownCoverage.absences.find((a) => a.commitmentId === commitment.commitmentId);
+      const scheduled = commitment.assignments.some((a) => a.personId === ownCoverage.personId);
       return h.article([h.Class("dated-service__card")], [
         h.h4([], [serviceTitle(commitment)]),
+        h.p([], [scheduled ? "Din rolle: planlagt frivillig." : "Din rolle: bekreftet vikar."]),
         h.p([], [`Behov: ${commitment.requiredVolunteers} frivillige. ${commitment.decision === null ? commitment.overdue ? "Forfalt – venter på beslutning." : "Åpen." : outcomeLabel(commitment.decision.outcome)}`]),
-        absence ? h.p([], ["Du har meldt fravær for denne datoen."]) : commitment.decision === null && commitment.assignments.some((a) => a.personId === ownCoverage.personId)
+        absence ? h.p([], ["Du har meldt fravær for denne datoen."]) : commitment.decision === null && scheduled
           ? h.form([h.Method("post")], [
               ...formFields(model, h, ownCoverage.etag, "ReportAbsence", `absence-${commitment.commitmentId.slice(-32)}`),
               hidden(h, "commitmentId", commitment.commitmentId),
@@ -139,7 +138,7 @@ const decisionForm = (model: Model, h: HtmlBuilder<Message>, commitment: Commitm
       ])),
       h.p([], [`${model.attendedPersonIds.length} registrert møtt av ${commitment.requiredVolunteers} som trengs.`]),
     ]),
-    h.label([], ["Kilde for dokumentasjonen", h.input([h.Type("text"), h.Name("evidenceSource"), h.Value(model.evidenceSource), h.Attribute("maxlength", "200"), h.OnInput((value) => ChangedEvidenceSource({ value }))])]),
+    h.label([], ["Kilde for dokumentasjonen", h.input([h.Type("text"), h.Name("evidenceSource"), h.Value(model.evidenceSource), h.Attribute("maxlength", "500"), h.OnInput((value) => ChangedEvidenceSource({ value }))])]),
     completed ? h.empty : h.label([], ["Begrunnelse", h.textarea([h.Name("reason"), h.Value(model.reason), h.Attribute("maxlength", "500"), h.OnInput((value) => ChangedReason({ value }))])]),
     pending ? h.p([h.Role("alert")], ["Et sendt eller akseptert vikartilbud må avklares før beslutningen kan registreres."]) : h.empty,
     h.button([h.Type("submit"), h.Disabled(!valid)], ["Lagre uforanderlig beslutning"]),

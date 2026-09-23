@@ -175,7 +175,11 @@ export async function action({ request }: Route.ActionArgs) {
           await client.placements.commandCoverageBoard({ query, headers, payload });
           break;
         case "CompleteService":
+          await client.placements.commandCoverageBoard({ query, headers, payload });
+          break;
         case "CancelService":
+          await client.placements.commandCoverageBoard({ query, headers, payload });
+          break;
         case "MarkUnfulfilledService":
           await client.placements.commandCoverageBoard({ query, headers, payload });
           break;
@@ -301,7 +305,7 @@ export async function action({ request }: Route.ActionArgs) {
       {
         success: false as const,
         message: conflict
-          ? "Oversikten er endret av noen andre. Utkastet er beholdt. Hent og godta oppdatert oversikt før du prøver igjen."
+          ? "Oversikten er endret av noen andre. Hent oppdatert oversikt før du prøver igjen."
           : (messages[problem?.code ?? ""] ??
             "Endringen kunne ikke lagres. Kontroller feltene og prøv igjen."),
         conflict,
@@ -679,34 +683,31 @@ function SchoolServicePanel({
             </CommandForm>
           )}
           {proposal.status === "Confirmed" && (
-            <>
-              <div>
-                <h4 className="font-medium">Varslinger</h4>
-                <ul className="list-disc pl-5">
-                  {board.notifications.map((notification) => (
-                    <li key={notification.effectId}>
-                      {notification.personId}: {notification.status}
-                      {notification.attempts > 0 ? ` (${notification.attempts} forsøk)` : ""}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              {board.occurrences.length > 0 && (
-                <div>
-                  <h4 className="font-medium">Registrert undervisning</h4>
-                  <ul className="list-disc pl-5">
-                    {board.occurrences.map((occurrence) => (
-                      <li key={occurrence.occurrenceId}>
-                        {occurrence.schoolName}, {occurrence.occurredOn}, bolk {occurrence.block}:{" "}
-                        {occurrence.attendedPersonIds.length} møtte
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </>
+            <div>
+              <h4 className="font-medium">Varslinger</h4>
+              <ul className="list-disc pl-5">
+                {board.notifications.map((notification) => (
+                  <li key={notification.effectId}>
+                    {notification.personId}: {notification.status}
+                    {notification.attempts > 0 ? ` (${notification.attempts} forsøk)` : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </article>
+      )}
+      {board.occurrences.length > 0 && (
+        <section aria-label="Historiske undervisningsregistreringer" className="space-y-2">
+          <h3 className="font-medium">Historisk undervisning (kun lesing)</h3>
+          <ul className="list-disc pl-5">
+            {board.occurrences.map((occurrence) => (
+              <li key={occurrence.occurrenceId}>
+                {occurrence.schoolName}, {occurrence.occurredOn}, bolk {occurrence.block}: {occurrence.attendedPersonIds.length} møtte
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
     </section>
   );
@@ -879,6 +880,11 @@ function CoordinatorCoveragePanel({
     if (candidates === undefined) candidatesByAbsenceId.set(candidate.absenceId, [candidate]);
     else candidates.push(candidate);
   }
+  const openCommitments = coverage.commitments.filter((commitment) =>
+    commitment.decision === null && commitment.assignments.some((assignment) =>
+      !coverage.absences.some((absence) => absence.commitmentId === commitment.commitmentId && absence.personId === assignment.personId),
+    ),
+  );
   return (
     <section
       className="min-w-0 space-y-5 rounded-lg border p-4 sm:p-6"
@@ -896,10 +902,10 @@ function CoordinatorCoveragePanel({
         <h3 id="coordinator-absence-title" className="font-semibold">
           Rapporter fravær for frivillig
         </h3>
-        {coverage.commitments.filter((commitment) => commitment.decision === null && commitment.assignments.length > 0).length === 0 ? (
+        {openCommitments.length === 0 ? (
           <p>Ingen åpne daterte tjenester med planlagte frivillige.</p>
         ) : (
-          coverage.commitments.filter((commitment) => commitment.decision === null && commitment.assignments.length > 0).map((commitment) => (
+          openCommitments.map((commitment) => (
             <CommandForm
               key={commitment.commitmentId}
               etag={coverage.etag}
