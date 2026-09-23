@@ -452,6 +452,11 @@ export const databaseMigrationDefinitions = [
     name: "passwordless-account-recovery",
     url: new URL("../migrations/0057-passwordless-account-recovery.sql", import.meta.url),
   },
+  {
+    id: "58_dated-school-service-commitment",
+    name: "dated-school-service-commitment",
+    url: new URL("../migrations/0058-dated-school-service-commitment.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

@@ -3,9 +3,8 @@ import { Schema } from "effect";
 import {
   buildSchoolServiceProposal,
   canManagePlacements,
-  hasExactSchoolServiceAttendance,
   hasExactSchoolServiceExceptionReview,
-  hasExactSubstitutedSchoolServiceAttendance,
+  isEligibleSchoolServiceAttendance,
   nextAffiliationStatus,
 } from "./policy.js";
 import {
@@ -13,6 +12,7 @@ import {
   PlacementCommand,
   PlacementValues,
   SchoolServiceAbsenceId,
+  SchoolServiceCommitmentId,
   SchoolServiceCoverageAcknowledgementId,
   SchoolServiceProposalId,
   SchoolServiceSubstituteOfferId,
@@ -114,13 +114,14 @@ describe("placement boundaries", () => {
     ).toThrow();
     expect(() =>
       Schema.decodeUnknownSync(PlacementCommand)({
-        action: "RecordOccurrence",
+        action: "ScheduleService",
         proposalId: `school-service-proposal-${"a".repeat(64)}`,
         schoolId: 1,
         day: "Monday",
         block: "1",
-        occurredOn: "2026-02-30",
-        attendedPersonIds: ["person-1"],
+        serviceDate: "2026-02-30",
+        startTime: "09:00",
+        endTime: "11:00",
       }),
     ).toThrow();
   });
@@ -221,44 +222,21 @@ describe("school service proposal boundaries", () => {
     ]);
   });
 
-  it("requires exact unique exception review and exact confirmed attendance", () => {
+  it("requires exact unique exception review", () => {
     const exceptionIds = proposal.exceptions.map(({ exceptionId }) => exceptionId);
     expect(hasExactSchoolServiceExceptionReview(proposal, exceptionIds)).toBe(true);
     expect(hasExactSchoolServiceExceptionReview(proposal, exceptionIds.slice(1))).toBe(false);
     expect(
       hasExactSchoolServiceExceptionReview(proposal, [...exceptionIds, exceptionIds[0]!]),
     ).toBe(false);
-    const confirmed = { ...proposal, status: "Confirmed" as const };
-    expect(
-      hasExactSchoolServiceAttendance(confirmed, {
-        schoolId: SchoolId.make(1),
-        day: "Monday",
-        block: "1",
-        attendedPersonIds: [PersonId.make("person-1")],
-      }),
-    ).toBe(true);
-    expect(
-      hasExactSchoolServiceAttendance(confirmed, {
-        schoolId: SchoolId.make(1),
-        day: "Monday",
-        block: "1",
-        attendedPersonIds: [],
-      }),
-    ).toBe(false);
-    expect(
-      hasExactSchoolServiceAttendance(proposal, {
-        schoolId: SchoolId.make(1),
-        day: "Monday",
-        block: "1",
-        attendedPersonIds: [PersonId.make("person-1")],
-      }),
-    ).toBe(false);
+
   });
 
-  it("derives exact substituted attendance from immutable absence and acknowledgement facts", () => {
+  it("limits actual attendance to nonabsent scheduled or acknowledged people", () => {
     const confirmed = { ...proposal, status: "Confirmed" as const };
     const absence = {
       absenceId: SchoolServiceAbsenceId.make(`school-service-absence-${"b".repeat(64)}`),
+      commitmentId: SchoolServiceCommitmentId.make(`school-service-commitment-${"e".repeat(64)}`),
       proposalId: confirmed.proposalId,
       departmentId: DepartmentId.make("trondheim"),
       semesterId: SemesterId.make("2026-autumn"),
@@ -283,29 +261,28 @@ describe("school service proposal boundaries", () => {
       acknowledgedByPersonId: PersonId.make("coordinator"),
       acknowledgedAt: "2026-09-20T11:00:00.000Z",
     };
-    const slot = {
-      schoolId: SchoolId.make(1),
-      day: "Monday" as const,
-      block: "1" as const,
-      serviceDate: "2026-09-21",
-    };
-    expect(
-      hasExactSubstitutedSchoolServiceAttendance(confirmed, [absence], [acknowledgement], {
-        ...slot,
-        attendedPersonIds: [PersonId.make("person-2")],
-      }),
-    ).toBe(true);
-    expect(
-      hasExactSubstitutedSchoolServiceAttendance(confirmed, [absence], [acknowledgement], {
-        ...slot,
-        attendedPersonIds: [PersonId.make("person-1")],
-      }),
-    ).toBe(false);
-    expect(
-      hasExactSubstitutedSchoolServiceAttendance(confirmed, [absence], [acknowledgement], {
-        ...slot,
-        attendedPersonIds: [PersonId.make("person-2"), PersonId.make("person-2")],
-      }),
-    ).toBe(false);
+    const commitment = {
+      commitmentId: absence.commitmentId,
+      proposalId: confirmed.proposalId,
+      departmentId: absence.departmentId,
+      semesterId: absence.semesterId,
+      schoolId: absence.schoolId,
+      schoolName: absence.schoolName,
+      day: absence.day,
+      block: absence.block,
+      serviceDate: absence.serviceDate,
+      startTime: "09:00",
+      endTime: "11:00",
+      requiredVolunteers: 2,
+      assignments: confirmed.assignments.filter((assignment) => assignment.schoolId === absence.schoolId && assignment.day === absence.day && assignment.block === absence.block),
+      createdAt: "2026-09-20T09:00:00.000Z",
+      createdBy: PersonId.make("coordinator"),
+      decision: null,
+      overdue: true,
+    } as const;
+    expect(isEligibleSchoolServiceAttendance(commitment, [absence], [acknowledgement], [PersonId.make("person-2")])).toBe(true);
+    expect(isEligibleSchoolServiceAttendance(commitment, [absence], [acknowledgement], [])).toBe(true);
+    expect(isEligibleSchoolServiceAttendance(commitment, [absence], [acknowledgement], [PersonId.make("person-1")])).toBe(false);
+    expect(isEligibleSchoolServiceAttendance(commitment, [absence], [acknowledgement], [PersonId.make("person-2"), PersonId.make("person-2")])).toBe(false);
   });
 });

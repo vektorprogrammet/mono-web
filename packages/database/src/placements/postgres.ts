@@ -1,4 +1,5 @@
 import { Effect, Schema } from "effect";
+import { readSchoolServiceCommitments } from "./coverage.js";
 import { Database, type DatabaseShape } from "../service.js";
 import type { OrganizationPersonAuthority } from "@vektorprogrammet/domain/organization";
 import type { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
@@ -10,7 +11,6 @@ import {
   SchoolServiceProposal,
   buildSchoolServiceProposal,
   canManagePlacements,
-  hasExactSchoolServiceAttendance,
   hasExactSchoolServiceExceptionReview,
   nextAffiliationStatus,
   type PlacementScope,
@@ -143,7 +143,8 @@ export const readPlacementBoard = (scope: PlacementScope) =>
           ? []
           : yield* sql`SELECT effect_id AS "effectId",proposal_id AS "proposalId",person_id AS "personId",status,attempts,CASE WHEN delivered_at IS NULL THEN NULL ELSE to_char(delivered_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') END AS "deliveredAt",last_failure_tag AS "lastFailureTag" FROM public.school_service_notification_outbox WHERE proposal_id=${proposal.proposalId} ORDER BY person_id`;
       const occurrences =
-        yield* sql`SELECT o.occurrence_id AS "occurrenceId",o.proposal_id AS "proposalId",o.school_id::double precision AS "schoolId",s.name AS "schoolName",o.day,o.block,to_char(o.occurred_on,'YYYY-MM-DD') AS "occurredOn",o.attended_person_ids AS "attendedPersonIds",to_char(o.recorded_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "recordedAt",o.recorded_by_person_id AS "recordedBy" FROM public.school_service_occurrences o JOIN public.schools_directory_schools s USING(school_id) WHERE o.department_id=${scope.departmentId} AND o.semester_id=${scope.semesterId} ORDER BY o.occurred_on,o.occurrence_id`;
+        yield* sql`SELECT o.occurrence_id AS "occurrenceId",o.commitment_id AS "commitmentId",o.proposal_id AS "proposalId",o.school_id::double precision AS "schoolId",s.name AS "schoolName",o.day,o.block,to_char(o.occurred_on,'YYYY-MM-DD') AS "occurredOn",o.attended_person_ids AS "attendedPersonIds",to_char(o.recorded_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "recordedAt",o.recorded_by_person_id AS "recordedBy" FROM public.school_service_occurrences o JOIN public.schools_directory_schools s USING(school_id) WHERE o.department_id=${scope.departmentId} AND o.semester_id=${scope.semesterId} ORDER BY o.occurred_on,o.occurrence_id`;
+      const commitments = yield* readSchoolServiceCommitments(sql, scope);
       return yield* Schema.decodeUnknownEffect(PlacementBoard)({
         ...scope,
         affiliations,
@@ -152,6 +153,7 @@ export const readPlacementBoard = (scope: PlacementScope) =>
         demands,
         proposal,
         notifications,
+        commitments,
         occurrences,
       });
     }),
@@ -244,25 +246,45 @@ export const mutatePlacementBoard = (
         yield* sql`INSERT INTO public.school_service_audit(department_id,semester_id,actor_person_id,action,occurred_at,snapshot) VALUES(${scope.departmentId},${scope.semesterId},${actor},'ConfirmProposal',${now},${sql.json(command)})`;
         return yield* readPlacementBoard(scope);
       }
-      if (command.action === "RecordOccurrence") {
+      if (command.action === "ScheduleService") {
         const proposal = yield* readSchoolServiceProposal(sql, scope, command.proposalId);
-        if (proposal === null) return yield* fail("resource.not-found", 404);
-        const coverageAbsences =
-          yield* sql`SELECT 1 FROM public.school_service_absences WHERE proposal_id=${proposal.proposalId} AND department_id=${scope.departmentId} AND semester_id=${scope.semesterId} AND school_id=${command.schoolId} AND day=${command.day} AND block=${command.block} AND service_date=CAST(${command.occurredOn} AS date)`;
-        if (coverageAbsences.length > 0) {
-          return yield* fail("school-service.occurrence-invalid");
+        if (proposal?.status !== "Confirmed") return yield* fail("commitment.target-invalid");
+        if (command.startTime >= command.endTime) return yield* fail("commitment.interval-invalid");
+        const demand = proposal.demands.find((entry) => entry.schoolId === command.schoolId && entry.day === command.day && entry.block === command.block);
+        if (demand === undefined || demand.requiredVolunteers <= 0 ||
+          !board.schools.some((school) => school.schoolId === command.schoolId)) {
+          return yield* fail("commitment.target-invalid");
         }
-        if (!hasExactSchoolServiceAttendance(proposal, command)) {
-          return yield* fail("school-service.occurrence-invalid");
-        }
-        const validDate =
-          yield* sql`SELECT 1 FROM public.admission_period_semesters WHERE semester_id=${scope.semesterId} AND CAST(${command.occurredOn} AS date) BETWEEN start_at::date AND end_at::date`;
-        if (validDate.length === 0) return yield* fail("school-service.occurrence-invalid");
-        const duplicate =
-          yield* sql`SELECT 1 FROM public.school_service_occurrences WHERE proposal_id=${proposal.proposalId} AND school_id=${command.schoolId} AND day=${command.day} AND block=${command.block} AND occurred_on=CAST(${command.occurredOn} AS date)`;
-        if (duplicate.length > 0) return yield* fail("school-service.occurrence-duplicate", 409);
-        yield* sql`INSERT INTO public.school_service_occurrences(occurrence_id,proposal_id,department_id,semester_id,school_id,day,block,occurred_on,attended_person_ids,recorded_at,recorded_by_person_id) VALUES(${newId},${proposal.proposalId},${scope.departmentId},${scope.semesterId},${command.schoolId},${command.day},${command.block},CAST(${command.occurredOn} AS date),${sql.json(command.attendedPersonIds)},${now},${actor})`;
-        yield* sql`INSERT INTO public.school_service_audit(department_id,semester_id,actor_person_id,action,occurred_at,snapshot) VALUES(${scope.departmentId},${scope.semesterId},${actor},'RecordOccurrence',${now},${sql.json({ ...command, occurrenceId: newId })})`;
+        const validDate = yield* sql`SELECT 1 FROM public.admission_period_semesters
+          WHERE semester_id=${scope.semesterId}
+          AND CAST(${command.serviceDate} AS date) BETWEEN start_at::date AND end_at::date
+          AND EXTRACT(ISODOW FROM CAST(${command.serviceDate} AS date))=CASE ${command.day}
+            WHEN 'Monday' THEN 1 WHEN 'Tuesday' THEN 2 WHEN 'Wednesday' THEN 3
+            WHEN 'Thursday' THEN 4 WHEN 'Friday' THEN 5 ELSE 0 END`;
+        if (validDate.length === 0) return yield* fail("commitment.target-invalid");
+        const duplicate = yield* sql`SELECT 1 FROM public.school_service_commitments
+          WHERE department_id=${scope.departmentId} AND school_id=${command.schoolId}
+            AND service_date=CAST(${command.serviceDate} AS date) AND block=${command.block}`;
+        if (duplicate.length > 0) return yield* fail("commitment.duplicate",409);
+        const historical = yield* sql`SELECT 1 FROM public.school_service_occurrences
+          WHERE department_id=${scope.departmentId} AND school_id=${command.schoolId}
+            AND occurred_on=CAST(${command.serviceDate} AS date) AND block=${command.block}`;
+        if (historical.length > 0) return yield* fail("commitment.duplicate",409);
+        const oldAbsence = yield* sql`SELECT 1 FROM public.school_service_absences
+          WHERE department_id=${scope.departmentId} AND school_id=${command.schoolId}
+            AND service_date=CAST(${command.serviceDate} AS date) AND block=${command.block}`;
+        if (oldAbsence.length > 0) return yield* fail("commitment.duplicate",409);
+        const assignments = proposal.assignments.filter((entry) => entry.schoolId === command.schoolId && entry.day === command.day && entry.block === command.block);
+        const schoolName = board.schools.find((school) => school.schoolId === command.schoolId)!.name;
+        yield* sql`INSERT INTO public.school_service_commitments(
+          commitment_id,proposal_id,department_id,semester_id,school_id,school_name,day,block,
+          service_date,start_time,end_time,required_volunteers,assignment_snapshot,created_at,created_by_person_id
+        ) VALUES(${newId},${proposal.proposalId},${scope.departmentId},${scope.semesterId},
+          ${command.schoolId},${schoolName},${command.day},${command.block},CAST(${command.serviceDate} AS date),
+          CAST(${command.startTime} AS time),CAST(${command.endTime} AS time),${demand.requiredVolunteers},
+          ${sql.json(assignments)},${now},${actor})`;
+        yield* sql`INSERT INTO public.school_service_audit(department_id,semester_id,actor_person_id,action,occurred_at,snapshot)
+          VALUES(${scope.departmentId},${scope.semesterId},${actor},'ScheduleService',${now},${sql.json({ ...command, commitmentId: newId, requiredVolunteers: demand.requiredVolunteers, assignments })})`;
         return yield* readPlacementBoard(scope);
       }
       const existing =

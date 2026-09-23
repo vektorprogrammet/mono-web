@@ -10,6 +10,7 @@ import type {
   OwnAffiliationCommand,
   PlacementBoard,
   SchoolServiceAbsence,
+  SchoolServiceCommitment,
   SchoolServiceCoverageAcknowledgement,
   SchoolServiceProposal,
   SchoolServiceProposalAssignment,
@@ -28,20 +29,22 @@ export class PlacementFailure extends Data.TaggedError("PlacementFailure")<{
     | "school-service.proposal-empty"
     | "school-service.proposal-inactive"
     | "school-service.exception-review-invalid"
-    | "school-service.occurrence-invalid"
-    | "school-service.occurrence-duplicate"
+    | "commitment.target-invalid"
+    | "commitment.duplicate"
+    | "commitment.closed"
+    | "commitment.attendance-invalid"
+    | "commitment.outcome-invalid"
+    | "commitment.pending-offer"
+    | "commitment.interval-invalid"
     | "absence.target-invalid"
     | "absence.duplicate"
-    | "absence.closed"
     | "offer.candidate-ineligible"
     | "offer.unresolved"
     | "offer.owner-invalid"
     | "offer.response-invalid"
     | "offer.withdraw-invalid"
     | "coverage.acknowledgement-invalid"
-    | "coverage.pending-offer"
-    | "coverage.attendance-invalid"
-    | "coverage.occurrence-duplicate";
+;
   readonly status: 403 | 404 | 409 | 422;
 }> {}
 
@@ -211,68 +214,18 @@ export const hasExactSchoolServiceExceptionReview = (
     reviewedExceptionIds,
   );
 
-export const hasExactSchoolServiceAttendance = (
-  proposal: SchoolServiceProposal,
-  slot: {
-    readonly schoolId: SchoolId;
-    readonly day: SchoolServiceProposalAssignment["day"];
-    readonly block: SchoolServiceProposalAssignment["block"];
-    readonly attendedPersonIds: ReadonlyArray<PersonId>;
-  },
-): boolean => {
-  if (proposal.status !== "Confirmed") return false;
-  const expected = proposal.assignments
-    .filter(
-      (assignment) =>
-        assignment.schoolId === slot.schoolId &&
-        assignment.day === slot.day &&
-        assignment.block === slot.block,
-    )
-    .map((assignment) => assignment.personId);
-  return expected.length > 0 && exactUniqueValues(expected, slot.attendedPersonIds);
-};
-
-/**
- * Attendance is derived from separate immutable facts. An absence removes only
- * its scheduled person, while an acknowledgement adds only the fixed candidate.
- */
-export const hasExactSubstitutedSchoolServiceAttendance = (
-  proposal: SchoolServiceProposal,
+/** Actual attendees may be fewer than eligible people, but never include an absent scheduled person or an unacknowledged substitute. */
+export const isEligibleSchoolServiceAttendance = (
+  commitment: SchoolServiceCommitment,
   absences: ReadonlyArray<SchoolServiceAbsence>,
   acknowledgements: ReadonlyArray<SchoolServiceCoverageAcknowledgement>,
-  slot: {
-    readonly schoolId: SchoolId;
-    readonly day: SchoolServiceProposalAssignment["day"];
-    readonly block: SchoolServiceProposalAssignment["block"];
-    readonly serviceDate: string;
-    readonly attendedPersonIds: ReadonlyArray<PersonId>;
-  },
+  attendees: ReadonlyArray<PersonId>,
 ): boolean => {
-  if (proposal.status !== "Confirmed") return false;
-  const roster = proposal.assignments
-    .filter(
-      (assignment) =>
-        assignment.schoolId === slot.schoolId &&
-        assignment.day === slot.day &&
-        assignment.block === slot.block,
-    )
-    .map((assignment) => assignment.personId);
-  if (roster.length === 0) return false;
-  const slotAbsences = absences.filter(
-    (absence) =>
-      absence.proposalId === proposal.proposalId &&
-      absence.schoolId === slot.schoolId &&
-      absence.day === slot.day &&
-      absence.block === slot.block &&
-      absence.serviceDate === slot.serviceDate,
-  );
-  const absentPeople = new Set(slotAbsences.map((absence) => absence.personId));
-  const absenceIds = new Set(slotAbsences.map((absence) => absence.absenceId));
-  const substitutions = acknowledgements
-    .filter((acknowledgement) => absenceIds.has(acknowledgement.absenceId))
-    .map((acknowledgement) => acknowledgement.candidatePersonId);
-  return exactUniqueValues(
-    [...roster.filter((personId) => !absentPeople.has(personId)), ...substitutions],
-    slot.attendedPersonIds,
-  );
+  if (new Set(attendees).size !== attendees.length) return false;
+  const absentIds = new Set(absences.map((absence) => absence.personId));
+  const eligible = new Set([
+    ...commitment.assignments.filter((assignment) => !absentIds.has(assignment.personId)).map((assignment) => assignment.personId),
+    ...acknowledgements.map((acknowledgement) => acknowledgement.candidatePersonId),
+  ]);
+  return attendees.every((personId) => eligible.has(personId));
 };
