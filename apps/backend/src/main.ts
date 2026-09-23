@@ -6,10 +6,10 @@ import * as BunServices from "@effect/platform-bun/BunServices";
 import {
   AuthEngine,
   AuthLive,
-  DatabaseLive,
   databaseHealth,
   type AuthEngineService,
 } from "@vektorprogrammet/database";
+import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { ReturningAssistantsLive } from "@vektorprogrammet/database/application";
 import { ContentLive, ContentManagementLive } from "@vektorprogrammet/database/content";
