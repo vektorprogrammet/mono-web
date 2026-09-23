@@ -186,7 +186,7 @@ try {
     sourceRevision: "synthetic-person-source-0108",
     snapshotId: "person-cohort-0108",
     transformationRevision: "0106-v1",
-    synthetic: true,
+    sourceKind: "Synthetic" as const,
     occurrences: personOccurrences,
     mappings: personMappings,
   });
@@ -307,7 +307,7 @@ try {
     sourceRevision: "synthetic-history-source-0108",
     snapshotId: "historical-service-0108",
     transformationRevision: "0108-v1",
-    synthetic: true,
+    sourceKind: "Synthetic" as const,
     occurrences,
     mappings,
   };

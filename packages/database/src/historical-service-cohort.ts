@@ -6,6 +6,7 @@ import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/org
 import { SchoolId } from "@vektorprogrammet/domain/schools";
 
 const Id = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9._:-]{1,128}$/)));
+const Sha256 = /^[a-f0-9]{64}$/;
 const Label = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1)),
   Schema.check(Schema.isMaxLength(256)),
@@ -37,12 +38,15 @@ export const HistoricalServiceSnapshot = Schema.Struct({
   sourceRevision: Id,
   snapshotId: Id,
   transformationRevision: Id,
-  synthetic: Schema.Literal(true),
-  occurrences: Schema.Array(Schema.Struct({ occurrenceId: Id, row: Schema.Unknown })).pipe(
-    Schema.check(Schema.isMinLength(1)),
-    Schema.check(Schema.isMaxLength(1000)),
-  ),
-  mappings: Schema.Array(HistoricalServiceMapping).pipe(Schema.check(Schema.isMaxLength(1000))),
+  sourceKind: Schema.Literals(["Synthetic", "LegacyBackup"]),
+  occurrences: Schema.Array(
+    Schema.Struct({
+      occurrenceId: Id,
+      row: Schema.Unknown,
+      sourceRowDigest: Schema.optional(Schema.Unknown),
+    }),
+  ).pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(10_000))),
+  mappings: Schema.Array(HistoricalServiceMapping).pipe(Schema.check(Schema.isMaxLength(10_000))),
 });
 export type HistoricalServiceSnapshot = typeof HistoricalServiceSnapshot.Type;
 type LegacyServiceRow = typeof LegacyServiceRow.Type;
@@ -94,6 +98,9 @@ export interface HistoricalServiceReport {
 }
 
 const digest = (value: unknown) => createHash("sha256").update(canonicalJson(value)).digest("hex");
+export const historicalServiceSourceRowDigest = (row: unknown): string => digest(row);
+const declaredRowDigest = (value: unknown): string | undefined =>
+  typeof value === "string" && Sha256.test(value) ? value : undefined;
 const sourceIdOf = (row: unknown): string | undefined =>
   typeof row === "object" &&
   row !== null &&
@@ -176,15 +183,24 @@ export const importHistoricalServiceCohort = async (
   const snapshotKey = digest([snapshot.sourceRepository, snapshot.snapshotId]);
   const snapshotDigest = digest(snapshot);
   const decoded = snapshot.occurrences.map((occurrence) => {
+    const rawRowDigest = historicalServiceSourceRowDigest(occurrence.row);
+    const sourceRowDigest = declaredRowDigest(occurrence.sourceRowDigest);
+    const digestMismatch =
+      snapshot.sourceKind === "LegacyBackup" && sourceRowDigest !== rawRowDigest;
     try {
       return {
         ...occurrence,
-        value: Schema.decodeUnknownSync(LegacyServiceRow)(occurrence.row, {
-          onExcessProperty: "error",
-        }),
+        rawRowDigest,
+        sourceRowDigest,
+        digestMismatch,
+        value: digestMismatch
+          ? undefined
+          : Schema.decodeUnknownSync(LegacyServiceRow)(occurrence.row, {
+              onExcessProperty: "error",
+            }),
       };
     } catch {
-      return { ...occurrence, value: undefined };
+      return { ...occurrence, rawRowDigest, sourceRowDigest, digestMismatch, value: undefined };
     }
   });
   const mappingsBySource = new Map<string, HistoricalServiceMapping[]>();
@@ -225,14 +241,23 @@ export const importHistoricalServiceCohort = async (
     const acceptedImports = await tx.query<{
       source_history_id: string;
       source_digest: string;
+      raw_row_digest: string | null;
+      source_kind: "Synthetic" | "LegacyBackup";
       person_id: string;
       school_id: string;
       semester_id: string;
       block: NativeBlock;
     }>(
-      `SELECT source_history_id, source_digest, person_id, school_id::text, semester_id, block
-         FROM public.assistant_service_history
-        WHERE source_repository = $1`,
+      `SELECT history.source_history_id, history.source_digest, occurrence.raw_row_digest,
+              snapshot.source_kind, history.person_id, history.school_id::text,
+              history.semester_id, history.block
+         FROM public.assistant_service_history history
+         JOIN public.historical_service_occurrences occurrence
+           ON (history.snapshot_key, history.occurrence_id) =
+              (occurrence.snapshot_key, occurrence.occurrence_id)
+         JOIN public.historical_service_snapshots snapshot
+           ON snapshot.snapshot_key = history.snapshot_key
+        WHERE history.source_repository = $1`,
       [snapshot.sourceRepository],
     );
     const importedBySource = new Map(
@@ -248,13 +273,16 @@ export const importHistoricalServiceCohort = async (
     for (const occurrence of decoded) {
       const sourceHistoryId = sourceIdOf(occurrence.row);
       const previous = sourceHistoryId ? importedBySource.get(sourceHistoryId) : undefined;
-      if (previous !== undefined) {
+      if (previous !== undefined && !occurrence.digestMismatch) {
         const mappings = sourceHistoryId ? (mappingsBySource.get(sourceHistoryId) ?? []) : [];
         const mapping = mappings.length === 1 ? mappings[0] : undefined;
         if (
           !occurrence.value ||
           !mapping ||
           !referencesMatch(occurrence.value, mapping) ||
+          previous.source_kind !== snapshot.sourceKind ||
+          (snapshot.sourceKind === "LegacyBackup" &&
+            previous.raw_row_digest !== occurrence.rawRowDigest) ||
           previous.source_digest !== digest({ row: occurrence.value, mapping })
         )
           throw new HistoricalServiceFailure("SourceIdentityConflict");
@@ -264,8 +292,8 @@ export const importHistoricalServiceCohort = async (
     await tx.query(
       `INSERT INTO public.historical_service_snapshots
          (snapshot_key, source_repository, snapshot_id, source_revision,
-          transformation_revision, snapshot_digest, occurrence_count)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          transformation_revision, snapshot_digest, occurrence_count, source_kind)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         snapshotKey,
         snapshot.sourceRepository,
@@ -274,6 +302,7 @@ export const importHistoricalServiceCohort = async (
         snapshot.transformationRevision,
         snapshotDigest,
         snapshot.occurrences.length,
+        snapshot.sourceKind,
       ],
     );
 
@@ -338,9 +367,16 @@ export const importHistoricalServiceCohort = async (
       const accepted = reason === "Imported" || reason === "ExactReplay";
       await tx.query(
         `INSERT INTO public.historical_service_occurrences
-           (snapshot_key, occurrence_id, disposition, reason)
-         VALUES ($1, $2, $3, $4)`,
-        [snapshotKey, occurrence.occurrenceId, accepted ? "Accepted" : "Quarantined", reason],
+           (snapshot_key, occurrence_id, disposition, reason, raw_row_digest, source_row_digest)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          snapshotKey,
+          occurrence.occurrenceId,
+          accepted ? "Accepted" : "Quarantined",
+          reason,
+          occurrence.rawRowDigest,
+          occurrence.sourceRowDigest ?? null,
+        ],
       );
       if (reason === "Imported" && row && mapping && sourceDigest) {
         await tx.query(

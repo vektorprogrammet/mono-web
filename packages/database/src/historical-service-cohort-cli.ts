@@ -2,6 +2,7 @@ import { Effect, Redacted } from "effect";
 import { Pool } from "pg";
 import { parseDisposableCohortDatabaseUrl, readPrivateCohortJson } from "./cohort-cli.js";
 import {
+  decodeHistoricalServiceSnapshot,
   HistoricalServiceFailure,
   importHistoricalServiceCohort,
 } from "./historical-service-cohort.js";
@@ -14,13 +15,17 @@ export const disposableHistoricalServiceDatabaseUrl = (value: string | undefined
   parseDisposableCohortDatabaseUrl(value, /^\/historical_service_[a-z0-9_]+$/, invalidSnapshot);
 
 export const runHistoricalServiceCohortCli = async (): Promise<void> => {
+  const mode = process.env.HISTORICAL_SERVICE_MODE;
   if (
-    process.env.HISTORICAL_SERVICE_MODE !== "synthetic" ||
+    (mode !== "synthetic" && mode !== "legacy-backup") ||
     process.env.NATIVE_IDENTITY_DEPLOYMENT !== "local"
   )
     throw invalidSnapshot();
   const url = disposableHistoricalServiceDatabaseUrl(process.env.HISTORICAL_SERVICE_PG_URL);
-  const input = await readPrivateCohortJson(process.env.HISTORICAL_SERVICE_INPUT, invalidSnapshot);
+  const input = decodeHistoricalServiceSnapshot(
+    await readPrivateCohortJson(process.env.HISTORICAL_SERVICE_INPUT, invalidSnapshot, 16_777_216),
+  );
+  if ((mode === "synthetic") !== (input.sourceKind === "Synthetic")) throw invalidSnapshot();
   await Effect.runPromise(
     databaseHealth.pipe(
       Effect.provide(DatabaseLive({ url: Redacted.make(url), maxConnections: 1 })),

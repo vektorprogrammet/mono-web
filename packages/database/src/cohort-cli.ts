@@ -26,6 +26,7 @@ export const parseDisposableCohortDatabaseUrl = (
 export const readPrivateCohortJson = async (
   path: string | undefined,
   invalid: () => Error,
+  maxBytes = 1_048_576,
 ): Promise<unknown> => {
   if (!path || process.argv.length !== 2) throw invalid();
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -33,7 +34,7 @@ export const readPrivateCohortJson = async (
     const stat = await file.stat();
     if (
       !stat.isFile() ||
-      stat.size > 1_048_576 ||
+      stat.size > maxBytes ||
       (stat.mode & 0o077) !== 0 ||
       stat.uid !== process.getuid?.()
     )
