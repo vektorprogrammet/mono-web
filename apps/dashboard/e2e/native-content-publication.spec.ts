@@ -417,20 +417,18 @@ test.describe("Native Content publication (spec 0062)", () => {
       const authorAccessibility = await new AxeBuilder({ page: author.page }).analyze();
       expect(authorAccessibility.violations).toEqual([]);
 
-      // --- Ended-only and no-authority personas: typed denials ---------
-      for (const [name, person, expectedTag] of [
-        ["endedOnlyMember", persons.endedOnlyMember, "AuthorityInactive"],
-        ["noAuthority", persons.noAuthority, "NotInScope"],
+      // --- Ended-only and no-authority personas: safely indistinguishable denials ---
+      for (const [name, person] of [
+        ["endedOnlyMember", persons.endedOnlyMember],
+        ["noAuthority", persons.noAuthority],
       ] as const) {
         const denied = await openContext(browser, browserRequests, browserResponses, pageErrors);
         contexts.push(denied.context);
         await signIn(denied.page, person, "/dashboard/artikler");
         await expect(denied.page.getByRole("alert")).toContainText(
-          expectedTag === "AuthorityInactive"
-            ? "ikke aktiv"
-            : "ikke tilgang til artikkeladministrasjon",
+          "ikke tilgang til artikkeladministrasjon",
         );
-        observations[name] = { status: 403, tag: expectedTag, renderedAt: "/dashboard/artikler" };
+        observations[name] = { status: 403, tag: "NotInScope", renderedAt: "/dashboard/artikler" };
       }
 
       // --- Anonymous public reads --------------------------------------
