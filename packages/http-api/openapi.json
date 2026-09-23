@@ -363,7 +363,7 @@
                 "interviewer": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_92"
+                      "$ref": "#/components/schemas/Objects_96"
                     },
                     {
                       "type": "null"
@@ -373,7 +373,7 @@
                 "interviewSchema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_93"
+                      "$ref": "#/components/schemas/Objects_97"
                     },
                     {
                       "type": "null"
@@ -427,13 +427,13 @@
           },
           "interviewers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_92"
+              "$ref": "#/components/schemas/Objects_96"
             },
             "type": "array"
           },
           "interviewSchemas": {
             "items": {
-              "$ref": "#/components/schemas/Objects_93"
+              "$ref": "#/components/schemas/Objects_97"
             },
             "type": "array"
           }
@@ -536,7 +536,7 @@
           },
           "periods": {
             "items": {
-              "$ref": "#/components/schemas/Objects_91"
+              "$ref": "#/components/schemas/Objects_95"
             },
             "type": "array"
           },
@@ -691,7 +691,7 @@
         "properties": {
           "answers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_96"
+              "$ref": "#/components/schemas/Objects_100"
             },
             "type": "array"
           },
@@ -794,7 +794,7 @@
                     },
                     "answers": {
                       "items": {
-                        "$ref": "#/components/schemas/Objects_96"
+                        "$ref": "#/components/schemas/Objects_100"
                       },
                       "type": "array"
                     },
@@ -823,7 +823,7 @@
                       "type": "integer"
                     },
                     "score": {
-                      "$ref": "#/components/schemas/Objects_97"
+                      "$ref": "#/components/schemas/Objects_101"
                     }
                   },
                   "required": [
@@ -852,7 +852,7 @@
                     },
                     "answers": {
                       "items": {
-                        "$ref": "#/components/schemas/Objects_96"
+                        "$ref": "#/components/schemas/Objects_100"
                       },
                       "type": "array"
                     },
@@ -885,7 +885,7 @@
                       "type": "integer"
                     },
                     "score": {
-                      "$ref": "#/components/schemas/Objects_97"
+                      "$ref": "#/components/schemas/Objects_101"
                     }
                   },
                   "required": [
@@ -948,7 +948,7 @@
           "score": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Objects_97"
+                "$ref": "#/components/schemas/Objects_101"
               },
               {
                 "type": "null"
@@ -1059,7 +1059,7 @@
         "properties": {
           "answers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_96"
+              "$ref": "#/components/schemas/Objects_100"
             },
             "type": "array"
           },
@@ -1075,7 +1075,7 @@
             "$ref": "#/components/schemas/Union_21"
           },
           "score": {
-            "$ref": "#/components/schemas/Objects_97"
+            "$ref": "#/components/schemas/Objects_101"
           }
         },
         "required": [
@@ -1140,7 +1140,7 @@
         "properties": {
           "absences": {
             "items": {
-              "$ref": "#/components/schemas/Objects_66"
+              "$ref": "#/components/schemas/Objects_70"
             },
             "type": "array"
           },
@@ -1272,12 +1272,19 @@
                   "type": "string"
                 },
                 "occurrenceId": {
-                  "allOf": [
+                  "anyOf": [
                     {
-                      "pattern": "^school-service-occurrence-[a-f0-9]{64}$"
+                      "allOf": [
+                        {
+                          "pattern": "^school-service-occurrence-[a-f0-9]{64}$"
+                        }
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
                     }
-                  ],
-                  "type": "string"
+                  ]
                 },
                 "outcome": {
                   "enum": [
@@ -1315,12 +1322,18 @@
             },
             "type": "array"
           },
+          "commitments": {
+            "items": {
+              "$ref": "#/components/schemas/Objects_68"
+            },
+            "type": "array"
+          },
           "departmentId": {
             "type": "string"
           },
           "dispatchNotifications": {
             "items": {
-              "$ref": "#/components/schemas/Objects_69"
+              "$ref": "#/components/schemas/Objects_73"
             },
             "type": "array"
           },
@@ -1329,19 +1342,19 @@
           },
           "occurrences": {
             "items": {
-              "$ref": "#/components/schemas/Objects_65"
+              "$ref": "#/components/schemas/Objects_69"
             },
             "type": "array"
           },
           "offers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_67"
+              "$ref": "#/components/schemas/Objects_71"
             },
             "type": "array"
           },
           "responses": {
             "items": {
-              "$ref": "#/components/schemas/Objects_68"
+              "$ref": "#/components/schemas/Objects_72"
             },
             "type": "array"
           },
@@ -1415,6 +1428,7 @@
           "departmentId",
           "semesterId",
           "rosterAssignments",
+          "commitments",
           "absences",
           "candidates",
           "offers",
@@ -2067,7 +2081,7 @@
         "properties": {
           "answers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_96"
+              "$ref": "#/components/schemas/Objects_100"
             },
             "type": "array"
           },
@@ -2075,7 +2089,7 @@
             "$ref": "#/components/schemas/Union_21"
           },
           "score": {
-            "$ref": "#/components/schemas/Objects_97"
+            "$ref": "#/components/schemas/Objects_101"
           }
         },
         "required": [
@@ -2577,6 +2591,144 @@
       "Objects_100": {
         "additionalProperties": false,
         "properties": {
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            ]
+          },
+          "questionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "questionId",
+          "answer"
+        ],
+        "type": "object"
+      },
+      "Objects_101": {
+        "additionalProperties": false,
+        "properties": {
+          "explanatoryPower": {
+            "type": "integer"
+          },
+          "roleModel": {
+            "type": "integer"
+          },
+          "suitability": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "explanatoryPower",
+          "roleModel",
+          "suitability"
+        ],
+        "type": "object"
+      },
+      "Objects_102": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "request.malformed"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The request is malformed."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              400
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Malformed request"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:request.malformed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_103": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "header.malformed"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "A request header is malformed."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              400
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Malformed header"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:header.malformed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_104": {
+        "additionalProperties": false,
+        "properties": {
           "code": {
             "enum": [
               "credential.missing"
@@ -2620,7 +2772,7 @@
         ],
         "type": "object"
       },
-      "Objects_101": {
+      "Objects_105": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -2666,7 +2818,7 @@
         ],
         "type": "object"
       },
-      "Objects_102": {
+      "Objects_106": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -2712,7 +2864,7 @@
         ],
         "type": "object"
       },
-      "Objects_103": {
+      "Objects_107": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -2758,7 +2910,7 @@
         ],
         "type": "object"
       },
-      "Objects_104": {
+      "Objects_108": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -2804,7 +2956,7 @@
         ],
         "type": "object"
       },
-      "Objects_105": {
+      "Objects_109": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -2850,7 +3002,53 @@
         ],
         "type": "object"
       },
-      "Objects_106": {
+      "Objects_11": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "authority.denied"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The authenticated principal is not permitted to perform this operation."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              403
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Authority denied"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:authority.denied"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_110": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -2896,7 +3094,7 @@
         ],
         "type": "object"
       },
-      "Objects_107": {
+      "Objects_111": {
         "additionalProperties": false,
         "properties": {
           "articleId": {
@@ -3002,7 +3200,7 @@
         ],
         "type": "object"
       },
-      "Objects_108": {
+      "Objects_112": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -3048,7 +3246,7 @@
         ],
         "type": "object"
       },
-      "Objects_109": {
+      "Objects_113": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -3094,53 +3292,7 @@
         ],
         "type": "object"
       },
-      "Objects_11": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "authority.denied"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The authenticated principal is not permitted to perform this operation."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              403
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Authority denied"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:authority.denied"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_110": {
+      "Objects_114": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -3186,7 +3338,7 @@
         ],
         "type": "object"
       },
-      "Objects_111": {
+      "Objects_115": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -3232,7 +3384,7 @@
         ],
         "type": "object"
       },
-      "Objects_112": {
+      "Objects_116": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -3278,7 +3430,7 @@
         ],
         "type": "object"
       },
-      "Objects_113": {
+      "Objects_117": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -3324,7 +3476,7 @@
         ],
         "type": "object"
       },
-      "Objects_114": {
+      "Objects_118": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -3370,7 +3522,7 @@
         ],
         "type": "object"
       },
-      "Objects_115": {
+      "Objects_119": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -3403,98 +3555,6 @@
           "type": {
             "enum": [
               "urn:vektorprogrammet:problem:v0.2:internal.error"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_116": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "dependency.unavailable"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "A required dependency is temporarily unavailable."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              503
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Dependency unavailable"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:dependency.unavailable"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_117": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "organization.unavailable"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The organization service is temporarily unavailable."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              503
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Organization unavailable"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:organization.unavailable"
             ],
             "type": "string"
           }
@@ -3541,6 +3601,98 @@
           "type": {
             "enum": [
               "urn:vektorprogrammet:problem:v0.2:resource.not-found"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_120": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "dependency.unavailable"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "A required dependency is temporarily unavailable."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              503
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Dependency unavailable"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:dependency.unavailable"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_121": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "organization.unavailable"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The organization service is temporarily unavailable."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              503
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Organization unavailable"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:organization.unavailable"
             ],
             "type": "string"
           }
@@ -4710,7 +4862,7 @@
           },
           "detail": {
             "enum": [
-              "No active volunteer assignments are available for this proposal."
+              "No school demand or active assignment is available for a proposal."
             ],
             "type": "string"
           },
@@ -4842,13 +4994,13 @@
         "properties": {
           "code": {
             "enum": [
-              "school-service.occurrence-invalid"
+              "commitment.target-invalid"
             ],
             "type": "string"
           },
           "detail": {
             "enum": [
-              "Attendance must match one confirmed school, day and block roster exactly."
+              "Choose a confirmed roster slot with positive demand on a date in its semester."
             ],
             "type": "string"
           },
@@ -4863,13 +5015,13 @@
           },
           "title": {
             "enum": [
-              "Invalid teaching occurrence"
+              "Invalid service commitment"
             ],
             "type": "string"
           },
           "type": {
             "enum": [
-              "urn:vektorprogrammet:problem:v0.2:school-service.occurrence-invalid"
+              "urn:vektorprogrammet:problem:v0.2:commitment.target-invalid"
             ],
             "type": "string"
           }
@@ -4888,13 +5040,13 @@
         "properties": {
           "code": {
             "enum": [
-              "absence.target-invalid"
+              "commitment.attendance-invalid"
             ],
             "type": "string"
           },
           "detail": {
             "enum": [
-              "The person is not scheduled for this confirmed proposal slot and service date."
+              "Record actual attendance only for scheduled assistants and acknowledged substitutes."
             ],
             "type": "string"
           },
@@ -4909,13 +5061,13 @@
           },
           "title": {
             "enum": [
-              "Invalid absence target"
+              "Invalid service attendance"
             ],
             "type": "string"
           },
           "type": {
             "enum": [
-              "urn:vektorprogrammet:problem:v0.2:absence.target-invalid"
+              "urn:vektorprogrammet:problem:v0.2:commitment.attendance-invalid"
             ],
             "type": "string"
           }
@@ -4980,6 +5132,144 @@
         "properties": {
           "code": {
             "enum": [
+              "commitment.outcome-invalid"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "Completed service must meet demand. Unfulfilled service must record unmet demand."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              422
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Service outcome does not match demand"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:commitment.outcome-invalid"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_41": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "commitment.interval-invalid"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The start time must be before the end time on the service date."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              422
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Invalid service interval"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:commitment.interval-invalid"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_42": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "absence.target-invalid"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The person is not scheduled for this open dated commitment."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              422
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Invalid absence target"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:absence.target-invalid"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_43": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
               "offer.candidate-ineligible"
             ],
             "type": "string"
@@ -5021,53 +5311,7 @@
         ],
         "type": "object"
       },
-      "Objects_41": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "coverage.attendance-invalid"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "Attendance must exactly equal the confirmed roster minus absences plus acknowledged substitutes."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              422
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Invalid substituted attendance"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:coverage.attendance-invalid"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_42": {
+      "Objects_44": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -5113,7 +5357,7 @@
         ],
         "type": "object"
       },
-      "Objects_43": {
+      "Objects_45": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -5159,7 +5403,7 @@
         ],
         "type": "object"
       },
-      "Objects_44": {
+      "Objects_46": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -5205,7 +5449,7 @@
         ],
         "type": "object"
       },
-      "Objects_45": {
+      "Objects_47": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -5251,7 +5495,7 @@
         ],
         "type": "object"
       },
-      "Objects_46": {
+      "Objects_48": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -5297,110 +5541,18 @@
         ],
         "type": "object"
       },
-      "Objects_47": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "school-service.occurrence-duplicate"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "This confirmed roster already has a teaching occurrence for the date and slot."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              409
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Duplicate teaching occurrence"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:school-service.occurrence-duplicate"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_48": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "absence.duplicate"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "An absence has already been reported for this person, slot and service date."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              409
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Duplicate absence report"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:absence.duplicate"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
       "Objects_49": {
         "additionalProperties": false,
         "properties": {
           "code": {
             "enum": [
-              "absence.closed"
+              "commitment.duplicate"
             ],
             "type": "string"
           },
           "detail": {
             "enum": [
-              "This absence already has an immutable service closure."
+              "This school already has a commitment for the selected date and teaching block."
             ],
             "type": "string"
           },
@@ -5415,13 +5567,13 @@
           },
           "title": {
             "enum": [
-              "Coverage already closed"
+              "Service commitment already exists"
             ],
             "type": "string"
           },
           "type": {
             "enum": [
-              "urn:vektorprogrammet:problem:v0.2:absence.closed"
+              "urn:vektorprogrammet:problem:v0.2:commitment.duplicate"
             ],
             "type": "string"
           }
@@ -5486,6 +5638,190 @@
         "properties": {
           "code": {
             "enum": [
+              "commitment.closed"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "This commitment has an immutable outcome."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              409
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Service outcome already recorded"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:commitment.closed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_51": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "commitment.pending-offer"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "Resolve each offered or accepted substitute offer before recording a service outcome."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              409
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Service has a pending offer"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:commitment.pending-offer"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_52": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "absence.duplicate"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "An absence has already been reported for this person, slot and service date."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              409
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Duplicate absence report"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:absence.duplicate"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_53": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "absence.closed"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "This absence already has an immutable service closure."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              409
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Coverage already closed"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:absence.closed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_54": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
               "offer.unresolved"
             ],
             "type": "string"
@@ -5527,7 +5863,7 @@
         ],
         "type": "object"
       },
-      "Objects_51": {
+      "Objects_55": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -5573,7 +5909,7 @@
         ],
         "type": "object"
       },
-      "Objects_52": {
+      "Objects_56": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -5619,7 +5955,7 @@
         ],
         "type": "object"
       },
-      "Objects_53": {
+      "Objects_57": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -5665,99 +6001,7 @@
         ],
         "type": "object"
       },
-      "Objects_54": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "coverage.pending-offer"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "An offered or accepted substitute offer must be declined, withdrawn or acknowledged before closure."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              409
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Coverage has a pending offer"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:coverage.pending-offer"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_55": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "coverage.occurrence-duplicate"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "This confirmed proposal slot already has a teaching occurrence for the service date."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              409
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Duplicate covered teaching occurrence"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:coverage.occurrence-duplicate"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_56": {
+      "Objects_58": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -5803,7 +6047,7 @@
         ],
         "type": "object"
       },
-      "Objects_57": {
+      "Objects_59": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -5836,98 +6080,6 @@
           "type": {
             "enum": [
               "urn:vektorprogrammet:problem:v0.2:idempotency.digest-conflict"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_58": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "idempotency.response-expired"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The stored response for this idempotency identity has expired."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              409
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Idempotent response expired"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:idempotency.response-expired"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_59": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "transaction.conflict"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "Another transaction changed the selected state. Refresh before retrying."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              409
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Concurrent transaction conflict"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:transaction.conflict"
             ],
             "type": "string"
           }
@@ -5992,6 +6144,98 @@
         "properties": {
           "code": {
             "enum": [
+              "idempotency.response-expired"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The stored response for this idempotency identity has expired."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              409
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Idempotent response expired"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:idempotency.response-expired"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_61": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "transaction.conflict"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "Another transaction changed the selected state. Refresh before retrying."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              409
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Concurrent transaction conflict"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:transaction.conflict"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_62": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
               "precondition.required"
             ],
             "type": "string"
@@ -6033,7 +6277,7 @@
         ],
         "type": "object"
       },
-      "Objects_61": {
+      "Objects_63": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -6079,7 +6323,7 @@
         ],
         "type": "object"
       },
-      "Objects_62": {
+      "Objects_64": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -6125,7 +6369,7 @@
         ],
         "type": "object"
       },
-      "Objects_63": {
+      "Objects_65": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -6171,7 +6415,7 @@
         ],
         "type": "object"
       },
-      "Objects_64": {
+      "Objects_66": {
         "additionalProperties": false,
         "properties": {
           "block": {
@@ -6212,7 +6456,233 @@
         ],
         "type": "object"
       },
-      "Objects_65": {
+      "Objects_67": {
+        "additionalProperties": false,
+        "properties": {
+          "block": {
+            "$ref": "#/components/schemas/Union_6"
+          },
+          "day": {
+            "$ref": "#/components/schemas/Union_4"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "personId": {
+            "type": "string"
+          },
+          "placementId": {
+            "allOf": [
+              {
+                "pattern": "^placement-[a-f0-9]{64}$"
+              }
+            ],
+            "type": "string"
+          },
+          "schoolId": {
+            "allOf": [
+              {
+                "exclusiveMinimum": 0
+              }
+            ],
+            "type": "integer"
+          },
+          "schoolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "placementId",
+          "personId",
+          "firstName",
+          "lastName",
+          "schoolId",
+          "schoolName",
+          "day",
+          "block"
+        ],
+        "type": "object"
+      },
+      "Objects_68": {
+        "additionalProperties": false,
+        "properties": {
+          "assignments": {
+            "items": {
+              "$ref": "#/components/schemas/Objects_67"
+            },
+            "type": "array"
+          },
+          "block": {
+            "$ref": "#/components/schemas/Union_6"
+          },
+          "commitmentId": {
+            "allOf": [
+              {
+                "pattern": "^school-service-commitment-[a-f0-9]{64}$"
+              }
+            ],
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "day": {
+            "$ref": "#/components/schemas/Union_4"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "attendedPersonIds": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "decidedAt": {
+                    "type": "string"
+                  },
+                  "decidedBy": {
+                    "type": "string"
+                  },
+                  "evidenceSource": {
+                    "type": "string"
+                  },
+                  "occurrenceId": {
+                    "anyOf": [
+                      {
+                        "allOf": [
+                          {
+                            "pattern": "^school-service-occurrence-[a-f0-9]{64}$"
+                          }
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "outcome": {
+                    "enum": [
+                      "Completed",
+                      "Cancelled",
+                      "Unfulfilled"
+                    ],
+                    "type": "string"
+                  },
+                  "reason": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "outcome",
+                  "decidedAt",
+                  "decidedBy",
+                  "evidenceSource",
+                  "reason",
+                  "attendedPersonIds",
+                  "occurrenceId"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "departmentId": {
+            "type": "string"
+          },
+          "endTime": {
+            "allOf": [
+              {
+                "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+              }
+            ],
+            "type": "string"
+          },
+          "overdue": {
+            "type": "boolean"
+          },
+          "proposalId": {
+            "allOf": [
+              {
+                "pattern": "^school-service-proposal-[a-f0-9]{64}$"
+              }
+            ],
+            "type": "string"
+          },
+          "requiredVolunteers": {
+            "allOf": [
+              {
+                "exclusiveMinimum": 0
+              }
+            ],
+            "type": "integer"
+          },
+          "schoolId": {
+            "allOf": [
+              {
+                "exclusiveMinimum": 0
+              }
+            ],
+            "type": "integer"
+          },
+          "schoolName": {
+            "type": "string"
+          },
+          "semesterId": {
+            "type": "string"
+          },
+          "serviceDate": {
+            "type": "string"
+          },
+          "startTime": {
+            "allOf": [
+              {
+                "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+              }
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "commitmentId",
+          "proposalId",
+          "departmentId",
+          "semesterId",
+          "schoolId",
+          "schoolName",
+          "day",
+          "block",
+          "serviceDate",
+          "startTime",
+          "endTime",
+          "requiredVolunteers",
+          "assignments",
+          "createdAt",
+          "createdBy",
+          "decision",
+          "overdue"
+        ],
+        "type": "object"
+      },
+      "Objects_69": {
         "additionalProperties": false,
         "properties": {
           "attendedPersonIds": {
@@ -6223,6 +6693,21 @@
           },
           "block": {
             "$ref": "#/components/schemas/Union_6"
+          },
+          "commitmentId": {
+            "anyOf": [
+              {
+                "allOf": [
+                  {
+                    "pattern": "^school-service-commitment-[a-f0-9]{64}$"
+                  }
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "day": {
             "$ref": "#/components/schemas/Union_4"
@@ -6265,6 +6750,7 @@
           }
         },
         "required": [
+          "commitmentId",
           "occurrenceId",
           "proposalId",
           "schoolId",
@@ -6278,7 +6764,57 @@
         ],
         "type": "object"
       },
-      "Objects_66": {
+      "Objects_7": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "validation.failed"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The request contains invalid semantic values."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              422
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Validation failed"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:validation.failed"
+            ],
+            "type": "string"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/Objects_8"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail",
+          "validation"
+        ],
+        "type": "object"
+      },
+      "Objects_70": {
         "additionalProperties": false,
         "properties": {
           "absenceId": {
@@ -6291,6 +6827,21 @@
           },
           "block": {
             "$ref": "#/components/schemas/Union_6"
+          },
+          "commitmentId": {
+            "anyOf": [
+              {
+                "allOf": [
+                  {
+                    "pattern": "^school-service-commitment-[a-f0-9]{64}$"
+                  }
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "day": {
             "$ref": "#/components/schemas/Union_4"
@@ -6335,6 +6886,7 @@
         },
         "required": [
           "absenceId",
+          "commitmentId",
           "proposalId",
           "departmentId",
           "semesterId",
@@ -6349,7 +6901,7 @@
         ],
         "type": "object"
       },
-      "Objects_67": {
+      "Objects_71": {
         "additionalProperties": false,
         "properties": {
           "absenceId": {
@@ -6439,6 +6991,21 @@
             ],
             "type": "object"
           },
+          "endTime": {
+            "anyOf": [
+              {
+                "allOf": [
+                  {
+                    "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+                  }
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "offerId": {
             "allOf": [
               {
@@ -6475,6 +7042,21 @@
           "serviceDate": {
             "type": "string"
           },
+          "startTime": {
+            "anyOf": [
+              {
+                "allOf": [
+                  {
+                    "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+                  }
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "status": {
             "enum": [
               "Offered",
@@ -6500,6 +7082,8 @@
           "day",
           "block",
           "serviceDate",
+          "startTime",
+          "endTime",
           "dispatcherPersonId",
           "dispatchedAt",
           "status",
@@ -6508,7 +7092,7 @@
         ],
         "type": "object"
       },
-      "Objects_68": {
+      "Objects_72": {
         "additionalProperties": false,
         "properties": {
           "absenceId": {
@@ -6550,7 +7134,7 @@
         ],
         "type": "object"
       },
-      "Objects_69": {
+      "Objects_73": {
         "additionalProperties": false,
         "properties": {
           "absenceId": {
@@ -6629,57 +7213,7 @@
         ],
         "type": "object"
       },
-      "Objects_7": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "validation.failed"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The request contains invalid semantic values."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              422
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Validation failed"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:validation.failed"
-            ],
-            "type": "string"
-          },
-          "validation": {
-            "$ref": "#/components/schemas/Objects_8"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail",
-          "validation"
-        ],
-        "type": "object"
-      },
-      "Objects_70": {
+      "Objects_74": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -6725,7 +7259,7 @@
         ],
         "type": "object"
       },
-      "Objects_71": {
+      "Objects_75": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -6771,7 +7305,7 @@
         ],
         "type": "object"
       },
-      "Objects_72": {
+      "Objects_76": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -6817,7 +7351,7 @@
         ],
         "type": "object"
       },
-      "Objects_73": {
+      "Objects_77": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -6863,7 +7397,7 @@
         ],
         "type": "object"
       },
-      "Objects_74": {
+      "Objects_78": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -6909,7 +7443,7 @@
         ],
         "type": "object"
       },
-      "Objects_75": {
+      "Objects_79": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -6956,190 +7490,6 @@
           "code",
           "detail",
           "validation"
-        ],
-        "type": "object"
-      },
-      "Objects_76": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "credential.invalid"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The supplied credential is invalid."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              401
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Invalid credential"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:credential.invalid"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_77": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "authority.denied"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The authenticated principal is not permitted to perform this operation."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              403
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Authority denied"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:authority.denied"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_78": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "resource.not-found"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The requested resource was not found."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              404
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Resource not found"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:resource.not-found"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_79": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "precondition.required"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "This operation requires an If-Match header."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              428
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Precondition required"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:precondition.required"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
         ],
         "type": "object"
       },
@@ -7350,6 +7700,190 @@
         "properties": {
           "code": {
             "enum": [
+              "credential.invalid"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The supplied credential is invalid."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              401
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Invalid credential"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:credential.invalid"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_81": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "authority.denied"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The authenticated principal is not permitted to perform this operation."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              403
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Authority denied"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:authority.denied"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_82": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "resource.not-found"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The requested resource was not found."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              404
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Resource not found"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:resource.not-found"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_83": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "precondition.required"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "This operation requires an If-Match header."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              428
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Precondition required"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:precondition.required"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_84": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
               "precondition.failed"
             ],
             "type": "string"
@@ -7391,7 +7925,7 @@
         ],
         "type": "object"
       },
-      "Objects_81": {
+      "Objects_85": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -7437,7 +7971,7 @@
         ],
         "type": "object"
       },
-      "Objects_82": {
+      "Objects_86": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -7483,7 +8017,7 @@
         ],
         "type": "object"
       },
-      "Objects_83": {
+      "Objects_87": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -7529,7 +8063,7 @@
         ],
         "type": "object"
       },
-      "Objects_84": {
+      "Objects_88": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -7575,7 +8109,7 @@
         ],
         "type": "object"
       },
-      "Objects_85": {
+      "Objects_89": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -7621,7 +8155,53 @@
         ],
         "type": "object"
       },
-      "Objects_86": {
+      "Objects_9": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "scope.invalid"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "enum": [
+              "The selected department, semester or school is not available in this scope."
+            ],
+            "type": "string"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Union_"
+          },
+          "status": {
+            "enum": [
+              422
+            ],
+            "type": "number"
+          },
+          "title": {
+            "enum": [
+              "Invalid scope"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "urn:vektorprogrammet:problem:v0.2:scope.invalid"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "Objects_90": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -7667,7 +8247,7 @@
         ],
         "type": "object"
       },
-      "Objects_87": {
+      "Objects_91": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -7713,7 +8293,7 @@
         ],
         "type": "object"
       },
-      "Objects_88": {
+      "Objects_92": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -7759,7 +8339,7 @@
         ],
         "type": "object"
       },
-      "Objects_89": {
+      "Objects_93": {
         "additionalProperties": false,
         "examples": [
           {
@@ -7861,53 +8441,7 @@
         ],
         "type": "object"
       },
-      "Objects_9": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "scope.invalid"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The selected department, semester or school is not available in this scope."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              422
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Invalid scope"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:scope.invalid"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_90": {
+      "Objects_94": {
         "additionalProperties": false,
         "properties": {
           "campus": {
@@ -7955,7 +8489,7 @@
         ],
         "type": "object"
       },
-      "Objects_91": {
+      "Objects_95": {
         "additionalProperties": false,
         "properties": {
           "departmentId": {
@@ -8010,7 +8544,7 @@
         ],
         "type": "object"
       },
-      "Objects_92": {
+      "Objects_96": {
         "additionalProperties": false,
         "properties": {
           "displayName": {
@@ -8031,7 +8565,7 @@
         ],
         "type": "object"
       },
-      "Objects_93": {
+      "Objects_97": {
         "additionalProperties": false,
         "properties": {
           "active": {
@@ -8074,7 +8608,7 @@
         ],
         "type": "object"
       },
-      "Objects_94": {
+      "Objects_98": {
         "additionalProperties": false,
         "properties": {
           "displayName": {
@@ -8103,7 +8637,7 @@
         ],
         "type": "object"
       },
-      "Objects_95": {
+      "Objects_99": {
         "additionalProperties": false,
         "properties": {
           "applicantId": {
@@ -8132,144 +8666,6 @@
           "lastName",
           "email",
           "phone"
-        ],
-        "type": "object"
-      },
-      "Objects_96": {
-        "additionalProperties": false,
-        "properties": {
-          "answer": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            ]
-          },
-          "questionId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "questionId",
-          "answer"
-        ],
-        "type": "object"
-      },
-      "Objects_97": {
-        "additionalProperties": false,
-        "properties": {
-          "explanatoryPower": {
-            "type": "integer"
-          },
-          "roleModel": {
-            "type": "integer"
-          },
-          "suitability": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "explanatoryPower",
-          "roleModel",
-          "suitability"
-        ],
-        "type": "object"
-      },
-      "Objects_98": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "request.malformed"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "The request is malformed."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              400
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Malformed request"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:request.malformed"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "Objects_99": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "header.malformed"
-            ],
-            "type": "string"
-          },
-          "detail": {
-            "enum": [
-              "A request header is malformed."
-            ],
-            "type": "string"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/Union_"
-          },
-          "status": {
-            "enum": [
-              400
-            ],
-            "type": "number"
-          },
-          "title": {
-            "enum": [
-              "Malformed header"
-            ],
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "urn:vektorprogrammet:problem:v0.2:header.malformed"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail"
         ],
         "type": "object"
       },
@@ -8443,7 +8839,13 @@
         "properties": {
           "absences": {
             "items": {
-              "$ref": "#/components/schemas/Objects_66"
+              "$ref": "#/components/schemas/Objects_70"
+            },
+            "type": "array"
+          },
+          "commitments": {
+            "items": {
+              "$ref": "#/components/schemas/Objects_68"
             },
             "type": "array"
           },
@@ -8452,7 +8854,7 @@
           },
           "dispatchNotifications": {
             "items": {
-              "$ref": "#/components/schemas/Objects_69"
+              "$ref": "#/components/schemas/Objects_73"
             },
             "type": "array"
           },
@@ -8461,13 +8863,16 @@
           },
           "offers": {
             "items": {
-              "$ref": "#/components/schemas/Objects_67"
+              "$ref": "#/components/schemas/Objects_71"
             },
             "type": "array"
           },
+          "personId": {
+            "type": "string"
+          },
           "responses": {
             "items": {
-              "$ref": "#/components/schemas/Objects_68"
+              "$ref": "#/components/schemas/Objects_72"
             },
             "type": "array"
           },
@@ -8519,7 +8924,9 @@
         "required": [
           "departmentId",
           "semesterId",
+          "personId",
           "rosterSlots",
+          "commitments",
           "absences",
           "offers",
           "responses",
@@ -8678,9 +9085,15 @@
             },
             "type": "array"
           },
+          "commitments": {
+            "items": {
+              "$ref": "#/components/schemas/Objects_68"
+            },
+            "type": "array"
+          },
           "demands": {
             "items": {
-              "$ref": "#/components/schemas/Objects_64"
+              "$ref": "#/components/schemas/Objects_66"
             },
             "type": "array"
           },
@@ -8765,7 +9178,7 @@
           },
           "occurrences": {
             "items": {
-              "$ref": "#/components/schemas/Objects_65"
+              "$ref": "#/components/schemas/Objects_69"
             },
             "type": "array"
           },
@@ -8855,54 +9268,7 @@
                 "properties": {
                   "assignments": {
                     "items": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "block": {
-                          "$ref": "#/components/schemas/Union_6"
-                        },
-                        "day": {
-                          "$ref": "#/components/schemas/Union_4"
-                        },
-                        "firstName": {
-                          "type": "string"
-                        },
-                        "lastName": {
-                          "type": "string"
-                        },
-                        "personId": {
-                          "type": "string"
-                        },
-                        "placementId": {
-                          "allOf": [
-                            {
-                              "pattern": "^placement-[a-f0-9]{64}$"
-                            }
-                          ],
-                          "type": "string"
-                        },
-                        "schoolId": {
-                          "allOf": [
-                            {
-                              "exclusiveMinimum": 0
-                            }
-                          ],
-                          "type": "integer"
-                        },
-                        "schoolName": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "placementId",
-                        "personId",
-                        "firstName",
-                        "lastName",
-                        "schoolId",
-                        "schoolName",
-                        "day",
-                        "block"
-                      ],
-                      "type": "object"
+                      "$ref": "#/components/schemas/Objects_67"
                     },
                     "type": "array"
                   },
@@ -8934,7 +9300,7 @@
                   },
                   "demands": {
                     "items": {
-                      "$ref": "#/components/schemas/Objects_64"
+                      "$ref": "#/components/schemas/Objects_66"
                     },
                     "type": "array"
                   },
@@ -9089,6 +9455,7 @@
           "demands",
           "proposal",
           "notifications",
+          "commitments",
           "occurrences",
           "etag"
         ],
@@ -10500,7 +10867,7 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_95"
+                "$ref": "#/components/schemas/Objects_99"
               },
               "applicationId": {
                 "type": "string"
@@ -10515,7 +10882,7 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_94"
+                "$ref": "#/components/schemas/Objects_98"
               },
               "interviewId": {
                 "type": "string"
@@ -10561,7 +10928,7 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_95"
+                "$ref": "#/components/schemas/Objects_99"
               },
               "applicationId": {
                 "type": "string"
@@ -10576,7 +10943,7 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_94"
+                "$ref": "#/components/schemas/Objects_98"
               },
               "interviewId": {
                 "type": "string"
@@ -10626,7 +10993,7 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_95"
+                "$ref": "#/components/schemas/Objects_99"
               },
               "applicationId": {
                 "type": "string"
@@ -10641,7 +11008,7 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_94"
+                "$ref": "#/components/schemas/Objects_98"
               },
               "interviewId": {
                 "type": "string"
@@ -10701,7 +11068,7 @@
             "additionalProperties": false,
             "properties": {
               "applicant": {
-                "$ref": "#/components/schemas/Objects_95"
+                "$ref": "#/components/schemas/Objects_99"
               },
               "applicationId": {
                 "type": "string"
@@ -10716,7 +11083,7 @@
                 "type": "string"
               },
               "interviewer": {
-                "$ref": "#/components/schemas/Objects_94"
+                "$ref": "#/components/schemas/Objects_98"
               },
               "interviewId": {
                 "type": "string"
@@ -10773,13 +11140,13 @@
         "properties": {
           "activeSchools": {
             "items": {
-              "$ref": "#/components/schemas/Objects_89"
+              "$ref": "#/components/schemas/Objects_93"
             },
             "type": "array"
           },
           "inactiveSchools": {
             "items": {
-              "$ref": "#/components/schemas/Objects_89"
+              "$ref": "#/components/schemas/Objects_93"
             },
             "type": "array"
           }
@@ -16518,7 +16885,7 @@
                                     "type": "string"
                                   },
                                   "schedule": {
-                                    "$ref": "#/components/schemas/Objects_90"
+                                    "$ref": "#/components/schemas/Objects_94"
                                   }
                                 },
                                 "required": [
@@ -16537,7 +16904,7 @@
                                     "type": "string"
                                   },
                                   "schedule": {
-                                    "$ref": "#/components/schemas/Objects_90"
+                                    "$ref": "#/components/schemas/Objects_94"
                                   }
                                 },
                                 "required": [
@@ -22151,7 +22518,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Objects_107"
+                  "$ref": "#/components/schemas/Objects_111"
                 }
               }
             },
@@ -23040,7 +23407,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Objects_107"
+                  "$ref": "#/components/schemas/Objects_111"
                 }
               }
             },
@@ -33010,16 +33377,16 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_70"
+                      "$ref": "#/components/schemas/Objects_74"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_71"
+                      "$ref": "#/components/schemas/Objects_75"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_72"
+                      "$ref": "#/components/schemas/Objects_76"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_73"
+                      "$ref": "#/components/schemas/Objects_77"
                     }
                   ]
                 }
@@ -33049,7 +33416,7 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_76"
+                          "$ref": "#/components/schemas/Objects_80"
                         }
                       ]
                     },
@@ -33088,7 +33455,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_77"
+                      "$ref": "#/components/schemas/Objects_81"
                     }
                   ]
                 }
@@ -33116,7 +33483,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_78"
+                      "$ref": "#/components/schemas/Objects_82"
                     }
                   ]
                 }
@@ -33144,22 +33511,22 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_81"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_82"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_83"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_84"
-                    },
-                    {
                       "$ref": "#/components/schemas/Objects_85"
                     },
                     {
                       "$ref": "#/components/schemas/Objects_86"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_87"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_88"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_89"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_90"
                     }
                   ]
                 }
@@ -33203,7 +33570,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_80"
+                      "$ref": "#/components/schemas/Objects_84"
                     }
                   ]
                 }
@@ -33231,7 +33598,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_74"
+                      "$ref": "#/components/schemas/Objects_78"
                     }
                   ]
                 }
@@ -33259,7 +33626,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_88"
+                      "$ref": "#/components/schemas/Objects_92"
                     }
                   ]
                 }
@@ -33287,7 +33654,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_75"
+                      "$ref": "#/components/schemas/Objects_79"
                     }
                   ]
                 }
@@ -33315,7 +33682,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_79"
+                      "$ref": "#/components/schemas/Objects_83"
                     }
                   ]
                 }
@@ -33343,7 +33710,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_87"
+                      "$ref": "#/components/schemas/Objects_91"
                     }
                   ]
                 }
@@ -33501,16 +33868,16 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_70"
+                      "$ref": "#/components/schemas/Objects_74"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_71"
+                      "$ref": "#/components/schemas/Objects_75"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_72"
+                      "$ref": "#/components/schemas/Objects_76"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_73"
+                      "$ref": "#/components/schemas/Objects_77"
                     }
                   ]
                 }
@@ -33540,7 +33907,7 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_76"
+                          "$ref": "#/components/schemas/Objects_80"
                         }
                       ]
                     },
@@ -33579,7 +33946,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_77"
+                      "$ref": "#/components/schemas/Objects_81"
                     }
                   ]
                 }
@@ -33607,7 +33974,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_78"
+                      "$ref": "#/components/schemas/Objects_82"
                     }
                   ]
                 }
@@ -33635,22 +34002,22 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_81"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_82"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_83"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_84"
-                    },
-                    {
                       "$ref": "#/components/schemas/Objects_85"
                     },
                     {
                       "$ref": "#/components/schemas/Objects_86"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_87"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_88"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_89"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_90"
                     }
                   ]
                 }
@@ -33694,7 +34061,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_80"
+                      "$ref": "#/components/schemas/Objects_84"
                     }
                   ]
                 }
@@ -33722,7 +34089,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_74"
+                      "$ref": "#/components/schemas/Objects_78"
                     }
                   ]
                 }
@@ -33750,7 +34117,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_88"
+                      "$ref": "#/components/schemas/Objects_92"
                     }
                   ]
                 }
@@ -33778,7 +34145,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_75"
+                      "$ref": "#/components/schemas/Objects_79"
                     }
                   ]
                 }
@@ -33806,7 +34173,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_79"
+                      "$ref": "#/components/schemas/Objects_83"
                     }
                   ]
                 }
@@ -33834,7 +34201,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_87"
+                      "$ref": "#/components/schemas/Objects_91"
                     }
                   ]
                 }
@@ -34022,16 +34389,16 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_70"
+                      "$ref": "#/components/schemas/Objects_74"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_71"
+                      "$ref": "#/components/schemas/Objects_75"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_72"
+                      "$ref": "#/components/schemas/Objects_76"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_73"
+                      "$ref": "#/components/schemas/Objects_77"
                     }
                   ]
                 }
@@ -34059,7 +34426,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_76"
+                      "$ref": "#/components/schemas/Objects_80"
                     }
                   ]
                 }
@@ -34093,7 +34460,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_77"
+                      "$ref": "#/components/schemas/Objects_81"
                     }
                   ]
                 }
@@ -34121,7 +34488,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_78"
+                      "$ref": "#/components/schemas/Objects_82"
                     }
                   ]
                 }
@@ -34149,22 +34516,22 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_81"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_82"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_83"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_84"
-                    },
-                    {
                       "$ref": "#/components/schemas/Objects_85"
                     },
                     {
                       "$ref": "#/components/schemas/Objects_86"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_87"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_88"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_89"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_90"
                     }
                   ]
                 }
@@ -34208,7 +34575,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_80"
+                      "$ref": "#/components/schemas/Objects_84"
                     }
                   ]
                 }
@@ -34236,7 +34603,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_74"
+                      "$ref": "#/components/schemas/Objects_78"
                     }
                   ]
                 }
@@ -34264,7 +34631,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_88"
+                      "$ref": "#/components/schemas/Objects_92"
                     }
                   ]
                 }
@@ -34292,7 +34659,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_75"
+                      "$ref": "#/components/schemas/Objects_79"
                     }
                   ]
                 }
@@ -34320,7 +34687,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_79"
+                      "$ref": "#/components/schemas/Objects_83"
                     }
                   ]
                 }
@@ -34348,7 +34715,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_87"
+                      "$ref": "#/components/schemas/Objects_91"
                     }
                   ]
                 }
@@ -35668,7 +36035,7 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_42"
+                          "$ref": "#/components/schemas/Objects_44"
                         }
                       ]
                     },
@@ -35707,10 +36074,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_43"
+                      "$ref": "#/components/schemas/Objects_45"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_44"
+                      "$ref": "#/components/schemas/Objects_46"
                     }
                   ]
                 }
@@ -35738,7 +36105,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_45"
+                      "$ref": "#/components/schemas/Objects_47"
                     }
                   ]
                 }
@@ -35765,12 +36132,6 @@
               "application/problem+json": {
                 "schema": {
                   "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/Objects_46"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_47"
-                    },
                     {
                       "$ref": "#/components/schemas/Objects_48"
                     },
@@ -35806,6 +36167,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_59"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_60"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_61"
                     }
                   ]
                 }
@@ -35849,7 +36216,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_61"
+                      "$ref": "#/components/schemas/Objects_63"
                     }
                   ]
                 }
@@ -35905,7 +36272,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_63"
+                      "$ref": "#/components/schemas/Objects_65"
                     }
                   ]
                 }
@@ -35967,6 +36334,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_41"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_42"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_43"
                     }
                   ]
                 }
@@ -35994,7 +36367,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_60"
+                      "$ref": "#/components/schemas/Objects_62"
                     }
                   ]
                 }
@@ -36022,7 +36395,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_62"
+                      "$ref": "#/components/schemas/Objects_64"
                     }
                   ]
                 }
@@ -36087,7 +36460,7 @@
         }
       },
       "post": {
-        "description": "Conditional audited commands; demand, proposal, confirmation, notification, occurrence, and placement scope stay transaction-bound.",
+        "description": "Commands keep demand, proposals, commitments, and placement changes inside one transaction.",
         "operationId": "placements.commandBoard",
         "parameters": [
           {
@@ -36372,15 +36745,9 @@
                     "properties": {
                       "action": {
                         "enum": [
-                          "RecordOccurrence"
+                          "ScheduleService"
                         ],
                         "type": "string"
-                      },
-                      "attendedPersonIds": {
-                        "items": {
-                          "type": "string"
-                        },
-                        "type": "array"
                       },
                       "block": {
                         "$ref": "#/components/schemas/Union_6"
@@ -36388,7 +36755,12 @@
                       "day": {
                         "$ref": "#/components/schemas/Union_4"
                       },
-                      "occurredOn": {
+                      "endTime": {
+                        "allOf": [
+                          {
+                            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+                          }
+                        ],
                         "type": "string"
                       },
                       "proposalId": {
@@ -36406,6 +36778,17 @@
                           }
                         ],
                         "type": "integer"
+                      },
+                      "serviceDate": {
+                        "type": "string"
+                      },
+                      "startTime": {
+                        "allOf": [
+                          {
+                            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+                          }
+                        ],
+                        "type": "string"
                       }
                     },
                     "required": [
@@ -36414,8 +36797,9 @@
                       "schoolId",
                       "day",
                       "block",
-                      "occurredOn",
-                      "attendedPersonIds"
+                      "serviceDate",
+                      "startTime",
+                      "endTime"
                     ],
                     "type": "object"
                   }
@@ -36501,7 +36885,7 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_42"
+                          "$ref": "#/components/schemas/Objects_44"
                         }
                       ]
                     },
@@ -36540,10 +36924,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_43"
+                      "$ref": "#/components/schemas/Objects_45"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_44"
+                      "$ref": "#/components/schemas/Objects_46"
                     }
                   ]
                 }
@@ -36571,7 +36955,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_45"
+                      "$ref": "#/components/schemas/Objects_47"
                     }
                   ]
                 }
@@ -36598,12 +36982,6 @@
               "application/problem+json": {
                 "schema": {
                   "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/Objects_46"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_47"
-                    },
                     {
                       "$ref": "#/components/schemas/Objects_48"
                     },
@@ -36639,6 +37017,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_59"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_60"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_61"
                     }
                   ]
                 }
@@ -36682,7 +37066,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_61"
+                      "$ref": "#/components/schemas/Objects_63"
                     }
                   ]
                 }
@@ -36738,7 +37122,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_63"
+                      "$ref": "#/components/schemas/Objects_65"
                     }
                   ]
                 }
@@ -36800,6 +37184,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_41"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_42"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_43"
                     }
                   ]
                 }
@@ -36827,7 +37217,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_60"
+                      "$ref": "#/components/schemas/Objects_62"
                     }
                   ]
                 }
@@ -36855,7 +37245,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_62"
+                      "$ref": "#/components/schemas/Objects_64"
                     }
                   ]
                 }
@@ -36886,7 +37276,7 @@
             "oauthUserBearer": []
           }
         ],
-        "summary": "Manage volunteer placement and school service",
+        "summary": "Manage placement and dated school service",
         "tags": [
           "Volunteer placement"
         ],
@@ -37004,7 +37394,7 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_42"
+                          "$ref": "#/components/schemas/Objects_44"
                         }
                       ]
                     },
@@ -37043,10 +37433,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_43"
+                      "$ref": "#/components/schemas/Objects_45"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_44"
+                      "$ref": "#/components/schemas/Objects_46"
                     }
                   ]
                 }
@@ -37074,7 +37464,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_45"
+                      "$ref": "#/components/schemas/Objects_47"
                     }
                   ]
                 }
@@ -37101,12 +37491,6 @@
               "application/problem+json": {
                 "schema": {
                   "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/Objects_46"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_47"
-                    },
                     {
                       "$ref": "#/components/schemas/Objects_48"
                     },
@@ -37142,6 +37526,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_59"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_60"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_61"
                     }
                   ]
                 }
@@ -37185,7 +37575,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_61"
+                      "$ref": "#/components/schemas/Objects_63"
                     }
                   ]
                 }
@@ -37241,7 +37631,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_63"
+                      "$ref": "#/components/schemas/Objects_65"
                     }
                   ]
                 }
@@ -37303,6 +37693,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_41"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_42"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_43"
                     }
                   ]
                 }
@@ -37330,7 +37726,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_60"
+                      "$ref": "#/components/schemas/Objects_62"
                     }
                   ]
                 }
@@ -37358,7 +37754,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_62"
+                      "$ref": "#/components/schemas/Objects_64"
                     }
                   ]
                 }
@@ -37550,7 +37946,7 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_42"
+                          "$ref": "#/components/schemas/Objects_44"
                         }
                       ]
                     },
@@ -37589,10 +37985,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_43"
+                      "$ref": "#/components/schemas/Objects_45"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_44"
+                      "$ref": "#/components/schemas/Objects_46"
                     }
                   ]
                 }
@@ -37620,7 +38016,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_45"
+                      "$ref": "#/components/schemas/Objects_47"
                     }
                   ]
                 }
@@ -37647,12 +38043,6 @@
               "application/problem+json": {
                 "schema": {
                   "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/Objects_46"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_47"
-                    },
                     {
                       "$ref": "#/components/schemas/Objects_48"
                     },
@@ -37688,6 +38078,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_59"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_60"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_61"
                     }
                   ]
                 }
@@ -37731,7 +38127,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_61"
+                      "$ref": "#/components/schemas/Objects_63"
                     }
                   ]
                 }
@@ -37787,7 +38183,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_63"
+                      "$ref": "#/components/schemas/Objects_65"
                     }
                   ]
                 }
@@ -37849,6 +38245,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_41"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_42"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_43"
                     }
                   ]
                 }
@@ -37876,7 +38278,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_60"
+                      "$ref": "#/components/schemas/Objects_62"
                     }
                   ]
                 }
@@ -37904,7 +38306,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_62"
+                      "$ref": "#/components/schemas/Objects_64"
                     }
                   ]
                 }
@@ -37971,7 +38373,7 @@
     },
     "/api/placements/coverage": {
       "get": {
-        "description": "Only a currently scoped coordinator can read candidate eligibility, offer delivery, acknowledgement, occurrence, and immutable closure facts.",
+        "description": "Only a scoped coordinator can read candidates, offers, actual attendance, per-absence closures, and commitment outcomes.",
         "operationId": "placements.readCoverageBoard",
         "parameters": [
           {
@@ -38061,7 +38463,7 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_42"
+                          "$ref": "#/components/schemas/Objects_44"
                         }
                       ]
                     },
@@ -38100,10 +38502,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_43"
+                      "$ref": "#/components/schemas/Objects_45"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_44"
+                      "$ref": "#/components/schemas/Objects_46"
                     }
                   ]
                 }
@@ -38131,7 +38533,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_45"
+                      "$ref": "#/components/schemas/Objects_47"
                     }
                   ]
                 }
@@ -38158,12 +38560,6 @@
               "application/problem+json": {
                 "schema": {
                   "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/Objects_46"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_47"
-                    },
                     {
                       "$ref": "#/components/schemas/Objects_48"
                     },
@@ -38199,6 +38595,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_59"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_60"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_61"
                     }
                   ]
                 }
@@ -38242,7 +38644,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_61"
+                      "$ref": "#/components/schemas/Objects_63"
                     }
                   ]
                 }
@@ -38298,7 +38700,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_63"
+                      "$ref": "#/components/schemas/Objects_65"
                     }
                   ]
                 }
@@ -38360,6 +38762,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_41"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_42"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_43"
                     }
                   ]
                 }
@@ -38387,7 +38795,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_60"
+                      "$ref": "#/components/schemas/Objects_62"
                     }
                   ]
                 }
@@ -38415,7 +38823,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_62"
+                      "$ref": "#/components/schemas/Objects_64"
                     }
                   ]
                 }
@@ -38480,7 +38888,7 @@
         }
       },
       "post": {
-        "description": "Every coordinator command rechecks department scope, roster, candidate eligibility, offer transition, acknowledgement, exact attendance, and immutable closure inside one serializable transaction.",
+        "description": "Commands check coordinator scope, actual attendance, and immutable outcome evidence inside one transaction.",
         "operationId": "placements.commandCoverageBoard",
         "parameters": [
           {
@@ -38530,43 +38938,22 @@
                         ],
                         "type": "string"
                       },
-                      "block": {
-                        "$ref": "#/components/schemas/Union_6"
-                      },
-                      "day": {
-                        "$ref": "#/components/schemas/Union_4"
+                      "commitmentId": {
+                        "allOf": [
+                          {
+                            "pattern": "^school-service-commitment-[a-f0-9]{64}$"
+                          }
+                        ],
+                        "type": "string"
                       },
                       "personId": {
-                        "type": "string"
-                      },
-                      "proposalId": {
-                        "allOf": [
-                          {
-                            "pattern": "^school-service-proposal-[a-f0-9]{64}$"
-                          }
-                        ],
-                        "type": "string"
-                      },
-                      "schoolId": {
-                        "allOf": [
-                          {
-                            "exclusiveMinimum": 0
-                          }
-                        ],
-                        "type": "integer"
-                      },
-                      "serviceDate": {
                         "type": "string"
                       }
                     },
                     "required": [
                       "action",
                       "personId",
-                      "proposalId",
-                      "schoolId",
-                      "day",
-                      "block",
-                      "serviceDate"
+                      "commitmentId"
                     ],
                     "type": "object"
                   },
@@ -38651,7 +39038,7 @@
                     "properties": {
                       "action": {
                         "enum": [
-                          "CloseCoverage"
+                          "CompleteService"
                         ],
                         "type": "string"
                       },
@@ -38661,40 +39048,94 @@
                         },
                         "type": "array"
                       },
-                      "block": {
-                        "$ref": "#/components/schemas/Union_6"
-                      },
-                      "day": {
-                        "$ref": "#/components/schemas/Union_4"
-                      },
-                      "occurredOn": {
-                        "type": "string"
-                      },
-                      "proposalId": {
+                      "commitmentId": {
                         "allOf": [
                           {
-                            "pattern": "^school-service-proposal-[a-f0-9]{64}$"
+                            "pattern": "^school-service-commitment-[a-f0-9]{64}$"
                           }
                         ],
                         "type": "string"
                       },
-                      "schoolId": {
-                        "allOf": [
-                          {
-                            "exclusiveMinimum": 0
-                          }
-                        ],
-                        "type": "integer"
+                      "evidenceSource": {
+                        "type": "string"
                       }
                     },
                     "required": [
                       "action",
-                      "proposalId",
-                      "schoolId",
-                      "day",
-                      "block",
-                      "occurredOn",
-                      "attendedPersonIds"
+                      "commitmentId",
+                      "attendedPersonIds",
+                      "evidenceSource"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "action": {
+                        "enum": [
+                          "CancelService"
+                        ],
+                        "type": "string"
+                      },
+                      "commitmentId": {
+                        "allOf": [
+                          {
+                            "pattern": "^school-service-commitment-[a-f0-9]{64}$"
+                          }
+                        ],
+                        "type": "string"
+                      },
+                      "evidenceSource": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "action",
+                      "commitmentId",
+                      "reason",
+                      "evidenceSource"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "action": {
+                        "enum": [
+                          "MarkUnfulfilledService"
+                        ],
+                        "type": "string"
+                      },
+                      "attendedPersonIds": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "commitmentId": {
+                        "allOf": [
+                          {
+                            "pattern": "^school-service-commitment-[a-f0-9]{64}$"
+                          }
+                        ],
+                        "type": "string"
+                      },
+                      "evidenceSource": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "action",
+                      "commitmentId",
+                      "attendedPersonIds",
+                      "reason",
+                      "evidenceSource"
                     ],
                     "type": "object"
                   }
@@ -38780,7 +39221,7 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_42"
+                          "$ref": "#/components/schemas/Objects_44"
                         }
                       ]
                     },
@@ -38819,10 +39260,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_43"
+                      "$ref": "#/components/schemas/Objects_45"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_44"
+                      "$ref": "#/components/schemas/Objects_46"
                     }
                   ]
                 }
@@ -38850,7 +39291,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_45"
+                      "$ref": "#/components/schemas/Objects_47"
                     }
                   ]
                 }
@@ -38877,12 +39318,6 @@
               "application/problem+json": {
                 "schema": {
                   "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/Objects_46"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_47"
-                    },
                     {
                       "$ref": "#/components/schemas/Objects_48"
                     },
@@ -38918,6 +39353,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_59"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_60"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_61"
                     }
                   ]
                 }
@@ -38961,7 +39402,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_61"
+                      "$ref": "#/components/schemas/Objects_63"
                     }
                   ]
                 }
@@ -39017,7 +39458,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_63"
+                      "$ref": "#/components/schemas/Objects_65"
                     }
                   ]
                 }
@@ -39079,6 +39520,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_41"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_42"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_43"
                     }
                   ]
                 }
@@ -39106,7 +39553,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_60"
+                      "$ref": "#/components/schemas/Objects_62"
                     }
                   ]
                 }
@@ -39134,7 +39581,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_62"
+                      "$ref": "#/components/schemas/Objects_64"
                     }
                   ]
                 }
@@ -39165,7 +39612,7 @@
             "oauthUserBearer": []
           }
         ],
-        "summary": "Coordinate coverage and close service",
+        "summary": "Coordinate coverage and decide dated service",
         "tags": [
           "Volunteer placement"
         ],
@@ -39201,7 +39648,7 @@
     },
     "/api/placements/coverage/own": {
       "get": {
-        "description": "Authenticated volunteers can see only their confirmed roster slots, absences, and addressed substitute offers.",
+        "description": "A person sees only commitments where they are scheduled or have acknowledged substitute coverage.",
         "operationId": "placements.readOwnCoverage",
         "parameters": [
           {
@@ -39291,7 +39738,7 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_42"
+                          "$ref": "#/components/schemas/Objects_44"
                         }
                       ]
                     },
@@ -39330,10 +39777,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_43"
+                      "$ref": "#/components/schemas/Objects_45"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_44"
+                      "$ref": "#/components/schemas/Objects_46"
                     }
                   ]
                 }
@@ -39361,7 +39808,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_45"
+                      "$ref": "#/components/schemas/Objects_47"
                     }
                   ]
                 }
@@ -39388,12 +39835,6 @@
               "application/problem+json": {
                 "schema": {
                   "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/Objects_46"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_47"
-                    },
                     {
                       "$ref": "#/components/schemas/Objects_48"
                     },
@@ -39429,6 +39870,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_59"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_60"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_61"
                     }
                   ]
                 }
@@ -39472,7 +39919,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_61"
+                      "$ref": "#/components/schemas/Objects_63"
                     }
                   ]
                 }
@@ -39528,7 +39975,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_63"
+                      "$ref": "#/components/schemas/Objects_65"
                     }
                   ]
                 }
@@ -39590,6 +40037,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_41"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_42"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_43"
                     }
                   ]
                 }
@@ -39617,7 +40070,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_60"
+                      "$ref": "#/components/schemas/Objects_62"
                     }
                   ]
                 }
@@ -39645,7 +40098,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_62"
+                      "$ref": "#/components/schemas/Objects_64"
                     }
                   ]
                 }
@@ -39676,7 +40129,7 @@
             "oauthUserBearer": []
           }
         ],
-        "summary": "Read own coverage",
+        "summary": "Read own coverage and scheduled service",
         "tags": [
           "Volunteer placement"
         ],
@@ -39710,7 +40163,7 @@
         }
       },
       "post": {
-        "description": "The current person must own the frozen roster slot or the selected substitute offer inside the command transaction.",
+        "description": "The current person must own a scheduled assignment in an open commitment or be the addressed substitute.",
         "operationId": "placements.commandOwnCoverage",
         "parameters": [
           {
@@ -39760,39 +40213,18 @@
                         ],
                         "type": "string"
                       },
-                      "block": {
-                        "$ref": "#/components/schemas/Union_6"
-                      },
-                      "day": {
-                        "$ref": "#/components/schemas/Union_4"
-                      },
-                      "proposalId": {
+                      "commitmentId": {
                         "allOf": [
                           {
-                            "pattern": "^school-service-proposal-[a-f0-9]{64}$"
+                            "pattern": "^school-service-commitment-[a-f0-9]{64}$"
                           }
                         ],
-                        "type": "string"
-                      },
-                      "schoolId": {
-                        "allOf": [
-                          {
-                            "exclusiveMinimum": 0
-                          }
-                        ],
-                        "type": "integer"
-                      },
-                      "serviceDate": {
                         "type": "string"
                       }
                     },
                     "required": [
                       "action",
-                      "proposalId",
-                      "schoolId",
-                      "day",
-                      "block",
-                      "serviceDate"
+                      "commitmentId"
                     ],
                     "type": "object"
                   },
@@ -39910,7 +40342,7 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_42"
+                          "$ref": "#/components/schemas/Objects_44"
                         }
                       ]
                     },
@@ -39949,10 +40381,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_43"
+                      "$ref": "#/components/schemas/Objects_45"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_44"
+                      "$ref": "#/components/schemas/Objects_46"
                     }
                   ]
                 }
@@ -39980,7 +40412,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_45"
+                      "$ref": "#/components/schemas/Objects_47"
                     }
                   ]
                 }
@@ -40007,12 +40439,6 @@
               "application/problem+json": {
                 "schema": {
                   "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/Objects_46"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_47"
-                    },
                     {
                       "$ref": "#/components/schemas/Objects_48"
                     },
@@ -40048,6 +40474,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_59"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_60"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_61"
                     }
                   ]
                 }
@@ -40091,7 +40523,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_61"
+                      "$ref": "#/components/schemas/Objects_63"
                     }
                   ]
                 }
@@ -40147,7 +40579,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_63"
+                      "$ref": "#/components/schemas/Objects_65"
                     }
                   ]
                 }
@@ -40209,6 +40641,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_41"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_42"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_43"
                     }
                   ]
                 }
@@ -40236,7 +40674,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_60"
+                      "$ref": "#/components/schemas/Objects_62"
                     }
                   ]
                 }
@@ -40264,7 +40702,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_62"
+                      "$ref": "#/components/schemas/Objects_64"
                     }
                   ]
                 }
@@ -40457,7 +40895,7 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_42"
+                          "$ref": "#/components/schemas/Objects_44"
                         }
                       ]
                     },
@@ -40496,10 +40934,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_43"
+                      "$ref": "#/components/schemas/Objects_45"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_44"
+                      "$ref": "#/components/schemas/Objects_46"
                     }
                   ]
                 }
@@ -40527,7 +40965,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_45"
+                      "$ref": "#/components/schemas/Objects_47"
                     }
                   ]
                 }
@@ -40554,12 +40992,6 @@
               "application/problem+json": {
                 "schema": {
                   "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/Objects_46"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Objects_47"
-                    },
                     {
                       "$ref": "#/components/schemas/Objects_48"
                     },
@@ -40595,6 +41027,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_59"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_60"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_61"
                     }
                   ]
                 }
@@ -40638,7 +41076,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_61"
+                      "$ref": "#/components/schemas/Objects_63"
                     }
                   ]
                 }
@@ -40694,7 +41132,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_63"
+                      "$ref": "#/components/schemas/Objects_65"
                     }
                   ]
                 }
@@ -40756,6 +41194,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/Objects_41"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_42"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Objects_43"
                     }
                   ]
                 }
@@ -40783,7 +41227,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_60"
+                      "$ref": "#/components/schemas/Objects_62"
                     }
                   ]
                 }
@@ -40811,7 +41255,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_62"
+                      "$ref": "#/components/schemas/Objects_64"
                     }
                   ]
                 }
@@ -43817,10 +44261,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_98"
+                      "$ref": "#/components/schemas/Objects_102"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_99"
+                      "$ref": "#/components/schemas/Objects_103"
                     }
                   ]
                 }
@@ -43850,10 +44294,10 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_100"
+                          "$ref": "#/components/schemas/Objects_104"
                         },
                         {
-                          "$ref": "#/components/schemas/Objects_101"
+                          "$ref": "#/components/schemas/Objects_105"
                         }
                       ]
                     },
@@ -43892,10 +44336,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_102"
+                      "$ref": "#/components/schemas/Objects_106"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_103"
+                      "$ref": "#/components/schemas/Objects_107"
                     }
                   ]
                 }
@@ -43923,7 +44367,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_104"
+                      "$ref": "#/components/schemas/Objects_108"
                     }
                   ]
                 }
@@ -43951,7 +44395,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_105"
+                      "$ref": "#/components/schemas/Objects_109"
                     }
                   ]
                 }
@@ -43979,7 +44423,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_106"
+                      "$ref": "#/components/schemas/Objects_110"
                     }
                   ]
                 }
@@ -56299,10 +56743,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_98"
+                      "$ref": "#/components/schemas/Objects_102"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_99"
+                      "$ref": "#/components/schemas/Objects_103"
                     }
                   ]
                 }
@@ -56332,10 +56776,10 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_100"
+                          "$ref": "#/components/schemas/Objects_104"
                         },
                         {
-                          "$ref": "#/components/schemas/Objects_101"
+                          "$ref": "#/components/schemas/Objects_105"
                         }
                       ]
                     },
@@ -56374,10 +56818,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_102"
+                      "$ref": "#/components/schemas/Objects_106"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_103"
+                      "$ref": "#/components/schemas/Objects_107"
                     }
                   ]
                 }
@@ -56405,7 +56849,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_104"
+                      "$ref": "#/components/schemas/Objects_108"
                     }
                   ]
                 }
@@ -56433,7 +56877,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_105"
+                      "$ref": "#/components/schemas/Objects_109"
                     }
                   ]
                 }
@@ -56461,7 +56905,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_106"
+                      "$ref": "#/components/schemas/Objects_110"
                     }
                   ]
                 }
@@ -71524,7 +71968,7 @@
                             "type": "integer"
                           },
                           "period": {
-                            "$ref": "#/components/schemas/Objects_91"
+                            "$ref": "#/components/schemas/Objects_95"
                           },
                           "semesterName": {
                             "type": "string"
@@ -87868,10 +88312,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_108"
+                      "$ref": "#/components/schemas/Objects_112"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_109"
+                      "$ref": "#/components/schemas/Objects_113"
                     }
                   ]
                 }
@@ -87901,10 +88345,10 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_110"
+                          "$ref": "#/components/schemas/Objects_114"
                         },
                         {
-                          "$ref": "#/components/schemas/Objects_111"
+                          "$ref": "#/components/schemas/Objects_115"
                         }
                       ]
                     },
@@ -87943,10 +88387,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_112"
+                      "$ref": "#/components/schemas/Objects_116"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_113"
+                      "$ref": "#/components/schemas/Objects_117"
                     }
                   ]
                 }
@@ -87974,7 +88418,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_114"
+                      "$ref": "#/components/schemas/Objects_118"
                     }
                   ]
                 }
@@ -88002,7 +88446,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_115"
+                      "$ref": "#/components/schemas/Objects_119"
                     }
                   ]
                 }
@@ -88030,10 +88474,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_116"
+                      "$ref": "#/components/schemas/Objects_120"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_117"
+                      "$ref": "#/components/schemas/Objects_121"
                     }
                   ]
                 }
@@ -88166,10 +88610,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_108"
+                      "$ref": "#/components/schemas/Objects_112"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_109"
+                      "$ref": "#/components/schemas/Objects_113"
                     }
                   ]
                 }
@@ -88199,10 +88643,10 @@
                     {
                       "anyOf": [
                         {
-                          "$ref": "#/components/schemas/Objects_110"
+                          "$ref": "#/components/schemas/Objects_114"
                         },
                         {
-                          "$ref": "#/components/schemas/Objects_111"
+                          "$ref": "#/components/schemas/Objects_115"
                         }
                       ]
                     },
@@ -88241,10 +88685,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_112"
+                      "$ref": "#/components/schemas/Objects_116"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_113"
+                      "$ref": "#/components/schemas/Objects_117"
                     }
                   ]
                 }
@@ -88272,7 +88716,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_114"
+                      "$ref": "#/components/schemas/Objects_118"
                     }
                   ]
                 }
@@ -88300,7 +88744,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_115"
+                      "$ref": "#/components/schemas/Objects_119"
                     }
                   ]
                 }
@@ -88328,10 +88772,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Objects_116"
+                      "$ref": "#/components/schemas/Objects_120"
                     },
                     {
-                      "$ref": "#/components/schemas/Objects_117"
+                      "$ref": "#/components/schemas/Objects_121"
                     }
                   ]
                 }
@@ -92943,7 +93387,7 @@
       "name": "Substitute pool"
     },
     {
-      "description": "Explicit affiliation, placement, human-confirmed roster, absence, sequential substitute coverage, and immutable teaching closure.",
+      "description": "Explicit affiliation, placement, confirmed roster, dated school commitment, absence, substitute coverage, and immutable outcomes.",
       "name": "Volunteer placement"
     },
     {

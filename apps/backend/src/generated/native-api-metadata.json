@@ -1289,7 +1289,7 @@
         "428",
         "500"
       ],
-      "summary": "Manage volunteer placement and school service",
+      "summary": "Manage placement and dated school service",
       "visibility": "external"
     },
     {
@@ -1331,7 +1331,7 @@
         "428",
         "500"
       ],
-      "summary": "Coordinate coverage and close service",
+      "summary": "Coordinate coverage and decide dated service",
       "visibility": "external"
     },
     {
@@ -1625,7 +1625,7 @@
         "428",
         "500"
       ],
-      "summary": "Read own coverage",
+      "summary": "Read own coverage and scheduled service",
       "visibility": "external"
     },
     {
