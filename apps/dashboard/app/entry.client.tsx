@@ -10,6 +10,7 @@ import { registerContentWorkspaceElement } from "./foldkit/content/elements";
 import { registerSocialEventsElement } from "./foldkit/social-events/elements";
 import { registerSchoolSurveysElement } from "./foldkit/surveys/elements";
 
+import { registerDatedServiceElement } from "./foldkit/dated-school-service/elements";
 function HydrationSafeRouter() {
   useEffect(() => {
     registerInterviewElement();
@@ -18,6 +19,7 @@ function HydrationSafeRouter() {
     registerContentWorkspaceElement();
     registerSocialEventsElement();
     registerSchoolSurveysElement();
+    registerDatedServiceElement();
     registerProfileEditorElement();
 
     // Preview devtools (design spec 0074): production registers the ordinary

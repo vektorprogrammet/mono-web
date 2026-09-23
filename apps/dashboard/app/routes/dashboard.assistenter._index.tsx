@@ -12,14 +12,15 @@ import {
   type PlacementBoardResource,
 } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
-import { type ReactNode, useState } from "react";
-import { Form, data, useFetcher, useLoaderData, useLocation } from "react-router";
+import { createElement, type ReactNode, useState } from "react";
+import { Form, data, useActionData, useFetcher, useLoaderData, useLocation } from "react-router";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import { nativeProblemFrom } from "../lib/native-problem";
 import { substituteSemesterLabel } from "../lib/substitute-form";
+import { DATED_SERVICE_ELEMENT } from "../foldkit/dated-school-service/elements";
 import type { Route } from "./+types/dashboard.assistenter._index";
 const privateData = <T,>(value: T, status = 200) =>
   data(value, { status, headers: { "Cache-Control": "private, no-store" } });
@@ -107,11 +108,7 @@ export async function action({ request }: Route.ActionArgs) {
         action === "ReportAbsence"
           ? {
               action,
-              proposalId: form.get("proposalId"),
-              schoolId: Number(form.get("schoolId")),
-              day: form.get("day"),
-              block: form.get("block"),
-              serviceDate: form.get("serviceDate"),
+              commitmentId: form.get("commitmentId"),
             }
           : {
               action,
@@ -133,7 +130,9 @@ export async function action({ request }: Route.ActionArgs) {
       action === "DispatchSubstituteOffer" ||
       action === "WithdrawSubstituteOffer" ||
       action === "AcknowledgeCoverage" ||
-      action === "CloseCoverage"
+      action === "CompleteService" ||
+      action === "CancelService" ||
+      action === "MarkUnfulfilledService"
     ) {
       const query = Schema.decodeUnknownSync(PlacementScope)({
         departmentId,
@@ -143,12 +142,8 @@ export async function action({ request }: Route.ActionArgs) {
         action === "ReportAbsenceForVolunteer"
           ? {
               action,
+              commitmentId: form.get("commitmentId"),
               personId: form.get("personId"),
-              proposalId: form.get("proposalId"),
-              schoolId: Number(form.get("schoolId")),
-              day: form.get("day"),
-              block: form.get("block"),
-              serviceDate: form.get("serviceDate"),
             }
           : action === "DispatchSubstituteOffer"
             ? {
@@ -161,15 +156,9 @@ export async function action({ request }: Route.ActionArgs) {
                   action,
                   offerId: form.get("offerId"),
                 }
-              : {
-                  action,
-                  proposalId: form.get("proposalId"),
-                  schoolId: Number(form.get("schoolId")),
-                  day: form.get("day"),
-                  block: form.get("block"),
-                  occurredOn: form.get("occurredOn"),
-                  attendedPersonIds: form.getAll("attendedPersonId"),
-                },
+              : action === "CancelService"
+                ? { action, commitmentId: form.get("commitmentId"), reason: form.get("reason"), evidenceSource: form.get("evidenceSource") }
+                : { action, commitmentId: form.get("commitmentId"), attendedPersonIds: form.getAll("attendedPersonId"), evidenceSource: form.get("evidenceSource"), ...(action === "MarkUnfulfilledService" ? { reason: form.get("reason") } : {}) },
         { onExcessProperty: "error" },
       );
       switch (payload.action) {
@@ -185,7 +174,9 @@ export async function action({ request }: Route.ActionArgs) {
         case "AcknowledgeCoverage":
           await client.placements.commandCoverageBoard({ query, headers, payload });
           break;
-        case "CloseCoverage":
+        case "CompleteService":
+        case "CancelService":
+        case "MarkUnfulfilledService":
           await client.placements.commandCoverageBoard({ query, headers, payload });
           break;
       }
@@ -225,15 +216,9 @@ export async function action({ request }: Route.ActionArgs) {
                           proposalId: form.get("proposalId"),
                           reviewedExceptionIds: form.getAll("reviewedExceptionId"),
                         }
-                      : {
-                          action,
-                          proposalId: form.get("proposalId"),
-                          schoolId: Number(form.get("schoolId")),
-                          day: form.get("day"),
-                          block: form.get("block"),
-                          occurredOn: form.get("occurredOn"),
-                          attendedPersonIds: form.getAll("attendedPersonId"),
-                        };
+                      : action === "ScheduleService"
+                        ? { action, proposalId: form.get("proposalId"), schoolId: Number(form.get("schoolId")), day: form.get("day"), block: form.get("block"), serviceDate: form.get("serviceDate"), startTime: form.get("startTime"), endTime: form.get("endTime") }
+                        : { action };
       const payload = Schema.decodeUnknownSync(PlacementCommand)(command, {
         onExcessProperty: "error",
       });
@@ -259,7 +244,7 @@ export async function action({ request }: Route.ActionArgs) {
         case "ConfirmProposal":
           await client.placements.commandBoard({ query, headers, payload });
           break;
-        case "RecordOccurrence":
+        case "ScheduleService":
           await client.placements.commandBoard({ query, headers, payload });
           break;
       }
@@ -289,11 +274,14 @@ export async function action({ request }: Route.ActionArgs) {
         "Tjenesteplanen er ikke lenger et aktivt utkast. Hent oppdatert oversikt.",
       "school-service.exception-review-invalid":
         "Alle avvik må gjennomgås og bekreftes før planen kan låses.",
-      "school-service.occurrence-invalid":
-        "Oppmøtet må samsvare nøyaktig med den bekreftede planen for skole, dag og bolk.",
-      "school-service.occurrence-duplicate":
-        "Undervisningen er allerede registrert for denne datoen og bolken.",
-      "absence.target-invalid": "Fravær kan bare meldes for et bekreftet oppmøte på riktig dato.",
+      "commitment.target-invalid": "Dato, skole, bolk eller tjenesteplan passer ikke med den bekreftede tjenesten.",
+      "commitment.interval-invalid": "Velg et gyldig tidsrom samme skoledag. Starttid må være før sluttid.",
+      "commitment.duplicate": "Det finnes allerede en datert tjeneste for denne skolen, datoen og bolken.",
+      "commitment.closed": "Tjenesten har allerede en endelig beslutning og kan ikke endres.",
+      "commitment.attendance-invalid": "Registrer bare faktisk møtte planlagte frivillige eller bekreftede vikarer. Oppmøtet må samsvare med behovet og valgt utfall.",
+      "commitment.outcome-invalid": "Dette utfallet kan ikke dokumenteres før tidsrommet er over, eller bevisene er ikke tilstrekkelige.",
+      "commitment.pending-offer": "Avklar alle åpne vikartilbud før tjenesten får endelig utfall.",
+      "absence.target-invalid": "Fravær kan bare meldes for en åpen, datert tjeneste der personen er planlagt.",
       "absence.duplicate": "Fravær er allerede meldt for dette oppmøtet. Hent oppdatert oversikt.",
       "absence.closed": "Denne fraværssaken er allerede avsluttet og kan ikke endres.",
       "offer.candidate-ineligible":
@@ -307,11 +295,6 @@ export async function action({ request }: Route.ActionArgs) {
         "Bare et sendt eller akseptert tilbud kan trekkes tilbake før dekningen er bekreftet.",
       "coverage.acknowledgement-invalid":
         "Bare det gjeldende aksepterte tilbudet kan bekreftes som dekning.",
-      "coverage.pending-offer":
-        "Et sendt eller akseptert tilbud må avslås, trekkes tilbake eller bekreftes før tjenesten kan lukkes.",
-      "coverage.attendance-invalid":
-        "Oppmøtet må være nøyaktig den bekreftede planen minus fravær pluss bekreftede vikarer.",
-      "coverage.occurrence-duplicate": "Tjenesten er allerede lukket for denne datoen og bolken.",
     };
     const conflict = problem?.status === 412 || problem?.code === "transaction.conflict";
     return privateData(
@@ -552,42 +535,6 @@ function PlacementFields({
     </div>
   );
 }
-type PlacementProposal = NonNullable<(typeof PlacementBoardResource.Type)["proposal"]>;
-type PlacementAssignment = PlacementProposal["assignments"][number];
-type ConfirmedSlot = Pick<PlacementAssignment, "schoolId" | "schoolName" | "day" | "block"> & {
-  readonly assignments: ReadonlyArray<PlacementAssignment>;
-};
-type ConfirmedSlotBuilder = Pick<
-  PlacementAssignment,
-  "schoolId" | "schoolName" | "day" | "block"
-> & {
-  readonly assignments: Map<PlacementAssignment["personId"], PlacementAssignment>;
-};
-function confirmedSlots(
-  proposal: (typeof PlacementBoardResource.Type)["proposal"],
-): ReadonlyArray<ConfirmedSlot> {
-  if (proposal?.status !== "Confirmed") return [];
-  const slots = new Map<string, ConfirmedSlotBuilder>();
-  for (const assignment of proposal.assignments) {
-    const key = `${assignment.schoolId}:${assignment.day}:${assignment.block}`;
-    let slot = slots.get(key);
-    if (slot === undefined) {
-      slot = {
-        schoolId: assignment.schoolId,
-        schoolName: assignment.schoolName,
-        day: assignment.day,
-        block: assignment.block,
-        assignments: new Map(),
-      };
-      slots.set(key, slot);
-    }
-    slot.assignments.set(assignment.personId, assignment);
-  }
-  return [...slots.values()].map(({ assignments, ...slot }) => ({
-    ...slot,
-    assignments: [...assignments.values()],
-  }));
-}
 function SchoolServicePanel({
   board,
   scope,
@@ -596,7 +543,6 @@ function SchoolServicePanel({
   scope: { readonly departmentId: string; readonly semesterId: string };
 }) {
   const proposal = board.proposal;
-  const slots = confirmedSlots(proposal);
   return (
     <section className="space-y-4" aria-labelledby="school-service-title">
       <div>
@@ -745,48 +691,6 @@ function SchoolServicePanel({
                   ))}
                 </ul>
               </div>
-              <div className="space-y-4">
-                <h4 className="font-medium">Registrer gjennomført undervisning</h4>
-                {slots.map((slot, index) => (
-                  <CommandForm
-                    key={`${slot.schoolId}-${slot.day}-${slot.block}`}
-                    etag={board.etag}
-                    hidden={{
-                      ...scope,
-                      action: "RecordOccurrence",
-                      proposalId: proposal.proposalId,
-                      schoolId: String(slot.schoolId),
-                      day: slot.day,
-                      block: slot.block,
-                    }}
-                    label={`Undervisning ${index + 1}: ${slot.schoolName}`}
-                  >
-                    <p>
-                      {slot.schoolName} — {slot.day}, bolk {slot.block}
-                    </p>
-                    <label htmlFor={`occurred-${slot.schoolId}-${slot.day}-${slot.block}`}>
-                      Dato
-                      <Input
-                        id={`occurred-${slot.schoolId}-${slot.day}-${slot.block}`}
-                        name="occurredOn"
-                        type="date"
-                        required
-                      />
-                    </label>
-                    {slot.assignments.map((assignment) => (
-                      <label key={assignment.personId} className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          name="attendedPersonId"
-                          value={assignment.personId}
-                        />
-                        {assignment.firstName} {assignment.lastName} møtte
-                      </label>
-                    ))}
-                    <Button type="submit">Registrer undervisning</Button>
-                  </CommandForm>
-                ))}
-              </div>
               {board.occurrences.length > 0 && (
                 <div>
                   <h4 className="font-medium">Registrert undervisning</h4>
@@ -825,54 +729,12 @@ const responseStatusLabel = {
   Accept: "Akseptert",
   Decline: "Avslått",
 } as const;
-const closureOutcomeLabel = {
-  Covered: "Dekket",
-  Uncovered: "Ikke dekket",
-} as const;
-type CoverageAbsence = (typeof CoverageBoardResource.Type)["absences"][number];
+const closureOutcomeLabel = { Covered: "Dekket", Uncovered: "Ikke dekket" } as const;
 type CoverageOffer = (typeof CoverageBoardResource.Type)["offers"][number];
 type CoverageResponse = (typeof CoverageBoardResource.Type)["responses"][number];
 type CoverageAcknowledgement = (typeof CoverageBoardResource.Type)["acknowledgements"][number];
-type CoverageClosure = (typeof CoverageBoardResource.Type)["closures"][number];
 type CoverageCandidate = (typeof CoverageBoardResource.Type)["candidates"][number];
 type CoverageNotification = (typeof CoverageBoardResource.Type)["dispatchNotifications"][number];
-type CoverageSlotIdentity = Pick<CoverageAbsence, "proposalId" | "schoolId" | "day" | "block">;
-type CoverageRosterAssignment = (typeof CoverageBoardResource.Type)["rosterAssignments"][number];
-type CoverageConfirmedSlot = ConfirmedSlot & {
-  readonly proposalId: CoverageRosterAssignment["proposalId"];
-};
-function coverageConfirmedSlots(
-  assignments: ReadonlyArray<CoverageRosterAssignment>,
-): ReadonlyArray<CoverageConfirmedSlot> {
-  const slots = new Map<
-    string,
-    Omit<CoverageConfirmedSlot, "assignments"> & {
-      readonly assignments: Map<CoverageRosterAssignment["personId"], CoverageRosterAssignment>;
-    }
-  >();
-  for (const assignment of assignments) {
-    const key = coverageSlotKey(assignment);
-    let slot = slots.get(key);
-    if (slot === undefined) {
-      slot = {
-        proposalId: assignment.proposalId,
-        schoolId: assignment.schoolId,
-        schoolName: assignment.schoolName,
-        day: assignment.day,
-        block: assignment.block,
-        assignments: new Map(),
-      };
-      slots.set(key, slot);
-    }
-    slot.assignments.set(assignment.personId, assignment);
-  }
-  return [...slots.values()].map(({ assignments: slotAssignments, ...slot }) => ({
-    ...slot,
-    assignments: [...slotAssignments.values()],
-  }));
-}
-const coverageSlotKey = (slot: CoverageSlotIdentity): string =>
-  `${slot.proposalId}:${slot.schoolId}:${slot.day}:${slot.block}`;
 function deliverySummary(notification: CoverageNotification | undefined): string {
   if (notification === undefined) return "Venter på leveringsstatus";
   const attempts = notification.attempts === 1 ? "1 forsøk" : `${notification.attempts} forsøk`;
@@ -932,50 +794,6 @@ function OwnCoveragePanel({
           Her vises bare dine bekreftede oppmøter, fravær og vikartilbud som er adressert til deg.
         </p>
       </header>
-      <section className="space-y-3" aria-labelledby="own-roster-title">
-        <h3 id="own-roster-title" className="font-semibold">
-          Bekreftede oppmøter
-        </h3>
-        {coverage.rosterSlots.length === 0 && (
-          <p>Du har ingen bekreftede oppmøter i valgt semester.</p>
-        )}
-        {coverage.rosterSlots.map((slot) => {
-          const slotId = `${slot.proposalId}-${slot.schoolId}-${slot.day}-${slot.block}`;
-          return (
-            <article key={slotId} className="min-w-0 space-y-3 rounded-md border p-4">
-              <h4 className="break-words font-medium">
-                {slot.schoolName} — {slot.day}, bolk {slot.block}
-              </h4>
-              <CommandForm
-                etag={coverage.etag}
-                refreshResource="ownCoverage"
-                hidden={{
-                  ...scope,
-                  action: "ReportAbsence",
-                  proposalId: slot.proposalId,
-                  schoolId: String(slot.schoolId),
-                  day: slot.day,
-                  block: slot.block,
-                }}
-                label={`Fravær: ${slot.schoolName}, ${slot.day}, bolk ${slot.block}, tjenesteplan ${slot.proposalId.slice(-8)}, mitt fravær`}
-              >
-                <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-                  <label htmlFor={`own-absence-date-${slotId}`} className="min-w-0">
-                    Dato
-                    <Input
-                      id={`own-absence-date-${slotId}`}
-                      name="serviceDate"
-                      type="date"
-                      required
-                    />
-                  </label>
-                </div>
-                <Button type="submit">Rapporter fravær</Button>
-              </CommandForm>
-            </article>
-          );
-        })}
-      </section>
       <section className="space-y-3" aria-labelledby="own-absences-title">
         <h3 id="own-absences-title" className="font-semibold">
           Registrerte fravær
@@ -1033,119 +851,6 @@ function OwnCoveragePanel({
     </section>
   );
 }
-function CoverageCloseForm({
-  coverage,
-  scope,
-  proposalId,
-  slot,
-  absences,
-  offersById,
-  closuresByAbsenceId,
-}: {
-  coverage: typeof CoverageBoardResource.Type;
-  scope: { readonly departmentId: string; readonly semesterId: string };
-  proposalId: CoverageAbsence["proposalId"];
-  slot: ConfirmedSlot;
-  absences: ReadonlyArray<CoverageAbsence>;
-  offersById: ReadonlyMap<string, CoverageOffer>;
-  closuresByAbsenceId: ReadonlyMap<string, CoverageClosure>;
-}) {
-  const serviceDate = absences[0]?.serviceDate;
-  if (
-    serviceDate === undefined ||
-    absences.some((absence) => closuresByAbsenceId.has(absence.absenceId))
-  ) {
-    return null;
-  }
-  const absenceIds = new Set(absences.map((absence) => absence.absenceId));
-  const absentPeople = new Set(absences.map((absence) => absence.personId));
-  const expectedByPersonId = new Map<
-    string,
-    { readonly personId: string; readonly label: string }
-  >();
-  for (const assignment of slot.assignments) {
-    if (!absentPeople.has(assignment.personId)) {
-      expectedByPersonId.set(assignment.personId, {
-        personId: assignment.personId,
-        label: `${assignment.firstName} ${assignment.lastName}`,
-      });
-    }
-  }
-  for (const acknowledgement of coverage.acknowledgements) {
-    if (!absenceIds.has(acknowledgement.absenceId)) continue;
-    const offer = offersById.get(acknowledgement.offerId);
-    expectedByPersonId.set(acknowledgement.candidatePersonId, {
-      personId: acknowledgement.candidatePersonId,
-      label:
-        offer === undefined
-          ? "Bekreftet vikar"
-          : `${offer.candidateFirstName} ${offer.candidateLastName} (vikar)`,
-    });
-  }
-  const pendingOffer = coverage.offers.some(
-    (offer) =>
-      absenceIds.has(offer.absenceId) &&
-      (offer.status === "Offered" || offer.status === "Accepted"),
-  );
-  const attendance = [...expectedByPersonId.values()];
-  const formId = `${slot.schoolId}-${slot.day}-${slot.block}-${serviceDate}`;
-  return (
-    <article className="min-w-0 space-y-3 rounded-md border p-4">
-      <h4 className="break-words font-medium">
-        {slot.schoolName}, {serviceDate} — {slot.day}, bolk {slot.block}
-      </h4>
-      {pendingOffer ? (
-        <p role="status">
-          Et sendt eller akseptert vikartilbud må avslås, trekkes tilbake eller bekreftes før
-          tjenesten kan lukkes.
-        </p>
-      ) : (
-        <CommandForm
-          etag={coverage.etag}
-          refreshResource="coverage"
-          hidden={{
-            ...scope,
-            action: "CloseCoverage",
-            proposalId,
-            schoolId: String(slot.schoolId),
-            day: slot.day,
-            block: slot.block,
-            occurredOn: serviceDate,
-          }}
-          label={`Tjenestelukking: ${slot.schoolName}, ${serviceDate}, bolk ${slot.block}, tjenesteplan ${proposalId.slice(-8)}`}
-        >
-          <p className="text-sm text-muted-foreground">
-            Valgene er beregnet fra den bekreftede planen, registrert fravær og bekreftet
-            vikardekning. Oppmøtet må være nøyaktig likt disse valgene.
-          </p>
-          {attendance.length === 0 ? (
-            <p>Ingen skal registreres som møtt for denne tjenesten.</p>
-          ) : (
-            <div className="space-y-2">
-              {attendance.map((person) => (
-                <label
-                  key={person.personId}
-                  htmlFor={`coverage-attendance-${formId}-${person.personId}`}
-                  className="flex min-w-0 items-start gap-2"
-                >
-                  <input
-                    id={`coverage-attendance-${formId}-${person.personId}`}
-                    type="checkbox"
-                    name="attendedPersonId"
-                    value={person.personId}
-                    defaultChecked
-                  />
-                  <span className="min-w-0 break-words">{person.label} møtte</span>
-                </label>
-              ))}
-            </div>
-          )}
-          <Button type="submit">Lukk tjeneste</Button>
-        </CommandForm>
-      )}
-    </article>
-  );
-}
 function CoordinatorCoveragePanel({
   coverage,
   scope,
@@ -1153,11 +858,8 @@ function CoordinatorCoveragePanel({
   coverage: typeof CoverageBoardResource.Type;
   scope: { readonly departmentId: string; readonly semesterId: string };
 }) {
-  const slots = coverageConfirmedSlots(coverage.rosterAssignments);
-  const offersById = new Map<string, CoverageOffer>();
   const offersByAbsenceId = new Map<string, Array<CoverageOffer>>();
   for (const offer of coverage.offers) {
-    offersById.set(offer.offerId, offer);
     const offers = offersByAbsenceId.get(offer.absenceId);
     if (offers === undefined) offersByAbsenceId.set(offer.absenceId, [offer]);
     else offers.push(offer);
@@ -1170,45 +872,13 @@ function CoordinatorCoveragePanel({
   const acknowledgementsByOfferId = new Map<string, CoverageAcknowledgement>();
   for (const acknowledgement of coverage.acknowledgements)
     acknowledgementsByOfferId.set(acknowledgement.offerId, acknowledgement);
-  const closuresByAbsenceId = new Map<string, CoverageClosure>();
-  for (const closure of coverage.closures) closuresByAbsenceId.set(closure.absenceId, closure);
+  const closuresByAbsenceId = new Map(coverage.closures.map((closure) => [closure.absenceId, closure]));
   const candidatesByAbsenceId = new Map<string, Array<CoverageCandidate>>();
   for (const candidate of coverage.candidates) {
     const candidates = candidatesByAbsenceId.get(candidate.absenceId);
     if (candidates === undefined) candidatesByAbsenceId.set(candidate.absenceId, [candidate]);
     else candidates.push(candidate);
   }
-  const slotsByKey = new Map<string, ConfirmedSlot>(
-    slots.map((slot) => [coverageSlotKey(slot), slot]),
-  );
-  const closureGroups = new Map<
-    string,
-    {
-      readonly proposalId: CoverageAbsence["proposalId"];
-      readonly serviceDate: CoverageAbsence["serviceDate"];
-      readonly slot: ConfirmedSlot;
-      readonly absences: CoverageAbsence[];
-    }
-  >();
-  for (const absence of coverage.absences) {
-    const slot = slotsByKey.get(coverageSlotKey(absence));
-    if (slot === undefined) continue;
-    const key = `${coverageSlotKey(absence)}:${absence.serviceDate}`;
-    const group = closureGroups.get(key);
-    if (group === undefined) {
-      closureGroups.set(key, {
-        proposalId: absence.proposalId,
-        serviceDate: absence.serviceDate,
-        slot,
-        absences: [absence],
-      });
-    } else {
-      group.absences.push(absence);
-    }
-  }
-  const openClosureGroups = [...closureGroups.values()].filter((group) =>
-    group.absences.every((absence) => !closuresByAbsenceId.has(absence.absenceId)),
-  );
   return (
     <section
       className="min-w-0 space-y-5 rounded-lg border p-4 sm:p-6"
@@ -1219,70 +889,37 @@ function CoordinatorCoveragePanel({
           Fravær og vikardekning
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Koordinatorer kan velge kvalifiserte vikarer, følge leveringen og lukke en tjeneste med
-          nøyaktig oppmøte.
+          Koordinatorer kan velge kvalifiserte vikarer og følge leveringen. Tjenesteutfallet registreres separat nedenfor.
         </p>
       </header>
       <section className="space-y-3" aria-labelledby="coordinator-absence-title">
         <h3 id="coordinator-absence-title" className="font-semibold">
           Rapporter fravær for frivillig
         </h3>
-        {slots.length === 0 ? (
-          <p>En bekreftet tjenesteplan må være tilgjengelig før fravær kan rapporteres.</p>
+        {coverage.commitments.filter((commitment) => commitment.decision === null && commitment.assignments.length > 0).length === 0 ? (
+          <p>Ingen åpne daterte tjenester med planlagte frivillige.</p>
         ) : (
-          <>
-            {slots.map((slot) => {
-              const slotId = `${slot.proposalId}-${slot.schoolId}-${slot.day}-${slot.block}`;
-              return (
-                <CommandForm
-                  key={slotId}
-                  etag={coverage.etag}
-                  refreshResource="coverage"
-                  hidden={{
-                    ...scope,
-                    action: "ReportAbsenceForVolunteer",
-                    proposalId: slot.proposalId,
-                    schoolId: String(slot.schoolId),
-                    day: slot.day,
-                    block: slot.block,
-                  }}
-                  label={`Fravær: ${slot.schoolName}, ${slot.day}, bolk ${slot.block}, tjenesteplan ${slot.proposalId.slice(-8)}, koordinator`}
-                >
-                  <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-                    <label htmlFor={`coordinator-absence-person-${slotId}`} className="min-w-0">
-                      Frivillig
-                      <select
-                        id={`coordinator-absence-person-${slotId}`}
-                        name="personId"
-                        required
-                        defaultValue=""
-                        className={selectClass}
-                      >
-                        <option value="" disabled>
-                          Velg frivillig
-                        </option>
-                        {slot.assignments.map((assignment) => (
-                          <option key={assignment.personId} value={assignment.personId}>
-                            {assignment.firstName} {assignment.lastName}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label htmlFor={`coordinator-absence-date-${slotId}`} className="min-w-0">
-                      Dato
-                      <Input
-                        id={`coordinator-absence-date-${slotId}`}
-                        name="serviceDate"
-                        type="date"
-                        required
-                      />
-                    </label>
-                  </div>
-                  <Button type="submit">Rapporter fravær</Button>
-                </CommandForm>
-              );
-            })}
-          </>
+          coverage.commitments.filter((commitment) => commitment.decision === null && commitment.assignments.length > 0).map((commitment) => (
+            <CommandForm
+              key={commitment.commitmentId}
+              etag={coverage.etag}
+              refreshResource="coverage"
+              hidden={{ ...scope, action: "ReportAbsenceForVolunteer", commitmentId: commitment.commitmentId }}
+              label={`Fravær: ${commitment.schoolName}, ${commitment.serviceDate}, bolk ${commitment.block}, koordinator`}
+            >
+              <p>{commitment.schoolName}, {commitment.serviceDate} kl. {commitment.startTime}–{commitment.endTime}</p>
+              <label htmlFor={`coordinator-absence-person-${commitment.commitmentId}`}>
+                Frivillig
+                <select id={`coordinator-absence-person-${commitment.commitmentId}`} name="personId" required defaultValue="" className={selectClass}>
+                  <option value="" disabled>Velg frivillig</option>
+                  {commitment.assignments.filter((assignment) => !coverage.absences.some((absence) => absence.commitmentId === commitment.commitmentId && absence.personId === assignment.personId)).map((assignment) => (
+                    <option key={assignment.personId} value={assignment.personId}>{assignment.firstName} {assignment.lastName}</option>
+                  ))}
+                </select>
+              </label>
+              <Button type="submit">Rapporter fravær</Button>
+            </CommandForm>
+          ))
         )}
       </section>
       <section className="space-y-3" aria-labelledby="coverage-absences-title">
@@ -1307,7 +944,7 @@ function CoordinatorCoveragePanel({
                 {absence.schoolName}, {absence.serviceDate} — {absence.day}, bolk {absence.block}
               </h4>
               {closure ? (
-                <p>Utfallet: {closureOutcomeLabel[closure.outcome]}</p>
+                <p>Fraværsutfall: {closureOutcomeLabel[closure.outcome]} (gjelder denne plassen, ikke hele tjenesten).</p>
               ) : activeOffer ? (
                 <p>
                   {activeOffer.status === "Acknowledged"
@@ -1398,50 +1035,6 @@ function CoordinatorCoveragePanel({
           );
         })}
       </section>
-      <section className="space-y-3" aria-labelledby="coverage-closure-title">
-        <h3 id="coverage-closure-title" className="font-semibold">
-          Tjenestelukking
-        </h3>
-        {slots.length === 0 ? (
-          <p>Oppmøtet kan ikke beregnes uten en bekreftet tjenesteplan.</p>
-        ) : openClosureGroups.length === 0 ? (
-          <p>Det er ingen åpne tjenester med registrert fravær å lukke.</p>
-        ) : (
-          openClosureGroups.map((group) => (
-            <CoverageCloseForm
-              key={`${group.proposalId}:${group.slot.schoolId}:${group.slot.day}:${group.slot.block}:${group.serviceDate}`}
-              coverage={coverage}
-              scope={scope}
-              proposalId={group.proposalId}
-              slot={group.slot}
-              absences={group.absences}
-              offersById={offersById}
-              closuresByAbsenceId={closuresByAbsenceId}
-            />
-          ))
-        )}
-        {coverage.closures.length > 0 && (
-          <div className="space-y-2">
-            <h4 className="font-medium">Avsluttede tjenester</h4>
-            <ul className="space-y-1">
-              {coverage.closures.map((closure) => {
-                const absence = coverage.absences.find(
-                  (candidate) => candidate.absenceId === closure.absenceId,
-                );
-                return (
-                  <li key={closure.closureId} className="break-words">
-                    {absence === undefined
-                      ? "Fraværssak"
-                      : `${absence.schoolName}, ${absence.serviceDate}, bolk ${absence.block}`}
-                    {" — Utfallet: "}
-                    {closureOutcomeLabel[closure.outcome]}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        )}
-      </section>
     </section>
   );
 }
@@ -1449,6 +1042,7 @@ export default function Assistenter() {
   const { scopes, own, board, ownCoverage, coverage, departmentId, semesterId, error } =
     useLoaderData<typeof loader>();
   const scope = { departmentId, semesterId };
+  const actionResult = useActionData<typeof action>();
   return (
     <section
       aria-labelledby="placement-title"
@@ -1462,6 +1056,7 @@ export default function Assistenter() {
         fordeler frivillige på skoler.
       </p>
       {error && <p role="alert">{error}</p>}
+      {actionResult && <p role={actionResult.success ? "status" : "alert"}>{actionResult.message}</p>}
       {scopes && (
         <Form method="get" className="grid gap-3 sm:grid-cols-3">
           <label htmlFor="department">
@@ -1643,6 +1238,10 @@ export default function Assistenter() {
         </div>
       )}
       {coverage && <CoordinatorCoveragePanel coverage={coverage} scope={scope} />}
+      {(board || ownCoverage || coverage) && createElement(DATED_SERVICE_ELEMENT, {
+        key: `${departmentId}-${semesterId}-${board?.etag ?? ""}-${ownCoverage?.etag ?? ""}-${coverage?.etag ?? ""}`,
+        "data-state": JSON.stringify({ departmentId, semesterId, board, coverage, ownCoverage }),
+      })}
     </section>
   );
 }
