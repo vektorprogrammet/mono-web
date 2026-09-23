@@ -7,6 +7,11 @@ Lifecycle: build
 The [Cloudflare development provider boundary](docs/specs/cloudflare-development-provider-boundary.md)
 is frozen for local implementation. Production use remains unauthorized.
 
+Same-repository pull-request automation now builds exact-head homepage and dashboard
+Worker Previews, probes their public documents and assets, updates one review comment,
+and deletes both previews when the pull request closes. The provider journey remains
+unobserved because no Cloudflare deployment or credential use was authorized.
+
 The native replacement has substantial local functionality. Production still
 runs the legacy PHP application.
 
