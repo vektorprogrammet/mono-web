@@ -100,7 +100,7 @@ const dispatchNotificationRequests: Array<{
 try {
   const pgPort = await port();
   const backendPort = await port();
-  const dashboardPort = await port(5174);
+  const dashboardPort = await port();
   const notificationPort = await port();
   const server = createHttpServer(async (request, response) => {
     const chunks: Buffer[] = [];
@@ -655,13 +655,43 @@ try {
           block: "1",
         },
         ...[
-          { day: "Wednesday", personId: leaderId, firstName: "Lina", lastName: "Lagleder", suffix: "e" },
-          { day: "Wednesday", personId: volunteerId, firstName: "Irene", lastName: "Intervjuer", suffix: "f" },
-          { day: "Thursday", personId: leaderId, firstName: "Lina", lastName: "Lagleder", suffix: "1" },
-          { day: "Friday", personId: leaderId, firstName: "Lina", lastName: "Lagleder", suffix: "2" },
+          {
+            day: "Wednesday",
+            personId: leaderId,
+            firstName: "Lina",
+            lastName: "Lagleder",
+            suffix: "e",
+          },
+          {
+            day: "Wednesday",
+            personId: volunteerId,
+            firstName: "Irene",
+            lastName: "Intervjuer",
+            suffix: "f",
+          },
+          {
+            day: "Thursday",
+            personId: leaderId,
+            firstName: "Lina",
+            lastName: "Lagleder",
+            suffix: "1",
+          },
+          {
+            day: "Friday",
+            personId: leaderId,
+            firstName: "Lina",
+            lastName: "Lagleder",
+            suffix: "2",
+          },
         ].map(({ day, personId, firstName, lastName, suffix }) => ({
           placementId: `placement-${suffix.repeat(64)}`,
-          personId, firstName, lastName, schoolId: 961, schoolName: "Skole Alfa", day, block: "1",
+          personId,
+          firstName,
+          lastName,
+          schoolId: 961,
+          schoolName: "Skole Alfa",
+          day,
+          block: "1",
         })),
       ]),
     ],
@@ -671,13 +701,24 @@ try {
   const fixtureClient = await pool.connect();
   try {
     await fixtureClient.query("BEGIN");
-    await fixtureClient.query("ALTER TABLE school_service_occurrences DISABLE TRIGGER school_service_occurrence_insert_guard");
+    await fixtureClient.query(
+      "ALTER TABLE school_service_occurrences DISABLE TRIGGER school_service_occurrence_insert_guard",
+    );
     await fixtureClient.query(
       `INSERT INTO school_service_occurrences(occurrence_id,proposal_id,department_id,semester_id,school_id,day,block,occurred_on,attended_person_ids,recorded_at,recorded_by_person_id)
         VALUES($1,$2,$3,$4,961,'Friday','1','2024-03-08',$5::jsonb,'2024-03-08T11:30:00.000Z',$6)`,
-      [historicalOccurrenceId, apiCoverageProposalId, departmentId, semesterId, JSON.stringify([leaderId]), leaderId],
+      [
+        historicalOccurrenceId,
+        apiCoverageProposalId,
+        departmentId,
+        semesterId,
+        JSON.stringify([leaderId]),
+        leaderId,
+      ],
     );
-    await fixtureClient.query("ALTER TABLE school_service_occurrences ENABLE TRIGGER school_service_occurrence_insert_guard");
+    await fixtureClient.query(
+      "ALTER TABLE school_service_occurrences ENABLE TRIGGER school_service_occurrence_insert_guard",
+    );
     await fixtureClient.query("COMMIT");
   } catch (error) {
     await fixtureClient.query("ROLLBACK");
@@ -685,7 +726,10 @@ try {
   } finally {
     fixtureClient.release();
   }
-  const schedule = (day: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday", serviceDate: string) => ({
+  const schedule = (
+    day: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday",
+    serviceDate: string,
+  ) => ({
     action: "ScheduleService" as const,
     proposalId: apiCoverageProposalId,
     schoolId: 961,
@@ -695,28 +739,89 @@ try {
     startTime: "09:00",
     endTime: "11:00",
   });
-  const serviceDates = { Monday: "2024-03-04", Tuesday: "2024-03-05", Wednesday: "2024-03-06", Thursday: "2024-03-07" } as const;
+  const serviceDates = {
+    Monday: "2024-03-04",
+    Tuesday: "2024-03-05",
+    Wednesday: "2024-03-06",
+    Thursday: "2024-03-07",
+  } as const;
   const commitments = {} as Record<keyof typeof serviceDates, string>;
-  for (const [day, serviceDate] of Object.entries(serviceDates) as Array<[keyof typeof serviceDates, string]>) {
+  for (const [day, serviceDate] of Object.entries(serviceDates) as Array<
+    [keyof typeof serviceDates, string]
+  >) {
     const before = await readBoard();
     const result = await command(schedule(day, serviceDate));
-    const commitment = result.commitments.find((item) => item.schoolId === 961 && item.serviceDate === serviceDate && item.block === "1");
+    const commitment = result.commitments.find(
+      (item) => item.schoolId === 961 && item.serviceDate === serviceDate && item.block === "1",
+    );
     assert.ok(commitment);
     assert.equal(commitment.requiredVolunteers, day === "Wednesday" ? 2 : 1);
     assert.equal(commitment.decision, null);
     commitments[day] = commitment.commitmentId;
     if (day === "Monday") {
-      await expectStatus(await request(boardPath, leader, schedule(day, serviceDate), before.etag), 412, "precondition.failed");
-      await expectStatus(await request(boardPath, leader, schedule(day, serviceDate), result.etag), 409);
+      await expectStatus(
+        await request(boardPath, leader, schedule(day, serviceDate), before.etag),
+        412,
+        "precondition.failed",
+      );
+      await expectStatus(
+        await request(boardPath, leader, schedule(day, serviceDate), result.etag),
+        409,
+      );
     }
   }
-  assert.equal((await readCoverageBoard()).commitments.filter((item) => item.proposalId === apiCoverageProposalId).length, 4);
-  assert.equal((await readBoard()).commitments.filter((item) => item.proposalId === apiCoverageProposalId).length, 4);
-  await expectStatus(await request(boardPath, volunteer, schedule("Monday", serviceDates.Monday), (await readBoard()).etag), 403, "authority.denied");
-  await expectStatus(await request(boardPath, leader, { ...schedule("Monday", serviceDates.Monday), serviceDate: "2024-03-05" }, (await readBoard()).etag), 422);
-  await expectStatus(await request(boardPath, leader, { ...schedule("Monday", serviceDates.Monday), startTime: "11:00", endTime: "09:00" }, (await readBoard()).etag), 422);
-  await expectStatus(await request(boardPath, leader, schedule("Friday", "2024-03-08"), (await readBoard()).etag), 409);
-  assert.equal((await pool.query("SELECT commitment_id FROM school_service_occurrences WHERE occurrence_id=$1", [historicalOccurrenceId])).rows[0].commitment_id, null);
+  assert.equal(
+    (await readCoverageBoard()).commitments.filter(
+      (item) => item.proposalId === apiCoverageProposalId,
+    ).length,
+    4,
+  );
+  assert.equal(
+    (await readBoard()).commitments.filter((item) => item.proposalId === apiCoverageProposalId)
+      .length,
+    4,
+  );
+  await expectStatus(
+    await request(
+      boardPath,
+      volunteer,
+      schedule("Monday", serviceDates.Monday),
+      (await readBoard()).etag,
+    ),
+    403,
+    "authority.denied",
+  );
+  await expectStatus(
+    await request(
+      boardPath,
+      leader,
+      { ...schedule("Monday", serviceDates.Monday), serviceDate: "2024-03-05" },
+      (await readBoard()).etag,
+    ),
+    422,
+  );
+  await expectStatus(
+    await request(
+      boardPath,
+      leader,
+      { ...schedule("Monday", serviceDates.Monday), startTime: "11:00", endTime: "09:00" },
+      (await readBoard()).etag,
+    ),
+    422,
+  );
+  await expectStatus(
+    await request(boardPath, leader, schedule("Friday", "2024-03-08"), (await readBoard()).etag),
+    409,
+  );
+  assert.equal(
+    (
+      await pool.query(
+        "SELECT commitment_id FROM school_service_occurrences WHERE occurrence_id=$1",
+        [historicalOccurrenceId],
+      )
+    ).rows[0].commitment_id,
+    null,
+  );
   assert.equal((await request(ownCoveragePath)).status, 401);
   assert.equal((await request(coverageBoardPath)).status, 401);
   await expectStatus(await request(coverageBoardPath, volunteer), 403, "authority.denied");
@@ -737,12 +842,33 @@ try {
   await expectStatus(ownCoverageResponse, 200);
   const initialOwnCoverage = await readOwnCoverage(volunteerSdk);
   assert.deepEqual(
-    initialOwnCoverage.commitments.filter((item) => item.proposalId === apiCoverageProposalId).map((item) => item.commitmentId).sort(),
+    initialOwnCoverage.commitments
+      .filter((item) => item.proposalId === apiCoverageProposalId)
+      .map((item) => item.commitmentId)
+      .sort(),
     [commitments.Monday, commitments.Wednesday].sort(),
   );
-  assert.deepEqual((await readOwnCoverage(wrongSdk)).commitments.filter((item) => item.proposalId === apiCoverageProposalId), []);
-  assert.deepEqual((await readOwnCoverage(candidateSdk)).commitments.filter((item) => item.proposalId === apiCoverageProposalId), []);
-  await expectStatus(await request(ownCoveragePath, volunteer, { action: "ReportAbsence", commitmentId: commitments.Tuesday }, initialOwnCoverage.etag), 422);
+  assert.deepEqual(
+    (await readOwnCoverage(wrongSdk)).commitments.filter(
+      (item) => item.proposalId === apiCoverageProposalId,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    (await readOwnCoverage(candidateSdk)).commitments.filter(
+      (item) => item.proposalId === apiCoverageProposalId,
+    ),
+    [],
+  );
+  await expectStatus(
+    await request(
+      ownCoveragePath,
+      volunteer,
+      { action: "ReportAbsence", commitmentId: commitments.Tuesday },
+      initialOwnCoverage.etag,
+    ),
+    422,
+  );
   const coveredAbsenceCommand = { action: "ReportAbsence", commitmentId: commitments.Monday };
   const reportAbsenceKey = randomBytes(18).toString("base64url");
   const reportedOwnCoverage = await commandOwnCoverage(
@@ -880,10 +1006,26 @@ try {
   }
   assert.deepEqual(deliveredDispatch.payload, deliveredDispatchRequests[0]?.body);
   const deliveredCoverage = await readCoverageBoard();
-  await expectStatus(await request(coverageBoardPath, leader, {
-    action: "CancelService", commitmentId: commitments.Monday, reason: "Skolen avlyste tjenesten", evidenceSource: "Skole Alfa kontakt, telefon",
-  }, deliveredCoverage.etag), 409, "commitment.pending-offer");
-  assert.equal((await readCoverageBoard()).commitments.find((item) => item.commitmentId === commitments.Monday)?.decision, null);
+  await expectStatus(
+    await request(
+      coverageBoardPath,
+      leader,
+      {
+        action: "CancelService",
+        commitmentId: commitments.Monday,
+        reason: "Skolen avlyste tjenesten",
+        evidenceSource: "Skole Alfa kontakt, telefon",
+      },
+      deliveredCoverage.etag,
+    ),
+    409,
+    "commitment.pending-offer",
+  );
+  assert.equal(
+    (await readCoverageBoard()).commitments.find((item) => item.commitmentId === commitments.Monday)
+      ?.decision,
+    null,
+  );
   assert.equal(
     deliveredCoverage.offers.find((offer) => offer.offerId === coveredOffer.offerId)?.status,
     "Offered",
@@ -991,7 +1133,12 @@ try {
     (item) => item.offerId === coveredOffer.offerId,
   );
   assert.ok(acknowledgement);
-  assert.deepEqual((await readOwnCoverage(candidateSdk)).commitments.filter((item) => item.proposalId === apiCoverageProposalId).map((item) => item.commitmentId), [commitments.Monday]);
+  assert.deepEqual(
+    (await readOwnCoverage(candidateSdk)).commitments
+      .filter((item) => item.proposalId === apiCoverageProposalId)
+      .map((item) => item.commitmentId),
+    [commitments.Monday],
+  );
   const acknowledgementFacts = (
     await pool.query(
       `SELECT count(*)::integer AS acknowledgements,
@@ -1027,28 +1174,111 @@ try {
   };
   let closeCoverageBoard = await readCoverageBoard();
   await expectStatus(
-    await request(coverageBoardPath, leader, { ...completeCovered, attendedPersonIds: [volunteerId] }, closeCoverageBoard.etag),
+    await request(
+      coverageBoardPath,
+      leader,
+      { ...completeCovered, attendedPersonIds: [volunteerId] },
+      closeCoverageBoard.etag,
+    ),
     422,
     "commitment.attendance-invalid",
   );
   const completeKey = randomBytes(18).toString("base64url");
-  const coveredClosure = await commandCoverage(completeCovered, closeCoverageBoard.etag, completeKey);
-  assert.equal(coveredClosure.commitments.find((item) => item.commitmentId === commitments.Monday)?.decision?.outcome, "Completed");
-  assert.deepEqual(
-    coveredClosure.closures.filter((closure) => closure.absenceId === coveredAbsence.absenceId).map((closure) => ({ outcome: closure.outcome, substitutePersonId: closure.substitutePersonId, acknowledgementId: closure.acknowledgementId })),
-    [{ outcome: "Covered", substitutePersonId: substitute.personId, acknowledgementId: acknowledgement.acknowledgementId }],
+  const coveredClosure = await commandCoverage(
+    completeCovered,
+    closeCoverageBoard.etag,
+    completeKey,
   );
-  assert.deepEqual(await expectStatus(await request(coverageBoardPath, leader, completeCovered, closeCoverageBoard.etag, completeKey), 200), coveredClosure);
+  assert.equal(
+    coveredClosure.commitments.find((item) => item.commitmentId === commitments.Monday)?.decision
+      ?.outcome,
+    "Completed",
+  );
+  assert.deepEqual(
+    coveredClosure.closures
+      .filter((closure) => closure.absenceId === coveredAbsence.absenceId)
+      .map((closure) => ({
+        outcome: closure.outcome,
+        substitutePersonId: closure.substitutePersonId,
+        acknowledgementId: closure.acknowledgementId,
+      })),
+    [
+      {
+        outcome: "Covered",
+        substitutePersonId: substitute.personId,
+        acknowledgementId: acknowledgement.acknowledgementId,
+      },
+    ],
+  );
+  assert.deepEqual(
+    await expectStatus(
+      await request(
+        coverageBoardPath,
+        leader,
+        completeCovered,
+        closeCoverageBoard.etag,
+        completeKey,
+      ),
+      200,
+    ),
+    coveredClosure,
+  );
   closeCoverageBoard = await readCoverageBoard();
-  await expectStatus(await request(coverageBoardPath, leader, completeCovered, closeCoverageBoard.etag), 409);
-  await expectStatus(await request(coverageBoardPath, leader, {
-    action: "CancelService", commitmentId: commitments.Monday, reason: "Feilaktig konkurrerende avlysning", evidenceSource: "Skole Alfa kontakt, telefon",
-  }, closeCoverageBoard.etag), 409);
-  await expectStatus(await request(ownCoveragePath, volunteer, coveredAbsenceCommand, (await readOwnCoverage(volunteerSdk)).etag), 409);
-  await expectStatus(await request(coverageBoardPath, leader, dispatch(substitute.personId), closeCoverageBoard.etag), 409, "commitment.closed");
-  await expectStatus(await request(coverageBoardPath, leader, acknowledgeOffer, closeCoverageBoard.etag), 409);
-  await expectStatus(await request(ownCoveragePath, candidate, acceptOffer, (await readOwnCoverage(candidateSdk)).etag), 409);
-  assert.equal((await readCoverageBoard()).etag, closeCoverageBoard.etag, "post-terminal commands write no second fact");
+  await expectStatus(
+    await request(coverageBoardPath, leader, completeCovered, closeCoverageBoard.etag),
+    409,
+  );
+  await expectStatus(
+    await request(
+      coverageBoardPath,
+      leader,
+      {
+        action: "CancelService",
+        commitmentId: commitments.Monday,
+        reason: "Feilaktig konkurrerende avlysning",
+        evidenceSource: "Skole Alfa kontakt, telefon",
+      },
+      closeCoverageBoard.etag,
+    ),
+    409,
+  );
+  await expectStatus(
+    await request(
+      ownCoveragePath,
+      volunteer,
+      coveredAbsenceCommand,
+      (await readOwnCoverage(volunteerSdk)).etag,
+    ),
+    409,
+  );
+  await expectStatus(
+    await request(
+      coverageBoardPath,
+      leader,
+      dispatch(substitute.personId),
+      closeCoverageBoard.etag,
+    ),
+    409,
+    "commitment.closed",
+  );
+  await expectStatus(
+    await request(coverageBoardPath, leader, acknowledgeOffer, closeCoverageBoard.etag),
+    409,
+  );
+  await expectStatus(
+    await request(
+      ownCoveragePath,
+      candidate,
+      acceptOffer,
+      (await readOwnCoverage(candidateSdk)).etag,
+    ),
+    409,
+  );
+  assert.equal(
+    (await readCoverageBoard()).etag,
+    closeCoverageBoard.etag,
+    "post-terminal commands write no second fact",
+  );
   const coordinatorAbsence = {
     action: "ReportAbsenceForVolunteer",
     personId: leaderId,
@@ -1128,77 +1358,252 @@ try {
     "Withdrawn",
   );
   const zeroUnfulfilled = {
-    action: "MarkUnfulfilledService", commitmentId: commitments.Tuesday,
-    attendedPersonIds: [], reason: "Ingen frivillige møtte", evidenceSource: "Skole Alfa kontakt, telefon 2024-03-05",
+    action: "MarkUnfulfilledService",
+    commitmentId: commitments.Tuesday,
+    attendedPersonIds: [],
+    reason: "Ingen frivillige møtte",
+    evidenceSource: "Skole Alfa kontakt, telefon 2024-03-05",
   };
   closeCoverageBoard = await readCoverageBoard();
-  await expectStatus(await request(coverageBoardPath, leader, { ...zeroUnfulfilled, attendedPersonIds: [substitute.personId] }, closeCoverageBoard.etag), 422, "commitment.attendance-invalid");
-  assert.equal((await readCoverageBoard()).etag, closeCoverageBoard.etag, "invalid attendance leaves the board unchanged");
+  await expectStatus(
+    await request(
+      coverageBoardPath,
+      leader,
+      { ...zeroUnfulfilled, attendedPersonIds: [substitute.personId] },
+      closeCoverageBoard.etag,
+    ),
+    422,
+    "commitment.attendance-invalid",
+  );
+  assert.equal(
+    (await readCoverageBoard()).etag,
+    closeCoverageBoard.etag,
+    "invalid attendance leaves the board unchanged",
+  );
   const uncoveredClosure = await commandCoverage(zeroUnfulfilled, closeCoverageBoard.etag);
-  assert.equal(uncoveredClosure.commitments.find((item) => item.commitmentId === commitments.Tuesday)?.decision?.outcome, "Unfulfilled");
-  assert.equal(uncoveredClosure.commitments.find((item) => item.commitmentId === commitments.Tuesday)?.decision?.occurrenceId, null);
-  assert.deepEqual(uncoveredClosure.closures.filter((closure) => closure.absenceId === uncoveredAbsence.absenceId).map((closure) => [closure.outcome, closure.occurrenceId]), [["Uncovered", null]]);
-  await expectStatus(await request(coverageBoardPath, leader, { action: "DispatchSubstituteOffer", absenceId: uncoveredAbsence.absenceId, candidatePersonId: substitute.personId }, uncoveredClosure.etag), 409);
+  assert.equal(
+    uncoveredClosure.commitments.find((item) => item.commitmentId === commitments.Tuesday)?.decision
+      ?.outcome,
+    "Unfulfilled",
+  );
+  assert.equal(
+    uncoveredClosure.commitments.find((item) => item.commitmentId === commitments.Tuesday)?.decision
+      ?.occurrenceId,
+    null,
+  );
+  assert.deepEqual(
+    uncoveredClosure.closures
+      .filter((closure) => closure.absenceId === uncoveredAbsence.absenceId)
+      .map((closure) => [closure.outcome, closure.occurrenceId]),
+    [["Uncovered", null]],
+  );
+  await expectStatus(
+    await request(
+      coverageBoardPath,
+      leader,
+      {
+        action: "DispatchSubstituteOffer",
+        absenceId: uncoveredAbsence.absenceId,
+        candidatePersonId: substitute.personId,
+      },
+      uncoveredClosure.etag,
+    ),
+    409,
+  );
   const partialUnfulfilled = {
-    action: "MarkUnfulfilledService", commitmentId: commitments.Wednesday,
-    attendedPersonIds: [leaderId], reason: "Én av to frivillige møtte", evidenceSource: "Skole Alfa kontakt, telefon 2024-03-06",
+    action: "MarkUnfulfilledService",
+    commitmentId: commitments.Wednesday,
+    attendedPersonIds: [leaderId],
+    reason: "Én av to frivillige møtte",
+    evidenceSource: "Skole Alfa kontakt, telefon 2024-03-06",
   };
   const partialBoard = await readCoverageBoard();
-  await expectStatus(await request(coverageBoardPath, leader, { ...partialUnfulfilled, attendedPersonIds: [leaderId, volunteerId] }, partialBoard.etag), 422);
-  const competingPartial = await Promise.all([0, 1].map(() => request(coverageBoardPath, leader, partialUnfulfilled, partialBoard.etag)));
+  await expectStatus(
+    await request(
+      coverageBoardPath,
+      leader,
+      { ...partialUnfulfilled, attendedPersonIds: [leaderId, volunteerId] },
+      partialBoard.etag,
+    ),
+    422,
+  );
+  const competingPartial = await Promise.all(
+    [0, 1].map(() => request(coverageBoardPath, leader, partialUnfulfilled, partialBoard.etag)),
+  );
   assert.equal(competingPartial.filter((response) => response.status === 200).length, 1);
   for (const response of competingPartial.filter((result) => result.status !== 200)) {
     assert.ok([409, 412].includes(response.status));
     await response.json();
   }
-  const partialDecision = (await readCoverageBoard()).commitments.find((item) => item.commitmentId === commitments.Wednesday)?.decision;
+  const partialDecision = (await readCoverageBoard()).commitments.find(
+    (item) => item.commitmentId === commitments.Wednesday,
+  )?.decision;
   assert.equal(partialDecision?.outcome, "Unfulfilled");
   assert.deepEqual(partialDecision?.attendedPersonIds, [leaderId]);
   assert.ok(partialDecision?.occurrenceId);
-  const cancelAbsence = await commandCoverage({ action: "ReportAbsenceForVolunteer", personId: leaderId, commitmentId: commitments.Thursday });
-  const cancelledAbsenceId = cancelAbsence.absences.find((item) => item.commitmentId === commitments.Thursday)?.absenceId;
+  const cancelAbsence = await commandCoverage({
+    action: "ReportAbsenceForVolunteer",
+    personId: leaderId,
+    commitmentId: commitments.Thursday,
+  });
+  const cancelledAbsenceId = cancelAbsence.absences.find(
+    (item) => item.commitmentId === commitments.Thursday,
+  )?.absenceId;
   assert.ok(cancelledAbsenceId);
-  const cancel = { action: "CancelService", commitmentId: commitments.Thursday, reason: "Skolen avlyste undervisningen", evidenceSource: "Skole Alfa kontakt, telefon 2024-03-07" };
+  const cancel = {
+    action: "CancelService",
+    commitmentId: commitments.Thursday,
+    reason: "Skolen avlyste undervisningen",
+    evidenceSource: "Skole Alfa kontakt, telefon 2024-03-07",
+  };
   const beforeCancel = await readCoverageBoard();
   const cancelled = await commandCoverage(cancel, beforeCancel.etag);
-  assert.equal(cancelled.commitments.find((item) => item.commitmentId === commitments.Thursday)?.decision?.outcome, "Cancelled");
-  assert.equal(cancelled.commitments.find((item) => item.commitmentId === commitments.Thursday)?.decision?.occurrenceId, null);
-  assert.equal(cancelled.occurrences.filter((item) => item.commitmentId === commitments.Thursday).length, 0);
-  assert.equal(cancelled.closures.filter((item) => item.absenceId === cancelledAbsenceId).length, 0);
-  await expectStatus(await request(coverageBoardPath, leader, { ...partialUnfulfilled, commitmentId: commitments.Thursday }, cancelled.etag), 409);
+  assert.equal(
+    cancelled.commitments.find((item) => item.commitmentId === commitments.Thursday)?.decision
+      ?.outcome,
+    "Cancelled",
+  );
+  assert.equal(
+    cancelled.commitments.find((item) => item.commitmentId === commitments.Thursday)?.decision
+      ?.occurrenceId,
+    null,
+  );
+  assert.equal(
+    cancelled.occurrences.filter((item) => item.commitmentId === commitments.Thursday).length,
+    0,
+  );
+  assert.equal(
+    cancelled.closures.filter((item) => item.absenceId === cancelledAbsenceId).length,
+    0,
+  );
+  await expectStatus(
+    await request(
+      coverageBoardPath,
+      leader,
+      { ...partialUnfulfilled, commitmentId: commitments.Thursday },
+      cancelled.etag,
+    ),
+    409,
+  );
   const finalApiCoverage = await readCoverageBoard();
-  assert.deepEqual(finalApiCoverage.commitments.filter((item) => item.proposalId === apiCoverageProposalId).map((item) => item.decision?.outcome).sort(), ["Cancelled", "Completed", "Unfulfilled", "Unfulfilled"].sort());
-  assert.equal(finalApiCoverage.occurrences.filter((item) => Object.values(commitments).includes(item.commitmentId!)).length, 2);
+  assert.deepEqual(
+    finalApiCoverage.commitments
+      .filter((item) => item.proposalId === apiCoverageProposalId)
+      .map((item) => item.decision?.outcome)
+      .sort(),
+    ["Cancelled", "Completed", "Unfulfilled", "Unfulfilled"].sort(),
+  );
+  assert.equal(
+    finalApiCoverage.occurrences.filter((item) =>
+      Object.values(commitments).includes(item.commitmentId!),
+    ).length,
+    2,
+  );
   const durableDecisions: Array<{
-    commitmentId: string; serviceDate: string; requiredVolunteers: number; startTime: string;
-    endTime: string; outcome: string; evidenceSource: string; reason: string | null;
-    attendedPersonIds: string[]; occurrenceId: string | null; decidedBy: string;
-  }> = (await pool.query(
-    `SELECT commitment.commitment_id AS "commitmentId",commitment.service_date::text AS "serviceDate",
+    commitmentId: string;
+    serviceDate: string;
+    requiredVolunteers: number;
+    startTime: string;
+    endTime: string;
+    outcome: string;
+    evidenceSource: string;
+    reason: string | null;
+    attendedPersonIds: string[];
+    occurrenceId: string | null;
+    decidedBy: string;
+  }> = (
+    await pool.query(
+      `SELECT commitment.commitment_id AS "commitmentId",commitment.service_date::text AS "serviceDate",
        commitment.required_volunteers AS "requiredVolunteers",commitment.start_time::text AS "startTime",
        commitment.end_time::text AS "endTime",decision.outcome,decision.evidence_source AS "evidenceSource",
        decision.reason,decision.attended_person_ids AS "attendedPersonIds",
        decision.occurrence_id AS "occurrenceId",decision.decided_by_person_id AS "decidedBy"
      FROM school_service_commitments AS commitment
      JOIN school_service_decisions AS decision USING(commitment_id)
-     WHERE commitment.proposal_id=$1 ORDER BY commitment.service_date`, [apiCoverageProposalId],
-  )).rows;
-  assert.deepEqual(durableDecisions.map((item) => [item.commitmentId, item.serviceDate, item.requiredVolunteers, item.outcome, item.attendedPersonIds, item.reason, item.decidedBy]), [
-    [commitments.Monday, serviceDates.Monday, 1, "Completed", [substitute.personId], null, leaderId],
-    [commitments.Tuesday, serviceDates.Tuesday, 1, "Unfulfilled", [], zeroUnfulfilled.reason, leaderId],
-    [commitments.Wednesday, serviceDates.Wednesday, 2, "Unfulfilled", [leaderId], partialUnfulfilled.reason, leaderId],
-    [commitments.Thursday, serviceDates.Thursday, 1, "Cancelled", [], cancel.reason, leaderId],
-  ]);
-  assert.deepEqual(durableDecisions.map((item) => item.evidenceSource), [completeCovered.evidenceSource, zeroUnfulfilled.evidenceSource, partialUnfulfilled.evidenceSource, cancel.evidenceSource]);
-  assert.deepEqual(durableDecisions.map((item) => [item.startTime, item.endTime]), Array.from({ length: 4 }, () => ["09:00:00", "11:00:00"]));
+     WHERE commitment.proposal_id=$1 ORDER BY commitment.service_date`,
+      [apiCoverageProposalId],
+    )
+  ).rows;
+  assert.deepEqual(
+    durableDecisions.map((item) => [
+      item.commitmentId,
+      item.serviceDate,
+      item.requiredVolunteers,
+      item.outcome,
+      item.attendedPersonIds,
+      item.reason,
+      item.decidedBy,
+    ]),
+    [
+      [
+        commitments.Monday,
+        serviceDates.Monday,
+        1,
+        "Completed",
+        [substitute.personId],
+        null,
+        leaderId,
+      ],
+      [
+        commitments.Tuesday,
+        serviceDates.Tuesday,
+        1,
+        "Unfulfilled",
+        [],
+        zeroUnfulfilled.reason,
+        leaderId,
+      ],
+      [
+        commitments.Wednesday,
+        serviceDates.Wednesday,
+        2,
+        "Unfulfilled",
+        [leaderId],
+        partialUnfulfilled.reason,
+        leaderId,
+      ],
+      [commitments.Thursday, serviceDates.Thursday, 1, "Cancelled", [], cancel.reason, leaderId],
+    ],
+  );
+  assert.deepEqual(
+    durableDecisions.map((item) => item.evidenceSource),
+    [
+      completeCovered.evidenceSource,
+      zeroUnfulfilled.evidenceSource,
+      partialUnfulfilled.evidenceSource,
+      cancel.evidenceSource,
+    ],
+  );
+  assert.deepEqual(
+    durableDecisions.map((item) => [item.startTime, item.endTime]),
+    Array.from({ length: 4 }, () => ["09:00:00", "11:00:00"]),
+  );
   assert.ok(durableDecisions[0].occurrenceId);
   assert.equal(durableDecisions[1].occurrenceId, null);
   assert.ok(durableDecisions[2].occurrenceId);
   assert.equal(durableDecisions[3].occurrenceId, null);
-  assert.deepEqual((await pool.query(`SELECT commitment_id AS "commitmentId",attended_person_ids AS "attendedPersonIds"
-    FROM school_service_occurrences WHERE commitment_id=ANY($1) ORDER BY occurred_on`, [Object.values(commitments)])).rows,
-    [{ commitmentId: commitments.Monday, attendedPersonIds: [substitute.personId] }, { commitmentId: commitments.Wednesday, attendedPersonIds: [leaderId] }]);
-  assert.equal((await pool.query("SELECT count(*)::integer AS count FROM school_service_closures WHERE absence_id=$1", [cancelledAbsenceId])).rows[0].count, 0);
+  assert.deepEqual(
+    (
+      await pool.query(
+        `SELECT commitment_id AS "commitmentId",attended_person_ids AS "attendedPersonIds"
+    FROM school_service_occurrences WHERE commitment_id=ANY($1) ORDER BY occurred_on`,
+        [Object.values(commitments)],
+      )
+    ).rows,
+    [
+      { commitmentId: commitments.Monday, attendedPersonIds: [substitute.personId] },
+      { commitmentId: commitments.Wednesday, attendedPersonIds: [leaderId] },
+    ],
+  );
+  assert.equal(
+    (
+      await pool.query(
+        "SELECT count(*)::integer AS count FROM school_service_closures WHERE absence_id=$1",
+        [cancelledAbsenceId],
+      )
+    ).rows[0].count,
+    0,
+  );
   const apiCoverageAudit = (
     await pool.query(
       `SELECT action,actor_person_id AS "actorPersonId"
@@ -1337,7 +1742,8 @@ try {
           [browserCoverageExpected.proposalId],
         )
       ).rows;
-      return rows.length === 3 && rows.every((row: { status: string }) => row.status === "Delivered")
+      return rows.length === 3 &&
+        rows.every((row: { status: string }) => row.status === "Delivered")
         ? rows
         : undefined;
     });
@@ -1420,23 +1826,69 @@ try {
       ],
     );
     const browserDecisions: Array<{
-      commitmentId: string; requiredVolunteers: number; serviceDate: string; outcome: string;
-      attendedPersonIds: string[]; reason: string | null; evidenceSource: string; occurrenceId: string | null;
-    }> = (await pool.query(
-      `SELECT commitment.commitment_id AS "commitmentId",commitment.required_volunteers AS "requiredVolunteers",
+      commitmentId: string;
+      requiredVolunteers: number;
+      serviceDate: string;
+      outcome: string;
+      attendedPersonIds: string[];
+      reason: string | null;
+      evidenceSource: string;
+      occurrenceId: string | null;
+    }> = (
+      await pool.query(
+        `SELECT commitment.commitment_id AS "commitmentId",commitment.required_volunteers AS "requiredVolunteers",
          commitment.service_date::text AS "serviceDate",decision.outcome,
          decision.attended_person_ids AS "attendedPersonIds",decision.reason,
          decision.evidence_source AS "evidenceSource",decision.occurrence_id AS "occurrenceId"
        FROM school_service_commitments AS commitment JOIN school_service_decisions AS decision USING(commitment_id)
-       WHERE commitment.proposal_id=$1 ORDER BY commitment.service_date`, [browserCoverageExpected.proposalId],
-    )).rows;
-    assert.deepEqual(browserDecisions.map((item) => [item.commitmentId, item.requiredVolunteers, item.serviceDate, item.outcome, item.attendedPersonIds]), [
-      [browserCoverageExpected.completedCommitmentId, 2, manifest.coverage.serviceDate, "Completed", [leaderId, substitute.personId]],
-      [browserCoverageExpected.unfulfilledCommitmentId, 2, manifest.coverage.secondServiceDate, "Unfulfilled", [volunteerId]],
-      [browserCoverageExpected.cancelledCommitmentId, 2, manifest.coverage.cancelledServiceDate, "Cancelled", []],
-    ]);
-    assert.deepEqual(browserDecisions.map((item) => item.evidenceSource), ["Skole Beta kontakt, telefon 2024-03-04", "Skole Beta kontakt, telefon 2024-03-11", "Skole Beta kontakt, telefon 2024-03-18"]);
-    assert.deepEqual(browserDecisions.map((item) => item.reason), [null, "Bare én av to frivillige møtte", "Skolen avlyste tjenesten"]);
+       WHERE commitment.proposal_id=$1 ORDER BY commitment.service_date`,
+        [browserCoverageExpected.proposalId],
+      )
+    ).rows;
+    assert.deepEqual(
+      browserDecisions.map((item) => [
+        item.commitmentId,
+        item.requiredVolunteers,
+        item.serviceDate,
+        item.outcome,
+        item.attendedPersonIds,
+      ]),
+      [
+        [
+          browserCoverageExpected.completedCommitmentId,
+          2,
+          manifest.coverage.serviceDate,
+          "Completed",
+          [leaderId, substitute.personId],
+        ],
+        [
+          browserCoverageExpected.unfulfilledCommitmentId,
+          2,
+          manifest.coverage.secondServiceDate,
+          "Unfulfilled",
+          [volunteerId],
+        ],
+        [
+          browserCoverageExpected.cancelledCommitmentId,
+          2,
+          manifest.coverage.cancelledServiceDate,
+          "Cancelled",
+          [],
+        ],
+      ],
+    );
+    assert.deepEqual(
+      browserDecisions.map((item) => item.evidenceSource),
+      [
+        "Skole Beta kontakt, telefon 2024-03-04",
+        "Skole Beta kontakt, telefon 2024-03-11",
+        "Skole Beta kontakt, telefon 2024-03-18",
+      ],
+    );
+    assert.deepEqual(
+      browserDecisions.map((item) => item.reason),
+      [null, "Bare én av to frivillige møtte", "Skolen avlyste tjenesten"],
+    );
     assert.ok(browserDecisions[0].occurrenceId);
     assert.ok(browserDecisions[1].occurrenceId);
     assert.equal(browserDecisions[2].occurrenceId, null);
