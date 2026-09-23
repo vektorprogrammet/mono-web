@@ -58,4 +58,7 @@ export default defineConfig(({ command }) => ({
           }),
     },
   },
+  server: {
+    strictPort: true,
+  },
 }));

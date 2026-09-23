@@ -56,6 +56,7 @@ export default defineConfig({
   },
   server: {
     allowedHosts: ["p000.vektor.phibkro.org"],
+    strictPort: true,
   },
   preview: {
     allowedHosts: ["p000.vektor.phibkro.org"],
