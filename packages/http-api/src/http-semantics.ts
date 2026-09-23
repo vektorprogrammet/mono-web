@@ -296,7 +296,7 @@ export const NativeProblemRegistry = {
     type: "urn:vektorprogrammet:problem:v0.2:school-service.proposal-empty",
     title: "Empty school-service proposal",
     status: 422,
-    detail: "No active volunteer assignments are available for this proposal.",
+    detail: "No school demand or active assignment is available for a proposal.",
   },
   "school-service.proposal-inactive": {
     type: "urn:vektorprogrammet:problem:v0.2:school-service.proposal-inactive",
@@ -310,23 +310,53 @@ export const NativeProblemRegistry = {
     status: 422,
     detail: "Every proposal exception must be acknowledged exactly once.",
   },
-  "school-service.occurrence-invalid": {
-    type: "urn:vektorprogrammet:problem:v0.2:school-service.occurrence-invalid",
-    title: "Invalid teaching occurrence",
+  "commitment.target-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:commitment.target-invalid",
+    title: "Invalid service commitment",
     status: 422,
-    detail: "Attendance must match one confirmed school, day and block roster exactly.",
+    detail: "Choose a confirmed roster slot with positive demand on a date in its semester.",
   },
-  "school-service.occurrence-duplicate": {
-    type: "urn:vektorprogrammet:problem:v0.2:school-service.occurrence-duplicate",
-    title: "Duplicate teaching occurrence",
+  "commitment.duplicate": {
+    type: "urn:vektorprogrammet:problem:v0.2:commitment.duplicate",
+    title: "Service commitment already exists",
     status: 409,
-    detail: "This confirmed roster already has a teaching occurrence for the date and slot.",
+    detail: "This school already has a commitment for the selected date and teaching block.",
+  },
+  "commitment.closed": {
+    type: "urn:vektorprogrammet:problem:v0.2:commitment.closed",
+    title: "Service outcome already recorded",
+    status: 409,
+    detail: "This commitment has an immutable outcome.",
+  },
+  "commitment.attendance-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:commitment.attendance-invalid",
+    title: "Invalid service attendance",
+    status: 422,
+    detail: "Record actual attendance only for scheduled assistants and acknowledged substitutes.",
+  },
+  "commitment.outcome-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:commitment.outcome-invalid",
+    title: "Service outcome does not match demand",
+    status: 422,
+    detail: "Completed service must meet demand. Unfulfilled service must record unmet demand.",
+  },
+  "commitment.pending-offer": {
+    type: "urn:vektorprogrammet:problem:v0.2:commitment.pending-offer",
+    title: "Service has a pending offer",
+    status: 409,
+    detail: "Resolve each offered or accepted substitute offer before recording a service outcome.",
+  },
+  "commitment.interval-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:commitment.interval-invalid",
+    title: "Invalid service interval",
+    status: 422,
+    detail: "The start time must be before the end time on the service date.",
   },
   "absence.target-invalid": {
     type: "urn:vektorprogrammet:problem:v0.2:absence.target-invalid",
     title: "Invalid absence target",
     status: 422,
-    detail: "The person is not scheduled for this confirmed proposal slot and service date.",
+    detail: "The person is not scheduled for this open dated commitment.",
   },
   "absence.duplicate": {
     type: "urn:vektorprogrammet:problem:v0.2:absence.duplicate",
@@ -380,21 +410,7 @@ export const NativeProblemRegistry = {
     type: "urn:vektorprogrammet:problem:v0.2:coverage.pending-offer",
     title: "Coverage has a pending offer",
     status: 409,
-    detail:
-      "An offered or accepted substitute offer must be declined, withdrawn or acknowledged before closure.",
-  },
-  "coverage.attendance-invalid": {
-    type: "urn:vektorprogrammet:problem:v0.2:coverage.attendance-invalid",
-    title: "Invalid substituted attendance",
-    status: 422,
-    detail:
-      "Attendance must exactly equal the confirmed roster minus absences plus acknowledged substitutes.",
-  },
-  "coverage.occurrence-duplicate": {
-    type: "urn:vektorprogrammet:problem:v0.2:coverage.occurrence-duplicate",
-    title: "Duplicate covered teaching occurrence",
-    status: 409,
-    detail: "This confirmed proposal slot already has a teaching occurrence for the service date.",
+    detail: "Resolve this absence's offered or accepted substitute before closing its coverage.",
   },
 
   "scope.invalid": {

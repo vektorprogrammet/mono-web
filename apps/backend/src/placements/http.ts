@@ -189,8 +189,8 @@ const errorResponse = (cause: unknown): Response => {
       case "school_service_substitute_offer_active_partial_unique":
       case "school_service_substitute_offer_accepted_partial_unique":
         return nativeProblemResponse("offer.unresolved", 409);
-      case "school_service_occurrences_proposal_id_school_id_day_block_occurred_on_key":
-        return nativeProblemResponse("coverage.occurrence-duplicate", 409);
+      case "school_service_commitment_slot_unique":
+        return nativeProblemResponse("commitment.duplicate", 409);
     }
   }
   const sqlCode = sqlField(cause, "code");
@@ -434,8 +434,8 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
                           auth.authorizationInstant,
                           selected.command.action === "GenerateProposal"
                             ? `school-service-proposal-${identity.identitySha256}`
-                            : selected.command.action === "RecordOccurrence"
-                              ? `school-service-occurrence-${identity.identitySha256}`
+                            : selected.command.action === "ScheduleService"
+                              ? `school-service-commitment-${identity.identitySha256}`
                               : `placement-${identity.identitySha256}`,
                         ),
                       )

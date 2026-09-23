@@ -68,8 +68,13 @@ export const PlacementProblem = problemUnion("PlacementProblem", [
   ["school-service.proposal-empty", 422],
   ["school-service.proposal-inactive", 422],
   ["school-service.exception-review-invalid", 422],
-  ["school-service.occurrence-invalid", 422],
-  ["school-service.occurrence-duplicate", 409],
+  ["commitment.target-invalid", 422],
+  ["commitment.duplicate", 409],
+  ["commitment.closed", 409],
+  ["commitment.attendance-invalid", 422],
+  ["commitment.outcome-invalid", 422],
+  ["commitment.pending-offer", 409],
+  ["commitment.interval-invalid", 422],
   ["absence.target-invalid", 422],
   ["absence.duplicate", 409],
   ["absence.closed", 409],
@@ -81,7 +86,7 @@ export const PlacementProblem = problemUnion("PlacementProblem", [
   ["coverage.acknowledgement-invalid", 409],
   ["coverage.pending-offer", 409],
   ["coverage.attendance-invalid", 422],
-  ["coverage.occurrence-duplicate", 409],
+
   ["precondition.required", 428],
   ["precondition.failed", 412],
   ["idempotency.in-flight", 409],
@@ -176,8 +181,8 @@ export const CommandPlacementBoardEndpoint = HttpApiEndpoint.post(
   .pipe((e) => annotateAccessSpec(e, access("placements.manage", true)))
   .annotateMerge(
     operationAnnotations(
-      "Manage volunteer placement and school service",
-      "Conditional audited commands; demand, proposal, confirmation, notification, occurrence, and placement scope stay transaction-bound.",
+      "Manage placement and dated school service",
+      "Commands keep demand, proposals, commitments, and placement changes inside one transaction.",
     ),
   );
 
@@ -194,8 +199,8 @@ export const ReadOwnCoverageEndpoint = HttpApiEndpoint.get(
   .pipe((e) => annotateAccessSpec(e, access("placements.self")))
   .annotateMerge(
     operationAnnotations(
-      "Read own coverage",
-      "Authenticated volunteers can see only their confirmed roster slots, absences, and addressed substitute offers.",
+      "Read own coverage and scheduled service",
+      "A person sees only commitments where they are scheduled or have acknowledged substitute coverage.",
     ),
   );
 export const CommandOwnCoverageEndpoint = HttpApiEndpoint.post(
@@ -214,7 +219,7 @@ export const CommandOwnCoverageEndpoint = HttpApiEndpoint.post(
   .annotateMerge(
     operationAnnotations(
       "Report own absence or answer addressed offer",
-      "The current person must own the frozen roster slot or the selected substitute offer inside the command transaction.",
+      "The current person must own a scheduled assignment in an open commitment or be the addressed substitute.",
     ),
   );
 export const ReadCoverageBoardEndpoint = HttpApiEndpoint.get(
@@ -231,7 +236,7 @@ export const ReadCoverageBoardEndpoint = HttpApiEndpoint.get(
   .annotateMerge(
     operationAnnotations(
       "Read coordinator coverage board",
-      "Only a currently scoped coordinator can read candidate eligibility, offer delivery, acknowledgement, occurrence, and immutable closure facts.",
+      "Only a scoped coordinator can read candidates, offers, actual attendance, per-absence closures, and commitment outcomes.",
     ),
   );
 export const CommandCoverageBoardEndpoint = HttpApiEndpoint.post(
@@ -249,8 +254,8 @@ export const CommandCoverageBoardEndpoint = HttpApiEndpoint.post(
   .pipe((e) => annotateAccessSpec(e, access("placements.manage", true)))
   .annotateMerge(
     operationAnnotations(
-      "Coordinate coverage and close service",
-      "Every coordinator command rechecks department scope, roster, candidate eligibility, offer transition, acknowledgement, exact attendance, and immutable closure inside one serializable transaction.",
+      "Coordinate coverage and decide dated service",
+      "Commands check coordinator scope, actual attendance, and immutable outcome evidence inside one transaction.",
     ),
   );
 
@@ -268,6 +273,6 @@ export class PlacementsApi extends HttpApiGroup.make("placements")
     OpenApi.annotations({
       title: "Volunteer placement",
       description:
-        "Explicit affiliation, placement, human-confirmed roster, absence, sequential substitute coverage, and immutable teaching closure.",
+        "Explicit affiliation, placement, confirmed roster, dated school commitment, absence, substitute coverage, and immutable outcomes.",
     }),
   ) {}
