@@ -11,6 +11,64 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  golden-school-service:
+    name: Golden school-service (required functional gate)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        timeout-minutes: 2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        timeout-minutes: 2
+        with:
+          bun-version: 1.3.10
+      - uses: actions/setup-node@v4
+        timeout-minutes: 2
+        with:
+          node-version: 22
+      - name: Install frozen dependencies
+        timeout-minutes: 3
+        run: bun install --frozen-lockfile
+      - name: Reject unsafe golden evidence regressions
+        timeout-minutes: 1
+        run: bun test tools/e2e/golden-school-service-evidence.test.mjs
+      - name: Install private PostgreSQL and diagnostic tools
+        timeout-minutes: 3
+        run: |
+          key="$RUNNER_TEMP/golden-postgresql.asc"
+          curl --fail --silent --show-error --location https://www.postgresql.org/media/keys/ACCC4CF8.asc --output "$key"
+          gpg --batch --show-keys --with-colons "$key" | grep -Fx "fpr:::::::::B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8:"
+          sudo install -m 644 "$key" /usr/share/keyrings/golden-postgresql.asc
+          echo "deb [signed-by=/usr/share/keyrings/golden-postgresql.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/golden-pgdg.list
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-17 postgresql-contrib-17 unzip
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - name: Install isolated Chromium
+        timeout-minutes: 3
+        working-directory: apps/dashboard
+        run: node ./node_modules/@playwright/test/cli.js install --with-deps chromium
+      - name: Run required golden journey and accept exact-source evidence
+        id: golden
+        timeout-minutes: 17
+        env:
+          GOLDEN_EXPECTED_REVISION: ${{ github.sha }}
+        run: >-
+          bun --no-env-file tools/e2e/golden-school-service-ci.mjs
+          "${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}"
+      - name: Upload only sanitized golden evidence
+        timeout-minutes: 2
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: golden-school-service-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 1
+          if-no-files-found: error
+          path: ${{ steps.golden.outputs.artifact_paths }}
+
   ts:
     name: TypeScript (lint, build, test)
     runs-on: ubuntu-latest

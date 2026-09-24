@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { readFile, writeFile, readdir, rm } from "node:fs/promises";
+import { appendFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { sanitizePlaywrightArtifact } from "./runtime-evidence-receipt.mjs";
+import {
+  dashboardBuildInventory,
+  sha256,
+} from "../../../tools/e2e/golden-school-service-evidence.mjs";
 
 // The parent owns PostgreSQL, fixture, backend and credentials; this child owns dashboard and browser.
 const root = fileURLToPath(new URL("../../../", import.meta.url));
@@ -70,6 +75,8 @@ const start = (command, args, cwd) => {
     stdio: ["ignore", "pipe", "pipe"],
   });
   children.add(child);
+  if (child.pid && process.env.GOLDEN_PROCESS_GROUPS_PATH)
+    appendFileSync(process.env.GOLDEN_PROCESS_GROUPS_PATH, `${child.pid}\n`, { mode: 0o600 });
   return child;
 };
 const stop = async (child) => {
@@ -194,7 +201,7 @@ const cleanup = () =>
   })());
 for (const signal of ["SIGTERM", "SIGINT"])
   process.once(signal, () => {
-    failure = `Interrupted by ${signal}`;
+    failure ??= `Interrupted by ${signal}`;
     void cleanup().then(
       () => process.exit(signal === "SIGTERM" ? 143 : 130),
       () => process.exit(1),
@@ -209,7 +216,37 @@ try {
   await new Promise((resolve) => reservation.close(resolve));
   await run("bun", ["--no-env-file", "run", "build"], join(root, "packages/sdk"));
   await run("bun", ["--no-env-file", "run", "build"], dashboardRoot);
-  const dashboard = start("bun", ["--no-env-file", "server.mjs"], dashboardRoot);
+  const sourceTree = spawnSync("git", ["rev-parse", "HEAD^{tree}"], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  assert.equal(sourceTree.status, 0);
+  const files = await dashboardBuildInventory(root);
+  await writeFile(
+    join(manifest.artifacts, "browser-build.json"),
+    JSON.stringify(
+      {
+        revision: manifest.revision,
+        sourceTree: sourceTree.stdout.trim(),
+        digest: "sha256:" + sha256(JSON.stringify(files)),
+        files,
+      },
+      null,
+      2,
+    ),
+    { mode: 0o600 },
+  );
+  const dashboard = start(
+    "bun",
+    [
+      "--no-env-file",
+      ...(manifest.golden
+        ? ["--preload", join(root, "tools/e2e/golden-http-diagnostics.mjs")]
+        : []),
+      "server.mjs",
+    ],
+    dashboardRoot,
+  );
   dashboard.stdout.on("data", (value) => {
     output += value;
   });
@@ -254,7 +291,7 @@ try {
   assert.equal(evidence.passed, true, "browser evidence is required even after API success");
   assert.equal(evidence.revision, manifest.revision);
 } catch (cause) {
-  failure = cause;
+  failure ??= cause;
 } finally {
   await cleanup();
 }
