@@ -11,16 +11,17 @@ cutover.
 
 The durable documentation set is:
 
-| File                                                                             | Authority                                                                |
-| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| [README.md](README.md)                                                           | Repository map and local commands                                        |
-| [AGENTS.md](AGENTS.md)                                                           | Project development, verification, resource, and cleanup practices       |
-| [STATE.md](STATE.md)                                                             | Current migration state, evidence limits, and next work                  |
-| [docs/system.md](docs/system.md)                                                 | Intended product, domain, ownership, authority, and journeys             |
-| [docs/architecture.md](docs/architecture.md)                                     | Runtime, dependencies, persistence, delivery, and interface boundaries   |
-| [docs/operational-responsibility-map.md](docs/operational-responsibility-map.md) | Stakeholders, end-to-end processes, and replacement contracts            |
-| [docs/enterprise-models.md](docs/enterprise-models.md)                           | 4EM and ArchiMate views derived from the system documents                |
-| [docs/system-walkthrough.mdx](docs/system-walkthrough.mdx)                       | Layered reading guide with MDXCN figures; source for the standalone HTML |
+| File                                                                             | Authority                                                                           |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| [README.md](README.md)                                                           | Repository map and local commands                                                   |
+| [AGENTS.md](AGENTS.md)                                                           | Project development, verification, resource, and cleanup practices                  |
+| [STATE.md](STATE.md)                                                             | Current migration state, evidence limits, and next work                             |
+| [docs/system.md](docs/system.md)                                                 | Intended product, domain, ownership, authority, and journeys                        |
+| [docs/architecture.md](docs/architecture.md)                                     | Runtime, dependencies, persistence, delivery, and interface boundaries              |
+| [docs/operational-responsibility-map.md](docs/operational-responsibility-map.md) | Stakeholders, end-to-end processes, and replacement contracts                       |
+| [docs/enterprise-models.md](docs/enterprise-models.md)                           | 4EM and ArchiMate views derived from the system documents                           |
+| [docs/system-walkthrough.mdx](docs/system-walkthrough.mdx)                       | Layered reading guide with MDXCN figures; source for the standalone HTML            |
+| [Placements developer guide](packages/placements/README.md)                      | Public imports, executable examples, API reference generation, and maintainer tasks |
 
 Create one file in `docs/specs/` only while a non-trivial journey is active.
 Remove the completed specification after its durable intent is present in the

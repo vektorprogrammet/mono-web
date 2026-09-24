@@ -83,6 +83,7 @@ export const canManagePlacements = (
   return Predicate.isTagged(decision, "Allow") && !Predicate.isTagged(decision.value, "Member");
 };
 
+/** Returns the next status, or null for a rejected transition. Does not authorize or persist a change. */
 export const nextAffiliationStatus = (
   status: Affiliation["status"],
   action: OwnAffiliationCommand["action"] | "Establish" | "Reject" | "Revoke",

@@ -11,7 +11,10 @@
     "test": "vitest run --no-file-parallelism --maxWorkers=1",
     "check-types": "tsc --noEmit",
     "build": "tsc --noEmit",
-    "lint": "oxlint"
+    "lint": "oxlint",
+    "docs:examples": "bun --no-env-file examples/affiliation.ts && bun --no-env-file examples/read-scopes.ts",
+    "docs:generate": "bun --no-env-file ../../tools/system-guide/placements.ts generate",
+    "docs:check": "bun --no-env-file ../../tools/system-guide/placements.ts check"
   },
   "dependencies": {
     "@vektorprogrammet/database": "workspace:*",
