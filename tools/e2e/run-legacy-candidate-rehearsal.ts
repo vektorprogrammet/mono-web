@@ -603,11 +603,13 @@ const rehearse = async () =>
       const owned = pendingReceipts.find((receipt) => receipt.visual_id === "CANDIDATE-1")!;
       assert.equal(owned.owner_person_id, candidateIdentities.member.personId);
       const changedPassword = "Candidate-native-changed-2026!";
-      sensitive.push(changedPassword);
+      const authSecret = randomBytes(32).toString("base64url");
+      sensitive.push(changedPassword, authSecret);
 
       const native = await observeLegacyCandidateNativeJourney({
         target: primary,
         asOf: candidateAsOf,
+        authSecret,
         identities: candidateIdentities,
         scope: candidateScope,
         receipt: {
@@ -697,6 +699,7 @@ const rehearse = async () =>
       const restoredNative = await observeLegacyCandidateNativeJourney({
         target: restored,
         asOf: candidateAsOf,
+        authSecret,
         identities: {
           ...candidateIdentities,
           member: { ...candidateIdentities.member, password: changedPassword },

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import {
@@ -50,6 +50,7 @@ export interface CandidateNativeIdentity {
 export interface LegacyCandidateNativeJourneyInput {
   readonly target: RehearsalTarget;
   readonly asOf: string;
+  readonly authSecret: string;
   readonly identities: Readonly<
     Record<"leader" | "member" | "historicalLeader" | "otherDepartment", CandidateNativeIdentity>
   >;
@@ -80,7 +81,7 @@ export const observeLegacyCandidateNativeJourney = async (
 
   const config = decodeBackendConfig({
     BACKEND_PG_URL: input.target.url,
-    BETTER_AUTH_SECRET: randomBytes(32).toString("base64url"),
+    BETTER_AUTH_SECRET: input.authSecret,
     NATIVE_IDENTITY_DEPLOYMENT: "local",
     NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
     OAUTH_CANONICAL_ORIGIN: backendOrigin,
