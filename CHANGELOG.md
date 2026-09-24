@@ -1,5 +1,13 @@
 ## Unreleased
 
+### Scoped school administration
+
+- Add school, contact, activation, department-association, and weekday-capacity commands through the existing Schools service and Foldkit dashboard.
+- Enforce current department scope, shared-school authority, dependency preservation, revisions, replay, and atomic audit and receipts.
+- Replace the directory bridge with the generated SDK and existing same-origin API proxy.
+- Preserve the selected capacity department and semester after save and refresh.
+- Complete local browser, API, PostgreSQL, concurrency, revocation, and rollback acceptance.
+
 ### Organization lifecycle acceptance
 
 - Reject blank lifecycle reasons before database writes.

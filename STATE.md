@@ -94,8 +94,13 @@ Overlapping administrator commands preserved one usable administrator. Scoped en
 The acceptance fixes reject blank reasons, return `invalid_grant` for unusable-session refresh, and correct narrow layout and preview landmarks.
 These observations do not prove production migration or provider behavior.
 
-Schools has a scoped read-only directory. School records, contacts, department associations, and capacity maintenance remain incomplete.
-Placement demand and roster commands are separate, implemented journeys.
+Scoped school administration passed local acceptance on 2026-09-24 with synthetic data and disposable PostgreSQL.
+The real dashboard covers school creation, contacts, activation, department associations, and weekday capacity by department and semester.
+Shared details require authority over every associated department. A scoped leader can maintain only their own capacity plans.
+Real HTTP and PostgreSQL checks cover replay, revocation, competing revisions, dependency denial, and atomic rollback with same-request recovery.
+The browser also covers stale edits, actual database failure, keyboard submission, pending controls, and retained capacity selection after refresh.
+The 390px view has no horizontal page overflow and no automated accessibility violations.
+Placement demand and roster commands remain separate and unchanged. These observations do not establish production migration or provider readiness.
 Mailing lists have derived reads, not complete maintenance or provider synchronization.
 
 The Economy owner query uses shared schemas with `SqlSchema.findAll`.
@@ -175,18 +180,17 @@ and settlement references are still needed for the receipt migration.
 
 ## Next
 
-Implement scoped school administration next. Organization lifecycle acceptance is complete for the local synthetic journey.
-Preserve the existing placement demand and roster commands.
+Close recruitment maintenance next. School administration and Organization lifecycle acceptance are complete for their local synthetic journeys.
+Preserve existing recruitment conduct, reports, corrections, invitations, and onboarding.
 
 | Priority | Work                                             | Acceptance gate                                                                                                                                                                                                          | Authority                                                            |
 | -------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| 1        | Implement school administration                  | Scoped school, contact, department-association, and capacity changes. Verify denied and stale commands without duplicating placement demand or roster work.                                                              | Local implementation                                                 |
-| 2        | Close recruitment maintenance                    | Questionnaire authoring and interviewer/co-interviewer changes. Preserve existing conduct, reports, corrections, invitations, and onboarding.                                                                            | Local implementation                                                 |
-| 3        | Resolve remaining active operational obligations | Define necessary mailing-list controls, standalone team recruitment, reminders, no-show handling, service corrections, and coordinator reports. Implement each required outcome or obtain an explicit handover decision. | Product decisions where ownership is unresolved                      |
-| 4        | Extend real-source migration coverage            | Reconcile current assignments, appointments, recruitment, demand, claims, files, and pending effects. Record each source identity and its disposition.                                                                   | Local adapter work; current production access requires authorization |
-| 5        | Complete provider runtime ownership              | Resolve schema ownership against the frozen contract. Wire delivery drains and recovery. Preserve one transaction and outbox mechanism.                                                                                  | Local implementation                                                 |
-| 6        | Exercise the deployed development journey        | Verify Worker, Hyperdrive, PostgreSQL, R2, mail acknowledgement, restart, retry, revocation, and credential resource limits. Exercise PR preview creation, update, probes, fork exclusion, and cleanup separately.       | Explicit provider and credential authority                           |
-| 7        | Rehearse and authorize cutover                   | Reconcile the final delta, fence writers, verify restoration and rollback after native writes, then transfer ownership.                                                                                                  | Separate production authority                                        |
+| 1        | Close recruitment maintenance                    | Questionnaire authoring and interviewer/co-interviewer changes. Preserve existing conduct, reports, corrections, invitations, and onboarding.                                                                            | Local implementation                                                 |
+| 2        | Resolve remaining active operational obligations | Define necessary mailing-list controls, standalone team recruitment, reminders, no-show handling, service corrections, and coordinator reports. Implement each required outcome or obtain an explicit handover decision. | Product decisions where ownership is unresolved                      |
+| 3        | Extend real-source migration coverage            | Reconcile current assignments, appointments, recruitment, demand, claims, files, and pending effects. Record each source identity and its disposition.                                                                   | Local adapter work; current production access requires authorization |
+| 4        | Complete provider runtime ownership              | Resolve schema ownership against the frozen contract. Wire delivery drains and recovery. Preserve one transaction and outbox mechanism.                                                                                  | Local implementation                                                 |
+| 5        | Exercise the deployed development journey        | Verify Worker, Hyperdrive, PostgreSQL, R2, mail acknowledgement, restart, retry, revocation, and credential resource limits. Exercise PR preview creation, update, probes, fork exclusion, and cleanup separately.       | Explicit provider and credential authority                           |
+| 6        | Rehearse and authorize cutover                   | Reconcile the final delta, fence writers, verify restoration and rollback after native writes, then transfer ownership.                                                                                                  | Separate production authority                                        |
 
 These priorities are not a requirement to serialize independent preparation:
 
@@ -269,6 +273,10 @@ Eleven affected type/build prerequisites, 19 focused tests, the browser regressi
 The final credential probe also exercised successful refresh before disable and after fresh authentication following re-enable.
 The organization record is `/tmp/vektor-organization-acceptance-b08d87e3/acceptance.json`.
 The earlier records are `/tmp/vektor-upgrade-acceptance-cuFpfJ/acceptance.json` and `/tmp/vektor-economy-acceptance-FeFz12/acceptance.json`.
+School administration used committed source `34d9109a`; the earlier full browser journey used `0d466283` before the capacity-selection fix.
+Fourteen grouped HTTP/PostgreSQL checks, the maintained Chromium/PostgreSQL runner, 24 focused tests, and 11 affected type/build prerequisites passed.
+The final browser run covered retained capacity selection, scoped controls, real database failure, and same-request recovery.
+The school record is `/tmp/vektor-school-acceptance-34d9109a/acceptance.json`, with a checksummed archive of the committed source.
 Each directory retains source provenance and evidence outside the product repository. Temporary storage is not a permanent archive.
 No repository-wide all-packages test pass or deployed provider journey is claimed.
 

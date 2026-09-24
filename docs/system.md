@@ -153,11 +153,29 @@ and active school placement. Placement is the final visible state. Affiliation
 does not hide an earlier invitation or cancellation, and the projection does not
 invent a separate admission answer.
 
+### School administration
+
+Schools owns partner-school identities, contacts, language, active status, and department associations.
+A current global administrator can maintain every school. Department leaders can maintain schools within their current scope.
+Directory membership alone grants no maintenance authority.
+
+Shared details require authority over every associated department. Association changes require authority over both the current and requested departments.
+An existing school without associations requires global authority. New schools and replacement association sets require at least one department.
+The system refuses to remove an association with dependent records, including saved placement proposals.
+Deactivation preserves capacity, placement, demand, and history. There is no school deletion command.
+
+A capacity plan records nonnegative weekday counts for one school, department, and semester.
+Capacity maintenance requires an active school, its department association, and current authority for that department.
+Capacity is separate from placement demand. School commands do not change placements, rosters, commitments, or notifications.
+
+Each command requires a reason. Edits require the observed revision. State, revision, history, and command receipts commit together.
+Exact replay does not repeat a change. The server checks current authority before replay and rejects conflicting payloads or stale revisions.
+Scoped management reads conceal other departments, their capacity plans, and their history.
+
 ### School demand and placement
 
-Partner-school demand includes capacity, weekday, teaching block, location,
-language, and semester. Volunteer supply includes affiliation, eligibility,
-availability, and preferences.
+Placement demand specifies required volunteers, school, weekday, teaching block, and semester.
+Volunteer supply includes affiliation, eligibility, availability, and preferences.
 
 The coordinator records demand for an active school, weekday, and teaching block.
 A proposal snapshots that demand and the current active placements. Every mismatch
