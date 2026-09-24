@@ -536,6 +536,11 @@ export const databaseMigrationDefinitions = [
     name: "reviewed-organization-cohort",
     url: new URL("../migrations/0066-reviewed-organization-cohort.sql", import.meta.url),
   },
+  {
+    id: "67_reviewed-receipt-cohort",
+    name: "reviewed-receipt-cohort",
+    url: new URL("../migrations/0067-reviewed-receipt-cohort.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

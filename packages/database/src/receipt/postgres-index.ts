@@ -1,5 +1,7 @@
 export { EconomyLive } from "./postgres-layer.js";
 
+export * from "./reviewed-cohort.js";
+
 export {
   readOwnedReceiptFile,
   storeReceiptImportResult,
