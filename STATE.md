@@ -398,6 +398,13 @@ Fifteen affected type/build tasks, 47 focused tests, generated-contract checks, 
 Nine prohibited imports were rejected. Placements HTTP no longer imports its ten former database helpers; Recruitment no longer exposes twelve wildcard export groups.
 The record is `/tmp/vektor-command-ownership-P0ppoX/acceptance.json`, with a checksummed source archive and scope-specific receipts.
 No provider, production data, or external delivery was exercised. Owned runtime resources and integrated worktrees were removed.
+Reviewed current-assignment acceptance used committed source `5d4001e8` and schema migration 65.
+Real MariaDB and PostgreSQL exercised the SELECT-only reader, operator CLI, and supported Placements importer with synthetic source records.
+Nine reviewed assignments produced three placements and two affiliations; six assignments were quarantined. Nineteen refusal cases passed.
+Snapshot-bound Person identity, valid cross-snapshot replay, per-row relationship quarantine, concurrent import, and whole-cutover rollback passed.
+The original Person and synthetic assignment rehearsals passed at the same revision. Twenty-three focused tests and sixteen affected type-check tasks also passed.
+The record is `/tmp/vektor-reviewed-assignment-release-0924/acceptance.json`, with a checksummed source archive.
+The historical backup rehearsal was not rerun. No production source, provider, deployment, or cutover was exercised.
 Each directory retains source provenance and evidence outside the product repository. Temporary storage is not a permanent archive.
 No repository-wide all-packages test pass or deployed provider journey is claimed.
 
