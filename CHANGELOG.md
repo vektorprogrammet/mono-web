@@ -6,6 +6,7 @@
 - Move assignment reconciliation behind the supported Placements server boundary. Keep its synthetic entry point restricted.
 - Import reviewed assignments, references, accepted People, historical service, and Accounts in one transaction.
 - Preserve native edits on replay. Keep current assignments separate from historical service and human operational decisions.
+- Bind accepted Person mappings to each source snapshot. Reject reused occurrence IDs and quarantine missing school relationships per row.
 - Add a disposable MariaDB-to-PostgreSQL rehearsal through the real reader and operator CLI.
 
 ### Native command ownership

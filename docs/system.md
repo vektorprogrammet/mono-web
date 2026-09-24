@@ -107,6 +107,9 @@ demand, absence, service occurrence, Account, or admission decision.
 Current-assignment reconciliation requires accepted Person evidence and explicit Person, department, semester, and school mappings.
 Placements owns validation, canonical writes, conflicts, and append-only import provenance through its public server boundary.
 The synthetic snapshot remains a separate, restricted path.
+Accepted Person evidence binds each occurrence to its source user within one snapshot. Occurrence labels alone cannot identify a Person.
+An immutable source-user mapping supplies the canonical Person identity. Valid Person replay retains a separate binding for each accepted snapshot.
+Missing source school relationships quarantine the affected assignments, not unrelated rows.
 
 A reviewed legacy snapshot also requires the matching source revision, source watermark, semester, effective date, reviewer, and evidence references.
 Every assignment in the selected semester needs one review entry that pins its raw source-row digest and active decision.
