@@ -60,6 +60,7 @@ const report = async (
       [snapshotKey],
     )
   ).rows;
+
   const counts = { Accepted: 0, Quarantined: 0, Excluded: 0 };
 
   for (const row of occurrences) counts[row.result] += 1;
@@ -102,6 +103,7 @@ const resolvedEvidence = async (tx: PoolClient, snapshot: ReviewedOrganizationSn
   const decoded = Schema.decodeUnknownOption(References)(reference.source_id_mappings);
 
   if (Option.isNone(decoded)) throw new OrganizationCohortFailure("ReferenceProvenanceConflict");
+
   const acceptedDepartments = new Map(
     decoded.value.departments.map((row) => [row.sourceDepartmentId, row.departmentId]),
   );
@@ -113,6 +115,7 @@ const resolvedEvidence = async (tx: PoolClient, snapshot: ReviewedOrganizationSn
     )
   )
     throw new OrganizationCohortFailure("ReferenceProvenanceConflict");
+
   const personSnapshot = await tx.query(
     `SELECT 1 FROM public.person_cohort_snapshots WHERE snapshot_key=$1 AND source_repository=$2 AND source_revision=$3 AND snapshot_id=$4 FOR SHARE`,
     [
@@ -124,16 +127,20 @@ const resolvedEvidence = async (tx: PoolClient, snapshot: ReviewedOrganizationSn
   );
 
   if (!personSnapshot.rowCount) throw new OrganizationCohortFailure("PersonSnapshotConflict");
+
   const people = await tx.query<{ source_user_id: string; person_id: string }>(
     `SELECT a.source_user_id,i.person_id FROM public.person_cohort_accepted_mappings a JOIN public.person_cohort_imports i USING(source_repository,source_user_id) WHERE a.snapshot_key=$1 AND a.source_repository=$2 FOR SHARE`,
     [snapshot.personSnapshotKey, snapshot.sourceRepository],
   );
+
   const acceptedPeople = new Map(people.rows.map((row) => [row.source_user_id, row.person_id]));
+
   const persons = Object.fromEntries(
     snapshot.mappings.persons
       .filter((row) => acceptedPeople.get(row.sourceUserId) === row.personId)
       .map((row) => [row.sourceUserId.replace(/^legacy-user:/, ""), row.personId]),
   );
+
   const nativeDepartments = await tx.query<
     Omit<LegacyDepartmentRow, "id"> & { departmentId: string }
   >(
@@ -170,6 +177,7 @@ export const importReviewedOrganizationCohort = async (
     await tx.query(
       "SELECT pg_advisory_xact_lock(hashtextextended('native-reviewed-organization-import',0))",
     );
+
     const prior = (
       await tx.query<{ snapshot_digest: string }>(
         "SELECT snapshot_digest FROM public.organization_cohort_snapshots WHERE snapshot_key=$1",
@@ -194,6 +202,7 @@ export const importReviewedOrganizationCohort = async (
         "SELECT pg_advisory_xact_lock(hashtextextended('vektorprogrammet:person-authorization:v1:' || $1,0))",
         [personId],
       );
+
     const sourceBindings = await tx.query<{
       source_kind: string;
       source_id: string;
@@ -202,6 +211,7 @@ export const importReviewedOrganizationCohort = async (
       "SELECT source_kind,source_id,source_digest FROM public.organization_cohort_imports WHERE source_repository=$1 AND source_kind IN ('TeamMembership','BoardMembership')",
       [snapshot.sourceRepository],
     );
+
     const bindings = new Map(
       sourceBindings.rows.map((row) => [
         JSON.stringify([row.source_kind, row.source_id]),
@@ -219,11 +229,13 @@ export const importReviewedOrganizationCohort = async (
     }
 
     const evidence = await resolvedEvidence(tx, snapshot);
+
     const classified = classifyReviewedOrganization(
       snapshot,
       evidence.persons,
       evidence.departments,
     );
+
     await tx.query(
       `INSERT INTO public.organization_cohort_snapshots(snapshot_key,source_repository,source_revision,snapshot_id,source_watermark,snapshot_digest,transformation_revision,person_snapshot_key,reference_digest,review,input_json) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb)`,
       [
@@ -298,6 +310,7 @@ export const importReviewedOrganizationCohort = async (
 
       if (membership.teamId !== null) {
         const team = classified.teams.find((team) => team.teamId === membership.teamId)!;
+
         const rawTeam = snapshot.teams.find(
           (raw) =>
             Predicate.isObjectOrArray(raw) &&
@@ -309,6 +322,7 @@ export const importReviewedOrganizationCohort = async (
         if (!Predicate.isObjectOrArray(rawTeam) || !("id" in rawTeam))
           throw new OrganizationCohortFailure("InvalidSnapshot");
         const teamSourceId = String(rawTeam.id);
+
         const teamDigest = organizationEvidenceDigest({
           raw: rawTeam,
           teamId: team.teamId,
@@ -331,12 +345,14 @@ export const importReviewedOrganizationCohort = async (
               team.active,
             ],
           );
+
           unitAvailable = !!inserted.rowCount;
 
           if (unitAvailable) await recordSource("Team", teamSourceId, teamDigest, team.teamId);
         }
       } else if (boardId !== null) {
         const board = classified.boards.find((board) => board.boardId === boardId)!;
+
         const boardDigest = organizationEvidenceDigest({
           board,
           transformationRevision: snapshot.transformationRevision,
@@ -347,6 +363,7 @@ export const importReviewedOrganizationCohort = async (
             `INSERT INTO public.organization_national_boards(board_id,name) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING board_id`,
             [boardId, board.name],
           );
+
           unitAvailable = !!inserted.rowCount;
 
           if (unitAvailable) await recordSource("Board", String(board.id), boardDigest, boardId);
@@ -386,6 +403,7 @@ export const importReviewedOrganizationCohort = async (
             positionName,
           ],
         );
+
         inserted = !!result.rowCount;
       }
 

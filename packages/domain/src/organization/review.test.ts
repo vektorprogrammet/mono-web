@@ -59,6 +59,7 @@ it("enforces half-open reviewed intervals and explicit excluded variants", () =>
     ...review,
     memberships: [{ ...review.memberships[0], decision: "Historical", endAt: review.asOf }],
   };
+
   expect(validateOrganizationReview(historical, [occurrence]).memberships[0]?.decision).toBe(
     "Historical",
   );
@@ -95,6 +96,7 @@ it("enforces half-open reviewed intervals and explicit excluded variants", () =>
 
 it("preserves reviewed titles and suspension while boards cannot grant leadership", () => {
   const boardRow = { id: 1, userId: 7, boardId: 2, positionName: "Chair", isTeamLeader: true };
+
   const boardOccurrence: OrganizationSourceOccurrence = {
     occurrenceId: "board-1",
     sourceKind: "BoardMembership",
@@ -102,7 +104,9 @@ it("preserves reviewed titles and suspension while boards cannot grant leadershi
     row: boardRow,
     sourceRowDigest: organizationEvidenceDigest(boardRow),
   };
+
   const suspendedRow = { ...row, isSuspended: "1" };
+
   const teamOccurrence = {
     ...occurrence,
     row: suspendedRow,
@@ -156,6 +160,7 @@ it("preserves reviewed titles and suspension while boards cannot grant leadershi
       city: "City",
     },
   ]);
+
   expect(
     result.appointments.map((item) => [
       item.occurrence.sourceKind,

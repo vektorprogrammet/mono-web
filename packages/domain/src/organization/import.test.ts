@@ -252,16 +252,20 @@ it("requires an explicit Person mapping and retains nonnumeric canonical identit
   const input = snapshot([
     { id: 100, userId: 7, teamId: 10, startAt: "2026-08-01T00:00:00Z", endAt: null },
   ]);
+
   const missing = importLegacyOrganization({
     ...input,
     identities: { ...input.identities, persons: {} },
   });
+
   expect(missing.memberships).toEqual([]);
   expect(missing.quarantined.map((row) => row.reason)).toEqual(["PERSON_UNRESOLVED"]);
+
   const resolved = importLegacyOrganization({
     ...input,
     identities: { ...input.identities, persons: { "7": "person-reviewed-nonnumeric" } },
   });
+
   expect(resolved.memberships[0]?.personId).toBe("person-reviewed-nonnumeric");
 });
 
@@ -278,6 +282,7 @@ it("rejects semantic duplicates after different source users resolve to one Pers
       persons: { "7": "person-canonical", "8": "person-canonical" },
     },
   });
+
   expect(result.memberships).toEqual([]);
   expect(result.quarantined.map((row) => row.reason)).toEqual([
     "DUPLICATE_MEMBERSHIP",

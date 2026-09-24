@@ -986,9 +986,11 @@ const runRehearsal = async (temporaryRoot: string) => {
 
     // A fresh, self-consistent review still cannot repoint an already imported source identity.
     await mysql("UPDATE vektor.assistant_history SET user_id = 2 WHERE id = 101");
+
     const repointed = reviewFor(
       await readLegacySourceSnapshot(sourceUrl.toString(), "NotRequested"),
     );
+
     await assert.rejects(runLegacyServiceCutover({ ...options, currentAssignments: repointed }));
     assert.equal(
       await targetFingerprint(primary.pool),

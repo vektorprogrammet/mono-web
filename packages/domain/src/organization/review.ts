@@ -101,6 +101,7 @@ export const organizationSnapshotDigest = (input: Schema.Json): string => {
   const decoded = Schema.decodeUnknownOption(Schema.Record(Schema.String, Schema.Json))(input);
 
   if (Option.isNone(decoded)) throw new OrganizationCohortFailure("InvalidSnapshot");
+
   const snapshot = Object.fromEntries(
     Object.entries(decoded.value).filter(([key]) => key !== "snapshotDigest"),
   );
@@ -127,6 +128,7 @@ export const validateOrganizationReview = (
   }
 
   const keys = new Set<string>();
+
   const entries = new Map(
     review.memberships.map((entry) => [JSON.stringify([entry.sourceKind, entry.sourceId]), entry]),
   );
@@ -157,6 +159,7 @@ export const validateOrganizationReview = (
       (entry.endAt !== null && compareRfc3339Instants(entry.endAt, entry.startAt) <= 0)
     )
       throw new OrganizationCohortFailure("InvalidReview");
+
     const state = appointmentStateAt(
       { startAt: entry.startAt, endAt: entry.endAt, suspended: false },
       review.asOf,
