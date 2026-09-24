@@ -20,11 +20,17 @@ export const digest = flow(canonicalJson, (json) =>
 
 // The current-assignment rehearsal's bounded subprocess and private-socket lifecycle.
 // This helper is proof-local: it does not connect to supplied databases or run migrations itself.
-export const runLocal = async (
+export interface LocalCommandResult {
+  readonly code: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+export const runLocalResult = async (
   command: ReadonlyArray<string>,
   stdin?: string,
   environment?: Record<string, string>,
-): Promise<string> => {
+): Promise<LocalCommandResult> => {
   const child = spawn(command[0]!, command.slice(1), {
     cwd: repositoryRoot,
     env: { ...process.env, ...environment },
@@ -32,17 +38,32 @@ export const runLocal = async (
   });
 
   const chunks: Buffer[] = [];
+  const errors: Buffer[] = [];
   child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
-  child.stderr.resume();
+  child.stderr.on("data", (chunk: Buffer) => errors.push(chunk));
   child.stdin.on("error", () => undefined);
   child.stdin.end(stdin);
   const { promise, resolve: resolveExit, reject } = Promise.withResolvers<number>();
   child.once("error", () => reject(new Error("Local command unavailable; details redacted")));
   child.once("close", (status) => resolveExit(status ?? 1));
   const code = await promise;
-  assert.equal(code, 0, "Local command failed; details redacted");
 
-  return Buffer.concat(chunks).toString("utf8").trim();
+  return {
+    code,
+    stdout: Buffer.concat(chunks).toString("utf8").trim(),
+    stderr: Buffer.concat(errors).toString("utf8").trim(),
+  };
+};
+
+export const runLocal = async (
+  command: ReadonlyArray<string>,
+  stdin?: string,
+  environment?: Record<string, string>,
+): Promise<string> => {
+  const result = await runLocalResult(command, stdin, environment);
+  assert.equal(result.code, 0, "Local command failed; details redacted");
+
+  return result.stdout;
 };
 
 const waitForExit = (child: ChildProcess, milliseconds: number): Promise<boolean> => {
