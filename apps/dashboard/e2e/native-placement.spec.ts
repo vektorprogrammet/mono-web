@@ -1013,6 +1013,7 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     payload: CoverageCommand | OwnCoverageCommand | PlacementCommand,
     check: string,
     expected: number,
+    expectedCode?: string,
   ) => {
     const response = await actor.request.post(
       `${manifest.backendOrigin}/api/placements${endpoint}?${scope}`,
@@ -1026,7 +1027,10 @@ test("golden school-service continuous functional journey", async ({ browser }) 
       },
     );
 
-    expect(response.status(), await response.text()).toBe(expected);
+    const problem = await response.json();
+    expect(response.status(), JSON.stringify(problem)).toBe(expected);
+
+    if (expectedCode !== undefined) expect(problem.code).toBe(expectedCode);
     http.push({ check, status: response.status(), boundary: "authenticated-http" });
   };
 
@@ -1430,6 +1434,7 @@ test("golden school-service continuous functional journey", async ({ browser }) 
       },
       "conflicting assignment rejects substitute offer",
       422,
+      "offer.candidate-ineligible",
     );
     await checkpoint("assignment-conflict");
     const candidatePlacement = page.getByRole("form", { name: /^Plassering \d+: Kari Kandidat,/ });
@@ -1474,6 +1479,7 @@ test("golden school-service continuous functional journey", async ({ browser }) 
       { action: "RespondToOffer", offerId: offer.offerId, response: "Accept" },
       "only addressed substitute can accept",
       403,
+      "offer.owner-invalid",
     );
     await checkpoint("wrong-recipient");
     await candidatePage.reload();
@@ -1527,7 +1533,9 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     await expect(
       substituteDecision.getByRole("button", { name: "Lagre uforanderlig beslutning" }),
     ).toBeDisabled();
-    await substituteDecision.getByRole("checkbox", { name: "Kari Kandidat", exact: true }).check();
+    await substituteDecision
+      .locator('input[name="attendedPersonId"][value="' + manifest.candidateId + '"]')
+      .check();
     await submit(substituteDecision, "Lagre uforanderlig beslutning");
     await page.reload();
     await expect(substituted.getByRole("list", { name: "Faktisk møtte" })).toHaveText(
@@ -1548,9 +1556,10 @@ test("golden school-service continuous functional journey", async ({ browser }) 
       .locator("..");
 
     await expect(candidateService).toContainText("Gjennomført");
-    await expect(candidateService.getByRole("list", { name: "Faktisk møtte" })).toHaveText(
-      "Kari Kandidat",
-    );
+    await expect(candidateService).toContainText("Din rolle: bekreftet vikar.");
+    await expect(
+      candidatePage.getByRole("button", { name: "Registrer beslutning for denne datoen" }),
+    ).toHaveCount(0);
     await checkpoint("substitute-independent-read");
 
     if (manifest.fault !== "absent-browser-evidence")
