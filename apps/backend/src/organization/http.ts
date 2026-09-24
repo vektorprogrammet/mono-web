@@ -779,9 +779,11 @@ const optionalDepartmentParam = (request: Request) => {
 
   if (value === null) return Effect.succeed<DepartmentId | undefined>(undefined);
 
-  return value.trim().length === 0 || /[^a-zA-Z0-9._-]/u.test(value)
-    ? Effect.fail(new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }))
-    : Effect.succeed(DepartmentId.make(value));
+  return Schema.decodeUnknownEffect(DepartmentId)(value).pipe(
+    Effect.mapError(
+      () => new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }),
+    ),
+  );
 };
 
 const optionalSemesterParam = (request: Request) => {
@@ -789,9 +791,11 @@ const optionalSemesterParam = (request: Request) => {
 
   if (value === null) return Effect.succeed<SemesterId | undefined>(undefined);
 
-  return value.trim().length === 0 || /[^a-zA-Z0-9._-]/u.test(value)
-    ? Effect.fail(new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }))
-    : Effect.succeed(SemesterId.make(value));
+  return Schema.decodeUnknownEffect(SemesterId)(value).pipe(
+    Effect.mapError(
+      () => new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }),
+    ),
+  );
 };
 
 /** Spec 0059/0060 gating: globalAdmin -> all departments, else active-leader union. */
