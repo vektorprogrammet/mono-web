@@ -5,6 +5,9 @@ import { canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 const Id = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9._:-]{1,256}$/)));
 const Label = Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(1024)));
 const Digest = Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-f0-9]{64}$/)));
+const ReviewedInstant = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/)),
+);
 const bounded = <S extends Schema.Constraint>(schema: S) =>
   Schema.Array(schema).pipe(Schema.check(Schema.isMaxLength(100000)));
 
@@ -42,9 +45,9 @@ export const ReceiptReviewEntry = Schema.Union([
     person: Schema.Struct({ occurrenceId: Id, sourceUserId: Id, personId: PersonId }),
     department: Schema.Struct({ sourceDepartmentId: Id, departmentId: DepartmentId }),
     // The classifier, not the envelope decoder, quarantines invalid dates.
-    receiptDate: Schema.String,
-    submittedAt: Schema.String,
-    approvedAt: Schema.NullOr(Schema.String),
+    receiptDate: Schema.String.pipe(Schema.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/))),
+    submittedAt: ReviewedInstant,
+    approvedAt: Schema.NullOr(ReviewedInstant),
     file: Schema.Struct({
       path: Label,
       sha256: Digest,
@@ -128,7 +131,7 @@ export const decodeReviewedReceiptSnapshot = (input: unknown): ReviewedReceiptSn
       throw new ReceiptCohortFailure({ code: "InvalidReview" });
     if (entry._tag === "Excluded") continue;
     if (
-      entry.person.sourceUserId !== row.sourceUserId ||
+      (row.sourceUserId !== null && entry.person.sourceUserId !== row.sourceUserId) ||
       entry.payment.commitment !== row.accountCommitment ||
       (row.status === "refunded" && entry.approvedAt === null) ||
       ((row.status === "pending" || row.status === "rejected") && entry.approvedAt !== null)
