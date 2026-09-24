@@ -243,6 +243,17 @@ Most defined core journeys have local synthetic acceptance. The canonical local 
 Full migration still requires implementation, operational decisions, current-data reconciliation, provider acceptance, and an authorized cutover.
 A working local stack does not close these gates. No production activity or external provider delivery was observed.
 
+### Planned functional journey automation
+
+The [web-system functional testing plan](docs/web-system-functional-testing.md) records the agreed scope and development sequence.
+It protects functional boundary contracts, not client design or usability. Human testing owns those design questions.
+The first planned slice is the [golden school-service journey](docs/specs/golden-school-service-journey.md).
+It joins affiliation, placement, roster confirmation, dated service, attendance, and the volunteer read into one continuous browser workflow.
+Later slices add required CI execution, generated sequences, and measured execution scaling.
+Existing PGlite database and socket fixtures are the basis for whole-system qualification.
+PGlite performance and full native composition remain unmeasured; PostgreSQL server retains concurrency and recovery acceptance.
+These plans do not claim new implementation, CI acceptance, or production readiness.
+
 ### Remaining migration work
 
 | Workstream                      | Remaining deliverable                                                                                                                                                               | Completion gate                                                                                                                                                                 | Authority                                                                          |
