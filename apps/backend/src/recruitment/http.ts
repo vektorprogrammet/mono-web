@@ -1176,6 +1176,7 @@ const scheduleInterview = <E, R>(
       identities: { interviewId },
       semanticRequest: semanticMutationRequest(body, ifMatch),
       commandIdSchema: RecruitmentScheduleCommandId,
+      retry: "serialization-once",
       prepare: () =>
         Effect.gen(function* () {
           const authorization = yield* interviewAuthorizationInTransaction(
@@ -1435,6 +1436,7 @@ const lifecycleInterview = <E, R>(
         identities: { interviewId },
         semanticRequest: semanticMutationRequest(body, ifMatch),
         commandIdSchema: RecruitmentConductCommandId,
+        retry: "serialization-once",
         prepare: () =>
           Effect.gen(function* () {
             const authorization = yield* prepareAuthorization();
@@ -1508,6 +1510,7 @@ const lifecycleInterview = <E, R>(
       identities: { interviewId },
       semanticRequest: semanticMutationRequest(body, ifMatch),
       commandIdSchema: RecruitmentCancellationCommandId,
+      retry: "serialization-once",
       prepare: () =>
         Effect.gen(function* () {
           const authorization = yield* prepareAuthorization();
