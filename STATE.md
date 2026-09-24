@@ -405,13 +405,16 @@ Snapshot-bound Person identity, valid cross-snapshot replay, per-row relationshi
 The original Person and synthetic assignment rehearsals passed at the same revision. Twenty-three focused tests and sixteen affected type-check tasks also passed.
 The record is `/tmp/vektor-reviewed-assignment-release-0924/acceptance.json`, with a checksummed source archive.
 The historical backup rehearsal was not rerun. No production source, provider, deployment, or cutover was exercised.
-Reviewed Organization acceptance used committed source `bd7cb37d` and schema migration 66.
+
+Reviewed Organization acceptance used committed source `bd2fcbc1` and schema migration 66.
 Real MariaDB and PostgreSQL exercised eleven source tables, the operator CLI, and the native authority resolver with synthetic records.
 Nineteen occurrences produced nine accepted appointments, nine quarantines, and one explicit exclusion. Fifteen refusal cases passed.
 Exact Person binding, reviewed intervals, department-only leadership, native edits, concurrent import, append-only evidence, and whole-cutover rollback passed.
-The existing reviewed-assignment and Person rehearsals passed at the same source revision. Sixteen affected type-check tasks passed.
-The record is `/tmp/vektor-org-release-0924/acceptance.json`, with a checksummed source archive.
+
+The existing reviewed-assignment and Person rehearsals passed at the same source revision. Sixty-three focused tests and sixteen affected type-check tasks passed.
+The record is `/tmp/vektor-org-accepted-0924/acceptance.json`, with a checksummed source archive.
 The historical backup and previous Organization browser rehearsal were not rerun. No production source, provider, deployment, or cutover was exercised.
+
 Each directory retains source provenance and evidence outside the product repository. Temporary storage is not a permanent archive.
 No repository-wide all-packages test pass or deployed provider journey is claimed.
 

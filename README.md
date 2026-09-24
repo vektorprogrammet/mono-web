@@ -164,6 +164,7 @@ nix shell nixpkgs#mariadb -c bun run rehearsal:legacy-organization --evidence-di
 
 This journey requires PostgreSQL tools on `PATH` and a new evidence directory. It uses synthetic records and private, disposable databases.
 The cutover requires `--organization=none` or `--organization=PATH`. The first choice leaves Organization unchanged.
+
 The [review schema](packages/domain/src/organization/review.ts) defines the required source evidence, intervals, and exclusions.
 Organization resolves appointments through accepted Person mappings. Historical appointments and board membership do not imply current department or global authority.
 Current source data, human review, provider acceptance, and cutover authority remain separate gates.

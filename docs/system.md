@@ -127,9 +127,11 @@ Supplied review evidence does not independently prove freshness, currentness, or
 
 Reviewed Organization reconciliation uses the [public Organization boundary](../packages/database/src/organization/reviewed-cohort.ts).
 It requires accepted Person evidence for the exact source snapshot and accepted department mappings. Numeric legacy user IDs never become Person IDs implicitly.
+
 Each team or board membership needs one review entry that binds its raw digest and supplies an interval or explicit exclusion.
 The review defines the authorization instant. Historical appointments, future appointments, suspended members, inactive units, and board membership cannot confer current department leadership.
 An eligible current team leader receives only the native department scope. Import never creates global grants, human lifecycle events, or notification work.
+
 Malformed or unresolved rows receive individual quarantine dispositions. Exact replay preserves later native changes. A requested cohort needs at least one accepted appointment.
 The source reader adds Organization tables only after explicit selection. Review evidence alone does not establish current production facts or authorize cutover.
 
