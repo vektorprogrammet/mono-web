@@ -1,5 +1,14 @@
 ## Unreleased
 
+### Combined migration candidate
+
+- Add one synthetic candidate across the existing cutover and reviewed receipt commands. Share source evidence, accepted Person identities, and one PostgreSQL target.
+- Exercise imported credentials, department-scoped authority, placements, private receipts, and native password changes through real application boundaries.
+- Exercise source-change rejection, SQL rollback, interrupted phases, private-file recovery, replay, and logical database/file restore.
+- Retain authentication secrets across restore. Keep SQL acceptance separate from file reconciliation and migration readiness.
+- Decode Organization scope identifiers with the canonical domain schemas. Imported identifiers no longer fail a narrower HTTP regex.
+- Keep historical-backup results separate from synthetic operational acceptance. Retain unresolved and excluded work in source-bound reports.
+
 ### Reviewed receipt migration
 
 - Add a separate reviewed receipt command after accepted Person and reference reconciliation. Keep finance selection explicit in the source reader.

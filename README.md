@@ -192,6 +192,27 @@ It requires an existing database schema and owner-only review, key, and custody 
 SQL acceptance and file reconciliation remain separate. Exit status `2` means accepted receipts still need reconciliation.
 Legacy refunded status never creates settlement evidence. Historical import still requires the missing file archive and reviewed ownership evidence.
 
+### Combined migration candidate
+
+Run the combined synthetic journey:
+
+```bash
+nix shell nixpkgs#mariadb nixpkgs#php -c bun run rehearsal:legacy-candidate --evidence-dir=/tmp/vektor-candidate-review
+```
+
+The command requires PostgreSQL tools on `PATH`, a clean committed tree, and a new evidence directory.
+PHP generates compatible synthetic password hashes. The command uses no production data or external providers.
+
+The existing cutover and receipt commands share one source, accepted Person identities, and PostgreSQL target.
+Native authentication and operational reads exercise those imported identities before and after logical database and private-file restore.
+The restore retains the authentication secret and payment key. SQL and private files remain separate commit domains.
+
+The report accounts for imported, quarantined, and excluded occurrences. It retains unresolved native receipt changes instead of overwriting them.
+Successful rehearsal checks do not mean that the candidate is complete or ready for production.
+The command retains a private report and checksummed source archive, then removes its disposable databases and private temporary data.
+
+The authorized historical-backup rehearsal remains separate. See [migration status](STATE.md#historical-backup-rehearsal) for its scope and remaining input requirements.
+
 ## Change rule
 
 Implement one complete operational journey at a time:

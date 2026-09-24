@@ -160,11 +160,11 @@ The omitted-department submission regression is also fixed. See [architecture](d
 
 ## Historical backup rehearsal
 
-The following counts describe earlier observations, not a fresh database measurement.
+The latest historical-backup rehearsal passed at committed source `6b8b1c4b` on schema migration 67.
 
 A local cutover rehearsal used the private 2024-08-22 legacy backup.
 The MariaDB source account had SELECT-only grants. A separate PostgreSQL
-17 database received the native import. The driver reconciled 2,893 of
+database received the native import. The driver reconciled 2,893 of
 2,923 source people and quarantined 30. It seeded 5 departments, 28 semesters,
 44 schools, and 43 school-department links. It imported 1,690 of 1,815
 assistant-service rows. It quarantined 125 rows: 105 invalid, 10 without
@@ -248,7 +248,7 @@ A working local stack does not close these gates. No production activity or exte
 | Workstream                      | Remaining deliverable                                                                                                                                                               | Completion gate                                                                                                                                                                 | Authority                                                                          |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | Operational scope               | Resolve the obligations below. Implement required outcomes or define an explicit transition process.                                                                                | Each active core case has a supported journey and a responsible owner. Unresolved policy is not silently waived.                                                                | Product decisions for policy; local implementation for defined contracts.          |
-| Real-source import coverage     | Rehearse the implemented Person, Account, assignment, Organization, and receipt boundaries together. Define import or handover for pending operational work.                        | Each occurrence has an evidenced mapping and disposition. Current assignments and authority need current evidence. Receipts need verified private bytes and ownership evidence. | Local implementation. Current production reads need authorization.                 |
+| Real-source import coverage     | Rehearse authorized current data through the combined import boundaries. Define import or handover for pending operational work.                                                    | Each occurrence has an evidenced mapping and disposition. Current assignments and authority need current evidence. Receipts need verified private bytes and ownership evidence. | Local implementation. Current production reads need authorization.                 |
 | Current-data reconciliation     | Obtain a consistent current snapshot, private file archive, and external-work inventory. Resolve identity, authority, quarantine, and payment evidence.                             | Rehearse the complete reconciled candidate, not only the historical backup. Verify identity-level accounting and retained private bytes.                                        | Authorized source access and human decisions for ambiguous facts.                  |
 | Portable deployment preparation | Select the Bun host, PostgreSQL service, private storage, mail, and required integrations. Configure ingress, secrets, migrations, worker supervision, backups, and failure alerts. | The exact candidate preserves PostgreSQL locking and private-file custody. Required delivery work has an explicit runner and recovery path.                                     | Local preparation now; provider selection and provisioning at cutover preparation. |
 | Provider acceptance             | Exercise real authentication, scoped access, private-file writes and reads, required delivery, restart, retry, revocation, and restore.                                             | Observe the actual selected providers. Verify deployment limits and operational recovery. Local capture adapters and frontend previews are not substitutes.                     | Explicit provider and credential authorization.                                    |
@@ -265,8 +265,9 @@ Delivery status and remaining integration:
 - [Password-reset mail](apps/backend/src/password-recovery/drain-main.ts) has a one-shot drain command. Its production execution and recovery need explicit ownership.
 - Receipt commands already attempt post-commit delivery and stale-claim recovery. The [receipt drain](apps/backend/src/receipt/drain-main.ts) adds explicit retry. Verify unattended recovery after failure and restart; do not assume an HTTP request or manual command will arrive.
 
-The next local migration slice is a combined candidate rehearsal across the implemented import boundaries.
-It must retain separate SQL and file-custody phases, bind their source evidence, and account for unresolved or excluded work.
+The combined synthetic candidate rehearsal passed across the implemented import boundaries.
+It binds source evidence across separate SQL and file-custody phases and accounts for unresolved or excluded work.
+The next candidate needs authorized current data, reviewed authority and assignments, private receipt bytes, and an inventory of pending work.
 Reviewed current-assignment import still needs an authorized current snapshot and evidence from responsible humans.
 The historical backup cannot supply current assignments. Historical membership must not become current authority by inference.
 
@@ -429,6 +430,22 @@ The original synthetic receipt, reviewed Organization, and reviewed-assignment r
 Twenty-three focused receipt tests and sixteen affected type-check tasks passed.
 The record is `/tmp/vektor-receipt-accepted-0924/acceptance.json`, with a checksummed source archive.
 No historical receipt data, production source, external provider, deployment, or cutover was exercised. Restore acceptance does not simulate power loss.
+
+Combined candidate acceptance used committed source `6b8b1c4b` and schema migration 67.
+Seven combined checks and 77 native boundary checks passed through real MariaDB, PostgreSQL, authentication, and private-file custody.
+Four imported People and Accounts shared identities with five appointments, one current assignment, one historical-service row, and two receipts.
+Each cohort retained quarantine evidence. Organization and receipt reviews each excluded one occurrence.
+A deliberate later receipt edit remained pending instead of being overwritten. Successful checks did not imply candidate completeness.
+
+Source-change rejection, whole-cutover rollback, process interruption, file recovery, replay, and logical database/file restore passed.
+The restore retained the authentication secret and payment key. Imported identifiers passed Organization HTTP through canonical domain decoding.
+Six focused Organization tests passed. Sixteen affected type-check tasks succeeded, including fourteen cached tasks. Scoped lint and formatting passed.
+
+The separate historical-backup rehearsal passed at the same source revision. Its counts appear in [Historical backup rehearsal](#historical-backup-rehearsal).
+Current Organization authority, current assignments, receipt bytes, mailbox ownership, and settlement evidence remain unresolved by that backup.
+The record is `/tmp/vektor-candidate-accepted-0924/acceptance.json`, with synthetic and historical reports and a checksummed source archive.
+Owned runtime databases and private temporary data were removed. No provider, production source, deployment, or cutover was exercised.
+Native acceptance used Request/Response boundaries without a network listener or browser. Restore acceptance does not simulate power loss.
 
 Each directory retains source provenance and evidence outside the product repository. Temporary storage is not a permanent archive.
 No repository-wide all-packages test pass or deployed provider journey is claimed.

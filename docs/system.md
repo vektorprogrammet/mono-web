@@ -316,6 +316,11 @@ Exact replay preserves native edits and the original ciphertext. It observes pri
 SQL and file storage do not share a transaction. Failed promotion remains pending and can resume after process restart or database and file restore.
 Native edits that differ from the retained import facts also remain pending. Replay never overwrites them.
 
+The combined rehearsal shares accepted Person identities across Accounts, Organization, assignments, historical service, and receipts.
+Source evidence must agree across the SQL and receipt phases. A successful SQL phase does not complete the candidate.
+Native sign-in and scoped reads exercise imported identities. Logical restore retains the database, private bytes, and required secrets.
+Synthetic acceptance remains separate from historical-data accounting and production readiness.
+
 ### Organization administration
 
 Authorized people manage local departments, national units, teams, boards,
