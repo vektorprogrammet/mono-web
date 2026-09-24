@@ -62,6 +62,7 @@ export const recruitmentNotificationConfig = (
   };
 
   const staleClaimMilliseconds = positiveInteger("RECRUITMENT_NOTIFICATION_STALE_MS", 60_000);
+
   const deliveryTimeoutMilliseconds = positiveInteger(
     "RECRUITMENT_NOTIFICATION_TIMEOUT_MS",
     10_000,
