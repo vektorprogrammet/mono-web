@@ -85,6 +85,7 @@ Markdown heading fragments work in repository viewers, not in the browser view o
 For a linked business rule, find its named heading in that source.
 
 Generation refuses an existing output directory.
+On failure, generation removes its new partial output directory.
 The freshness check renders into a temporary directory and compares every generated file without changing the supplied output.
 A stale or missing output causes a nonzero exit.
 After a source change, generate into another new directory.
@@ -248,7 +249,9 @@ The [HTTP generator](../http-api/scripts/generate-openapi.ts) remains the owner 
 
 The examples release their embedded database on normal completion, failure, and requested interruption.
 The freshness command removes its own temporary render directory in a `finally` block.
-The generated directory belongs to the caller. The tools do not delete or overwrite an existing directory.
+On SIGINT or SIGTERM, the documentation command finishes its current TypeDoc operation, fails, and removes its temporary output.
+SIGKILL cannot run this cleanup.
+After successful generation, the output directory belongs to the caller. The tools never replace a pre-existing directory.
 After review, remove only the generated directory that the command created for you.
 
 Acceptance records belong outside tracked source.

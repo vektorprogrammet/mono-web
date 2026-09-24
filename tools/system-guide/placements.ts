@@ -36,6 +36,8 @@ const entryPoints = Object.entries(manifest.exports).map(([name, source]) => {
   return resolve(packageRoot, source);
 });
 
+let interrupted = false;
+
 const render = async (directory: string) => {
   const app = await Application.bootstrap({
     name: "Placements developer guide",
@@ -52,10 +54,12 @@ const render = async (directory: string) => {
   });
 
   const project = await app.convert();
+  assert(!interrupted, "Documentation command interrupted");
   assert(project && !app.logger.hasErrors(), "Reference extraction failed");
   app.validate(project);
   assert(!app.logger.hasErrors() && !app.logger.hasWarnings(), "Reference validation failed");
   await app.generateDocs(project, directory);
+  assert(!interrupted, "Documentation command interrupted");
   assert(!app.logger.hasErrors() && !app.logger.hasWarnings(), "Documentation rendering failed");
   console.log(
     `TypeDoc ${Application.VERSION}; documentation compiler ${app.getTypeScriptVersion()}`,
@@ -80,28 +84,50 @@ const files = async (directory: string): Promise<string[]> => {
   return paths.sort();
 };
 
-if (mode === "generate") {
-  // Never replace an existing directory or remove caller-owned content.
-  await mkdir(output);
-  await render(output);
-  console.log(`Open ${pathToFileURL(resolve(output, "index.html")).href}`);
-} else {
-  const fresh = await mkdtemp(resolve(tmpdir(), "placements-docs-check-"));
+// TypeDoc has no cancellation API. Finish its current operation before cleanup.
+const interrupt = () => {
+  interrupted = true;
+};
 
-  try {
-    await render(fresh);
-    const expected = await files(fresh);
-    assert.deepEqual(await files(output), expected, "Generated file inventory is stale");
+process.on("SIGINT", interrupt);
 
-    for (const path of expected) {
-      assert(
-        (await readFile(resolve(output, path))).equals(await readFile(resolve(fresh, path))),
-        `Generated documentation is stale: ${path}`,
-      );
+process.on("SIGTERM", interrupt);
+
+try {
+  if (mode === "generate") {
+    // Only this successful mkdir gives the command ownership of a new directory.
+    await mkdir(output);
+
+    try {
+      await render(output);
+    } catch (error) {
+      await rm(output, { recursive: true, force: true });
+      throw error;
     }
 
-    console.log("Placements documentation is fresh");
-  } finally {
-    await rm(fresh, { recursive: true, force: true });
+    console.log("Open " + pathToFileURL(resolve(output, "index.html")).href);
+  } else {
+    const fresh = await mkdtemp(resolve(tmpdir(), "placements-docs-check-"));
+
+    try {
+      await render(fresh);
+      const expected = await files(fresh);
+      assert.deepEqual(await files(output), expected, "Generated file inventory is stale");
+
+      for (const path of expected) {
+        assert(
+          (await readFile(resolve(output, path))).equals(await readFile(resolve(fresh, path))),
+          "Generated documentation is stale: " + path,
+        );
+      }
+
+      assert(!interrupted, "Documentation command interrupted");
+      console.log("Placements documentation is fresh");
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+    }
   }
+} finally {
+  process.removeListener("SIGINT", interrupt);
+  process.removeListener("SIGTERM", interrupt);
 }
