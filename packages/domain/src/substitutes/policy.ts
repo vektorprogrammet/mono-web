@@ -17,11 +17,16 @@ export class SubstituteFailure extends Data.TaggedError("SubstituteFailure")<{
 }> {}
 
 /** Returns the existing lifecycle rejection, or null when the command is legal. */
-export const substituteCommandFailure = (entry: SubstituteEntry, command: SubstituteCommand): SubstituteFailure | null => {
+export const substituteCommandFailure = (
+  entry: SubstituteEntry,
+  command: SubstituteCommand,
+): SubstituteFailure | null => {
   if (command.action === "activate" && entry.active)
     return new SubstituteFailure({ code: "substitute.already-active", status: 400 });
+
   if (command.action !== "activate" && !entry.active)
     return new SubstituteFailure({ code: "substitute.inactive", status: 400 });
+
   return null;
 };
 

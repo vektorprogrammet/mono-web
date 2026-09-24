@@ -75,6 +75,7 @@ const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
 const economyLayer = EconomyLive.pipe(Layer.provide(databaseLayer));
 
 const placementsLayer = PlacementsLive.pipe(Layer.provide(databaseLayer));
+
 const substitutesLayer = SubstitutesLive.pipe(Layer.provide(databaseLayer));
 
 const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
@@ -99,16 +100,21 @@ const socialEventsLayer = SocialEventsLive.pipe(Layer.provide(databaseLayer));
 
 const schoolSurveysLayer = SchoolSurveysLive.pipe(Layer.provide(databaseLayer));
 
-const capabilityLayers = Layer.mergeAll(returningAssistantsLayer,
-admissionsLayer,
-economyLayer, placementsLayer, substitutesLayer, organizationLayer,
-profileLayer,
-schoolsLayer,
-recruitmentLayer,
-contentManagementLayer,
-contentLayer,
-socialEventsLayer,
-schoolSurveysLayer,);
+const capabilityLayers = Layer.mergeAll(
+  returningAssistantsLayer,
+  admissionsLayer,
+  economyLayer,
+  placementsLayer,
+  substitutesLayer,
+  organizationLayer,
+  profileLayer,
+  schoolsLayer,
+  recruitmentLayer,
+  contentManagementLayer,
+  contentLayer,
+  socialEventsLayer,
+  schoolSurveysLayer,
+);
 
 const receiptDeliveryLayer = ReceiptDeliveryLive(receiptDeliveryConfig(process.env)).pipe(
   Layer.provide(databaseLayer),

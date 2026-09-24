@@ -43,14 +43,14 @@ It composes the real Layer with a disposable PGlite database.
 It reads an empty pool for a known semester without an admission period.
 It then checks `scope.invalid` for an unknown semester.
 
-{@includeCode ../../../database/src/substitutes/examples.ts}
+The linked file is the executable source; this guide does not duplicate its implementation.
 
 The example requires no credentials, browser, PostgreSQL process, or provider.
 It demonstrates composition and query behavior, not authenticated authority or PostgreSQL concurrency.
 The synthetic scope does not authenticate a person.
 An HTTP caller must resolve current authority before reading that scope.
 
-This guide uses the accepted module-guide structure and exact executable source inclusion.
+This guide uses the accepted module-guide structure and links to the exact executable source.
 It does not introduce a documentation website, generator, or parallel API inventory.
 
 ## Contract
@@ -60,17 +60,17 @@ The public operations therefore do not request `Database` again.
 A command's precondition callback retains its own Effect requirements and typed failures.
 An Effect requirement grants no authority.
 
-| Concern | Guarantee and caller responsibility |
-| --- | --- |
-| Read authority | The caller authenticates and authorizes each read in its current snapshot. |
-| Candidate visibility | `readPool` includes inactive candidates. The transport omits them for read-only members. |
-| Entry visibility | The caller restricts inactive entry reads to managers. |
-| Command authority | Resolve current authority inside the committing transaction, before receipt lookup or replay. |
-| Preconditions | `execute` supplies the locked, fresh entry to the transport callback before the domain decision. |
-| Atomicity | Preferences, canonical application changes, and the response receipt share the caller's transaction. |
-| Success | The returned entry precedes caller commit. It is not an offer, acknowledgement, or attendance record. |
-| Domain failure | `SubstituteFailure` preserves the existing code and status. Correct the command or scope before another attempt. |
-| Persistence failure | `SubstitutePersistenceError` distinguishes transaction conflicts from internal failures. Keep its cause private. |
+| Concern              | Guarantee and caller responsibility                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Read authority       | The caller authenticates and authorizes each read in its current snapshot.                                       |
+| Candidate visibility | `readPool` includes inactive candidates. The transport omits them for read-only members.                         |
+| Entry visibility     | The caller restricts inactive entry reads to managers.                                                           |
+| Command authority    | Resolve current authority inside the committing transaction, before receipt lookup or replay.                    |
+| Preconditions        | `execute` supplies the locked, fresh entry to the transport callback before the domain decision.                 |
+| Atomicity            | Preferences, canonical application changes, and the response receipt share the caller's transaction.             |
+| Success              | The returned entry precedes caller commit. It is not an offer, acknowledgement, or attendance record.            |
+| Domain failure       | `SubstituteFailure` preserves the existing code and status. Correct the command or scope before another attempt. |
+| Persistence failure  | `SubstitutePersistenceError` distinguishes transaction conflicts from internal failures. Keep its cause private. |
 
 The [HTTP adapter](../../../../apps/backend/src/substitutes/http.ts) is the production composition example.
 Its ETag represents the whole joined entry, not only the preference revision.

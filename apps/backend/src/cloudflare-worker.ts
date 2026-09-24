@@ -155,20 +155,25 @@ export const makeCloudflareBackend = async (env: CloudflareBackendEnv): Promise<
     deliveryTimeoutMilliseconds: timeout,
   });
 
-  const services = Layer.mergeAll(databaseLayer,
-  admissionsLayer,
-  economyLayer, placementsLayer, substitutesLayer, organizationLayer,
-  returningAssistantsLayer,
-  profileLayer,
-  schoolsLayer,
-  contentManagementLayer,
-  contentLayer,
-  recruitmentLayer,
-  socialEventsLayer,
-  schoolSurveysLayer,
-  authLayer,
-  receiptDeliveryLayer,
-  mailLayer,);
+  const services = Layer.mergeAll(
+    databaseLayer,
+    admissionsLayer,
+    economyLayer,
+    placementsLayer,
+    substitutesLayer,
+    organizationLayer,
+    returningAssistantsLayer,
+    profileLayer,
+    schoolsLayer,
+    contentManagementLayer,
+    contentLayer,
+    recruitmentLayer,
+    socialEventsLayer,
+    schoolSurveysLayer,
+    authLayer,
+    receiptDeliveryLayer,
+    mailLayer,
+  );
 
   const httpLayer = Layer.merge(
     HttpServer.layerServices,

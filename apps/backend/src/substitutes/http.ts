@@ -148,7 +148,11 @@ const authorize = (
   });
 
 const errorResponse = (cause: unknown) => {
-  if (cause instanceof HttpSemanticFailure || cause instanceof SubstituteFailure || cause instanceof SubstitutePersistenceError)
+  if (
+    cause instanceof HttpSemanticFailure ||
+    cause instanceof SubstituteFailure ||
+    cause instanceof SubstitutePersistenceError
+  )
     return nativeProblemResponse(cause.code, cause.status);
 
   const tag =
@@ -172,7 +176,11 @@ const errorResponse = (cause: unknown) => {
 };
 
 export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
-  const read = (request: Request, mode: "scopes" | "pool" | "entry", applicationId?: SubstituteEntry["applicationId"]) =>
+  const read = (
+    request: Request,
+    mode: "scopes" | "pool" | "entry",
+    applicationId?: SubstituteEntry["applicationId"],
+  ) =>
     Database.use((sql) =>
       sql.withTransaction(
         Effect.gen(function* () {
@@ -188,7 +196,9 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
               now: input.now,
             });
 
-            const scopes = yield* Substitutes.use((substitutes) => substitutes.listScopes(auth.authority));
+            const scopes = yield* Substitutes.use((substitutes) =>
+              substitutes.listScopes(auth.authority),
+            );
 
             for (const department of scopes.departments)
               yield* authorize(
@@ -230,7 +240,10 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
               input.now,
             );
 
-            const { admissionPeriodId, entries: rows } = yield* Substitutes.use((substitutes) => substitutes.readPool(scope));
+            const { admissionPeriodId, entries: rows } = yield* Substitutes.use((substitutes) =>
+              substitutes.readPool(scope),
+            );
+
             const entries = rows.flatMap((row) => (row.active ? [substituteResource(row)] : []));
 
             return json(
@@ -251,7 +264,10 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
           }
 
           yield* noQuery(request);
-          const entry = yield* Substitutes.use((substitutes) => substitutes.readEntry(applicationId!));
+
+          const entry = yield* Substitutes.use((substitutes) =>
+            substitutes.readEntry(applicationId!),
+          );
 
           const auth = yield* authorize(
             request,
@@ -302,7 +318,10 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
 
       const outcome = yield* executeNativeHttpCommandPostgres(
         Effect.gen(function* () {
-          const selected = yield* Substitutes.use((substitutes) => substitutes.readEntry(applicationId));
+          const selected = yield* Substitutes.use((substitutes) =>
+            substitutes.readEntry(applicationId),
+          );
+
           const auth = yield* authorize(request, endpoint, selected.departmentId, true, input.now);
 
           const identity = yield* semantic(() =>
@@ -323,12 +342,18 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
               operationId,
             },
             execute: Effect.gen(function* () {
-              const changed = yield* Substitutes.use((substitutes) => substitutes.execute(applicationId, command, (current) => {
-                const precondition = evaluateMutationPrecondition(substituteResource(current).etag, ifMatch);
-                return Predicate.isTagged(precondition, "Failed")
-                  ? Effect.fail(new HttpSemanticFailure(precondition.code, precondition.status))
-                  : Effect.void;
-              }));
+              const changed = yield* Substitutes.use((substitutes) =>
+                substitutes.execute(applicationId, command, (current) => {
+                  const precondition = evaluateMutationPrecondition(
+                    substituteResource(current).etag,
+                    ifMatch,
+                  );
+
+                  return Predicate.isTagged(precondition, "Failed")
+                    ? Effect.fail(new HttpSemanticFailure(precondition.code, precondition.status))
+                    : Effect.void;
+                }),
+              );
 
               const resource = yield* Schema.decodeUnknownEffect(SubstituteResource)(
                 substituteResource(changed),

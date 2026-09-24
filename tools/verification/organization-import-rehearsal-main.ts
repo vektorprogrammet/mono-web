@@ -1435,21 +1435,26 @@ const makeRehearsalRuntime = (
     }),
   );
 
-  const servicesLayer = Layer.mergeAll(observedDatabaseLayer,
-  admissionsLayer,
-  economyLayer, placementsLayer, substitutesLayer, organizationLayer,
-  profileLayer,
-  schoolsLayer,
-  contentManagementLayer,
-  contentLayer,
-  recruitmentLayer,
-  identityLayer,
-  oauthCredentialLayer,
-  returningAssistantsLayer,
-  socialEventsLayer,
-  schoolSurveysLayer,
-  receiptAuxiliaryLayer,
-  servicePrincipalGrantLayer,);
+  const servicesLayer = Layer.mergeAll(
+    observedDatabaseLayer,
+    admissionsLayer,
+    economyLayer,
+    placementsLayer,
+    substitutesLayer,
+    organizationLayer,
+    profileLayer,
+    schoolsLayer,
+    contentManagementLayer,
+    contentLayer,
+    recruitmentLayer,
+    identityLayer,
+    oauthCredentialLayer,
+    returningAssistantsLayer,
+    socialEventsLayer,
+    schoolSurveysLayer,
+    receiptAuxiliaryLayer,
+    servicePrincipalGrantLayer,
+  );
 
   const platformLayer = Layer.mergeAll(BunServices.layer, BunHttpPlatform.layer, Etag.layer);
   const routerLayer = HttpRouter.layer;

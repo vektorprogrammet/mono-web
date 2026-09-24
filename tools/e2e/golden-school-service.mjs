@@ -36,27 +36,59 @@ export const goldenSteps = [
 ];
 
 const assertSubstituteFacts = (step, facts, previous, fixture, deliveries) => {
-  const { candidateId, applicationId, volunteerId, leaderId, departmentId, semesterId, substituteServiceDate } = fixture;
+  const {
+    candidateId,
+    applicationId,
+    volunteerId,
+    leaderId,
+    departmentId,
+    semesterId,
+    substituteServiceDate,
+  } = fixture;
+
   const reached = (name) => goldenSteps.indexOf(step) >= goldenSteps.indexOf(name);
   const candidate = facts.affiliations.find((row) => row.person_id === candidateId);
-  assert.deepEqual(candidate, { person_id: candidateId, department_id: departmentId, status: reached("candidate-approval") ? "Active" : "Pending", revision: reached("candidate-approval") ? 2 : 1 });
+  assert.deepEqual(candidate, {
+    person_id: candidateId,
+    department_id: departmentId,
+    status: reached("candidate-approval") ? "Active" : "Pending",
+    revision: reached("candidate-approval") ? 2 : 1,
+  });
   assert.equal(facts.affiliations.length, 2);
-  assert.deepEqual(facts.affiliationHistory.filter((row) => row.person_id === candidateId).map((row) => [row.action,row.actor_person_id]), reached("candidate-approval") ? [["Request",candidateId],["Establish",leaderId]] : [["Request",candidateId]]);
+  assert.deepEqual(
+    facts.affiliationHistory
+      .filter((row) => row.person_id === candidateId)
+      .map((row) => [row.action, row.actor_person_id]),
+    reached("candidate-approval")
+      ? [
+          ["Request", candidateId],
+          ["Establish", leaderId],
+        ]
+      : [["Request", candidateId]],
+  );
   assert.equal(facts.commitments.length, reached("substitute-commitment") ? 2 : 1);
   const commitment = facts.commitments.find((row) => row.service_date === substituteServiceDate);
+
   if (commitment) {
     assert.equal(commitment.created_by_person_id, leaderId);
     assert.equal(commitment.required_volunteers, 1);
-    assert.deepEqual(commitment.assignment_snapshot.map((row) => row.personId), [volunteerId]);
+    assert.deepEqual(
+      commitment.assignment_snapshot.map((row) => row.personId),
+      [volunteerId],
+    );
   }
+
   assert.equal(facts.absences.length, reached("substitute-absence") ? 1 : 0);
   const absence = facts.absences[0];
+
   if (absence) {
     assert.equal(absence.commitment_id, commitment.commitment_id);
     assert.equal(absence.person_id, volunteerId);
     assert.equal(absence.reporter_person_id, volunteerId);
   }
+
   assert.equal(facts.pool.length, reached("pool-activated") ? 1 : 0);
+
   if (facts.pool.length) {
     const entry = facts.pool[0];
     assert.equal(entry.application_id, applicationId);
@@ -67,13 +99,41 @@ const assertSubstituteFacts = (step, facts, previous, fixture, deliveries) => {
     assert.equal(entry.monday, !["pool-edited", "pool-stale", "pool-deactivated"].includes(step));
     assert.equal(entry.year_of_study, reached("pool-edited") ? 4 : 3);
     assert.equal(entry.applicant_year, 3, "canonical applicant profile must not be overwritten");
-    assert.equal(entry.revision, reached("pool-reactivated") ? 4 : reached("pool-deactivated") ? 3 : reached("pool-edited") ? 2 : 1);
+    assert.equal(
+      entry.revision,
+      reached("pool-reactivated")
+        ? 4
+        : reached("pool-deactivated")
+          ? 3
+          : reached("pool-edited")
+            ? 2
+            : 1,
+    );
   }
+
+  const eligible = [
+    "pool-activated",
+    "pool-reactivated",
+    "assignment-released",
+    "offer-failed",
+    "offer-delivered",
+    "wrong-recipient",
+    "offer-accepted",
+  ].includes(step);
+
+  assert.deepEqual(
+    facts.eligible,
+    eligible
+      ? [{ absence_id: absence.absence_id, application_id: applicationId, person_id: candidateId }]
+      : [],
+  );
   const conflicting = facts.placements.filter((row) => row.person_id === candidateId);
   assert.equal(conflicting.length, reached("assignment-conflict") ? 1 : 0);
+
   if (conflicting.length) assert.equal(conflicting[0].active, step === "assignment-conflict");
   assert.equal(facts.offers.length, reached("offer-failed") ? 1 : 0);
   const offer = facts.offers[0];
+
   if (offer) {
     assert.equal(offer.absence_id, absence.absence_id);
     assert.equal(offer.candidate_person_id, candidateId);
@@ -82,13 +142,23 @@ const assertSubstituteFacts = (step, facts, previous, fixture, deliveries) => {
     assert.equal(offer.eligibility_snapshot.activePool, true);
     assert.equal(offer.eligibility_snapshot.activeAffiliation, true);
     assert.equal(offer.eligibility_snapshot.weekdayAvailable, true);
-    assert.equal(offer.status, reached("offer-accepted") ? "Accepted" : "Offered");
+    assert.equal(
+      offer.status,
+      reached("coverage-acknowledged")
+        ? "Acknowledged"
+        : reached("offer-accepted")
+          ? "Accepted"
+          : "Offered",
+    );
   }
+
   assert.equal(facts.dispatchDetails.length, offer ? 1 : 0);
+
   if (offer) {
     const delivery = facts.dispatchDetails[0];
     assert.equal(delivery.offer_id, offer.offer_id);
     assert.equal(delivery.person_id, candidateId);
+
     if (step === "offer-failed") {
       assert.ok(delivery.attempts >= 1);
       assert.equal(delivery.status, "Failed");
@@ -98,33 +168,45 @@ const assertSubstituteFacts = (step, facts, previous, fixture, deliveries) => {
       assert.ok(delivery.attempts >= 2);
       assert.equal(delivery.last_failure_tag, null);
     }
+
     assert.ok(deliveries.length >= (step === "offer-failed" ? 1 : 2));
+
     for (const capture of deliveries) {
       assert.equal(capture.idempotencyKey, delivery.effect_id);
       assert.equal(capture.authorization, "Bearer synthetic-school-service-dispatch-token");
       assert.deepEqual(capture.body, delivery.payload_json);
     }
   }
+
   assert.equal(facts.responses.length, reached("offer-accepted") ? 1 : 0);
+
   if (facts.responses.length) {
     assert.equal(facts.responses[0].offer_id, offer.offer_id);
     assert.equal(facts.responses[0].responder_person_id, candidateId);
     assert.equal(facts.responses[0].response, "Accept");
   }
+
   assert.equal(facts.acknowledgements.length, reached("coverage-acknowledged") ? 1 : 0);
   const acknowledgement = facts.acknowledgements[0];
+
   if (acknowledgement) {
     assert.equal(acknowledgement.offer_id, offer.offer_id);
     assert.equal(acknowledgement.absence_id, absence.absence_id);
     assert.equal(acknowledgement.candidate_person_id, candidateId);
     assert.equal(acknowledgement.acknowledged_by_person_id, leaderId);
   }
+
   assert.equal(facts.decisions.length, reached("substitute-completed") ? 2 : 1);
   assert.equal(facts.occurrences.length, reached("substitute-completed") ? 2 : 1);
   assert.equal(facts.closures.length, reached("substitute-completed") ? 1 : 0);
+
   if (reached("substitute-completed")) {
     const decision = facts.decisions.find((row) => row.commitment_id === commitment.commitment_id);
-    const occurrence = facts.occurrences.find((row) => row.commitment_id === commitment.commitment_id);
+
+    const occurrence = facts.occurrences.find(
+      (row) => row.commitment_id === commitment.commitment_id,
+    );
+
     const closure = facts.closures[0];
     assert.equal(decision.outcome, "Completed");
     assert.equal(decision.decided_by_person_id, leaderId);
@@ -140,25 +222,55 @@ const assertSubstituteFacts = (step, facts, previous, fixture, deliveries) => {
     assert.equal(closure.acknowledgement_id, acknowledgement.acknowledgement_id);
     assert.equal(closure.closed_by_person_id, leaderId);
   }
-  const actions = [["substitute-absence","ReportAbsence",volunteerId],["offer-failed","DispatchSubstituteOffer",leaderId],["offer-accepted","RespondToOffer",candidateId],["coverage-acknowledged","AcknowledgeCoverage",leaderId],["substitute-completed","CompleteService",leaderId]];
-  assert.deepEqual(facts.outcomeHistory.map((row) => [row.action,row.actor_person_id]), [["CompleteService",leaderId], ...actions.filter(([checkpoint]) => reached(checkpoint)).map(([,action,actor]) => [action,actor])]);
-  const unchanged = ["pool-stale","wrong-recipient","substitute-independent-read"].includes(step);
+
+  const actions = [
+    ["substitute-absence", "ReportAbsence", volunteerId],
+    ["offer-failed", "DispatchSubstituteOffer", leaderId],
+    ["offer-accepted", "RespondToOffer", candidateId],
+    ["coverage-acknowledged", "AcknowledgeCoverage", leaderId],
+    ["substitute-completed", "CompleteService", leaderId],
+  ];
+
+  assert.deepEqual(
+    facts.outcomeHistory.map((row) => [row.action, row.actor_person_id]),
+    [
+      ["CompleteService", leaderId],
+      ...actions.flatMap(([checkpoint, action, actor]) =>
+        reached(checkpoint) ? [[action, actor]] : [],
+      ),
+    ],
+  );
+  const unchanged = ["pool-stale", "wrong-recipient", "substitute-independent-read"].includes(step);
+
   if (unchanged) assert.deepEqual(facts, previous, step + " must not change persisted facts");
-  const added = facts.receipts.filter((row) => !previous.receipts.some((old) => old.identity_sha256 === row.identity_sha256));
+
+  const added = facts.receipts.filter(
+    (row) => !previous.receipts.some((old) => old.identity_sha256 === row.identity_sha256),
+  );
+
   assert.equal(added.length, unchanged || step === "offer-delivered" ? 0 : 1);
+
   for (const receipt of added) {
-    const operation = step === "candidate-affiliation" ? "placements.commandOwnAffiliation"
-      : step === "substitute-absence" || step === "offer-accepted" ? "placements.commandOwnCoverage"
-      : step === "pool-activated" || step === "pool-reactivated" ? "substitutes.activate"
-      : step === "pool-edited" ? "substitutes.edit"
-      : step === "pool-deactivated" ? "substitutes.deactivate"
-      : ["offer-failed","coverage-acknowledged","substitute-completed"].includes(step) ? "placements.commandCoverageBoard"
-      : "placements.commandBoard";
-    assert.equal(receipt.state,"Complete");
-    assert.equal(receipt.operation_id,operation);
+    const operation =
+      step === "candidate-affiliation"
+        ? "placements.commandOwnAffiliation"
+        : step === "substitute-absence" || step === "offer-accepted"
+          ? "placements.commandOwnCoverage"
+          : step === "pool-activated" || step === "pool-reactivated"
+            ? "substitutes.activate"
+            : step === "pool-edited"
+              ? "substitutes.edit"
+              : step === "pool-deactivated"
+                ? "substitutes.deactivate"
+                : ["offer-failed", "coverage-acknowledged", "substitute-completed"].includes(step)
+                  ? "placements.commandCoverageBoard"
+                  : "placements.commandBoard";
+
+    assert.equal(receipt.state, "Complete");
+    assert.equal(receipt.operation_id, operation);
     const body = JSON.parse(receipt.body);
-    assert.equal(body.departmentId,departmentId);
-    assert.match(body.etag,/^".+"$/);
+    assert.equal(body.departmentId, departmentId);
+    assert.match(body.etag, /^".+"$/);
   }
 };
 
@@ -166,6 +278,7 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
   const observations = [];
   let previous;
   const { volunteerId, leaderId, departmentId, semesterId, schoolId, serviceDate } = fixture;
+
   const observe = async (step) => {
     assert.equal(
       step,
@@ -174,6 +287,7 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
     );
     const connection = await pool.connect();
     let facts;
+
     try {
       await connection.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
       const rows = async (sql) => (await connection.query(sql)).rows;
@@ -201,13 +315,40 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
           "SELECT effect_id,proposal_id,person_id,payload_json FROM school_service_notification_outbox ORDER BY effect_id",
         ),
         dispatches: await rows("SELECT effect_id FROM school_service_dispatch_notification_outbox"),
-        pool: await rows("SELECT preferences.*, application.year_of_study, applicant.year_of_study AS applicant_year, period.department_id, period.semester_id, link.person_id FROM admission_substitute_preferences AS preferences JOIN admission_applications AS application USING(application_id) JOIN admission_periods AS period USING(admission_period_id) JOIN admission_applicants AS applicant USING(applicant_id) JOIN applicant_account_links AS link USING(applicant_id) ORDER BY application_id"),
+        pool: await rows(
+          "SELECT preferences.*, application.year_of_study, applicant.year_of_study AS applicant_year, period.department_id, period.semester_id, link.person_id FROM admission_substitute_preferences AS preferences JOIN admission_applications AS application USING(application_id) JOIN admission_periods AS period USING(admission_period_id) JOIN admission_applicants AS applicant USING(applicant_id) JOIN applicant_account_links AS link USING(applicant_id) ORDER BY application_id",
+        ),
+        eligible: await rows(`
+          SELECT DISTINCT ON (absence.absence_id, link.person_id)
+            absence.absence_id, application.application_id, link.person_id
+          FROM school_service_absences AS absence
+          JOIN school_service_commitments AS commitment USING(commitment_id)
+          JOIN admission_periods AS period ON period.department_id=absence.department_id AND period.semester_id=absence.semester_id
+          JOIN admission_applications AS application ON application.admission_period_id=period.admission_period_id AND application.department_id=period.department_id
+          JOIN admission_substitute_preferences AS preferences ON preferences.application_id=application.application_id AND preferences.active
+          JOIN applicant_account_links AS link ON link.applicant_id=application.applicant_id
+          JOIN organization_volunteer_affiliations AS affiliation ON affiliation.person_id=link.person_id AND affiliation.department_id=absence.department_id AND affiliation.status='Active'
+          WHERE link.person_id<>absence.person_id
+            AND CASE absence.day WHEN 'Monday' THEN preferences.monday WHEN 'Tuesday' THEN preferences.tuesday WHEN 'Wednesday' THEN preferences.wednesday WHEN 'Thursday' THEN preferences.thursday WHEN 'Friday' THEN preferences.friday ELSE false END
+            AND NOT EXISTS (SELECT 1 FROM school_service_decisions AS decision WHERE decision.commitment_id=absence.commitment_id)
+            AND NOT EXISTS (SELECT 1 FROM school_service_closures AS closure WHERE closure.absence_id=absence.absence_id)
+            AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(commitment.assignment_snapshot) AS assignment WHERE assignment->>'personId'=link.person_id)
+            AND NOT EXISTS (SELECT 1 FROM assistant_placements AS placement WHERE placement.active AND placement.person_id=link.person_id AND placement.semester_id=absence.semester_id AND placement.day=absence.day AND placement.block IN (absence.block,'Both'))
+            AND NOT EXISTS (SELECT 1 FROM school_service_person_reservations AS reservation WHERE reservation.person_id=link.person_id AND reservation.service_interval && tsrange(commitment.service_date+commitment.start_time,commitment.service_date+commitment.end_time,'[)'))
+          ORDER BY absence.absence_id,link.person_id,application.application_id
+        `),
         absences: await rows("SELECT * FROM school_service_absences ORDER BY absence_id"),
         offers: await rows("SELECT * FROM school_service_substitute_offers ORDER BY offer_id"),
-        responses: await rows("SELECT * FROM school_service_substitute_offer_responses ORDER BY offer_id"),
-        acknowledgements: await rows("SELECT * FROM school_service_coverage_acknowledgements ORDER BY acknowledgement_id"),
+        responses: await rows(
+          "SELECT * FROM school_service_substitute_offer_responses ORDER BY offer_id",
+        ),
+        acknowledgements: await rows(
+          "SELECT * FROM school_service_coverage_acknowledgements ORDER BY acknowledgement_id",
+        ),
         closures: await rows("SELECT * FROM school_service_closures ORDER BY closure_id"),
-        dispatchDetails: await rows("SELECT effect_id,offer_id,person_id,status,attempts,last_failure_tag,payload_json FROM school_service_dispatch_notification_outbox ORDER BY effect_id"),
+        dispatchDetails: await rows(
+          "SELECT effect_id,offer_id,person_id,status,attempts,last_failure_tag,payload_json FROM school_service_dispatch_notification_outbox ORDER BY effect_id",
+        ),
         receipts: await rows(
           "SELECT identity_sha256,operation_id,state,status,convert_from(body_bytes,'UTF8') AS body FROM native_http_idempotency_receipts WHERE status BETWEEN 200 AND 299 ORDER BY identity_sha256",
         ),
@@ -222,14 +363,21 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
     } finally {
       connection.release();
     }
+
     assert.deepEqual(
       facts.volunteerAuthority,
       [],
       "affiliation must not confer coordinator authority",
     );
+
     if (goldenSteps.indexOf(step) < goldenSteps.indexOf("candidate-affiliation"))
-      assert.deepEqual(facts.dispatches, [], "ordinary service must not create substitute notifications");
+      assert.deepEqual(
+        facts.dispatches,
+        [],
+        "ordinary service must not create substitute notifications",
+      );
     const index = goldenSteps.indexOf(step);
+
     if (step === "initial") {
       for (const [name, value] of Object.entries(facts))
         assert.deepEqual(value, [], `fixture must not seed ${name}`);
@@ -243,11 +391,13 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
         status: index >= 2 ? "Active" : "Pending",
         revision: index >= 2 ? 2 : 1,
       });
+
       for (const entry of facts.affiliationHistory) {
         assert.equal(entry.person_id, volunteerId);
         assert.equal(entry.department_id, departmentId);
         assert.ok(entry.occurred_at);
       }
+
       assert.deepEqual(
         facts.affiliationHistory.map(({ action, actor_person_id }) => [action, actor_person_id]),
         index >= 2
@@ -258,6 +408,7 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
           : [["Request", volunteerId]],
       );
       assert.equal(facts.placements.length, index >= 4 ? 1 : 0);
+
       if (index >= 4) {
         const placement = facts.placements[0];
         assert.deepEqual(
@@ -289,7 +440,9 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
           placement,
         );
       }
+
       assert.equal(facts.demands.length, index >= 5 ? 1 : 0);
+
       if (index >= 5) {
         const demand = facts.demands[0];
         assert.deepEqual(
@@ -304,8 +457,10 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
           [departmentId, semesterId, schoolId, "Monday", "2", 1],
         );
       }
+
       assert.equal(facts.proposals.length, index >= 6 ? 1 : 0);
       assert.equal(facts.notifications.length, index >= 7 ? 1 : 0);
+
       if (index >= 6) {
         const proposal = facts.proposals[0];
         assert.equal(proposal.status, index >= 7 ? "Confirmed" : "Draft");
@@ -332,13 +487,15 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
           ]),
           [[volunteerId, facts.placements[0].placement_id, schoolId, "Monday", "2"]],
         );
+
         if (index >= 7) {
           assert.equal(proposal.confirmed_by_person_id, leaderId);
           assert.ok(proposal.confirmed_at);
           assert.equal(facts.notifications[0].proposal_id, proposal.proposal_id);
           assert.equal(facts.notifications[0].person_id, volunteerId);
-          assert.deepEqual(facts.notifications[0].payload_json, {
-            _tag: "NotifySchoolServiceRosterConfirmed",
+          const { _tag, ...payload } = facts.notifications[0].payload_json;
+          assert.equal(_tag, "NotifySchoolServiceRosterConfirmed");
+          assert.deepEqual(payload, {
             effectId: facts.notifications[0].effect_id,
             proposalId: proposal.proposal_id,
             personId: volunteerId,
@@ -349,7 +506,9 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
           });
         }
       }
+
       assert.equal(facts.commitments.length, index >= 8 ? 1 : 0);
+
       if (index >= 8) {
         const commitment = facts.commitments[0];
         assert.deepEqual(
@@ -382,8 +541,10 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
         );
         assert.deepEqual(commitment.assignment_snapshot, facts.proposals[0].assignment_snapshot);
       }
+
       assert.equal(facts.decisions.length, index >= 10 ? 1 : 0);
       assert.equal(facts.occurrences.length, index >= 10 ? 1 : 0);
+
       if (index >= 10) {
         const decision = facts.decisions[0];
         assert.deepEqual(
@@ -424,6 +585,7 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
           ],
         );
       }
+
       assert.deepEqual(
         facts.serviceHistory.map(({ action, actor_person_id }) => [action, actor_person_id]),
         ["SetDemand", "GenerateProposal", "ConfirmProposal", "ScheduleService"]
@@ -434,12 +596,15 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
         facts.outcomeHistory.map(({ action, actor_person_id }) => [action, actor_person_id]),
         index >= 10 ? [["CompleteService", leaderId]] : [],
       );
+
       for (const entry of [...facts.serviceHistory, ...facts.outcomeHistory]) {
         assert.equal(entry.department_id, departmentId);
         assert.equal(entry.semester_id, semesterId);
         assert.ok(entry.occurred_at);
       }
+
       const snapshots = facts.serviceHistory.map((entry) => entry.snapshot);
+
       if (index >= 5)
         assert.deepEqual(snapshots[0], {
           action: "SetDemand",
@@ -449,17 +614,20 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
           requiredVolunteers: 1,
           revision: facts.demands[0].revision,
         });
+
       if (index >= 6)
         assert.deepEqual(snapshots[1], {
           proposalId: facts.proposals[0].proposal_id,
           exceptionIds: [],
         });
+
       if (index >= 7)
         assert.deepEqual(snapshots[2], {
           action: "ConfirmProposal",
           proposalId: facts.proposals[0].proposal_id,
           reviewedExceptionIds: [],
         });
+
       if (index >= 8)
         assert.deepEqual(snapshots[3], {
           action: "ScheduleService",
@@ -474,6 +642,7 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
           requiredVolunteers: 1,
           assignments: facts.proposals[0].assignment_snapshot,
         });
+
       if (index >= 10)
         assert.deepEqual(facts.outcomeHistory[0].snapshot, {
           action: "CompleteService",
@@ -483,6 +652,7 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
           occurrenceId: facts.decisions[0].occurrence_id,
           outcome: "Completed",
         });
+
       if (["forbidden", "insufficient", "stale", "independent-read"].includes(step)) {
         assert.deepEqual(
           facts,
@@ -493,6 +663,7 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
         const added = facts.receipts.filter(
           (row) => !previous.receipts.some((old) => old.identity_sha256 === row.identity_sha256),
         );
+
         assert.equal(
           added.length,
           1,
@@ -502,14 +673,14 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
         const body = JSON.parse(added[0].body);
         assert.equal(
           added[0].operation_id,
-          step === "affiliation"
-            ? "placements.commandOwnAffiliation"
-            : step === "completed"
-              ? "placements.commandCoverageBoard"
-              : "placements.commandBoard",
+          {
+            affiliation: "placements.commandOwnAffiliation",
+            completed: "placements.commandCoverageBoard",
+          }[step] ?? "placements.commandBoard",
         );
         assert.equal(body.departmentId, departmentId);
         assert.match(body.etag, /^".+"$/);
+
         if (step === "affiliation") {
           assert.deepEqual(
             [body.personId, body.status, body.revision],
@@ -517,6 +688,7 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
           );
         } else {
           assert.equal(body.semesterId, semesterId);
+
           if (step !== "completed") {
             assert.deepEqual(
               body.affiliations.map(({ personId, status, revision }) => [
@@ -562,6 +734,7 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
                 d.required_volunteers,
               ]),
             );
+
             if (facts.proposals.length) {
               assert.equal(body.proposal.proposalId, facts.proposals[0].proposal_id);
               assert.equal(body.proposal.status, facts.proposals[0].status);
@@ -569,7 +742,9 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
               assert.deepEqual(body.proposal.demands, facts.proposals[0].demand_snapshot);
             } else assert.equal(body.proposal, null);
           }
+
           assert.equal(body.commitments.length, facts.commitments.length);
+
           if (facts.commitments.length) {
             const returned = body.commitments[0];
             assert.deepEqual(
@@ -593,6 +768,7 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
               ],
             );
             assert.deepEqual(returned.assignments, facts.proposals[0].assignment_snapshot);
+
             if (step === "completed")
               assert.deepEqual(
                 [
@@ -615,6 +791,7 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
         }
       }
     }
+
     const digest = createHash("sha256").update(JSON.stringify(facts)).digest("hex");
     observations.push({
       step,
@@ -636,15 +813,28 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
         operation: operation_id,
         status,
       })),
-      substitute: { pool: facts.pool, absences: facts.absences, offers: facts.offers, responses: facts.responses, acknowledgements: facts.acknowledgements, closures: facts.closures, decisions: facts.decisions, occurrences: facts.occurrences, dispatches: facts.dispatchDetails },
+      substitute: {
+        pool: facts.pool,
+        eligible: facts.eligible,
+        absences: facts.absences,
+        offers: facts.offers,
+        responses: facts.responses,
+        acknowledgements: facts.acknowledgements,
+        closures: facts.closures,
+        decisions: facts.decisions,
+        occurrences: facts.occurrences,
+        dispatches: facts.dispatchDetails,
+      },
       effects: facts.notifications.map(({ effect_id, person_id }) => ({
         effectId: effect_id,
         personId: person_id,
       })),
     });
     previous = facts;
+
     return observations.at(-1);
   };
+
   const finish = async () => {
     assert.deepEqual(
       observations.map(({ step }) => step),
@@ -652,15 +842,18 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
     );
     const deadline = Date.now() + 15000;
     let notification;
+
     do {
       notification = (
         await pool.query(
           "SELECT effect_id,proposal_id,person_id,status,attempts,payload_json FROM school_service_notification_outbox",
         )
       ).rows[0];
+
       if (notification?.status === "Delivered") break;
       await new Promise((resolve) => setTimeout(resolve, 50));
     } while (Date.now() < deadline);
+
     assert.equal(notification?.status, "Delivered");
     const captures = deliveries;
     assert.ok(
@@ -675,10 +868,12 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
       captures.length >= 1,
       "loopback receiver must observe delivery of committed logical effect",
     );
+
     for (const capture of captures) {
       assert.equal(capture.authorization, "Bearer synthetic-school-service-token");
       assert.deepEqual(capture.body, notification.payload_json);
     }
+
     return {
       observations,
       loopbackProvider: {
@@ -692,5 +887,6 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
       },
     };
   };
+
   return { observe, observations, finish };
 };
