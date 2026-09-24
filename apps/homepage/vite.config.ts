@@ -4,6 +4,7 @@ import { cloudflare } from "@cloudflare/vite-plugin";
 import { reactRouter } from "@react-router/dev/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
+import { dashboardMount } from "../dashboard/dashboard-base.ts";
 import { DEV_CONTENT, DEV_ROUTE_CENSUS } from "./src/lib/dev-content.ts";
 import {
   buildHomepageDigestInputs,
@@ -45,10 +46,20 @@ export default defineConfig(({ command, isPreview }) => {
       : cloudflare({ viteEnvironment: { name: "ssr" } });
 
   const inputs = buildHomepageDigestInputs(projectRoot);
+  const dashboardOrigin = localDevelopment ? process.env.OAUTH_DASHBOARD_ORIGIN : undefined;
+  let dashboardLoginUrl = "/login?redirectTo=%2Fdashboard";
+
+  if (dashboardOrigin) {
+    const mount = dashboardMount(process.env);
+    const loginUrl = new URL(`${mount}login`, dashboardOrigin);
+    loginUrl.searchParams.set("redirectTo", mount);
+    dashboardLoginUrl = loginUrl.href;
+  }
 
   return {
     define: {
       "import.meta.env.HOMEPAGE_LOCAL_DEV": JSON.stringify(String(localDevelopment)),
+      "import.meta.env.HOMEPAGE_DASHBOARD_LOGIN_URL": JSON.stringify(dashboardLoginUrl),
       __BUILD_COMMIT__: JSON.stringify(commit),
       __BUILD_CONTENT_DIGEST__: JSON.stringify(computeContentDigest(DEV_CONTENT, inputs.assetManifest)),
       __BUILD_ROUTE_DIGEST__: JSON.stringify(computeRouteDigest(DEV_ROUTE_CENSUS, inputs)),

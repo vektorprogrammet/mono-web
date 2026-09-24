@@ -25,7 +25,7 @@ import { BUILD_COMMIT, BUILD_CONTENT_DIGEST, BUILD_ROUTE_DIGEST } from "~/lib/bu
 import { DEV_CONTENT, DEV_CONTENT_SOURCE } from "~/lib/dev-content";
 import { loadHomepageRequest as loader, type HomepageRequest } from "~/lib/host";
 import "~/home.css";
-import { navRoutes } from "~/nav-routes";
+import { dashboardLoginUrl, navRoutes } from "~/nav-routes";
 
 export { loader };
 
@@ -159,7 +159,7 @@ function NavTabs({ routes }: { routes: Array<{ name: string; path: To }> }) {
 function LoginButtons() {
   return (
     <div className="flex space-x-4 overflow-clip rounded-full">
-      <Link to={"/login?redirectTo=%2Fdashboard"} prefetch="intent">
+      <Link to={dashboardLoginUrl} prefetch="intent">
         {"Logg inn"}
       </Link>
     </div>
