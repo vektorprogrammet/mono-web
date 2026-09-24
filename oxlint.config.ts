@@ -105,6 +105,7 @@ const effectConfig = {
         "apps/backend/src/**/*-main.ts",
         "packages/database/runtime/**/*-main.ts",
         "tools/verification/**/!(*.test).ts",
+        "tools/e2e/legacy-candidate-native-journey.ts",
         "packages/database/src/**/*-cli.ts",
       ],
       role: "composition-root",
@@ -237,9 +238,9 @@ export default defineConfig({
       },
     },
     {
-      files: ["apps/backend/src/main.ts"],
+      files: ["apps/backend/src/main.ts", "tools/e2e/legacy-candidate-native-journey.ts"],
       rules: {
-        // Bun's backend root intentionally combines platform-bun with Node-compatible process APIs.
+        // These Bun composition roots combine platform-bun with Node-compatible process APIs.
         "effect/no-cross-runtime": "off",
       },
     },
