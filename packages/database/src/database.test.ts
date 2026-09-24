@@ -2832,6 +2832,7 @@ describe("DatabaseTest", () => {
         const open = yield* listOpenAdmissionPeriods("2035-02-15T00:00:00.000Z");
 
         const organizationSnapshot = {
+          identities: { persons: {}, departments: { "700": "700" }, teams: {}, memberships: {}, positions: {} },
           sourceRepository: "database-test",
           sourceRevision: "adapter-revision-1",
           snapshotId: "adapter-snapshot-1",

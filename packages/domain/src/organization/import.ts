@@ -73,6 +73,7 @@ export const LegacyMembershipRowSchema = Schema.Struct({
 export type LegacyMembershipRow = typeof LegacyMembershipRowSchema.Type;
 
 export interface LegacyOrganizationSnapshot {
+  readonly identities: OrganizationImportIdentities;
   readonly sourceRepository: string;
   readonly sourceRevision: string;
   readonly snapshotId: string;
@@ -82,7 +83,19 @@ export interface LegacyOrganizationSnapshot {
   readonly memberships: ReadonlyArray<Schema.Json>;
 }
 
+export interface OrganizationImportIdentities {
+  readonly persons: Readonly<Record<string, string>>;
+  readonly departments: Readonly<Record<string, string>>;
+  readonly teams: Readonly<Record<string, string>>;
+  readonly memberships: Readonly<Record<string, string>>;
+  readonly positions: Readonly<Record<string, string>>;
+}
+
 export const ORGANIZATION_IMPORT_REASONS = [
+  "IDENTITY_UNRESOLVED",
+  "PERSON_UNRESOLVED",
+  "POSITION_UNRESOLVED",
+  "INVALID_AUTHORITY_FLAGS",
   "DECODE_FAILURE",
   "MISSING_DEPARTMENT_FIELD",
   "MISSING_TEAM_FIELD",
@@ -293,7 +306,7 @@ const accepted = (
   });
 };
 
-const departmentFromLegacy = (row: LegacyDepartmentRow): Department | undefined => {
+const departmentFromLegacy = (row: LegacyDepartmentRow, identities: OrganizationImportIdentities): Department | undefined => {
   if (
     !nonEmpty(row.name) ||
     !nonEmpty(row.shortName) ||
@@ -304,7 +317,7 @@ const departmentFromLegacy = (row: LegacyDepartmentRow): Department | undefined 
   }
 
   const candidate = {
-    departmentId: DepartmentId.make(sourceId(row.id)),
+    departmentId: DepartmentId.make(identities.departments[sourceId(row.id)]!),
     name: row.name,
     shortName: row.shortName,
     email: row.email,
@@ -323,7 +336,7 @@ const departmentFromLegacy = (row: LegacyDepartmentRow): Department | undefined 
   return decoded.ok ? decoded.value : undefined;
 };
 
-const teamFromLegacy = (row: LegacyTeamRow, departments: ReadonlySet<number>) => {
+const teamFromLegacy = (row: LegacyTeamRow, departments: ReadonlySet<number>, identities: OrganizationImportIdentities) => {
   if (row.departmentId === null || !departments.has(row.departmentId) || !nonEmpty(row.name)) {
     return { reason: "MISSING_TEAM_FIELD" as const };
   }
@@ -333,8 +346,8 @@ const teamFromLegacy = (row: LegacyTeamRow, departments: ReadonlySet<number>) =>
   }
 
   const candidate = {
-    teamId: TeamId.make(sourceId(row.id)),
-    departmentId: DepartmentId.make(sourceId(row.departmentId)),
+    teamId: TeamId.make(identities.teams[sourceId(row.id)]!),
+    departmentId: DepartmentId.make(identities.departments[sourceId(row.departmentId)]!),
     name: row.name,
     email: row.email ?? null,
     description: row.description ?? null,
@@ -351,7 +364,15 @@ const teamFromLegacy = (row: LegacyTeamRow, departments: ReadonlySet<number>) =>
   return decoded.ok ? { team: decoded.value } : { reason: "MISSING_TEAM_FIELD" as const };
 };
 
-const membershipFromLegacy = (row: LegacyMembershipRow, teams: ReadonlySet<number>) => {
+const membershipFromLegacy = (row: LegacyMembershipRow, teams: ReadonlySet<number>, identities: OrganizationImportIdentities) => {
+  if (!identities.persons[sourceId(row.userId)]) return { reason: "PERSON_UNRESOLVED" as const };
+
+  if (!identities.memberships[sourceId(row.id)]) return { reason: "IDENTITY_UNRESOLVED" as const };
+
+  if (row.positionId != null && !identities.positions[sourceId(row.positionId)]) return { reason: "POSITION_UNRESOLVED" as const };
+
+  if (row.isTeamLeader !== undefined && row.isLeader !== undefined && bool(row.isTeamLeader, false) !== bool(row.isLeader, false)) return { reason: "INVALID_AUTHORITY_FLAGS" as const };
+
   if (row.startAt === undefined || row.startAt.length === 0) {
     return { reason: "MISSING_TEMPORAL_INTERVAL" as const };
   }
@@ -364,9 +385,9 @@ const membershipFromLegacy = (row: LegacyMembershipRow, teams: ReadonlySet<numbe
   }
 
   const legacyTeamId = row.teamId;
-  const teamId = legacyTeamId === null ? null : TeamId.make(sourceId(legacyTeamId));
+  const teamId = legacyTeamId === null ? null : identities.teams[sourceId(legacyTeamId)] ?? null;
 
-  if (legacyTeamId !== null && !teams.has(legacyTeamId))
+  if (legacyTeamId !== null && (!teams.has(legacyTeamId) || !teamId))
     return { reason: "TEAM_UNRESOLVED" as const };
   const deletedTeamName = row.deletedTeamName ?? null;
 
@@ -379,8 +400,8 @@ const membershipFromLegacy = (row: LegacyMembershipRow, teams: ReadonlySet<numbe
   }
 
   const candidate = {
-    membershipId: MembershipId.make(sourceId(row.id)),
-    personId: PersonId.make(sourceId(row.userId)),
+    membershipId: MembershipId.make(identities.memberships[sourceId(row.id)]!),
+    personId: PersonId.make(identities.persons[sourceId(row.userId)]!),
     teamId,
     deletedTeamName,
     startAt: canonicalInstant(row.startAt),
@@ -388,7 +409,7 @@ const membershipFromLegacy = (row: LegacyMembershipRow, teams: ReadonlySet<numbe
     positionId:
       row.positionId === null || row.positionId === undefined
         ? null
-        : PositionId.make(sourceId(row.positionId)),
+        : PositionId.make(identities.positions[sourceId(row.positionId)]!),
     isTeamLeader: bool(row.isTeamLeader ?? row.isLeader, false),
     isSuspended: bool(row.isSuspended, false),
     revision: 0,
@@ -465,7 +486,12 @@ export const importLegacyOrganization = (
       continue;
     }
 
-    const department = departmentFromLegacy(decoded.value);
+    if (!snapshot.identities.departments[sourcePrimaryKey]) {
+      quarantine(output, snapshot, "department", sourcePrimaryKey, target, "IDENTITY_UNRESOLVED", raw);
+      continue;
+    }
+
+    const department = departmentFromLegacy(decoded.value, snapshot.identities);
 
     if (department === undefined) {
       quarantine(
@@ -554,7 +580,12 @@ export const importLegacyOrganization = (
       continue;
     }
 
-    const teamDecision = teamFromLegacy(decoded.value, acceptedDepartmentIds);
+    if (!snapshot.identities.teams[sourcePrimaryKey]) {
+      quarantine(output, snapshot, "team", sourcePrimaryKey, target, "IDENTITY_UNRESOLVED", raw);
+      continue;
+    }
+
+    const teamDecision = teamFromLegacy(decoded.value, acceptedDepartmentIds, snapshot.identities);
 
     if (teamDecision.team === undefined) {
       quarantine(
@@ -610,17 +641,17 @@ export const importLegacyOrganization = (
 
   const semanticIdentityOf = (row: LegacyMembershipRow): string => {
     const position =
-      row.positionId === null || row.positionId === undefined ? "null" : sourceId(row.positionId);
+      row.positionId === null || row.positionId === undefined ? "null" : snapshot.identities.positions[sourceId(row.positionId)] ?? `unresolved:${row.positionId}`;
 
     const team =
-      row.teamId === null ? `historical:${row.deletedTeamName ?? "null"}` : sourceId(row.teamId);
+      row.teamId === null ? `historical:${row.deletedTeamName ?? "null"}` : snapshot.identities.teams[sourceId(row.teamId)] ?? `unresolved:${row.teamId}`;
 
     const startAt =
       row.startAt === undefined || !isRfc3339(row.startAt)
         ? "missing"
         : canonicalInstant(row.startAt);
 
-    return `${sourceId(row.userId)}|${team}|${startAt}|${position}`;
+    return canonicalJson([snapshot.identities.persons[sourceId(row.userId)] ?? `unresolved:${row.userId}`, team, startAt, position]);
   };
 
   for (const { row } of membershipRows) {
@@ -657,7 +688,7 @@ export const importLegacyOrganization = (
       continue;
     }
 
-    const decision = membershipFromLegacy(row, acceptedTeamIds);
+    const decision = membershipFromLegacy(row, acceptedTeamIds, snapshot.identities);
 
     if (decision.membership === undefined) {
       quarantine(

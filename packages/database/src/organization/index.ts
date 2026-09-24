@@ -7,3 +7,5 @@ export * from "./directory-postgres.js";
 export * from "./postgres.js";
 
 export * from "./postgres-layer.js";
+
+export * from "./reviewed-cohort.js";

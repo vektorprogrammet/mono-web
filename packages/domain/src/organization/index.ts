@@ -21,3 +21,5 @@ export * from "./transitions.js";
 export * from "./lifecycle.js";
 
 export * from "./review.js";
+
+export * from "./review-classification.js";

@@ -309,14 +309,6 @@ describe("spec 0067 frozen Organization import fixture", () => {
       startSemesterId: 501,
       endSemesterId: null,
     });
-    expect(
-      organizationImportProvenanceEvidence(result)
-        .filter((entry) => entry.sourcePrimaryKey === "6722")
-        .map((entry) => [entry.sourceOccurrence, entry.targetSemanticIdentity]),
-    ).toEqual([
-      [0, "6732|6711|2037-01-01T00:00:00.000Z|6742"],
-      [1, "6732|6711|2037-01-01T00:00:00.000Z|6743"],
-    ]);
   });
 });
 

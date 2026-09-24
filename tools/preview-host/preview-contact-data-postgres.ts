@@ -57,6 +57,7 @@ try {
   const imported = await run(
     Organization.use((organization) =>
       organization.importLegacyOrganization({
+        identities: { persons: {}, departments: { "1": "1" }, teams: {}, memberships: {}, positions: {} },
         sourceRepository: "component-0092",
         sourceRevision: "1",
         snapshotId: "component-0092",

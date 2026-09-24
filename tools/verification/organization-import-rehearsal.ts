@@ -5,7 +5,7 @@ import {
   LegacyTeamRowSchema,
   type OrganizationImportResult,
 } from "@vektorprogrammet/domain/organization";
-import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { flow, Predicate, Data, Effect, Schema } from "effect";
 import type { DatabaseOperations } from "@vektorprogrammet/database";
 
@@ -224,7 +224,13 @@ export const decodeFrozenOrganizationSnapshot = flow(
       transformationRevision === SPEC_0067.transformationRevision;
 
     return valid
-      ? Effect.succeed(deepFreeze(decoded))
+      ? Effect.succeed(deepFreeze({ ...decoded, identities: {
+          persons: { "6731": "6731", "6732": "6732", "6733": "6733" },
+          departments: { "6701": "6701", "6702": "6702" },
+          teams: { "6711": "6711", "6712": "6712" },
+          memberships: { "6721": "6721", "6722": "6722", "6723": "6723" },
+          positions: { "6741": "6741", "6742": "6742", "6743": "6743" },
+        } }))
       : Effect.fail(
           new FrozenOrganizationFixtureDecodeError({
             message: "spec 0067 frozen snapshot reference or canonical hash mismatch",
@@ -285,7 +291,7 @@ export const expectedOrganizationImportOutcomeMatrix: ReadonlyArray<Organization
       result: "Accepted",
       reason: null,
       destinationIdentity: "6721",
-      targetSemanticIdentity: "6731|6711|2037-01-01T00:00:00.000Z|6741",
+      targetSemanticIdentity: canonicalJson(["6731", "6711", "2037-01-01T00:00:00.000Z", "6741"]),
     },
     {
       order: 6,
@@ -295,7 +301,7 @@ export const expectedOrganizationImportOutcomeMatrix: ReadonlyArray<Organization
       result: "Quarantined",
       reason: "DUPLICATE_MEMBERSHIP",
       destinationIdentity: null,
-      targetSemanticIdentity: "6732|6711|2037-01-01T00:00:00.000Z|6742",
+      targetSemanticIdentity: canonicalJson(["6732", "6711", "2037-01-01T00:00:00.000Z", "6742"]),
     },
     {
       order: 7,
@@ -305,7 +311,7 @@ export const expectedOrganizationImportOutcomeMatrix: ReadonlyArray<Organization
       result: "Quarantined",
       reason: "DUPLICATE_MEMBERSHIP",
       destinationIdentity: null,
-      targetSemanticIdentity: "6732|6711|2037-01-01T00:00:00.000Z|6743",
+      targetSemanticIdentity: canonicalJson(["6732", "6711", "2037-01-01T00:00:00.000Z", "6743"]),
     },
     {
       order: 8,
@@ -315,7 +321,7 @@ export const expectedOrganizationImportOutcomeMatrix: ReadonlyArray<Organization
       result: "Quarantined",
       reason: "TEAM_UNRESOLVED",
       destinationIdentity: null,
-      targetSemanticIdentity: "6733|6798|2037-01-01T00:00:00.000Z|null",
+      targetSemanticIdentity: canonicalJson(["6733", "unresolved:6798", "2037-01-01T00:00:00.000Z", "null"]),
     },
   ]);
 
