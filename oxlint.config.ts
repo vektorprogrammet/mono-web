@@ -101,6 +101,29 @@ const effectConfig = {
   ],
 } satisfies ExpandInput;
 
+// Export maps own package access; these restrictions also close relative-import bypasses.
+const productImportPatterns = [
+  {
+    regex: "(^|/)tools/(verification|preview-host|e2e)(/|$)",
+    message: "Product code must not depend on verification executables.",
+  },
+];
+
+const placementPublicImportPatterns = [
+  {
+    regex: "(^|/)placements/(src|domain|adapters)(/|$)",
+    message: "Use the Placements package export, not another module’s source path.",
+  },
+];
+
+const browserImportPatterns = [
+  {
+    regex:
+      "(^|/)(database|pg|postgres)(/|$)|^@vektorprogrammet/placements/server($|/)|(^|/)placements/(src/)?server(/|$)",
+    message: "Browser-safe modules must not import PostgreSQL adapters.",
+  },
+];
+
 const expandedEffectConfig = expandDomains(effectConfig);
 
 export default defineConfig({
@@ -137,6 +160,69 @@ export default defineConfig({
   },
   overrides: [
     ...expandedEffectConfig.overrides,
+    {
+      files: ["apps/*/src/**", "apps/dashboard/app/**", "packages/*/src/**"],
+      rules: {
+        "no-restricted-imports": ["error", { patterns: productImportPatterns }],
+      },
+    },
+    {
+      files: [
+        "apps/*/src/**",
+        "apps/dashboard/app/**",
+        "packages/{domain,database,http-api,sdk}/src/**",
+      ],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          { patterns: [...productImportPatterns, ...placementPublicImportPatterns] },
+        ],
+      },
+    },
+    {
+      files: ["tools/{verification,preview-host,e2e}/**"],
+      rules: {
+        "no-restricted-imports": ["error", { patterns: placementPublicImportPatterns }],
+      },
+    },
+    {
+      files: [
+        "apps/homepage/src/**",
+        "apps/dashboard/app/**",
+        "packages/{domain,http-api,sdk}/src/**",
+        "packages/placements/src/*.ts",
+      ],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          {
+            patterns: [
+              ...productImportPatterns,
+              ...placementPublicImportPatterns,
+              ...browserImportPatterns,
+            ],
+          },
+        ],
+      },
+    },
+    {
+      files: ["packages/placements/src/*.ts"],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          {
+            patterns: [
+              ...productImportPatterns,
+              ...browserImportPatterns,
+              {
+                regex: "^\\./server(/|\\.)",
+                message: "Portable Placements contracts must not import their server adapter.",
+              },
+            ],
+          },
+        ],
+      },
+    },
     {
       files: ["apps/backend/src/main.ts"],
       rules: {

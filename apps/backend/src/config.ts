@@ -1,4 +1,8 @@
 import {
+  recruitmentNotificationConfig,
+  type RecruitmentNotificationConfig,
+} from "./recruitment/delivery.js";
+import {
   schoolServiceNotificationConfig,
   type SchoolServiceNotificationConfig,
 } from "./placements/notification.js";
@@ -53,6 +57,7 @@ export interface BackendConfig {
   readonly receipt: ReceiptApiConfig;
   readonly recruitment: RecruitmentApiConfig;
   readonly organization: OrganizationApiConfig;
+  readonly recruitmentNotifications?: RecruitmentNotificationConfig;
   readonly publicApplicationEffects?: PublicApplicationEffectConfig;
   readonly schoolServiceNotifications?: SchoolServiceNotificationConfig;
   readonly schoolServiceDispatchNotifications?: SchoolServiceDispatchNotificationConfig;
@@ -268,6 +273,7 @@ export const decodeBackendConfig = (
   const config: BackendConfig = {
     contact: contactConfig(env),
     onboarding: onboardingDeliveryConfig(env),
+    recruitmentNotifications: recruitmentNotificationConfig(env),
     host: loopbackHost(env.BACKEND_HOST),
     port: parsePort(env.BACKEND_PORT),
     postgresUrl,

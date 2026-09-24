@@ -1,3 +1,5 @@
+import { HttpRecruitmentNotificationsLive } from "./recruitment/delivery.js";
+import { runRecruitmentInvitationWorker } from "./recruitment/worker.js";
 import { runOnboardingExpirySweeper } from "./onboarding/delivery.js";
 import { ReceiptDeliveryLive, receiptDeliveryConfig } from "./receipt/delivery.js";
 import { randomUUID } from "node:crypto";
@@ -241,6 +243,24 @@ if (process.exitCode !== 1) {
           ),
         );
 
+  const recruitmentWorkerFiber =
+    ingress === "internal" || config.recruitmentNotifications === undefined
+      ? undefined
+      : runtime.runFork(
+          runRecruitmentInvitationWorker({
+            workerId: `recruitment-${randomUUID()}`,
+            pollIntervalMilliseconds: config.recruitmentNotifications.pollIntervalMilliseconds,
+            staleClaimMilliseconds: config.recruitmentNotifications.staleClaimMilliseconds,
+            now: () => new Date().toISOString(),
+          }).pipe(
+            Effect.provide(HttpRecruitmentNotificationsLive(config.recruitmentNotifications)),
+          ),
+        );
+
+  if (ingress === "external" && recruitmentWorkerFiber === undefined) {
+    process.stderr.write("recruitment notification worker is not configured\n");
+  }
+
   if (ingress === "external" && workerFiber === undefined) {
     process.stderr.write("public application effect worker is not configured\n");
   }
@@ -298,6 +318,14 @@ if (process.exitCode !== 1) {
         }
       }
 
+      if (recruitmentWorkerFiber !== undefined) {
+        try {
+          await runtime.runPromise(Fiber.interrupt(recruitmentWorkerFiber));
+        } catch {
+          exitCode = 1;
+        }
+      }
+
       try {
         await runtime.dispose();
       } catch {
@@ -341,6 +369,15 @@ if (process.exitCode !== 1) {
       if (Exit.isFailure(exit) && shutdownPromise === undefined) {
         process.stderr.write("school service dispatch notification worker failed\n");
         shutdown(true);
+      }
+    });
+  }
+
+  if (recruitmentWorkerFiber !== undefined) {
+    void runtime.runPromise(Fiber.await(recruitmentWorkerFiber)).then((exit) => {
+      if (Exit.isFailure(exit) && shutdownPromise === undefined) {
+        process.stderr.write("recruitment notification worker failed\n");
+        void shutdown(true);
       }
     });
   }

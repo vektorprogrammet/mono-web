@@ -157,6 +157,7 @@ Object.assign(env, {
     ".cache/local-dev/receipts/committed",
   ),
   PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+  RECRUITMENT_NOTIFICATION_MODE: "disabled",
   SCHOOL_SERVICE_NOTIFICATION_MODE: "disabled",
   SCHOOL_SERVICE_DISPATCH_NOTIFICATION_MODE: "disabled",
 });
