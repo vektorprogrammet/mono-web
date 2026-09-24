@@ -164,7 +164,7 @@ const decisionForm = (model: Model, h: HtmlBuilder<Message>, commitment: Commitm
   return h.form([h.Method("post"), h.Class("dated-service__card"), h.AriaLabel("Beslutning for " + serviceTitle(commitment))], [
     h.h4([], ["Dokumenter faktisk tjeneste: " + serviceTitle(commitment)]),
     h.p([], ["Fraværssakens Dekket/Ikke dekket beskriver bare én plass. Tjenesten får separat utfall basert på faktisk oppmøte."]),
-    !cancellation && !commitment.overdue ? h.p([h.Role("status")], ["Gjennomført og Ikke oppfylt kan først dokumenteres etter at tjenesteintervallet er slutt i norsk skoletid. Avlyst kan registreres nå. Last siden på nytt når intervallet er slutt."]) : h.empty,
+    h.p([h.Role("status"), h.Hidden(cancellation || commitment.overdue)], ["Gjennomført og Ikke oppfylt kan først dokumenteres etter at tjenesteintervallet er slutt i norsk skoletid. Avlyst kan registreres nå. Last siden på nytt når intervallet er slutt."]),
     ...formFields(model, h, coverage.etag, model.decision, `decision-${commitment.commitmentId.slice(-32)}-${model.decision}`),
     hidden(h, "commitmentId", commitment.commitmentId),
     h.label([], ["Tjenesteutfall", h.select([h.Value(model.decision), h.OnChange((value) => SelectedDecision({ value: Schema.decodeUnknownSync(Model.fields.decision)(value) }))], [
@@ -172,7 +172,7 @@ const decisionForm = (model: Model, h: HtmlBuilder<Message>, commitment: Commitm
       h.option([h.Value("CancelService")], ["Avlyst – ingen undervisning eller oppmøte"]),
       h.option([h.Value("MarkUnfulfilledService")], ["Ikke oppfylt – faktisk oppmøte er under behovet"]),
     ])]),
-    cancellation ? h.empty : h.fieldset([], [
+    h.fieldset([h.Hidden(cancellation), h.Disabled(cancellation)], [
       h.legend([], ["Faktisk møtte (velg bare personer du har fått bekreftet)"]),
       ...[...eligible].map(([personId, label]) => h.label([], [
         h.input([h.Type("checkbox"), h.Name("attendedPersonId"), h.Value(personId), h.Checked(model.attendedPersonIds.includes(personId)), h.OnChange(() => ToggledAttendee({ personId }))]),
@@ -181,7 +181,7 @@ const decisionForm = (model: Model, h: HtmlBuilder<Message>, commitment: Commitm
       h.p([], [`${model.attendedPersonIds.length} registrert møtt av ${commitment.requiredVolunteers} som trengs.`]),
     ]),
     h.label([], ["Kilde for dokumentasjonen", h.input([h.Type("text"), h.Name("evidenceSource"), h.Value(model.evidenceSource), h.Attribute("maxlength", "500"), h.OnInput((value) => ChangedEvidenceSource({ value }))])]),
-    completed ? h.empty : h.label([], ["Begrunnelse", h.textarea([h.Name("reason"), h.Value(model.reason), h.Attribute("maxlength", "500"), h.OnInput((value) => ChangedReason({ value }))])]),
+    h.label([h.Hidden(completed)], ["Begrunnelse", h.textarea([h.Name("reason"), h.Value(model.reason), h.Disabled(completed), h.Attribute("maxlength", "500"), h.OnInput((value) => ChangedReason({ value }))])]),
     pending ? h.p([h.Role("alert")], ["Et sendt eller akseptert vikartilbud må avklares før beslutningen kan registreres."]) : h.empty,
     h.button([h.Type("submit"), h.Disabled(!valid)], ["Lagre uforanderlig beslutning"]),
   ]);
