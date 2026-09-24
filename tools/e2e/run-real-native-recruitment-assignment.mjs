@@ -131,7 +131,21 @@ const postgresPort = 55446;
 
 const backendPort = 8800;
 
-const dashboardPort = 5174;
+function configuredLoopbackPort(name, fallback) {
+  const value = process.env[name] ?? String(fallback);
+
+  if (!/^\d+$/.test(value)) throw new Error(`${name} must be an integer`);
+
+  const port = Number(value);
+
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`${name} must be between 1 and 65535`);
+  }
+
+  return port;
+}
+
+const dashboardPort = configuredLoopbackPort("RECRUITMENT_E2E_DASHBOARD_PORT", 5174);
 
 const postgresUrl = `postgres://postgres@127.0.0.1:${postgresPort}/postgres`;
 

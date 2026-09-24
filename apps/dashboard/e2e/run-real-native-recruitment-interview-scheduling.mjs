@@ -22,7 +22,21 @@ const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import
 
 const composeFile = join(repositoryRoot, "docker-compose.yml");
 
-const dashboardPort = 5174;
+function configuredLoopbackPort(name, fallback) {
+  const value = process.env[name] ?? String(fallback);
+
+  if (!/^\d+$/.test(value)) throw new Error(`${name} must be an integer`);
+
+  const port = Number(value);
+
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`${name} must be between 1 and 65535`);
+  }
+
+  return port;
+}
+
+const dashboardPort = configuredLoopbackPort("RECRUITMENT_E2E_DASHBOARD_PORT", 5174);
 
 const backendPort = 8796;
 
