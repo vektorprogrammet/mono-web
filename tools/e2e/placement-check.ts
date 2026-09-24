@@ -580,7 +580,17 @@ try {
     const credentialsBefore = await credentialSnapshot();
     const peopleBefore = (await pool.query("SELECT * FROM person_profiles ORDER BY person_id"))
       .rows;
-    start("bun", ["--no-env-file", "apps/backend/src/main.ts"], environment);
+    start(
+      "bun",
+      [
+        "--no-env-file",
+        ...(mode === "--golden-school-service"
+          ? ["--preload", "./tools/e2e/golden-http-diagnostics.mjs"]
+          : []),
+        "apps/backend/src/main.ts",
+      ],
+      environment,
+    );
 
     for (let n = 0; ; n++) {
       try {

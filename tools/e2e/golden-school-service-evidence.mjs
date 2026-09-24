@@ -12,6 +12,7 @@ export const goldenRunnerPaths = [
   "apps/dashboard/e2e/run-real-native-placement.mjs",
   "apps/dashboard/e2e/native-placement.spec.ts",
   "tools/e2e/golden-school-service-evidence.mjs",
+  "tools/e2e/golden-http-diagnostics.mjs",
 ];
 export const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 

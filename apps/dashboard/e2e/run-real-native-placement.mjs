@@ -236,7 +236,17 @@ try {
     ),
     { mode: 0o600 },
   );
-  const dashboard = start("bun", ["--no-env-file", "server.mjs"], dashboardRoot);
+  const dashboard = start(
+    "bun",
+    [
+      "--no-env-file",
+      ...(manifest.golden
+        ? ["--preload", join(root, "tools/e2e/golden-http-diagnostics.mjs")]
+        : []),
+      "server.mjs",
+    ],
+    dashboardRoot,
+  );
   dashboard.stdout.on("data", (value) => {
     output += value;
   });

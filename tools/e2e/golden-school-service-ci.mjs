@@ -241,10 +241,13 @@ try {
       summary.cleanup_error = "CI temporary root removal failed";
     }
   }
-  await writeFile(join(destination, "ci-summary.json"), JSON.stringify(summary, null, 2), {
-    mode: 0o600,
-    flag: "wx",
-  });
+  let persisted;
+  let flag = "wx";
+  do {
+    persisted = JSON.stringify(summary, null, 2);
+    await writeFile(join(destination, "ci-summary.json"), persisted, { mode: 0o600, flag });
+    flag = "w";
+  } while (persisted !== JSON.stringify(summary, null, 2));
   process.stdout.write(JSON.stringify({ ...summary, evidence_directory: destination }) + "\n");
   process.removeListener("SIGINT", interrupt);
   process.removeListener("SIGTERM", terminate);
