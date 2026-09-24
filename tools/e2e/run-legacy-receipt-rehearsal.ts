@@ -1303,7 +1303,16 @@ const main = async (): Promise<void> => {
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url))
-  await main().catch(() => {
-    console.error(`Synthetic receipt rehearsal failed at ${stage}; details redacted`);
+  await main().catch((cause) => {
+    const error = cause instanceof AggregateError ? cause.errors[0] : cause;
+
+    const line =
+      error instanceof Error
+        ? /run-legacy-receipt-rehearsal\.ts:(\d+):/.exec(error.stack ?? "")?.[1]
+        : undefined;
+
+    console.error(
+      `Synthetic receipt rehearsal failed at ${stage}${line ? ` (line ${line})` : ""}; details redacted`,
+    );
     process.exitCode = 1;
   });
